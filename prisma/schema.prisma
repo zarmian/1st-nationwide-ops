@@ -1,0 +1,459 @@
+// =============================================================
+//  1st Nationwide Ops — Prisma schema (v1.1)
+//  Postgres / Supabase EU-West
+//  v1.1: adds multi-party operating model
+//        - Partner (Nexus Security, Keyholding Company, Aegis, Orbis, Shurgard, etc.)
+//        - Job (universal record across alarm, patrol, lock/unlock, VPI, etc.)
+//        - FormSubmission (officer-filled report from /submit link)
+//        - ReportReview (admin review queue before client send)
+//        - ClientReport (email/PDF artefact sent to customer)
+//        - Stage-3 finance fields placeholder on Job
+//  See 1st_Nationwide_Ops_Technical_Spec.docx for entity descriptions.
+// =============================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgcrypto, citext]
+}
+
+// ----------- Enums -----------
+
+enum UserRole {
+  ADMIN
+  DISPATCHER
+  OFFICER
+}
+
+enum SiteType {
+  COMMERCIAL
+  RESIDENTIAL
+  RETAIL
+  STORAGE
+  INDUSTRIAL
+  OTHER
+}
+
+enum ServiceTag {
+  ALARM_RESPONSE
+  KEYHOLDING
+  LOCKUP
+  UNLOCK
+  VPI
+  PATROL
+  STATIC_GUARDING   // Stage 3
+  DOG_HANDLER       // Stage 3
+  ADHOC
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum CustomerType {
+  CORPORATE
+  RESIDENTIAL
+  RESELLER
+}
+
+enum KeyType {
+  KEY
+  FOB
+  PADLOCK
+  CODE
+}
+
+enum KeyStatus {
+  WITH_US
+  WITH_OFFICER
+  WITH_CUSTOMER
+  LOST
+  RETIRED
+}
+
+enum PatrolFrequency {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+}
+
+enum DayOfWeek {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum VisitStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+}
+
+enum OnboardingStage {
+  PROPOSED
+  SURVEY
+  FRONT_KEY
+  SHUTTER_KEY
+  ALARM_FOB
+  GO_LIVE
+  CANCELLED
+}
+
+enum CustomerProgram {
+  TESCO
+  SHURGARD
+  OTHER
+}
+
+enum AlarmSource {
+  ARC_EMAIL
+  ARC_PHONE
+  PARTNER_EMAIL    // alarm forwarded by Nexus Security, Keyholding Company, etc.
+  PARTNER_PHONE
+  CUSTOMER_PHONE
+  MANUAL
+  WEBHOOK
+}
+
+// ----------- Partner / Multi-party enums -----------
+
+enum PartnerRole {
+  CUSTOMER       // we provide service to them (Shurgard, Aegis, Orbis direct)
+  SUBCONTRACTOR  // they provide service for us (e.g. Nexus Security outside London)
+  BOTH           // both directions (Nexus Security: customer in London, subcontractor outside)
+}
+
+enum PartnerChannel {
+  EMAIL
+  PHONE
+  THEIR_APP        // partner has their own app we feed from
+  WHATSAPP
+  PORTAL
+}
+
+enum JobType {
+  ALARM_RESPONSE
+  PATROL
+  LOCK
+  UNLOCK
+  KEY_COLLECTION
+  KEY_DROPOFF
+  VPI
+  ADHOC
+  STATIC_GUARDING_SHIFT  // Stage 3
+  DOG_HANDLER_SHIFT      // Stage 3
+}
+
+enum JobSource {
+  SCHEDULED          // generated from PatrolSchedule / LockUnlockSchedule
+  ALARM              // from AlarmEvent
+  PARTNER_REQUEST    // partner emailed/called us
+  CUSTOMER_REQUEST   // direct customer
+  AD_HOC             // dispatcher manually created
+}
+
+enum JobStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  SUBMITTED
+  REVIEW_PENDING
+  APPROVED
+  SENT_TO_CLIENT
+  CLOSED
+  CANCELLED
+}
+
+enum ResponderType {
+  INTERNAL_OFFICER
+  PARTNER          // assigned out to a partner company
+  EXTERNAL_NAMED   // named third-party guard who isn't a system user
+}
+
+enum SubmissionForm {
+  ALARM_RESPONSE
+  PATROL
+  LOCK
+  UNLOCK
+  KEY_COLLECTION
+  KEY_DROPOFF
+  VPI
+  ADHOC
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EDITED_AND_APPROVED
+}
+
+enum ReportChannel {
+  EMAIL
+  PORTAL_DOWNLOAD
+  WHATSAPP
+}
+
+enum ReportStatus {
+  PENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum AlarmPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AlarmOutcome {
+  FALSE_ALARM
+  GENUINE
+  RESOLVED
+  ESCALATED_TO_POLICE
+  OTHER
+}
+
+// ----------- Region -----------
+
+model Region {
+  id                Int     @id @default(autoincrement())
+  name              String  @unique          // West/North, East, South, Nexus-Direct
+  defaultLeadUserId String? @db.Uuid
+  defaultLead       User?   @relation("RegionLead", fields: [defaultLeadUserId], references: [id])
+
+  sites             Site[]
+  officers          User[]  @relation("OfficerRegion")
+}
+
+// ----------- User -----------
+
+model User {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String   @unique @db.Citext
+  name          String
+  passwordHash  String?  // bcrypt hash; null while inviting
+  phone         String?
+  role          UserRole
+  regionId      Int?
+  region        Region?  @relation("OfficerRegion", fields: [regionId], references: [id])
+  active        Boolean  @default(true)
+  onDuty        Boolean  @default(false)
+  lastLat     Float?
+  lastLng     Float?
+  lastSeenAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Reverse relations
+  defaultResponderForSites Site[]              @relation("DefaultResponder")
+  patrolSchedules          PatrolSchedule[]
+  patrolVisits             PatrolVisit[]
+  lockUnlockSchedules      LockUnlockSchedule[]
+  alarmEventsAssigned      AlarmEvent[]        @relation("AlarmAssignedTo")
+  keysHeld                 Key[]               @relation("KeyHolder")
+  keyMovementsFrom         KeyMovement[]       @relation("KeyMoveFrom")
+  keyMovementsTo           KeyMovement[]       @relation("KeyMoveTo")
+  keyMovementsSignedOff    KeyMovement[]       @relation("KeyMoveSignedOff")
+  activityLogs             ActivityLog[]
+  regionsLed               Region[]            @relation("RegionLead")
+  jobsAsResponder          Job[]               @relation("JobResponderUser")
+  formSubmissions          FormSubmission[]    @relation("SubmittedByUser")
+  reportReviews            ReportReview[]      @relation("ReportReviewer")
+
+  @@index([regionId, role])
+}
+
+// ----------- Customer -----------
+
+model Customer {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String
+  type            CustomerType  @default(CORPORATE)
+  contactName     String?
+  contactEmail    String?
+  contactPhone    String?
+  billingAddress  String?
+  contractRef     String?
+  contractStart   DateTime?
+  contractEnd     DateTime?
+  notes           String?
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  sites           Site[]
+  jobs            Job[]
+
+  @@index([name])
+}
+
+// ----------- Site (the heart) -----------
+
+model Site {
+  id                    String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                  String?      @unique         // NEX 001, NT01, etc. nullable for residentials with no code
+  name                  String
+  addressLine           String
+  postcode              String                       // normalised UPPERCASE no-space form
+  postcodeFormatted     String                       // pretty form: "BR1 1DD"
+  city                  String?
+  lat                   Float?
+  lng                   Float?
+  type                  SiteType     @default(COMMERCIAL)
+  regionId              Int?
+  region                Region?      @relation(fields: [regionId], references: [id])
+  customerId            String?      @db.Uuid
+  customer              Customer?    @relation(fields: [customerId], references: [id])
+  partnerId             String?      @db.Uuid
+  partner               Partner?     @relation("PartnerSites", fields: [partnerId], references: [id])
+  defaultResponderId    String?      @db.Uuid
+  defaultResponder      User?        @relation("DefaultResponder", fields: [defaultResponderId], references: [id])
+  services              ServiceTag[] @default([])
+  riskLevel             RiskLevel    @default(LOW)
+  notes                 String?
+  active                Boolean      @default(true)
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  keys                  Key[]
+  accessInstruction     AccessInstruction?
+  patrolSchedules       PatrolSchedule[]
+  patrolVisits          PatrolVisit[]
+  lockUnlockSchedules   LockUnlockSchedule[]
+  alarmEvents           AlarmEvent[]
+  onboardingPipelines   OnboardingPipeline[]
+  jobs                  Job[]
+  formSubmissions       FormSubmission[]
+
+  @@index([regionId])
+  @@index([customerId])
+  @@index([partnerId])
+  @@index([postcode])
+  @@index([type])
+  @@index([active])
+}
+
+// ----------- Keys & Movements -----------
+
+model Key {
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  internalNo          String?       @unique          // e.g. "Key No. 51" / "NT03"
+  label               String                          // "Front-door key", "Alarm fob"
+  type                KeyType
+  siteId              String?       @db.Uuid
+  site                Site?         @relation(fields: [siteId], references: [id])
+  currentHolderUserId String?       @db.Uuid
+  currentHolder       User?         @relation("KeyHolder", fields: [currentHolderUserId], references: [id])
+  status              KeyStatus     @default(WITH_US)
+  qrId                String?       @unique           // QR sticker ID
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  movements           KeyMovement[]
+
+  @@index([siteId])
+  @@index([currentHolderUserId])
+  @@index([status])
+}
+
+model KeyMovement {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  keyId           String   @db.Uuid
+  key             Key      @relation(fields: [keyId], references: [id], onDelete: Cascade)
+  fromUserId      String?  @db.Uuid
+  fromUser        User?    @relation("KeyMoveFrom", fields: [fromUserId], references: [id])
+  toUserId        String?  @db.Uuid
+  toUser          User?    @relation("KeyMoveTo", fields: [toUserId], references: [id])
+  occurredAt      DateTime @default(now())
+  reason          String?
+  notes           String?
+  signedOffById   String?  @db.Uuid
+  signedOffBy     User?    @relation("KeyMoveSignedOff", fields: [signedOffById], references: [id])
+
+  @@index([keyId, occurredAt])
+}
+
+// ----------- Access instructions (encrypted) -----------
+
+model AccessInstruction {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId          String   @unique @db.Uuid
+  site            Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  // codes are encrypted with pgcrypto in the application layer
+  alarmCodeEnc    Bytes?
+  padlockCodeEnc  Bytes?
+  entryStepsMd    String?                  // markdown-formatted entry steps
+  lockboxId       String?
+  hazards         String?
+  updatedAt       DateTime @updatedAt
+  updatedBy       String?  @db.Uuid
+}
+
+// ----------- Patrols -----------
+
+model PatrolSchedule {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId            String          @db.Uuid
+  site              Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  dayOfWeek         DayOfWeek
+  frequency         PatrolFrequency @default(WEEKLY)
+  assignedOfficerId String?         @db.Uuid
+  assignedOfficer   User?           @relation(fields: [assignedOfficerId], references: [id])
+  active            Boolean         @default(true)
+  startsOn          DateTime?
+  endsOn            DateTime?
+
+  visits            PatrolVisit[]
+
+  @@index([siteId])
+  @@index([assignedOfficerId])
+}
+
+model PatrolVisit {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId             String        @db.Uuid
+  site               Site          @relation(fields: [siteId], references: [id])
+  patrolScheduleId   String?       @db.Uuid
+  patrolSchedule     PatrolSchedule? @relation(fields: [patrolScheduleId], references: [id])
+  officerId          String        @db.Uuid
+  officer            User          @relation(fields: [officerId], references: [id])
+  scheduledAt        DateTime
+  arrivedAt          DateTime?
+  departedAt         DateTime?
+  status             VisitStatus   @default(PENDING)
+  gpsLat             Float?
+  gpsLng             Float?
+  photoUrls          String[]      @default([])
+  notes              String?
+  createdAt          DateTime      @default(now())
+  job                Job?
+
+  @@index([siteId, scheduledAt])
+  @@index([officerId, scheduledAt])
+  @@index([status])
+}
+
+// ----------- Lock / Unlock schedules -----------
+
+model LockUnlockSchedule {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId            String      @db.Uuid
+  site              Site        @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  unlockTime        String?                       // "05:30"
+  lockd
