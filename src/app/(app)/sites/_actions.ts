@@ -29,6 +29,31 @@ const SERVICE_TAGS = [
 ] as const;
 
 const RISK_LEVELS = ["LOW", "MEDIUM", "HIGH"] as const;
+const KEY_TYPES = ["KEY", "FOB", "PADLOCK", "CODE"] as const;
+const KEY_STATUSES = [
+  "WITH_US",
+  "WITH_OFFICER",
+  "WITH_CUSTOMER",
+  "LOST",
+  "RETIRED",
+] as const;
+const DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"] as const;
+const FREQUENCIES = ["WEEKLY", "FORTNIGHTLY", "MONTHLY"] as const;
+
+const KeyRow = z.object({
+  id: z.string().uuid().optional().nullable(),
+  internalNo: z.string().trim().max(40).optional().nullable(),
+  label: z.string().trim().min(1).max(120),
+  type: z.enum(KEY_TYPES),
+  status: z.enum(KEY_STATUSES).default("WITH_US"),
+  notes: z.string().trim().max(500).optional().nullable(),
+  remove: z.boolean().optional(),
+});
+
+const ScheduleDay = z.object({
+  dayOfWeek: z.enum(DAYS),
+  frequency: z.enum(FREQUENCIES).default("WEEKLY"),
+});
 
 const SiteInput = z.object({
   code: z.string().trim().max(40).optional().nullable(),
@@ -44,6 +69,26 @@ const SiteInput = z.object({
   riskLevel: z.enum(RISK_LEVELS).default("LOW"),
   notes: z.string().trim().max(2000).optional().nullable(),
   active: z.boolean().default(true),
+
+  keys: z.array(KeyRow).max(50).default([]),
+  lockUnlock: z
+    .object({
+      days: z.array(z.enum(DAYS)).default([]),
+      unlockTime: z.string().trim().max(8).optional().nullable(),
+      lockdownTime: z.string().trim().max(8).optional().nullable(),
+    })
+    .optional(),
+  patrolDays: z.array(ScheduleDay).max(7).default([]),
+  vpiDays: z.array(ScheduleDay).max(7).default([]),
+  access: z
+    .object({
+      alarmCode: z.string().trim().max(60).optional().nullable(),
+      padlockCode: z.string().trim().max(60).optional().nullable(),
+      entryStepsMd: z.string().trim().max(4000).optional().nullable(),
+      lockboxId: z.string().trim().max(60).optional().nullable(),
+      hazards: z.string().trim().max(1000).optional().nullable(),
+    })
+    .optional(),
 });
 
 export type SiteFormState = {
@@ -61,8 +106,19 @@ function formatPostcode(pc: string): string {
   return `${n.slice(0, n.length - 3)} ${n.slice(-3)}`;
 }
 
+function safeJson<T>(raw: string | null | undefined, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 function parseFormData(formData: FormData) {
   const services = formData.getAll("services").map(String);
+  const lockunlockDays = formData.getAll("lockunlock_days").map(String);
+
   const raw = {
     code: formData.get("code")?.toString() || null,
     name: formData.get("name")?.toString() ?? "",
@@ -77,6 +133,29 @@ function parseFormData(formData: FormData) {
     riskLevel: formData.get("riskLevel")?.toString() ?? "LOW",
     notes: formData.get("notes")?.toString() || null,
     active: formData.get("active") === "on",
+
+    keys: safeJson(formData.get("keys_json")?.toString(), [] as unknown[]),
+    lockUnlock: {
+      days: lockunlockDays,
+      unlockTime: formData.get("lockunlock_unlock_time")?.toString() || null,
+      lockdownTime:
+        formData.get("lockunlock_lockdown_time")?.toString() || null,
+    },
+    patrolDays: safeJson(
+      formData.get("patrol_days_json")?.toString(),
+      [] as unknown[],
+    ),
+    vpiDays: safeJson(
+      formData.get("vpi_days_json")?.toString(),
+      [] as unknown[],
+    ),
+    access: {
+      alarmCode: formData.get("access_alarm_code")?.toString() || null,
+      padlockCode: formData.get("access_padlock_code")?.toString() || null,
+      entryStepsMd: formData.get("access_entry_steps")?.toString() || null,
+      lockboxId: formData.get("access_lockbox_id")?.toString() || null,
+      hazards: formData.get("access_hazards")?.toString() || null,
+    },
   };
   return SiteInput.safeParse(raw);
 }
@@ -89,6 +168,132 @@ async function requireAdmin() {
   }
 }
 
+type ParsedSite = z.infer<typeof SiteInput>;
+
+async function syncRelations(siteId: string, d: ParsedSite) {
+  const services = new Set(d.services);
+  const wantsKeys = services.has("KEYHOLDING");
+  const wantsLockUnlock = services.has("LOCKUP") || services.has("UNLOCK");
+  const wantsPatrol = services.has("PATROL");
+  const wantsVpi = services.has("VPI");
+  const wantsAccess = services.has("ALARM_RESPONSE");
+
+  await prisma.$transaction(async (tx) => {
+    // ── Keys ──────────────────────────────────────────────────────────────
+    if (wantsKeys) {
+      for (const k of d.keys) {
+        if (k.id) {
+          await tx.key.update({
+            where: { id: k.id },
+            data: {
+              internalNo: k.internalNo || null,
+              label: k.label,
+              type: k.type as any,
+              status: (k.remove ? "RETIRED" : k.status) as any,
+              notes: k.notes || null,
+            },
+          });
+        } else if (!k.remove) {
+          await tx.key.create({
+            data: {
+              siteId,
+              internalNo: k.internalNo || null,
+              label: k.label,
+              type: k.type as any,
+              status: k.status as any,
+              notes: k.notes || null,
+            },
+          });
+        }
+      }
+    }
+
+    // ── Lock/unlock schedule ─────────────────────────────────────────────
+    const existingLU = await tx.lockUnlockSchedule.findFirst({
+      where: { siteId },
+      select: { id: true },
+    });
+    if (wantsLockUnlock && d.lockUnlock) {
+      const data = {
+        days: d.lockUnlock.days as any,
+        unlockTime: d.lockUnlock.unlockTime || null,
+        lockdownTime: d.lockUnlock.lockdownTime || null,
+        active: true,
+      };
+      if (existingLU) {
+        await tx.lockUnlockSchedule.update({
+          where: { id: existingLU.id },
+          data,
+        });
+      } else {
+        await tx.lockUnlockSchedule.create({ data: { ...data, siteId } });
+      }
+    } else if (existingLU) {
+      await tx.lockUnlockSchedule.update({
+        where: { id: existingLU.id },
+        data: { active: false },
+      });
+    }
+
+    // ── Patrol schedules ─────────────────────────────────────────────────
+    await tx.patrolSchedule.deleteMany({
+      where: { siteId, kind: "PATROL" },
+    });
+    if (wantsPatrol && d.patrolDays.length) {
+      await tx.patrolSchedule.createMany({
+        data: d.patrolDays.map((p) => ({
+          siteId,
+          kind: "PATROL" as any,
+          dayOfWeek: p.dayOfWeek as any,
+          frequency: p.frequency as any,
+          active: true,
+        })),
+      });
+    }
+
+    // ── VPI schedules ────────────────────────────────────────────────────
+    await tx.patrolSchedule.deleteMany({
+      where: { siteId, kind: "VPI" },
+    });
+    if (wantsVpi && d.vpiDays.length) {
+      await tx.patrolSchedule.createMany({
+        data: d.vpiDays.map((p) => ({
+          siteId,
+          kind: "VPI" as any,
+          dayOfWeek: p.dayOfWeek as any,
+          frequency: p.frequency as any,
+          active: true,
+        })),
+      });
+    }
+
+    // ── Access instruction (alarm codes etc.) ────────────────────────────
+    if (wantsAccess && d.access) {
+      const existingAI = await tx.accessInstruction.findUnique({
+        where: { siteId },
+        select: { id: true },
+      });
+      const data = {
+        alarmCode: d.access.alarmCode || null,
+        padlockCode: d.access.padlockCode || null,
+        entryStepsMd: d.access.entryStepsMd || null,
+        lockboxId: d.access.lockboxId || null,
+        hazards: d.access.hazards || null,
+      };
+      if (existingAI) {
+        await tx.accessInstruction.update({
+          where: { siteId },
+          data,
+        });
+      } else {
+        await tx.accessInstruction.create({
+          data: { ...data, siteId },
+        });
+      }
+    }
+  });
+}
+
 export async function createSite(
   _prev: SiteFormState,
   formData: FormData,
@@ -98,7 +303,7 @@ export async function createSite(
   if (!parsed.success) {
     return {
       error: "Please fix the errors below.",
-      fieldErrors: parsed.error.flatten().fieldErrors,
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
     };
   }
   const d = parsed.data;
@@ -133,6 +338,8 @@ export async function createSite(
     select: { id: true },
   });
 
+  await syncRelations(created.id, d);
+
   revalidatePath("/sites");
   redirect(`/sites/${created.id}`);
 }
@@ -147,7 +354,7 @@ export async function updateSite(
   if (!parsed.success) {
     return {
       error: "Please fix the errors below.",
-      fieldErrors: parsed.error.flatten().fieldErrors,
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
     };
   }
   const d = parsed.data;
@@ -184,6 +391,8 @@ export async function updateSite(
       active: d.active,
     },
   });
+
+  await syncRelations(id, d);
 
   revalidatePath("/sites");
   revalidatePath(`/sites/${id}`);

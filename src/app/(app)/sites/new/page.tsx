@@ -30,6 +30,10 @@ export default async function NewSitePage() {
           ← Back to sites
         </Link>
         <h1 className="text-2xl font-semibold text-brand-navy mt-1">New site</h1>
+        <p className="text-sm text-slate-500">
+          Tick the services you cover and you'll get extra sections to fill in
+          (keys, lock-up times, patrol schedule, alarm code, etc.).
+        </p>
       </div>
 
       <SiteForm
@@ -48,6 +52,17 @@ export default async function NewSitePage() {
           riskLevel: "LOW",
           notes: null,
           active: true,
+          keys: [],
+          lockUnlock: { days: [], unlockTime: null, lockdownTime: null },
+          patrolDays: [],
+          vpiDays: [],
+          access: {
+            alarmCode: null,
+            padlockCode: null,
+            entryStepsMd: null,
+            lockboxId: null,
+            hazards: null,
+          },
         }}
         regions={regions.map((r) => ({ id: r.id, name: r.name }))}
         customers={customers}

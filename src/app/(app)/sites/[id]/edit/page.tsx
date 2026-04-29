@@ -12,7 +12,15 @@ export default async function EditSitePage({
   params: { id: string };
 }) {
   const [site, regions, customers, partners] = await Promise.all([
-    prisma.site.findUnique({ where: { id: params.id } }),
+    prisma.site.findUnique({
+      where: { id: params.id },
+      include: {
+        keys: { where: { status: { not: "RETIRED" } }, orderBy: { internalNo: "asc" } },
+        lockUnlockSchedules: { where: { active: true }, take: 1 },
+        patrolSchedules: { where: { active: true } },
+        accessInstruction: true,
+      },
+    }),
     prisma.region.findMany({ orderBy: { name: "asc" } }),
     prisma.customer.findMany({
       where: { active: true },
@@ -29,6 +37,14 @@ export default async function EditSitePage({
   if (!site) notFound();
 
   const action = updateSite.bind(null, site.id);
+
+  const lu = site.lockUnlockSchedules[0];
+  const patrolDays = site.patrolSchedules
+    .filter((s) => s.kind === "PATROL")
+    .map((s) => ({ dayOfWeek: s.dayOfWeek, frequency: s.frequency }));
+  const vpiDays = site.patrolSchedules
+    .filter((s) => s.kind === "VPI")
+    .map((s) => ({ dayOfWeek: s.dayOfWeek, frequency: s.frequency }));
 
   return (
     <div className="space-y-4">
@@ -61,6 +77,28 @@ export default async function EditSitePage({
           riskLevel: site.riskLevel,
           notes: site.notes,
           active: site.active,
+          keys: site.keys.map((k) => ({
+            id: k.id,
+            internalNo: k.internalNo,
+            label: k.label,
+            type: k.type,
+            status: k.status,
+            notes: k.notes,
+          })),
+          lockUnlock: {
+            days: lu?.days ?? [],
+            unlockTime: lu?.unlockTime ?? null,
+            lockdownTime: lu?.lockdownTime ?? null,
+          },
+          patrolDays,
+          vpiDays,
+          access: {
+            alarmCode: site.accessInstruction?.alarmCode ?? null,
+            padlockCode: site.accessInstruction?.padlockCode ?? null,
+            entryStepsMd: site.accessInstruction?.entryStepsMd ?? null,
+            lockboxId: site.accessInstruction?.lockboxId ?? null,
+            hazards: site.accessInstruction?.hazards ?? null,
+          },
         }}
         regions={regions.map((r) => ({ id: r.id, name: r.name }))}
         customers={customers}

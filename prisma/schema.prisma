@@ -77,6 +77,11 @@ enum PatrolFrequency {
   MONTHLY
 }
 
+enum ScheduleKind {
+  PATROL
+  VPI
+}
+
 enum DayOfWeek {
   MON
   TUE
@@ -377,6 +382,8 @@ model AccessInstruction {
   site            Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
   alarmCodeEnc    Bytes?
   padlockCodeEnc  Bytes?
+  alarmCode       String?
+  padlockCode     String?
   entryStepsMd    String?
   lockboxId       String?
   hazards         String?
@@ -388,6 +395,7 @@ model PatrolSchedule {
   id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   siteId            String          @db.Uuid
   site              Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  kind              ScheduleKind    @default(PATROL)
   dayOfWeek         DayOfWeek
   frequency         PatrolFrequency @default(WEEKLY)
   assignedOfficerId String?         @db.Uuid
@@ -400,6 +408,7 @@ model PatrolSchedule {
 
   @@index([siteId])
   @@index([assignedOfficerId])
+  @@index([kind])
 }
 
 model PatrolVisit {
