@@ -33,10 +33,12 @@ const SERVICE_LABEL: Record<string, string> = {
 export function SitesTable({
   rows,
   customers,
+  partners,
   regions,
 }: {
   rows: SiteRow[];
   customers: { id: string; name: string }[];
+  partners: { id: string; name: string }[];
   regions: { id: number; name: string }[];
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -180,6 +182,7 @@ export function SitesTable({
         <BulkActionBar
           selectedIds={Array.from(selected)}
           customers={customers}
+          partners={partners}
           regions={regions}
           onDone={clearSelection}
         />
@@ -191,22 +194,26 @@ export function SitesTable({
 function BulkActionBar({
   selectedIds,
   customers,
+  partners,
   regions,
   onDone,
 }: {
   selectedIds: string[];
   customers: { id: string; name: string }[];
+  partners: { id: string; name: string }[];
   regions: { id: number; name: string }[];
   onDone: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [customerChoice, setCustomerChoice] = useState<string>(""); // "" | "__clear__" | id
-  const [regionChoice, setRegionChoice] = useState<string>(""); // "" | "__clear__" | id
+  const [customerChoice, setCustomerChoice] = useState<string>("");
+  const [partnerChoice, setPartnerChoice] = useState<string>("");
+  const [regionChoice, setRegionChoice] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
     setCustomerChoice("");
+    setPartnerChoice("");
     setRegionChoice("");
     setError(null);
   }
@@ -219,6 +226,12 @@ function BulkActionBar({
         : customerChoice === "__clear__"
           ? null
           : customerChoice;
+    const partnerId =
+      partnerChoice === ""
+        ? undefined
+        : partnerChoice === "__clear__"
+          ? null
+          : partnerChoice;
     const regionId =
       regionChoice === ""
         ? undefined
@@ -226,8 +239,12 @@ function BulkActionBar({
           ? null
           : Number(regionChoice);
 
-    if (customerId === undefined && regionId === undefined) {
-      setError("Pick a customer and/or region to assign.");
+    if (
+      customerId === undefined &&
+      partnerId === undefined &&
+      regionId === undefined
+    ) {
+      setError("Pick a customer, partner, and/or region to assign.");
       return;
     }
 
@@ -235,6 +252,7 @@ function BulkActionBar({
       const res = await bulkUpdateSites({
         ids: selectedIds,
         customerId,
+        partnerId,
         regionId,
       });
       if (!res.ok) {
@@ -269,6 +287,26 @@ function BulkActionBar({
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label className="text-xs uppercase tracking-wider text-slate-500">
+            Partner
+          </label>
+          <select
+            value={partnerChoice}
+            onChange={(e) => setPartnerChoice(e.target.value)}
+            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-mint focus:outline-none focus:ring-2 focus:ring-brand-mint/30"
+            disabled={pending}
+          >
+            <option value="">— don't change —</option>
+            <option value="__clear__">— clear —</option>
+            {partners.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
               </option>
             ))}
           </select>

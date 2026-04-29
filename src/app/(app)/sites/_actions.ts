@@ -193,6 +193,7 @@ export async function updateSite(
 const BulkInput = z.object({
   ids: z.array(z.string().uuid()).min(1).max(500),
   customerId: z.string().uuid().nullable().optional(),
+  partnerId: z.string().uuid().nullable().optional(),
   regionId: z.coerce.number().int().positive().nullable().optional(),
 });
 
@@ -203,6 +204,7 @@ export type BulkUpdateResult =
 export async function bulkUpdateSites(input: {
   ids: string[];
   customerId: string | null | undefined;
+  partnerId: string | null | undefined;
   regionId: number | null | undefined;
 }): Promise<BulkUpdateResult> {
   await requireAdmin();
@@ -210,10 +212,15 @@ export async function bulkUpdateSites(input: {
   if (!parsed.success) {
     return { ok: false, error: "Invalid selection." };
   }
-  const { ids, customerId, regionId } = parsed.data;
+  const { ids, customerId, partnerId, regionId } = parsed.data;
 
-  const data: { customerId?: string | null; regionId?: number | null } = {};
+  const data: {
+    customerId?: string | null;
+    partnerId?: string | null;
+    regionId?: number | null;
+  } = {};
   if (customerId !== undefined) data.customerId = customerId;
+  if (partnerId !== undefined) data.partnerId = partnerId;
   if (regionId !== undefined) data.regionId = regionId;
 
   if (Object.keys(data).length === 0) {

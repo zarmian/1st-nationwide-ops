@@ -63,32 +63,38 @@ export default async function SitesPage({
     ],
   };
 
-  const [sites, totalShown, kpis, regions, customers] = await Promise.all([
-    prisma.site.findMany({
-      where,
-      include: {
-        customer: { select: { name: true } },
-        partner: { select: { name: true } },
-        region: { select: { name: true } },
-        onboardingPipelines: {
-          where: { stage: { in: ACTIVE_ONBOARDING_STAGES as any } },
-          select: { stage: true },
-          take: 1,
+  const [sites, totalShown, kpis, regions, customers, partners] =
+    await Promise.all([
+      prisma.site.findMany({
+        where,
+        include: {
+          customer: { select: { name: true } },
+          partner: { select: { name: true } },
+          region: { select: { name: true } },
+          onboardingPipelines: {
+            where: { stage: { in: ACTIVE_ONBOARDING_STAGES as any } },
+            select: { stage: true },
+            take: 1,
+          },
         },
-      },
-      orderBy: [{ code: "asc" }, { name: "asc" }],
-      take: PAGE_SIZE,
-      skip: (page - 1) * PAGE_SIZE,
-    }),
-    prisma.site.count({ where }),
-    loadKpis(),
-    prisma.region.findMany({ orderBy: { name: "asc" } }),
-    prisma.customer.findMany({
-      where: { active: true },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-  ]);
+        orderBy: [{ code: "asc" }, { name: "asc" }],
+        take: PAGE_SIZE,
+        skip: (page - 1) * PAGE_SIZE,
+      }),
+      prisma.site.count({ where }),
+      loadKpis(),
+      prisma.region.findMany({ orderBy: { name: "asc" } }),
+      prisma.customer.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      prisma.partner.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+    ]);
 
   const rows: SiteRow[] = sites.map((s) => ({
     id: s.id,
@@ -135,7 +141,12 @@ export default async function SitesPage({
 
       <KpiStrip kpis={kpis} />
 
-      <SitesTable rows={rows} customers={customers} regions={regions} />
+      <SitesTable
+        rows={rows}
+        customers={customers}
+        partners={partners}
+        regions={regions}
+      />
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
         <div>
