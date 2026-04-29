@@ -189,3 +189,42 @@ export async function updateSite(
   revalidatePath(`/sites/${id}`);
   redirect(`/sites/${id}`);
 }
+
+const BulkInput = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(500),
+  customerId: z.string().uuid().nullable().optional(),
+  regionId: z.coerce.number().int().positive().nullable().optional(),
+});
+
+export type BulkUpdateResult =
+  | { ok: true; count: number }
+  | { ok: false; error: string };
+
+export async function bulkUpdateSites(input: {
+  ids: string[];
+  customerId: string | null | undefined;
+  regionId: number | null | undefined;
+}): Promise<BulkUpdateResult> {
+  await requireAdmin();
+  const parsed = BulkInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: "Invalid selection." };
+  }
+  const { ids, customerId, regionId } = parsed.data;
+
+  const data: { customerId?: string | null; regionId?: number | null } = {};
+  if (customerId !== undefined) data.customerId = customerId;
+  if (regionId !== undefined) data.regionId = regionId;
+
+  if (Object.keys(data).length === 0) {
+    return { ok: false, error: "Nothing to change." };
+  }
+
+  const res = await prisma.site.updateMany({
+    where: { id: { in: ids } },
+    data,
+  });
+
+  revalidatePath("/sites");
+  return { ok: true, count: res.count };
+}

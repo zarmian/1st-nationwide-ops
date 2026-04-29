@@ -1,33 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { SearchBox } from "./_components/SearchBox";
+import { SitesToolbar } from "./_components/SitesToolbar";
+import { SitesTable, type SiteRow } from "./_components/SitesTable";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
-
-const SITE_TYPES: { v: string; label: string }[] = [
-  { v: "COMMERCIAL", label: "Commercial" },
-  { v: "RESIDENTIAL", label: "Residential" },
-  { v: "RETAIL", label: "Retail" },
-  { v: "STORAGE", label: "Storage" },
-  { v: "INDUSTRIAL", label: "Industrial" },
-  { v: "OTHER", label: "Other" },
-];
-
-const SERVICES: { v: string; label: string }[] = [
-  { v: "ALARM_RESPONSE", label: "Alarm response" },
-  { v: "KEYHOLDING", label: "Keyholding" },
-  { v: "PATROL", label: "Mobile patrol" },
-  { v: "LOCKUP", label: "Lock-up" },
-  { v: "UNLOCK", label: "Unlock" },
-  { v: "VPI", label: "VPI" },
-  { v: "STATIC_GUARDING", label: "Static guarding" },
-  { v: "DOG_HANDLER", label: "Dog handler" },
-  { v: "ADHOC", label: "Ad-hoc" },
-];
-
-const SERVICE_LABEL = Object.fromEntries(SERVICES.map((s) => [s.v, s.label]));
 
 const ACTIVE_ONBOARDING_STAGES = [
   "PROPOSED",
@@ -48,7 +26,10 @@ export default async function SitesPage({
     page?: string;
   };
 }) {
-  const { q, region, service, type } = searchParams;
+  const q = searchParams.q ?? "";
+  const region = searchParams.region ?? "";
+  const service = searchParams.service ?? "";
+  const type = searchParams.type ?? "";
   const page = Math.max(1, Number(searchParams.page ?? "1") || 1);
 
   const where = {
@@ -58,7 +39,12 @@ export default async function SitesPage({
             OR: [
               { name: { contains: q, mode: "insensitive" as const } },
               { addressLine: { contains: q, mode: "insensitive" as const } },
-              { postcode: { contains: q.replace(/\s+/g, ""), mode: "insensitive" as const } },
+              {
+                postcode: {
+                  contains: q.replace(/\s+/g, ""),
+                  mode: "insensitive" as const,
+                },
+              },
               { code: { contains: q, mode: "insensitive" as const } },
               {
                 customer: {
@@ -77,7 +63,7 @@ export default async function SitesPage({
     ],
   };
 
-  const [sites, totalShown, kpis, regions] = await Promise.all([
+  const [sites, totalShown, kpis, regions, customers] = await Promise.all([
     prisma.site.findMany({
       where,
       include: {
@@ -97,7 +83,25 @@ export default async function SitesPage({
     prisma.site.count({ where }),
     loadKpis(),
     prisma.region.findMany({ orderBy: { name: "asc" } }),
+    prisma.customer.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
+
+  const rows: SiteRow[] = sites.map((s) => ({
+    id: s.id,
+    code: s.code,
+    name: s.name,
+    postcodeFormatted: s.postcodeFormatted,
+    type: s.type,
+    services: s.services,
+    regionName: s.region?.name ?? null,
+    customerName: s.customer?.name ?? null,
+    partnerName: s.partner?.name ?? null,
+    onboardingStage: s.onboardingPipelines[0]?.stage ?? null,
+  }));
 
   const totalPages = Math.max(1, Math.ceil(totalShown / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -124,161 +128,14 @@ export default async function SitesPage({
         </Link>
       </div>
 
-      <form className="card p-3 flex flex-wrap gap-2 items-end">
-        <SearchBox defaultValue={q ?? ""} />
-        <div>
-          <label className="label" htmlFor="region">
-            Region
-          </label>
-          <select
-            id="region"
-            name="region"
-            defaultValue={region ?? ""}
-            className="input min-w-[140px]"
-          >
-            <option value="">All</option>
-            {regions.map((r) => (
-              <option key={r.id} value={r.name}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="service">
-            Service
-          </label>
-          <select
-            id="service"
-            name="service"
-            defaultValue={service ?? ""}
-            className="input min-w-[160px]"
-          >
-            <option value="">All</option>
-            {SERVICES.map((s) => (
-              <option key={s.v} value={s.v}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="type">
-            Type
-          </label>
-          <select
-            id="type"
-            name="type"
-            defaultValue={type ?? ""}
-            className="input min-w-[140px]"
-          >
-            <option value="">All</option>
-            {SITE_TYPES.map((t) => (
-              <option key={t.v} value={t.v}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button className="btn-secondary" type="submit">
-          Filter
-        </button>
-      </form>
+      <SitesToolbar
+        regions={regions.map((r) => ({ name: r.name }))}
+        initial={{ q, region, service, type }}
+      />
 
       <KpiStrip kpis={kpis} />
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Code
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Name
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Postcode
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Type
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Services
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Region
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {sites.map((s) => {
-              const onboarding = s.onboardingPipelines[0];
-              return (
-                <tr key={s.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-2.5 text-xs uppercase tracking-wider text-slate-500">
-                    {s.code ?? "—"}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link
-                        href={`/sites/${s.id}`}
-                        className="font-medium text-brand-navy hover:text-brand-mint-dark"
-                      >
-                        {s.name}
-                      </Link>
-                      {onboarding && (
-                        <span className="chip-amber">
-                          Onboarding · {prettyStage(onboarding.stage)}
-                        </span>
-                      )}
-                    </div>
-                    {(s.customer?.name || s.partner?.name) && (
-                      <div className="text-xs text-slate-500 mt-0.5">
-                        {s.customer?.name ??
-                          (s.partner?.name
-                            ? `${s.partner.name} (partner)`
-                            : "")}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-700">
-                    {s.postcodeFormatted}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="chip-slate">
-                      {prettyType(s.type as string)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex flex-wrap gap-1">
-                      {s.services.map((svc) => (
-                        <span key={svc} className="chip-mint">
-                          {SERVICE_LABEL[svc] ?? svc.replace(/_/g, " ")}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {s.region?.name ? (
-                      <span className="chip-slate">{s.region.name}</span>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-            {sites.length === 0 && (
-              <tr>
-                <td className="px-4 py-10 text-center text-slate-500" colSpan={6}>
-                  No sites match these filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <SitesTable rows={rows} customers={customers} regions={regions} />
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
         <div>
@@ -431,15 +288,4 @@ function Pagination({
       </Link>
     </nav>
   );
-}
-
-function prettyType(t: string) {
-  return t.charAt(0) + t.slice(1).toLowerCase();
-}
-
-function prettyStage(stage: string) {
-  return stage
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .replace(/^./, (c) => c.toUpperCase());
 }
