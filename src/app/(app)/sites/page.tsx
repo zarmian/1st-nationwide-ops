@@ -80,11 +80,13 @@ export default async function SitesPage({
             <option value="">All</option>
             <option value="ALARM_RESPONSE">Alarm response</option>
             <option value="KEYHOLDING">Keyholding</option>
-            <option value="MOBILE_PATROL">Mobile patrol</option>
-            <option value="LOCK_UNLOCK">Lock / unlock</option>
+            <option value="PATROL">Mobile patrol</option>
+            <option value="LOCKUP">Lock-up</option>
+            <option value="UNLOCK">Unlock</option>
             <option value="VPI">VPI</option>
             <option value="STATIC_GUARDING">Static guarding</option>
             <option value="DOG_HANDLER">Dog handler</option>
+            <option value="ADHOC">Ad-hoc</option>
           </select>
         </div>
         <button className="btn-secondary" type="submit">
