@@ -9,6 +9,7 @@
  * Optional env: SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD,
  *               IMPORT_DIR (default ../import_out)
  */
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { readFileSync, existsSync } from "node:fs";
