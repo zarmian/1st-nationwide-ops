@@ -1,0 +1,5 @@
+DATABASE_URL="postgresql://postgres.qljpzghcuegjhtdlmjls:zKeJaJEo4OnUqMTA@aws-1-eu-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+DIRECT_URL="postgresql://postgres.qljpzghcuegjhtdlmjls:zKeJaJEo4OnUqMTA@aws-1-eu-west-2.pooler.supabase.com:5432/postgres"
+IMPORT_DIR="prisma/seed_data/import_out"
+SEED_ADMIN_EMAIL="zarmian@gmail.com"
+SEED_ADMIN_PASSWORD="Zaryab@101"
