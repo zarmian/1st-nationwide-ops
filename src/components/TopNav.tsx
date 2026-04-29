@@ -7,7 +7,10 @@ import { BrandLogo } from "./BrandLogo";
 
 const links = [
   { href: "/sites", label: "Sites" },
-  { href: "/dispatch", label: "Dispatch" },
+  { href: "/patrols", label: "Patrols" },
+  { href: "/keys", label: "Keys" },
+  { href: "/onboarding", label: "Onboarding" },
+  { href: "/officers", label: "Officers" },
   { href: "/admin/reports", label: "Reports" },
 ];
 

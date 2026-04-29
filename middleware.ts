@@ -9,6 +9,10 @@ export default withAuth({
 export const config = {
   matcher: [
     "/sites/:path*",
+    "/patrols/:path*",
+    "/keys/:path*",
+    "/onboarding/:path*",
+    "/officers/:path*",
     "/m/:path*",
     "/dispatch/:path*",
     "/admin/:path*",
