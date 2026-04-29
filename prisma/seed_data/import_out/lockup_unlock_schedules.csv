@@ -1,0 +1,4 @@
+id,siteName,addressLine,postcode,unlockTime,lockdownTime,days
+f6e24822-7e0b-43eb-a40a-a98be0743c89,Orpington Retail Park,"168 Sevenoaks Way, Orpington, BR5 3AE Postcode: BR5 3AE (Unlock 05:30 Lockdown 21:30)",BR5 3AE,05:30,21:30,"MON,TUE,WED,THU,FRI"
+db35fffc-3b99-4326-a917-ac4e6d7e94ab,Enfield,"British Land – De Mandeville Gate Retail Park, Southbury Road, Enfield, EN1 1TW, UK ( Unlock 05:00 Lockdown 21:00)",EN1 1TW,05:00,21:00,"MON,TUE,WED,THU,FRI"
+ff7e7493-7a17-4aac-8d76-830ea684d3f5,POST OFFICE,"POST OFFICE, 4 HEATHFIELD ROAD, KESTON, KESTON, BR2 6BQ",BR2 6BQ,,,"MON,TUE,WED,THU,FRI"

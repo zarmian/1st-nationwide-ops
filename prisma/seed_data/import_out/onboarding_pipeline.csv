@@ -1,0 +1,53 @@
+id,storeNumber,siteName,group,addressLine,postcode,region,customerProgram,services,outsourcer,targetGoLive,stage
+b46db1b4-336a-4ba0-9596-b21e996a3371,6981,Bromley High Street Express,914,Tesco Express 3-5 High Street Bromley London BR1 1LF,BR1 1LF,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+450ab88e-0d01-42aa-9312-24f9ed585747,5651,Bromley,44,Homesdale Rd  Bromley Kent BR1 2UE,BR1 2UE,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+da012ca6-208c-4619-8ac0-47607a573a67,4564,Bromley Plaisow,914,1 Plaistow Lane  Bromley London BR1 4DS,BR1 4DS,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+30e2309c-76d5-4b33-b406-3d952186cd47,5444,Downham Bromley Road,914,Tesco Stores Ltd 478-486 Bromley Road Bromley Kent BR1 4PB,BR1 4PB,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+acbe7ca3-dc6e-4146-8fae-cb098a5adb87,2203,Bromley,914,Tesco Express 115-119 Westmoreland Road Bromley Kent BR2 0TY,BR2 0TY,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+93e7c3fc-ac02-4fee-85c0-0e531fdb8118,2445,Elmers End,44,Croydon Rd  Beckenham London BR3 4AA,BR3 4AA,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+b0d40c48-389c-4cc0-8f54-0f7c55835125,6224,Beckenham,914,Tesco Express 410-412 Croydon Road Beckenham Kent BR3 4EP,BR3 4EP,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+92e35ff8-e4a1-40c1-a154-4c5d06e7a276,4779,Beckenham Chinese Garage Express,914,Stone Park Ave  Beckenham Kent BR3 3LS,BR3 6RH,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+a137b38d-5c40-4717-87e5-b68faac53c48,3148,St Pauls Cray,917,Sevenoaks Way St Pauls Cray Orpington Kent BR5 3AQ,BR5 3AQ,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+f6d138a8-6205-4e2f-818b-5b00e263635a,5904,Orpington,44,9 Augustus Ln  Orpington Kent BR6 0NH,BR6 0NH,South,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+9cec3507-956b-4e3a-ac5b-3acad0a1ffd2,2072,Barking,43,Tesco Stores Ltd Highbridge Road Barking London IG11 7BS,IG11 7BS,East,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+fdfbd856-68a5-4326-9fb4-95af48433f24,2078,Ilford,43,796 Cranbrook Road  Ilford London IG6 1HZ,IG6 1HZ,East,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+c19c5233-2945-468c-9d9d-e61c993980d8,5191,Manford Way Chigwell,903,Tesco Express 185 Manford Way Chigwell Essex IG7 4DN,IG7 4DN,East,TESCO,KH & AR,1st Nationwide,8/28/2026,PROPOSED
+4a3e9d31-e2a9-4502-b92f-1d3eb1f21633,3422,Woodford Green,43,Tesco Stores Ltd Southend Road Woodford Green Essex IG8 8GE,IG8 8GE,East,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+aa84834a-1c40-405e-a2aa-faa7e5c2e223,5727,Woodford Green,903,253-269 High Rd  Woodford Green Essex IG8 9FB,IG8 9FB,East,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+d78f59c5-3ea1-4d6e-9e26-4aa19375adec,2956,Portobello Road Express,913,Tesco Stores Ltd 224-226 Portobello Road London London W11 1LJ,W11 1LJ,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+65f3189c-00fd-4fd3-8a94-956cd6505ebf,5040,Notting Hill Gate Express,913,114-120 Notting Hill Gate Notting Hill London London W11 3QE,W11 3QE,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+600dae74-f200-4c04-a60b-d36bc222ea30,2765,Kensington,44,West Cromwell Rd Kensington London London W14 8PB,W14 8PB,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+2c147630-a94b-4f7a-b9d0-8f02f678826c,5103,North End Road,905,112 North End Rd  London London W14 9PP,W14 9PP,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+3013c34c-742b-4ef6-8980-4d592d44db3f,2377,Dean Street Express,913,Tesco Stores Ltd 2-4 Dean Street London London W1D 3RF,W1D 3RF,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+a7829c5b-4a07-45de-867d-f1f4e2c8e245,2757,Mayfair Express,905,50-52 Curzon St Mayfair London London W1J 7UP,W1J 7UP,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+e409ce71-4a81-4348-8a33-c6a8331c325f,2410,Goodge Street Express,908,10-16 Goodge Street  London London W1T 2QB,W1T 2QB,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+5e29974a-d4a4-4900-8f1b-e0503edcfee4,2775,Tottenham Court Road Express,908,124-125 Tottenham Court Rd  London London W1T 5AS,W1T 5AS,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+d8a1e87a-128d-4bcc-9aaa-a9c0a183a447,2601,Dominion London Express,908,267 Tottenham Court Road  London London W1T 7RQ,W1T 7RQ,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+2548e52d-0c6d-44d7-bae2-c98ff8e8c206,2726,Baker Street,908,110-112 Baker St Marylebone London London W1U 6FY,W1U 6FY,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+8edb85e3-e307-4b92-a443-afd9fbe296e9,4683,Baker St Express,908,55 Baker Street  London London W1U 8EW,W1U 8EW,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+72735430-e3ed-4b16-9fa7-1e737ee2737f,6668,"London, 101 New Cavendish Street",908,101 New Cavendish St  London London W1W 6BE,W1W 6BE,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+bcba841c-8d8b-4b49-82ac-76a06d8aab0f,3276,"South Wharf, Paddington",908,South Wharf Rd Paddington London London W2 1JX,W2 1JX,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+95b46bd5-558c-4ee2-b6da-aa3e40c839df,4620,Marble Arch Express,908,Unit 3 Marble Arch House London London W2 2EH,W2 2EH,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+575e86d4-5ddf-43bf-b36c-53e7d2800931,3466,Bayswater,908,Tesco Express 62-64 Queensway London London W2 3RL,W2 3RL,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+67e5e28e-ee1a-40f1-9a71-e3d799720409,4447,Queensway Express,913,Tesco Stores Ltd 140 Queensway London London W2 6LS,W2 6LS,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+abfda3e1-85a3-4279-a9bd-cbf566958687,5780,Acton,44,31 The Vale  Acton London W3 7RR,W3 7XA,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+8b6e06af-4003-4abe-9b84-804110c33f80,5439,Ealing Broadway Express,913,Unit 20 Ealing Broadway Centre London London W5 5JY,W5 5JY,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+837ede7f-0bba-4a13-81b4-e905de798389,2613,Hammersmith,44,Tesco Stores Ltd 180 Shepherds Bush Road London London W6 7NL,W6 7NL,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+81f18022-50a3-4d75-af33-247b82dab4d9,2610,Hammersmith Express,913,13-16 Broadway Centre  London London W6 9YD,W6 9YD,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+9846b538-176d-41f3-a07d-a129f20c80c5,2717,"Cliford Road, Maida Vale",908,Tesco 29 Clifton Road London London W9 1SY,W9 1SY,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+7601f829-d4be-48e5-bfeb-dc2917589c45,2861,Maida Vale,908,Tesco Express (Maida Vale) 115 Maida Vale London London W9 1UP,W9 1UP,West/North,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+ac675e73-96d3-4103-af6f-40fa43284cd8,6981,Bromley High Street Express,914,Tesco Express 3-5 High Street Bromley London BR1 1LF,BR1 1LF,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+a5093fc7-a6f8-4010-9f8d-8d02f8e210a5,5651,Bromley,44,Homesdale Rd  Bromley Kent BR1 2UE,BR1 2UE,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+fce721c4-4ecc-40af-a2bb-3644dbfd3511,4564,Bromley Plaisow,914,1 Plaistow Lane  Bromley London BR1 4DS,BR1 4DS,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+826f04a6-8e4c-4cb0-8ab4-08133f2b32cd,5444,Downham Bromley Road,914,Tesco Stores Ltd 478-486 Bromley Road Bromley Kent BR1 4PB,BR1 4PB,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+7aadd206-9938-4608-9f14-b741daa02da4,2203,Bromley,914,Tesco Express 115-119 Westmoreland Road Bromley Kent BR2 0TY,BR2 0TY,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+d9e3b631-293a-4390-9a6e-951bc100c8ac,2445,Elmers End,44,Croydon Rd  Beckenham London BR3 4AA,BR3 4AA,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+a45f936d-0609-46b2-abf8-44e41d4d689e,6224,Beckenham,914,Tesco Express 410-412 Croydon Road Beckenham Kent BR3 4EP,BR3 4EP,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+7035260e-1466-41f8-a4c4-c0349d12f345,4779,Beckenham Chinese Garage Express,914,Stone Park Ave  Beckenham Kent BR3 3LS,BR3 6RH,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+ddd8c416-4014-42dd-8659-6cb412bd4bd7,3148,St Pauls Cray,917,Sevenoaks Way St Pauls Cray Orpington Kent BR5 3AQ,BR5 3AQ,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+2c633083-4ee9-49b3-ae56-b0229e4b34b3,5904,Orpington,44,9 Augustus Ln  Orpington Kent BR6 0NH,BR6 0NH,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+8793815d-145f-4eba-a0a6-e974bd8f2450,2072,Barking,43,Tesco Stores Ltd Highbridge Road Barking London IG11 7BS,IG11 7BS,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+e1454bd9-74c5-4a4f-a016-44fb2c572625,2078,Ilford,43,796 Cranbrook Road  Ilford London IG6 1HZ,IG6 1HZ,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+d3a35bf1-8e64-424f-b290-86d40dae926d,5191,Manford Way Chigwell,903,Tesco Express 185 Manford Way Chigwell Essex IG7 4DN,IG7 4DN,Unknown,TESCO,KH & AR,1st Nationwide,8/28/2026,PROPOSED
+b9e3fa23-f2eb-4f1b-a3b9-7360cf258155,3422,Woodford Green,43,Tesco Stores Ltd Southend Road Woodford Green Essex IG8 8GE,IG8 8GE,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
+4c262f31-1e10-4125-8ea8-0405f7264796,5727,Woodford Green,903,253-269 High Rd  Woodford Green Essex IG8 9FB,IG8 9FB,Unknown,TESCO,KH & AR,1st Nationwide,9/30/2025,PROPOSED
