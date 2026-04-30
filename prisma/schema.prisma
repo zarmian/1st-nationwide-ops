@@ -189,6 +189,13 @@ enum SubmissionForm {
   ADHOC
 }
 
+enum TemplateScope {
+  GLOBAL
+  CUSTOMER
+  PARTNER
+  SITE
+}
+
 enum ReviewStatus {
   PENDING
   APPROVED
@@ -267,6 +274,7 @@ model User {
   jobsAsResponder          Job[]               @relation("JobResponderUser")
   formSubmissions          FormSubmission[]    @relation("SubmittedByUser")
   reportReviews            ReportReview[]      @relation("ReportReviewer")
+  formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
 
   @@index([regionId, role])
 }
@@ -290,6 +298,7 @@ model Customer {
   sites           Site[]
   jobs            Job[]
   contacts        CustomerContact[]
+  formTemplates   FormTemplate[]
 
   @@index([name])
 }
@@ -346,6 +355,7 @@ model Site {
   onboardingPipelines   OnboardingPipeline[]
   jobs                  Job[]
   formSubmissions       FormSubmission[]
+  formTemplates         FormTemplate[]
 
   @@index([regionId])
   @@index([customerId])
@@ -560,9 +570,10 @@ model Partner {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  contacts    PartnerContact[]
-  jobs        Job[]
-  sites       Site[]          @relation("PartnerSites")
+  contacts        PartnerContact[]
+  jobs            Job[]
+  sites           Site[]          @relation("PartnerSites")
+  formTemplates   FormTemplate[]
 
   @@index([role])
   @@index([active])
@@ -639,6 +650,8 @@ model Job {
 model FormSubmission {
   id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   form                SubmissionForm
+  formTemplateId      String?         @db.Uuid
+  formTemplate        FormTemplate?   @relation(fields: [formTemplateId], references: [id], onDelete: SetNull)
   siteId              String?         @db.Uuid
   site                Site?           @relation(fields: [siteId], references: [id])
   jobId               String?         @db.Uuid
@@ -660,6 +673,33 @@ model FormSubmission {
   @@index([jobId])
   @@index([submittedByUserId])
   @@index([form])
+  @@index([formTemplateId])
+}
+
+model FormTemplate {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  jobType      SubmissionForm
+  scope        TemplateScope
+  customerId   String?        @db.Uuid
+  customer     Customer?      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  partnerId    String?        @db.Uuid
+  partner      Partner?       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  siteId       String?        @db.Uuid
+  site         Site?          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fields       Json           @default("[]")
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  createdById  String?        @db.Uuid
+  createdBy    User?          @relation("FormTemplateAuthor", fields: [createdById], references: [id])
+
+  submissions  FormSubmission[]
+
+  @@index([scope, jobType, active])
+  @@index([customerId])
+  @@index([partnerId])
+  @@index([siteId])
 }
 
 model ReportReview {

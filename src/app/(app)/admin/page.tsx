@@ -4,11 +4,12 @@ import { prisma } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function AdminHubPage() {
-  const [customers, partners, regions, pending] = await Promise.all([
+  const [customers, partners, regions, pending, templates] = await Promise.all([
     prisma.customer.count({ where: { active: true } }),
     prisma.partner.count({ where: { active: true } }),
     prisma.region.count(),
     prisma.reportReview.count({ where: { status: "PENDING" } }),
+    prisma.formTemplate.count({ where: { active: true } }),
   ]);
 
   const cards = [
@@ -39,6 +40,13 @@ export default async function AdminHubPage() {
       blurb: "Operating regions for sites and officers (London, Outside London).",
       stat: regions,
       statLabel: "regions",
+    },
+    {
+      href: "/admin/forms",
+      title: "Form templates",
+      blurb: "What officers fill in for each kind of job. Per-customer, per-partner, or per-site.",
+      stat: templates,
+      statLabel: "active",
     },
   ];
 

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { parseFields, validatePayload } from "@/lib/formTemplates";
 
 const Body = z.object({
   siteId: z.string().min(1),
@@ -17,6 +18,7 @@ const Body = z.object({
     "VPI",
     "ADHOC",
   ]),
+  formTemplateId: z.string().uuid().nullable().optional(),
   officerNameRaw: z.string().min(1).max(120),
   arrivedAt: z.string().datetime().nullable().optional(),
   departedAt: z.string().datetime().nullable().optional(),
@@ -35,7 +37,6 @@ export async function POST(req: Request) {
   }
   const data = parsed.data;
 
-  // Verify site exists & active
   const site = await prisma.site.findFirst({
     where: { id: data.siteId, active: true },
     select: { id: true },
@@ -44,21 +45,52 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown site" }, { status: 400 });
   }
 
+  let payload: Record<string, unknown> = data.payload ?? {};
+  let formTemplateId: string | null = data.formTemplateId ?? null;
+
+  if (formTemplateId) {
+    const template = await prisma.formTemplate.findUnique({
+      where: { id: formTemplateId },
+      select: { active: true, jobType: true, fields: true },
+    });
+    if (!template || !template.active) {
+      return NextResponse.json(
+        { error: "Form template not found or inactive" },
+        { status: 400 },
+      );
+    }
+    if (template.jobType !== data.form) {
+      return NextResponse.json(
+        { error: "Form template does not match job type" },
+        { status: 400 },
+      );
+    }
+    const fields = parseFields(template.fields);
+    const result = validatePayload(fields, payload);
+    if (!result.ok) {
+      return NextResponse.json(
+        { error: "Please fix the errors below.", fieldErrors: result.errors },
+        { status: 400 },
+      );
+    }
+    payload = result.payload;
+  }
+
   const submitted = await prisma.formSubmission.create({
     data: {
       form: data.form as any,
+      formTemplateId,
       siteId: data.siteId,
       jobId: data.jobId ?? null,
       submittedByUserId: session ? ((session.user as any).id as string) : null,
       officerNameRaw: data.officerNameRaw,
       arrivedAt: data.arrivedAt ? new Date(data.arrivedAt) : null,
       departedAt: data.departedAt ? new Date(data.departedAt) : null,
-      payload: (data.payload ?? {}) as any,
+      payload: payload as any,
     },
     select: { id: true },
   });
 
-  // Auto-create a review queue row
   await prisma.reportReview.create({
     data: {
       submissionId: submitted.id,
