@@ -10,9 +10,7 @@ const PAGE_SIZE = 50;
 const ACTIVE_ONBOARDING_STAGES = [
   "PROPOSED",
   "SURVEY",
-  "FRONT_KEY",
-  "SHUTTER_KEY",
-  "ALARM_FOB",
+  "KEY_COLLECTION",
 ] as const;
 
 export default async function SitesPage({

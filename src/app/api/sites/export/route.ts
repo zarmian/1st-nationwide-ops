@@ -6,9 +6,7 @@ import { prisma } from "@/lib/db";
 const ACTIVE_ONBOARDING_STAGES = [
   "PROPOSED",
   "SURVEY",
-  "FRONT_KEY",
-  "SHUTTER_KEY",
-  "ALARM_FOB",
+  "KEY_COLLECTION",
 ] as const;
 
 function csvEscape(v: unknown): string {

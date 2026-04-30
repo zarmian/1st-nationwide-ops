@@ -102,9 +102,7 @@ enum VisitStatus {
 enum OnboardingStage {
   PROPOSED
   SURVEY
-  FRONT_KEY
-  SHUTTER_KEY
-  ALARM_FOB
+  KEY_COLLECTION
   GO_LIVE
   CANCELLED
 }
@@ -146,6 +144,7 @@ enum JobType {
   UNLOCK
   KEY_COLLECTION
   KEY_DROPOFF
+  SURVEY
   VPI
   ADHOC
   STATIC_GUARDING_SHIFT
@@ -157,6 +156,7 @@ enum JobSource {
   ALARM
   PARTNER_REQUEST
   CUSTOMER_REQUEST
+  ONBOARDING
   AD_HOC
 }
 
@@ -518,14 +518,18 @@ model AlarmEvent {
 }
 
 model OnboardingPipeline {
-  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  siteId      String           @db.Uuid
-  site        Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  program     CustomerProgram
-  stage       OnboardingStage  @default(PROPOSED)
-  notes       String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId            String           @db.Uuid
+  site              Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  program           CustomerProgram
+  stage             OnboardingStage  @default(PROPOSED)
+  targetGoLiveDate  DateTime?
+  cancelReason      String?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  jobs              Job[]
 
   @@index([siteId])
   @@index([stage])
@@ -593,6 +597,9 @@ model Job {
   partnerId             String?       @db.Uuid
   partner               Partner?      @relation(fields: [partnerId], references: [id])
 
+  onboardingPipelineId  String?       @db.Uuid
+  onboardingPipeline    OnboardingPipeline? @relation(fields: [onboardingPipelineId], references: [id], onDelete: SetNull)
+
   responderType         ResponderType?
   assignedToUserId      String?       @db.Uuid
   assignedTo            User?         @relation("JobResponderUser", fields: [assignedToUserId], references: [id])
@@ -624,6 +631,7 @@ model Job {
   @@index([assignedToUserId, status])
   @@index([customerId])
   @@index([partnerId])
+  @@index([onboardingPipelineId])
   @@index([scheduledFor])
   @@index([status])
 }
