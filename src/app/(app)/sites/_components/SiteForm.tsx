@@ -71,7 +71,16 @@ export type KeyRow = {
   label: string;
   type: string;
   status: string;
+  duplicable: boolean;
   notes: string | null;
+};
+
+export type KeySetRow = {
+  id?: string;
+  internalNo: string | null;
+  label: string;
+  notes: string | null;
+  keys: KeyRow[];
 };
 
 export type ScheduleDay = {
@@ -95,7 +104,7 @@ export type SiteFormValues = {
   notes: string | null;
   active: boolean;
 
-  keys: KeyRow[];
+  keySets: KeySetRow[];
   lockUnlock: {
     days: string[];
     unlockTime: string | null;
@@ -131,7 +140,7 @@ export function SiteForm({
   const fe = state.fieldErrors ?? {};
 
   const [services, setServices] = useState<string[]>(initial.services);
-  const [keys, setKeys] = useState<KeyRow[]>(initial.keys);
+  const [keySets, setKeySets] = useState<KeySetRow[]>(initial.keySets);
   const [lockDays, setLockDays] = useState<string[]>(initial.lockUnlock.days);
   const [unlockTime, setUnlockTime] = useState(
     initial.lockUnlock.unlockTime ?? "",
@@ -151,7 +160,7 @@ export function SiteForm({
   const wantsVpi = services.includes("VPI");
   const wantsAccess = services.includes("ALARM_RESPONSE");
 
-  const keysJson = useMemo(() => JSON.stringify(keys), [keys]);
+  const keySetsJson = useMemo(() => JSON.stringify(keySets), [keySets]);
   const patrolDaysJson = useMemo(
     () => JSON.stringify(patrolDays),
     [patrolDays],
@@ -403,7 +412,7 @@ export function SiteForm({
 
       {/* Conditional sections */}
       {wantsKeys && (
-        <KeysSection keys={keys} setKeys={setKeys} />
+        <KeysSection keySets={keySets} setKeySets={setKeySets} />
       )}
 
       {wantsLockUnlock && (
@@ -438,7 +447,12 @@ export function SiteForm({
       {wantsAccess && <AccessSection initial={initial.access} />}
 
       {/* Hidden serialized state */}
-      <input type="hidden" name="keys_json" value={keysJson} readOnly />
+      <input
+        type="hidden"
+        name="keysets_json"
+        value={keySetsJson}
+        readOnly
+      />
       <input
         type="hidden"
         name="patrol_days_json"
@@ -461,23 +475,93 @@ export function SiteForm({
 }
 
 function KeysSection({
-  keys,
-  setKeys,
+  keySets,
+  setKeySets,
 }: {
-  keys: KeyRow[];
-  setKeys: React.Dispatch<React.SetStateAction<KeyRow[]>>;
+  keySets: KeySetRow[];
+  setKeySets: React.Dispatch<React.SetStateAction<KeySetRow[]>>;
 }) {
-  function addRow() {
-    setKeys((rows) => [
-      ...rows,
-      { internalNo: "", label: "", type: "KEY", status: "WITH_US", notes: "" },
+  function addSet() {
+    setKeySets((sets) => [
+      ...sets,
+      {
+        internalNo: "",
+        label: "",
+        notes: "",
+        keys: [
+          {
+            internalNo: "",
+            label: "",
+            type: "KEY",
+            status: "WITH_US",
+            duplicable: true,
+            notes: "",
+          },
+        ],
+      },
     ]);
   }
-  function update(i: number, patch: Partial<KeyRow>) {
-    setKeys((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+
+  function updateSet(i: number, patch: Partial<KeySetRow>) {
+    setKeySets((sets) =>
+      sets.map((s, idx) => (idx === i ? { ...s, ...patch } : s)),
+    );
   }
-  function remove(i: number) {
-    setKeys((rows) => rows.filter((_, idx) => idx !== i));
+
+  function removeSet(i: number) {
+    setKeySets((sets) => sets.filter((_, idx) => idx !== i));
+  }
+
+  function addKey(setIdx: number) {
+    setKeySets((sets) =>
+      sets.map((s, idx) =>
+        idx === setIdx
+          ? {
+              ...s,
+              keys: [
+                ...s.keys,
+                {
+                  internalNo: "",
+                  label: "",
+                  type: "KEY",
+                  status: "WITH_US",
+                  duplicable: true,
+                  notes: "",
+                },
+              ],
+            }
+          : s,
+      ),
+    );
+  }
+
+  function updateKey(
+    setIdx: number,
+    keyIdx: number,
+    patch: Partial<KeyRow>,
+  ) {
+    setKeySets((sets) =>
+      sets.map((s, idx) =>
+        idx === setIdx
+          ? {
+              ...s,
+              keys: s.keys.map((k, kIdx) =>
+                kIdx === keyIdx ? { ...k, ...patch } : k,
+              ),
+            }
+          : s,
+      ),
+    );
+  }
+
+  function removeKey(setIdx: number, keyIdx: number) {
+    setKeySets((sets) =>
+      sets.map((s, idx) =>
+        idx === setIdx
+          ? { ...s, keys: s.keys.filter((_, kIdx) => kIdx !== keyIdx) }
+          : s,
+      ),
+    );
   }
 
   return (
@@ -486,91 +570,172 @@ function KeysSection({
         <div>
           <h2 className="font-semibold text-brand-navy">Keys</h2>
           <p className="text-sm text-slate-500">
-            Keys, fobs, padlocks, and codes we hold for this site.
+            Keys are grouped into sets — e.g. <span className="font-mono">NT01</span> = 2
+            keys + 1 fob + padlock 5444. Mark a key non-duplicable for fobs
+            that can't be copied.
           </p>
         </div>
-        <button type="button" onClick={addRow} className="btn-secondary text-sm">
-          + Add key
+        <button type="button" onClick={addSet} className="btn-secondary text-sm">
+          + Add key set
         </button>
       </div>
 
-      {keys.length === 0 ? (
+      {keySets.length === 0 ? (
         <p className="text-sm text-slate-500 italic">
-          No keys yet. Click "Add key" to start the register.
+          No key sets yet. Click "Add key set" to start.
         </p>
       ) : (
-        <div className="space-y-2">
-          {keys.map((k, i) => (
+        <div className="space-y-4">
+          {keySets.map((set, sIdx) => (
             <div
-              key={i}
-              className="grid md:grid-cols-[120px_1fr_120px_140px_auto] gap-2 items-end"
+              key={sIdx}
+              className="rounded-xl border border-slate-200 p-4 space-y-3 bg-slate-50/40"
             >
-              <div>
-                <label className="label">Internal #</label>
-                <input
-                  className="input"
-                  value={k.internalNo ?? ""}
-                  onChange={(e) =>
-                    update(i, { internalNo: e.target.value || null })
-                  }
-                  placeholder="NT01"
-                />
-              </div>
-              <div>
-                <label className="label">Label</label>
-                <input
-                  className="input"
-                  value={k.label}
-                  onChange={(e) => update(i, { label: e.target.value })}
-                  placeholder="Front door, padlock 5444…"
-                  required
-                />
-              </div>
-              <div>
-                <label className="label">Type</label>
-                <select
-                  className="input"
-                  value={k.type}
-                  onChange={(e) => update(i, { type: e.target.value })}
+              <div className="grid md:grid-cols-[140px_1fr_auto] gap-2 items-end">
+                <div>
+                  <label className="label">Set #</label>
+                  <input
+                    className="input"
+                    value={set.internalNo ?? ""}
+                    onChange={(e) =>
+                      updateSet(sIdx, { internalNo: e.target.value || null })
+                    }
+                    placeholder="NT01"
+                  />
+                </div>
+                <div>
+                  <label className="label">
+                    Label <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    className="input"
+                    value={set.label}
+                    onChange={(e) => updateSet(sIdx, { label: e.target.value })}
+                    placeholder="Front door bundle, shutter set…"
+                    required
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeSet(sIdx)}
+                  className="btn-ghost text-sm text-red-600"
+                  aria-label="Remove set"
                 >
-                  {KEY_TYPES.map((t) => (
-                    <option key={t.v} value={t.v}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
+                  Remove set
+                </button>
               </div>
-              <div>
-                <label className="label">Status</label>
-                <select
-                  className="input"
-                  value={k.status}
-                  onChange={(e) => update(i, { status: e.target.value })}
+
+              <input
+                className="input"
+                value={set.notes ?? ""}
+                onChange={(e) =>
+                  updateSet(sIdx, { notes: e.target.value || null })
+                }
+                placeholder="Set notes (optional)"
+              />
+
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-wider text-slate-500 font-medium">
+                  Keys in this set
+                </div>
+                {set.keys.length === 0 && (
+                  <p className="text-sm text-slate-500 italic">
+                    No keys in this set yet.
+                  </p>
+                )}
+                {set.keys.map((k, kIdx) => (
+                  <div
+                    key={kIdx}
+                    className="grid md:grid-cols-[1fr_120px_130px_120px_auto] gap-2 items-end bg-white rounded-lg p-2 border border-slate-200"
+                  >
+                    <div>
+                      <label className="label">
+                        Label <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        className="input"
+                        value={k.label}
+                        onChange={(e) =>
+                          updateKey(sIdx, kIdx, { label: e.target.value })
+                        }
+                        placeholder="Front door, padlock 5444…"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Type</label>
+                      <select
+                        className="input"
+                        value={k.type}
+                        onChange={(e) =>
+                          updateKey(sIdx, kIdx, { type: e.target.value })
+                        }
+                      >
+                        {KEY_TYPES.map((t) => (
+                          <option key={t.v} value={t.v}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Status</label>
+                      <select
+                        className="input"
+                        value={k.status}
+                        onChange={(e) =>
+                          updateKey(sIdx, kIdx, { status: e.target.value })
+                        }
+                      >
+                        {KEY_STATUSES.map((s) => (
+                          <option key={s.v} value={s.v}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm pb-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={k.duplicable}
+                        onChange={(e) =>
+                          updateKey(sIdx, kIdx, {
+                            duplicable: e.target.checked,
+                          })
+                        }
+                        className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+                      />
+                      <span>Duplicable</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => removeKey(sIdx, kIdx)}
+                      className="btn-ghost text-sm text-red-600"
+                      aria-label="Remove key"
+                    >
+                      Remove
+                    </button>
+                    <div className="md:col-span-5">
+                      <input
+                        className="input"
+                        value={k.notes ?? ""}
+                        onChange={(e) =>
+                          updateKey(sIdx, kIdx, {
+                            notes: e.target.value || null,
+                          })
+                        }
+                        placeholder="Notes — copy of which key, who has another copy, etc."
+                      />
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => addKey(sIdx)}
+                  className="btn-ghost text-sm"
                 >
-                  {KEY_STATUSES.map((s) => (
-                    <option key={s.v} value={s.v}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <button
-                type="button"
-                onClick={() => remove(i)}
-                className="btn-ghost text-sm text-red-600 self-end"
-                aria-label="Remove key"
-              >
-                Remove
-              </button>
-              <div className="md:col-span-5">
-                <input
-                  className="input"
-                  value={k.notes ?? ""}
-                  onChange={(e) =>
-                    update(i, { notes: e.target.value || null })
-                  }
-                  placeholder="Notes — access quirks, who else has a copy, etc."
-                />
+                  + Add key to set
+                </button>
               </div>
             </div>
           ))}

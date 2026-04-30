@@ -15,7 +15,20 @@ export default async function EditSitePage({
     prisma.site.findUnique({
       where: { id: params.id },
       include: {
-        keys: { where: { status: { not: "RETIRED" } }, orderBy: { internalNo: "asc" } },
+        keySets: {
+          where: { active: true },
+          orderBy: { internalNo: "asc" },
+          include: {
+            keys: {
+              where: { status: { not: "RETIRED" } },
+              orderBy: { label: "asc" },
+            },
+          },
+        },
+        keys: {
+          where: { status: { not: "RETIRED" }, keySetId: null },
+          orderBy: { label: "asc" },
+        },
         lockUnlockSchedules: { where: { active: true }, take: 1 },
         patrolSchedules: { where: { active: true } },
         accessInstruction: true,
@@ -77,14 +90,43 @@ export default async function EditSitePage({
           riskLevel: site.riskLevel,
           notes: site.notes,
           active: site.active,
-          keys: site.keys.map((k) => ({
-            id: k.id,
-            internalNo: k.internalNo,
-            label: k.label,
-            type: k.type,
-            status: k.status,
-            notes: k.notes,
-          })),
+          keySets: [
+            ...site.keySets.map((s) => ({
+              id: s.id,
+              internalNo: s.internalNo,
+              label: s.label,
+              notes: s.notes,
+              keys: s.keys.map((k) => ({
+                id: k.id,
+                internalNo: k.internalNo,
+                label: k.label,
+                type: k.type,
+                status: k.status,
+                duplicable: k.duplicable,
+                notes: k.notes,
+              })),
+            })),
+            // Migrate any orphan keys (no keySetId) into a default set so
+            // they're not lost on first edit after the schema change.
+            ...(site.keys.length > 0
+              ? [
+                  {
+                    internalNo: null,
+                    label: "Site keys",
+                    notes: null,
+                    keys: site.keys.map((k) => ({
+                      id: k.id,
+                      internalNo: k.internalNo,
+                      label: k.label,
+                      type: k.type,
+                      status: k.status,
+                      duplicable: k.duplicable,
+                      notes: k.notes,
+                    })),
+                  },
+                ]
+              : []),
+          ],
           lockUnlock: {
             days: lu?.days ?? [],
             unlockTime: lu?.unlockTime ?? null,

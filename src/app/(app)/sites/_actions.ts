@@ -46,7 +46,17 @@ const KeyRow = z.object({
   label: z.string().trim().min(1).max(120),
   type: z.enum(KEY_TYPES),
   status: z.enum(KEY_STATUSES).default("WITH_US"),
+  duplicable: z.boolean().default(true),
   notes: z.string().trim().max(500).optional().nullable(),
+  remove: z.boolean().optional(),
+});
+
+const KeySetRow = z.object({
+  id: z.string().uuid().optional().nullable(),
+  internalNo: z.string().trim().max(40).optional().nullable(),
+  label: z.string().trim().min(1).max(120),
+  notes: z.string().trim().max(500).optional().nullable(),
+  keys: z.array(KeyRow).max(50).default([]),
   remove: z.boolean().optional(),
 });
 
@@ -70,7 +80,7 @@ const SiteInput = z.object({
   notes: z.string().trim().max(2000).optional().nullable(),
   active: z.boolean().default(true),
 
-  keys: z.array(KeyRow).max(50).default([]),
+  keySets: z.array(KeySetRow).max(20).default([]),
   lockUnlock: z
     .object({
       days: z.array(z.enum(DAYS)).default([]),
@@ -134,7 +144,10 @@ function parseFormData(formData: FormData) {
     notes: formData.get("notes")?.toString() || null,
     active: formData.get("active") === "on",
 
-    keys: safeJson(formData.get("keys_json")?.toString(), [] as unknown[]),
+    keySets: safeJson(
+      formData.get("keysets_json")?.toString(),
+      [] as unknown[],
+    ),
     lockUnlock: {
       days: lockunlockDays,
       unlockTime: formData.get("lockunlock_unlock_time")?.toString() || null,
@@ -181,29 +194,74 @@ async function syncRelations(siteId: string, d: ParsedSite) {
   await prisma.$transaction(async (tx) => {
     // ── Keys ──────────────────────────────────────────────────────────────
     if (wantsKeys) {
-      for (const k of d.keys) {
-        if (k.id) {
-          await tx.key.update({
-            where: { id: k.id },
+      for (const set of d.keySets) {
+        let setId = set.id ?? null;
+
+        if (set.id) {
+          if (set.remove) {
+            // Soft-retire: deactivate set, retire its keys.
+            await tx.keySet.update({
+              where: { id: set.id },
+              data: { active: false },
+            });
+            await tx.key.updateMany({
+              where: { keySetId: set.id },
+              data: { status: "RETIRED" as any },
+            });
+            continue;
+          }
+          await tx.keySet.update({
+            where: { id: set.id },
             data: {
-              internalNo: k.internalNo || null,
-              label: k.label,
-              type: k.type as any,
-              status: (k.remove ? "RETIRED" : k.status) as any,
-              notes: k.notes || null,
+              internalNo: set.internalNo || null,
+              label: set.label,
+              notes: set.notes || null,
+              active: true,
             },
           });
-        } else if (!k.remove) {
-          await tx.key.create({
+        } else if (!set.remove) {
+          const created = await tx.keySet.create({
             data: {
               siteId,
-              internalNo: k.internalNo || null,
-              label: k.label,
-              type: k.type as any,
-              status: k.status as any,
-              notes: k.notes || null,
+              internalNo: set.internalNo || null,
+              label: set.label,
+              notes: set.notes || null,
             },
+            select: { id: true },
           });
+          setId = created.id;
+        } else {
+          continue;
+        }
+
+        for (const k of set.keys) {
+          if (k.id) {
+            await tx.key.update({
+              where: { id: k.id },
+              data: {
+                keySetId: setId,
+                internalNo: k.internalNo || null,
+                label: k.label,
+                type: k.type as any,
+                status: (k.remove ? "RETIRED" : k.status) as any,
+                duplicable: k.duplicable,
+                notes: k.notes || null,
+              },
+            });
+          } else if (!k.remove && setId) {
+            await tx.key.create({
+              data: {
+                siteId,
+                keySetId: setId,
+                internalNo: k.internalNo || null,
+                label: k.label,
+                type: k.type as any,
+                status: k.status as any,
+                duplicable: k.duplicable,
+                notes: k.notes || null,
+              },
+            });
+          }
         }
       }
     }

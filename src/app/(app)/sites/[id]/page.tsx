@@ -31,10 +31,20 @@ export default async function SiteDetailPage({
   const site = await prisma.site.findUnique({
     where: { id: params.id },
     include: {
-      customer: true,
+      customer: { include: { contacts: true } },
       partner: true,
       region: true,
       keys: { orderBy: [{ status: "asc" }, { internalNo: "asc" }] },
+      keySets: {
+        where: { active: true },
+        orderBy: { internalNo: "asc" },
+        include: {
+          keys: {
+            where: { status: { not: "RETIRED" } },
+            orderBy: { label: "asc" },
+          },
+        },
+      },
       patrolSchedules: { where: { active: true } },
       lockUnlockSchedules: { where: { active: true } },
       accessInstruction: true,
@@ -53,8 +63,12 @@ export default async function SiteDetailPage({
     ]).then(([a, p, s]) => a + p + s),
   ]);
 
+  const totalSetKeys = site.keySets.reduce(
+    (sum, s) => sum + s.keys.length,
+    0,
+  );
   const counts = {
-    keys: activeKeys.length,
+    keys: totalSetKeys + activeKeys.length,
     activity: activityCounts,
   };
 
@@ -152,65 +166,16 @@ function Sidebar({ site }: { site: SiteWithRelations }) {
         </div>
       )}
 
-      {site.customer &&
-        (site.customer.contactName ||
-          site.customer.contactEmail ||
-          site.customer.contactPhone) && (
-          <div>
-            <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-1.5">
-              Contact
-            </h3>
-            <div className="space-y-0.5 text-sm">
-              {site.customer.contactName && (
-                <div className="font-medium text-slate-800">
-                  {site.customer.contactName}
-                </div>
-              )}
-              {site.customer.contactPhone && (
-                <div className="text-slate-600">
-                  {site.customer.contactPhone}
-                </div>
-              )}
-              {site.customer.contactEmail && (
-                <div className="text-slate-600 truncate">
-                  {site.customer.contactEmail}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+      {site.customer && <ContactsBlock customer={site.customer} />}
 
       <div>
         <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-1.5">
           Keys held
         </h3>
-        {activeKeys.length === 0 ? (
-          <p className="text-sm text-slate-500 italic">None on file.</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {activeKeys.slice(0, 4).map((k) => (
-              <li
-                key={k.id}
-                className="card p-3 flex items-center justify-between gap-2"
-              >
-                <div className="min-w-0">
-                  <div className="font-semibold text-brand-navy">
-                    {k.internalNo ?? "—"}
-                  </div>
-                  <div className="text-xs text-slate-500 truncate">
-                    {k.label}
-                  </div>
-                </div>
-                <KeyStatusChip status={k.status} />
-              </li>
-            ))}
-            {activeKeys.length > 4 && (
-              <li className="text-xs text-slate-500 px-1">
-                + {activeKeys.length - 4} more
-              </li>
-            )}
-          </ul>
-        )}
+        <KeySetSummary
+          keySets={site.keySets}
+          orphanKeys={activeKeys.filter((k) => !k.keySetId)}
+        />
       </div>
 
       {site.notes && (
@@ -383,6 +348,145 @@ function KeyStatusChip({ status }: { status: string }) {
   return <span className={tone}>{label}</span>;
 }
 
+// ── Contacts + KeySets sidebar ───────────────────────────────────────────
+
+function ContactsBlock({
+  customer,
+}: {
+  customer: SiteWithRelations["customer"];
+}) {
+  if (!customer) return null;
+  const contacts = customer.contacts ?? [];
+  // Surface the legacy single-contact fields if they're set and there are
+  // no proper CustomerContact rows yet.
+  const hasLegacy =
+    contacts.length === 0 &&
+    (customer.contactName || customer.contactEmail || customer.contactPhone);
+  if (contacts.length === 0 && !hasLegacy) return null;
+
+  return (
+    <div>
+      <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-1.5">
+        Contacts
+      </h3>
+      <ul className="space-y-2 text-sm">
+        {contacts.map((c) => (
+          <li key={c.id}>
+            <div className="font-medium text-slate-800">{c.name}</div>
+            <div className="text-xs text-slate-500">
+              {[c.role, c.phone, c.email, c.ref ? `ref ${c.ref}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </li>
+        ))}
+        {hasLegacy && (
+          <li>
+            {customer.contactName && (
+              <div className="font-medium text-slate-800">
+                {customer.contactName}
+              </div>
+            )}
+            <div className="text-xs text-slate-500">
+              {[customer.contactPhone, customer.contactEmail]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
+function KeySetSummary({
+  keySets,
+  orphanKeys,
+}: {
+  keySets: SiteWithRelations["keySets"];
+  orphanKeys: SiteWithRelations["keys"];
+}) {
+  const items: { id: string; ref: string; line: string; tone: string }[] = [];
+
+  for (const set of keySets) {
+    const counts = countByType(set.keys);
+    const line = formatKeyCounts(counts);
+    const tone = pickKeyTone(set.keys);
+    items.push({
+      id: set.id,
+      ref: set.internalNo ?? set.label,
+      line: line || set.label,
+      tone,
+    });
+  }
+
+  if (orphanKeys.length > 0) {
+    const counts = countByType(orphanKeys);
+    items.push({
+      id: "orphans",
+      ref: "Site keys",
+      line: formatKeyCounts(counts) || "—",
+      tone: pickKeyTone(orphanKeys),
+    });
+  }
+
+  if (items.length === 0) {
+    return <p className="text-sm text-slate-500 italic">None on file.</p>;
+  }
+
+  return (
+    <ul className="space-y-1.5">
+      {items.slice(0, 4).map((it) => (
+        <li
+          key={it.id}
+          className="card p-3 flex items-center justify-between gap-2"
+        >
+          <div className="min-w-0">
+            <div className="font-semibold text-brand-navy">{it.ref}</div>
+            <div className="text-xs text-slate-500 truncate">{it.line}</div>
+          </div>
+          <span className={it.tone}>
+            {it.tone === "chip-mint" ? "With us" : "Mixed"}
+          </span>
+        </li>
+      ))}
+      {items.length > 4 && (
+        <li className="text-xs text-slate-500 px-1">
+          + {items.length - 4} more
+        </li>
+      )}
+    </ul>
+  );
+}
+
+function countByType(
+  keys: { type: string; status: string }[],
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const k of keys) {
+    if (k.status === "RETIRED") continue;
+    out[k.type] = (out[k.type] ?? 0) + 1;
+  }
+  return out;
+}
+
+function formatKeyCounts(counts: Record<string, number>): string {
+  const parts: string[] = [];
+  for (const [type, n] of Object.entries(counts)) {
+    if (!n) continue;
+    const label = type === "FOB" ? "fob" : type === "PADLOCK" ? "padlock" : type === "CODE" ? "code" : "key";
+    parts.push(`${n} ${label}${n === 1 ? "" : "s"}`);
+  }
+  return parts.join(" + ");
+}
+
+function pickKeyTone(keys: { status: string }[]): string {
+  const all = keys.filter((k) => k.status !== "RETIRED");
+  if (all.length === 0) return "chip-slate";
+  if (all.every((k) => k.status === "WITH_US")) return "chip-mint";
+  return "chip-amber";
+}
+
 // ── Activity ─────────────────────────────────────────────────────────────
 
 async function ActivityTab({ siteId }: { siteId: string }) {
@@ -439,15 +543,16 @@ type SiteWithRelations = NonNullable<
   Awaited<ReturnType<typeof loadSite>>
 >;
 
-// (Type helper, never actually called.)
+// (Type helper, never actually called — must mirror the page's findUnique include.)
 async function loadSite(id: string) {
   return prisma.site.findUnique({
     where: { id },
     include: {
-      customer: true,
+      customer: { include: { contacts: true } },
       partner: true,
       region: true,
       keys: true,
+      keySets: { include: { keys: true } },
       patrolSchedules: true,
       lockUnlockSchedules: true,
       accessInstruction: true,

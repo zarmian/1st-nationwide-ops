@@ -289,8 +289,25 @@ model Customer {
 
   sites           Site[]
   jobs            Job[]
+  contacts        CustomerContact[]
 
   @@index([name])
+}
+
+model CustomerContact {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId  String   @db.Uuid
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name        String
+  role        String?
+  email       String?
+  phone       String?
+  ref         String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId])
 }
 
 model Site {
@@ -320,6 +337,7 @@ model Site {
   updatedAt             DateTime     @updatedAt
 
   keys                  Key[]
+  keySets               KeySet[]
   accessInstruction     AccessInstruction?
   patrolSchedules       PatrolSchedule[]
   patrolVisits          PatrolVisit[]
@@ -337,6 +355,22 @@ model Site {
   @@index([active])
 }
 
+model KeySet {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId      String   @db.Uuid
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  internalNo  String?  @unique
+  label       String
+  notes       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  keys        Key[]
+
+  @@index([siteId])
+}
+
 model Key {
   id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   internalNo          String?       @unique
@@ -344,6 +378,12 @@ model Key {
   type                KeyType
   siteId              String?       @db.Uuid
   site                Site?         @relation(fields: [siteId], references: [id])
+  keySetId            String?       @db.Uuid
+  keySet              KeySet?       @relation(fields: [keySetId], references: [id], onDelete: SetNull)
+  copyOfId            String?       @db.Uuid
+  copyOf              Key?          @relation("KeyCopies", fields: [copyOfId], references: [id], onDelete: SetNull)
+  copies              Key[]         @relation("KeyCopies")
+  duplicable          Boolean       @default(true)
   currentHolderUserId String?       @db.Uuid
   currentHolder       User?         @relation("KeyHolder", fields: [currentHolderUserId], references: [id])
   status              KeyStatus     @default(WITH_US)
@@ -355,6 +395,8 @@ model Key {
   movements           KeyMovement[]
 
   @@index([siteId])
+  @@index([keySetId])
+  @@index([copyOfId])
   @@index([currentHolderUserId])
   @@index([status])
 }

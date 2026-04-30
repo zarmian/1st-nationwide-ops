@@ -52,7 +52,7 @@ export default async function NewSitePage() {
           riskLevel: "LOW",
           notes: null,
           active: true,
-          keys: [],
+          keySets: [],
           lockUnlock: { days: [], unlockTime: null, lockdownTime: null },
           patrolDays: [],
           vpiDays: [],
