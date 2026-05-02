@@ -4,13 +4,15 @@ import { prisma } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function AdminHubPage() {
-  const [customers, partners, regions, pending, templates] = await Promise.all([
-    prisma.customer.count({ where: { active: true } }),
-    prisma.partner.count({ where: { active: true } }),
-    prisma.region.count(),
-    prisma.reportReview.count({ where: { status: "PENDING" } }),
-    prisma.formTemplate.count({ where: { active: true } }),
-  ]);
+  const [customers, partners, regions, pending, templates, blueprints] =
+    await Promise.all([
+      prisma.customer.count({ where: { active: true } }),
+      prisma.partner.count({ where: { active: true } }),
+      prisma.region.count(),
+      prisma.reportReview.count({ where: { status: "PENDING" } }),
+      prisma.formTemplate.count({ where: { active: true } }),
+      prisma.formBlueprint.count({ where: { active: true } }),
+    ]);
 
   const cards = [
     {
@@ -46,6 +48,13 @@ export default async function AdminHubPage() {
       title: "Form templates",
       blurb: "What officers fill in for each kind of job. Per-customer, per-partner, or per-site.",
       stat: templates,
+      statLabel: "active",
+    },
+    {
+      href: "/admin/blueprints",
+      title: "Form blueprints",
+      blurb: "Reusable starting points — pick when creating a new template instead of building from scratch.",
+      stat: blueprints,
       statLabel: "active",
     },
   ];

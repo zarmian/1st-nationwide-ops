@@ -28,6 +28,7 @@ const TemplateInput = z
     customerId: z.string().uuid().optional().nullable(),
     partnerId: z.string().uuid().optional().nullable(),
     siteId: z.string().uuid().optional().nullable(),
+    blueprintId: z.string().uuid().optional().nullable(),
     fields: FieldsArraySchema,
     active: z.boolean().default(true),
   })
@@ -95,6 +96,7 @@ function parseForm(formData: FormData) {
         : null,
     siteId:
       scope === "SITE" ? formData.get("siteId")?.toString() || null : null,
+    blueprintId: formData.get("blueprintId")?.toString() || null,
     fields: safeJson(formData.get("fields_json")?.toString(), [] as unknown[]),
     active: formData.get("active") === "on",
   };
@@ -122,6 +124,7 @@ export async function createTemplate(
       customerId: d.customerId,
       partnerId: d.partnerId,
       siteId: d.siteId,
+      blueprintId: d.blueprintId,
       fields: d.fields as any,
       active: d.active,
       createdById: userId ?? null,
@@ -130,6 +133,32 @@ export async function createTemplate(
   });
   revalidatePath("/admin/forms");
   redirect(`/admin/forms/${created.id}/edit`);
+}
+
+export async function duplicateTemplate(
+  id: string,
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const userId = await requireAdmin();
+  const src = await prisma.formTemplate.findUnique({ where: { id } });
+  if (!src) return { ok: false, error: "Template not found" };
+
+  const created = await prisma.formTemplate.create({
+    data: {
+      name: `${src.name} (copy)`,
+      jobType: src.jobType,
+      scope: "GLOBAL", // reset target so admin re-picks
+      customerId: null,
+      partnerId: null,
+      siteId: null,
+      blueprintId: src.blueprintId,
+      fields: src.fields as any,
+      active: false, // start inactive so it doesn't accidentally resolve
+      createdById: userId ?? null,
+    },
+    select: { id: true },
+  });
+  revalidatePath("/admin/forms");
+  return { ok: true, id: created.id };
 }
 
 export async function updateTemplate(

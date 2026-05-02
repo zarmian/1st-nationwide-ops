@@ -277,6 +277,7 @@ model User {
   formSubmissions          FormSubmission[]    @relation("SubmittedByUser")
   reportReviews            ReportReview[]      @relation("ReportReviewer")
   formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
+  formBlueprintsAuthored   FormBlueprint[]     @relation("FormBlueprintAuthor")
 
   @@index([regionId, role])
 }
@@ -695,6 +696,8 @@ model FormTemplate {
   site         Site?          @relation(fields: [siteId], references: [id], onDelete: Cascade)
   fields       Json           @default("[]")
   active       Boolean        @default(true)
+  blueprintId  String?        @db.Uuid
+  blueprint    FormBlueprint? @relation(fields: [blueprintId], references: [id], onDelete: SetNull)
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   createdById  String?        @db.Uuid
@@ -706,6 +709,28 @@ model FormTemplate {
   @@index([customerId])
   @@index([partnerId])
   @@index([siteId])
+  @@index([blueprintId])
+}
+
+model FormBlueprint {
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug         String          @unique
+  name         String
+  description  String?
+  jobType      SubmissionForm?
+  fields       Json            @default("[]")
+  source       String?
+  builtin      Boolean         @default(false)
+  active       Boolean         @default(true)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  createdById  String?         @db.Uuid
+  createdBy    User?           @relation("FormBlueprintAuthor", fields: [createdById], references: [id])
+
+  templates    FormTemplate[]
+
+  @@index([active])
+  @@index([builtin])
 }
 
 model ReportReview {

@@ -2,9 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { FormTemplateForm, type FieldRow } from "../../_components/FormTemplateForm";
-import { updateTemplate, deleteTemplate } from "../../_actions";
+import { updateTemplate, deleteTemplate, duplicateTemplate } from "../../_actions";
 import { parseFields } from "@/lib/formTemplates";
 import { DeleteButton } from "./_components/DeleteButton";
+import { DuplicateButton } from "./_components/DuplicateButton";
 
 export const dynamic = "force-dynamic";
 
@@ -86,7 +87,11 @@ export default async function EditFormTemplatePage({
         }}
       />
 
-      <div className="border-t border-slate-200 pt-4">
+      <div className="border-t border-slate-200 pt-4 space-y-3">
+        <DuplicateButton
+          id={template.id}
+          duplicateAction={duplicateTemplate}
+        />
         <DeleteButton
           id={template.id}
           submissions={template._count.submissions}
