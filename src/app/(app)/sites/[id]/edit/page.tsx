@@ -90,6 +90,20 @@ export default async function EditSitePage({
           riskLevel: site.riskLevel,
           notes: site.notes,
           active: site.active,
+          partnerReference: site.partnerReference,
+          partnerSin: site.partnerSin,
+          sapRef: site.sapRef,
+          opsUnit: site.opsUnit,
+          what3words: site.what3words,
+          partnerStatus: site.partnerStatus,
+          startDate: site.startDate
+            ? site.startDate.toISOString().slice(0, 10)
+            : null,
+          terminationDate: site.terminationDate
+            ? site.terminationDate.toISOString().slice(0, 10)
+            : null,
+          dne: site.dne,
+          hsMarkers: site.hsMarkers,
           keySets: [
             ...site.keySets.map((s) => ({
               id: s.id,

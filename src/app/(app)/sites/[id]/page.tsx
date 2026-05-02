@@ -48,6 +48,7 @@ export default async function SiteDetailPage({
       patrolSchedules: { where: { active: true } },
       lockUnlockSchedules: { where: { active: true } },
       accessInstruction: true,
+      rates: { orderBy: { service: "asc" } },
     },
   });
 
@@ -94,6 +95,7 @@ export default async function SiteDetailPage({
       {tab === "overview" && <OverviewTab site={site} />}
       {tab === "schedule" && <ScheduleTab site={site} />}
       {tab === "keys" && <KeysTab keys={site.keys} />}
+      {tab === "finance" && <FinanceTab site={site} />}
       {tab === "activity" && <ActivityTab siteId={site.id} />}
       {tab === "documents" && <DocumentsTab />}
       {tab === "settings" && <SettingsTab siteId={site.id} active={site.active} />}
@@ -487,6 +489,200 @@ function pickKeyTone(keys: { status: string }[]): string {
   return "chip-amber";
 }
 
+// ── Finance ──────────────────────────────────────────────────────────────
+
+const RATE_LABEL: Record<string, string> = {
+  ALARM_RESPONSE: "Alarm response",
+  KEYHOLDING: "Keyholding",
+  LOCKUP: "Lock-up",
+  UNLOCK: "Unlock",
+  VPI: "VPI",
+  PATROL: "Patrol",
+  STATIC_GUARDING: "Static guarding",
+  DOG_HANDLER: "Dog handler",
+  ADHOC: "Ad-hoc",
+  ANNUAL_SUBSCRIPTION: "Annual subscription",
+  SITE_SETUP: "Site setup",
+};
+
+const UNIT_LABEL: Record<string, string> = {
+  PER_VISIT: "per visit",
+  PER_HOUR: "per hour",
+  PER_MONTH: "per month",
+  PER_YEAR: "per year",
+  FIXED: "fixed",
+};
+
+function fmtMoney(amount: unknown, currency: string): string {
+  const n = typeof amount === "number" ? amount : Number(amount);
+  if (!Number.isFinite(n)) return "—";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+  }).format(n);
+}
+
+function fmtDate(d: Date | null): string {
+  if (!d) return "—";
+  return d.toLocaleDateString("en-GB");
+}
+
+function FinanceTab({ site }: { site: SiteWithRelations }) {
+  const annual = site.rates.find((r) => r.service === "ANNUAL_SUBSCRIPTION");
+  const setup = site.rates.find((r) => r.service === "SITE_SETUP");
+  const variable = site.rates.filter(
+    (r) => r.service !== "ANNUAL_SUBSCRIPTION" && r.service !== "SITE_SETUP",
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Annual subscription
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy mt-1">
+            {annual ? fmtMoney(annual.amount, annual.currency) : "—"}
+          </div>
+          <div className="text-xs text-slate-500">
+            {annual ? "per year" : "Not set"}
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Setup fee
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy mt-1">
+            {setup ? fmtMoney(setup.amount, setup.currency) : "—"}
+          </div>
+          <div className="text-xs text-slate-500">
+            {setup ? "one-off" : "Not set"}
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Site start
+          </div>
+          <div className="text-base font-medium text-brand-navy mt-2">
+            {fmtDate(site.startDate)}
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Termination
+          </div>
+          <div className="text-base font-medium text-brand-navy mt-2">
+            {fmtDate(site.terminationDate)}
+          </div>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100">
+          <h2 className="font-semibold text-brand-navy">Variable rates</h2>
+          <p className="text-xs text-slate-500">
+            What we charge per visit / hour for this site. Source columns from
+            the Nexus CSV map directly to these.
+          </p>
+        </div>
+        {variable.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-slate-500 text-center">
+            No variable rates set. Run{" "}
+            <code className="text-xs bg-slate-100 px-1 rounded">
+              npm run db:import:nexus
+            </code>{" "}
+            with the latest CSV to populate.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Service
+                </th>
+                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Rate
+                </th>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Unit
+                </th>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Source
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {variable.map((r) => (
+                <tr key={r.id}>
+                  <td className="px-4 py-2 text-slate-700">
+                    {RATE_LABEL[r.service] ?? r.service}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums font-medium text-brand-navy">
+                    {fmtMoney(r.amount, r.currency)}
+                  </td>
+                  <td className="px-4 py-2 text-slate-500">
+                    {UNIT_LABEL[r.unit] ?? r.unit}
+                  </td>
+                  <td className="px-4 py-2 text-slate-500 text-xs">
+                    {r.source ?? "manual"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div className="card p-4">
+        <h2 className="font-semibold text-brand-navy mb-3">
+          Partner metadata
+        </h2>
+        <dl className="grid sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Partner reference</dt>
+            <dd className="text-slate-700 font-mono text-xs">
+              {site.partnerReference ?? "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-500">SIN</dt>
+            <dd className="text-slate-700 font-mono text-xs">
+              {site.partnerSin ?? "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-500">SAP ref</dt>
+            <dd className="text-slate-700">{site.sapRef ?? "—"}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-500">OPS unit</dt>
+            <dd className="text-slate-700">{site.opsUnit ?? "—"}</dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-500">what3words</dt>
+            <dd className="text-slate-700 font-mono text-xs">
+              {site.what3words ?? "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between">
+            <dt className="text-slate-500">Status (per partner)</dt>
+            <dd className="text-slate-700">{site.partnerStatus ?? "—"}</dd>
+          </div>
+        </dl>
+        {(site.dne || site.hsMarkers) && (
+          <div className="flex gap-2 mt-3">
+            {site.dne && <span className="chip-red text-[10px]">DO NOT ENGAGE</span>}
+            {site.hsMarkers && (
+              <span className="chip-amber text-[10px]">H&S MARKERS</span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Activity ─────────────────────────────────────────────────────────────
 
 async function ActivityTab({ siteId }: { siteId: string }) {
@@ -556,6 +752,7 @@ async function loadSite(id: string) {
       patrolSchedules: true,
       lockUnlockSchedules: true,
       accessInstruction: true,
+      rates: true,
     },
   });
 }

@@ -22,6 +22,7 @@ const links = [
   { href: "/keys", label: "Keys" },
   { href: "/onboarding", label: "Onboarding" },
   { href: "/officers", label: "Officers" },
+  { href: "/finance", label: "Finance" },
   { href: "/admin/reports", label: "Reports" },
   { href: "/admin", label: "Admin" },
 ];

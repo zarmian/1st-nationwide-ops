@@ -231,6 +231,28 @@ enum AlarmOutcome {
   OTHER
 }
 
+enum RateService {
+  ALARM_RESPONSE
+  KEYHOLDING
+  LOCKUP
+  UNLOCK
+  VPI
+  PATROL
+  STATIC_GUARDING
+  DOG_HANDLER
+  ADHOC
+  ANNUAL_SUBSCRIPTION
+  SITE_SETUP
+}
+
+enum RateUnit {
+  PER_VISIT
+  PER_HOUR
+  PER_MONTH
+  PER_YEAR
+  FIXED
+}
+
 // ----------- Models -----------
 
 model Region {
@@ -345,6 +367,17 @@ model Site {
   riskLevel             RiskLevel    @default(LOW)
   notes                 String?
   active                Boolean      @default(true)
+  // ── partner-supplied site metadata (Nexus, etc.) ─────────────────────────
+  partnerReference      String?
+  partnerSin            String?
+  sapRef                String?
+  opsUnit               String?
+  what3words            String?
+  partnerStatus         String?
+  startDate             DateTime?
+  terminationDate       DateTime?
+  dne                   Boolean      @default(false)
+  hsMarkers             Boolean      @default(false)
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
 
@@ -359,6 +392,7 @@ model Site {
   jobs                  Job[]
   formSubmissions       FormSubmission[]
   formTemplates         FormTemplate[]
+  rates                 SiteRate[]
 
   @@index([regionId])
   @@index([customerId])
@@ -366,6 +400,27 @@ model Site {
   @@index([postcode])
   @@index([type])
   @@index([active])
+  @@index([partnerReference])
+}
+
+model SiteRate {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId      String       @db.Uuid
+  site        Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  service     RateService
+  amount      Decimal      @db.Decimal(10, 2)
+  currency    String       @default("GBP")
+  unit        RateUnit     @default(PER_VISIT)
+  validFrom   DateTime?
+  validTo     DateTime?
+  notes       String?
+  source      String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([siteId, service])
+  @@index([siteId])
+  @@index([service])
 }
 
 model KeySet {

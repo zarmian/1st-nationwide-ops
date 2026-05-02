@@ -103,6 +103,16 @@ export type SiteFormValues = {
   riskLevel: string;
   notes: string | null;
   active: boolean;
+  partnerReference: string | null;
+  partnerSin: string | null;
+  sapRef: string | null;
+  opsUnit: string | null;
+  what3words: string | null;
+  partnerStatus: string | null;
+  startDate: string | null;
+  terminationDate: string | null;
+  dne: boolean;
+  hsMarkers: boolean;
 
   keySets: KeySetRow[];
   lockUnlock: {
@@ -335,6 +345,135 @@ export function SiteForm({
               ))}
             </select>
           </div>
+        </div>
+      </div>
+
+      {/* Partner reference & flags */}
+      <div className="card p-5 space-y-4">
+        <h2 className="font-semibold text-brand-navy">
+          Partner reference & flags
+        </h2>
+        <p className="text-sm text-slate-500 -mt-2">
+          Partner-supplied identifiers and contractual dates. The Nexus CSV
+          importer fills these in automatically; edit by hand when the partner
+          notifies you of a change.
+        </p>
+
+        <div className="grid md:grid-cols-3 gap-4">
+          <div>
+            <label className="label" htmlFor="partnerReference">
+              Partner reference
+            </label>
+            <input
+              id="partnerReference"
+              name="partnerReference"
+              defaultValue={initial.partnerReference ?? ""}
+              className="input font-mono text-xs"
+              placeholder="SITE-113341"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="partnerSin">
+              SIN
+            </label>
+            <input
+              id="partnerSin"
+              name="partnerSin"
+              defaultValue={initial.partnerSin ?? ""}
+              className="input font-mono text-xs"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="partnerStatus">
+              Status (per partner)
+            </label>
+            <input
+              id="partnerStatus"
+              name="partnerStatus"
+              defaultValue={initial.partnerStatus ?? ""}
+              className="input"
+              placeholder="Active"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="sapRef">
+              SAP ref
+            </label>
+            <input
+              id="sapRef"
+              name="sapRef"
+              defaultValue={initial.sapRef ?? ""}
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="opsUnit">
+              OPS unit
+            </label>
+            <input
+              id="opsUnit"
+              name="opsUnit"
+              defaultValue={initial.opsUnit ?? ""}
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="what3words">
+              what3words
+            </label>
+            <input
+              id="what3words"
+              name="what3words"
+              defaultValue={initial.what3words ?? ""}
+              className="input font-mono text-xs"
+              placeholder="filled.count.soap"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="startDate">
+              Site start date
+            </label>
+            <input
+              id="startDate"
+              name="startDate"
+              type="date"
+              defaultValue={initial.startDate ?? ""}
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="terminationDate">
+              Termination date
+            </label>
+            <input
+              id="terminationDate"
+              name="terminationDate"
+              type="date"
+              defaultValue={initial.terminationDate ?? ""}
+              className="input"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              name="dne"
+              defaultChecked={initial.dne}
+              className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            />
+            <span>DNE — Do not engage</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              name="hsMarkers"
+              defaultChecked={initial.hsMarkers}
+              className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            />
+            <span>HS markers — Health & safety hazards on site</span>
+          </label>
         </div>
       </div>
 
