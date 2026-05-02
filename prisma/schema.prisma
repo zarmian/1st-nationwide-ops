@@ -96,6 +96,7 @@ enum VisitStatus {
   PENDING
   IN_PROGRESS
   COMPLETED
+  LATE
   MISSED
 }
 
@@ -469,8 +470,8 @@ model PatrolVisit {
   site               Site            @relation(fields: [siteId], references: [id])
   patrolScheduleId   String?         @db.Uuid
   patrolSchedule     PatrolSchedule? @relation(fields: [patrolScheduleId], references: [id])
-  officerId          String          @db.Uuid
-  officer            User            @relation(fields: [officerId], references: [id])
+  officerId          String?         @db.Uuid
+  officer            User?           @relation(fields: [officerId], references: [id])
   scheduledAt        DateTime
   arrivedAt          DateTime?
   departedAt         DateTime?
@@ -482,6 +483,7 @@ model PatrolVisit {
   createdAt          DateTime        @default(now())
 
   job                Job?
+  formSubmissions    FormSubmission[]
 
   @@index([siteId, scheduledAt])
   @@index([officerId, scheduledAt])
@@ -656,6 +658,8 @@ model FormSubmission {
   site                Site?           @relation(fields: [siteId], references: [id])
   jobId               String?         @db.Uuid
   job                 Job?            @relation(fields: [jobId], references: [id])
+  patrolVisitId       String?         @db.Uuid
+  patrolVisit         PatrolVisit?    @relation(fields: [patrolVisitId], references: [id], onDelete: SetNull)
 
   submittedByUserId   String?         @db.Uuid
   submittedBy         User?           @relation("SubmittedByUser", fields: [submittedByUserId], references: [id])
@@ -674,6 +678,7 @@ model FormSubmission {
   @@index([submittedByUserId])
   @@index([form])
   @@index([formTemplateId])
+  @@index([patrolVisitId])
 }
 
 model FormTemplate {

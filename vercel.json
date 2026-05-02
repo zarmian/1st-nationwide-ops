@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/patrol-visits",
+      "schedule": "5 0 * * *"
+    },
+    {
+      "path": "/api/cron/visit-statuses",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

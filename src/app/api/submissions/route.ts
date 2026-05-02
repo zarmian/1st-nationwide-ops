@@ -8,6 +8,7 @@ import { parseFields, validatePayload } from "@/lib/formTemplates";
 const Body = z.object({
   siteId: z.string().min(1),
   jobId: z.string().nullable().optional(),
+  patrolVisitId: z.string().uuid().nullable().optional(),
   form: z.enum([
     "ALARM_RESPONSE",
     "PATROL",
@@ -82,6 +83,7 @@ export async function POST(req: Request) {
       formTemplateId,
       siteId: data.siteId,
       jobId: data.jobId ?? null,
+      patrolVisitId: data.patrolVisitId ?? null,
       submittedByUserId: session ? ((session.user as any).id as string) : null,
       officerNameRaw: data.officerNameRaw,
       arrivedAt: data.arrivedAt ? new Date(data.arrivedAt) : null,
@@ -97,6 +99,27 @@ export async function POST(req: Request) {
       status: "PENDING",
     },
   });
+
+  // If this submission completes a patrol visit, mark it COMPLETED with the
+  // departure time (or now). arrivedAt is only set from the form when the
+  // visit doesn't already have one — preserves the real "on-site" tap time.
+  if (data.patrolVisitId) {
+    const visit = await prisma.patrolVisit.findUnique({
+      where: { id: data.patrolVisitId },
+      select: { arrivedAt: true },
+    });
+    const departed = data.departedAt ? new Date(data.departedAt) : new Date();
+    await prisma.patrolVisit.update({
+      where: { id: data.patrolVisitId },
+      data: {
+        status: "COMPLETED",
+        departedAt: departed,
+        arrivedAt:
+          visit?.arrivedAt ??
+          (data.arrivedAt ? new Date(data.arrivedAt) : new Date()),
+      },
+    });
+  }
 
   return NextResponse.json({ ok: true, id: submitted.id });
 }

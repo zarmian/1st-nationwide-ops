@@ -96,11 +96,11 @@ export async function loadActivity(
                 ? "info"
                 : "info",
         at: p.scheduledAt,
-        title: `${kindLabel}${freq} · ${p.officer.name ?? "Officer"}${
+        title: `${kindLabel}${freq} · ${p.officer?.name ?? "Unassigned"}${
           onSite !== null ? ` · ${onSite} min on site` : ""
         }`,
         detail: p.notes,
-        actor: p.officer.name ?? null,
+        actor: p.officer?.name ?? null,
       };
     }),
     ...submissions.map<ActivityEvent>((s) => ({

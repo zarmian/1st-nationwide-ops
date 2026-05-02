@@ -41,6 +41,7 @@ export function SubmitForm({
   prefilledSiteId,
   prefilledJobId,
   prefilledJobType,
+  prefilledVisitId,
 }: {
   sites: Site[];
   templates: SubmitTemplate[];
@@ -49,6 +50,7 @@ export function SubmitForm({
   prefilledSiteId: string | null;
   prefilledJobId: string | null;
   prefilledJobType: string | null;
+  prefilledVisitId: string | null;
 }) {
   const [siteId, setSiteId] = useState(prefilledSiteId ?? "");
   const [siteSearch, setSiteSearch] = useState("");
@@ -102,6 +104,7 @@ export function SubmitForm({
         body: JSON.stringify({
           siteId,
           jobId: prefilledJobId,
+          patrolVisitId: prefilledVisitId,
           form: formType,
           formTemplateId: template?.id ?? null,
           officerNameRaw: name,

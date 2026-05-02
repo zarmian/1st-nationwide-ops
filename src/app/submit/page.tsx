@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function SubmitPage({
   searchParams,
 }: {
-  searchParams: { jobId?: string; siteId?: string };
+  searchParams: { jobId?: string; siteId?: string; visitId?: string };
 }) {
   const session = await getServerSession(authOptions);
 
@@ -60,6 +60,18 @@ export default async function SubmitPage({
     });
   }
 
+  let prefilledVisit = null;
+  if (searchParams.visitId) {
+    prefilledVisit = await prisma.patrolVisit.findUnique({
+      where: { id: searchParams.visitId },
+      select: {
+        id: true,
+        siteId: true,
+        patrolSchedule: { select: { kind: true } },
+      },
+    });
+  }
+
   const officerName =
     session?.user?.name ?? (session?.user as any)?.email ?? "";
 
@@ -84,9 +96,22 @@ export default async function SubmitPage({
           templates={templates}
           officerName={officerName}
           isInternal={!!session}
-          prefilledSiteId={prefilledJob?.siteId ?? searchParams.siteId ?? null}
+          prefilledSiteId={
+            prefilledVisit?.siteId ??
+            prefilledJob?.siteId ??
+            searchParams.siteId ??
+            null
+          }
           prefilledJobId={prefilledJob?.id ?? null}
-          prefilledJobType={prefilledJob?.type ?? null}
+          prefilledJobType={
+            prefilledJob?.type ??
+            (prefilledVisit?.patrolSchedule?.kind === "VPI"
+              ? "VPI"
+              : prefilledVisit
+                ? "PATROL"
+                : null)
+          }
+          prefilledVisitId={prefilledVisit?.id ?? null}
         />
       </div>
     </main>
