@@ -5,10 +5,25 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { BrandLogo } from "./BrandLogo";
 
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/admin") {
+    // Match the hub itself plus the lookups, but NOT /admin/reports.
+    return (
+      pathname === "/admin" ||
+      /^\/admin\/(customers|partners|regions)(\/|$)/.test(pathname)
+    );
+  }
+  return pathname === href || pathname.startsWith(href + "/");
+}
+
 const links = [
   { href: "/sites", label: "Sites" },
-  { href: "/dispatch", label: "Dispatch" },
+  { href: "/patrols", label: "Patrols" },
+  { href: "/keys", label: "Keys" },
+  { href: "/onboarding", label: "Onboarding" },
+  { href: "/officers", label: "Officers" },
   { href: "/admin/reports", label: "Reports" },
+  { href: "/admin", label: "Admin" },
 ];
 
 export function TopNav({
@@ -29,7 +44,7 @@ export function TopNav({
 
         <nav className="hidden md:flex items-center gap-1">
           {links.map((l) => {
-            const active = pathname?.startsWith(l.href);
+            const active = isActive(pathname ?? "", l.href);
             return (
               <Link
                 key={l.href}

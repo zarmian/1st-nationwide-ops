@@ -1,30 +1,74 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { SubmitForm } from "./SubmitForm";
+import { SubmitForm, type SubmitTemplate } from "./SubmitForm";
 import { BrandLogo } from "@/components/BrandLogo";
+import { parseFields } from "@/lib/formTemplates";
 
 export const dynamic = "force-dynamic";
 
 export default async function SubmitPage({
   searchParams,
 }: {
-  searchParams: { jobId?: string; siteId?: string };
+  searchParams: { jobId?: string; siteId?: string; visitId?: string };
 }) {
   const session = await getServerSession(authOptions);
 
-  // Pre-fill if officer is logged in or if jobId/siteId was passed
-  const sites = await prisma.site.findMany({
-    where: { active: true },
-    select: { id: true, name: true, postcode: true },
-    orderBy: { name: "asc" },
-  });
+  const [sites, templatesRaw] = await Promise.all([
+    prisma.site.findMany({
+      where: { active: true },
+      select: {
+        id: true,
+        name: true,
+        postcode: true,
+        customerId: true,
+        partnerId: true,
+      },
+      orderBy: { name: "asc" },
+    }),
+    prisma.formTemplate.findMany({
+      where: { active: true },
+      select: {
+        id: true,
+        name: true,
+        jobType: true,
+        scope: true,
+        customerId: true,
+        partnerId: true,
+        siteId: true,
+        fields: true,
+      },
+    }),
+  ]);
+
+  const templates: SubmitTemplate[] = templatesRaw.map((t) => ({
+    id: t.id,
+    name: t.name,
+    jobType: t.jobType,
+    scope: t.scope,
+    customerId: t.customerId,
+    partnerId: t.partnerId,
+    siteId: t.siteId,
+    fields: parseFields(t.fields),
+  }));
 
   let prefilledJob = null;
   if (searchParams.jobId) {
     prefilledJob = await prisma.job.findUnique({
       where: { id: searchParams.jobId },
       select: { id: true, siteId: true, type: true },
+    });
+  }
+
+  let prefilledVisit = null;
+  if (searchParams.visitId) {
+    prefilledVisit = await prisma.patrolVisit.findUnique({
+      where: { id: searchParams.visitId },
+      select: {
+        id: true,
+        siteId: true,
+        patrolSchedule: { select: { kind: true } },
+      },
     });
   }
 
@@ -44,16 +88,30 @@ export default async function SubmitPage({
           Submit a report
         </h1>
         <p className="text-sm text-slate-500 mb-6">
-          Pick the site and the type of job, then fill in what you saw on site.
-          Photos are optional.
+          Pick the site and the type of job. The form below changes to match
+          the site's customer.
         </p>
         <SubmitForm
           sites={sites}
+          templates={templates}
           officerName={officerName}
           isInternal={!!session}
-          prefilledSiteId={prefilledJob?.siteId ?? searchParams.siteId ?? null}
+          prefilledSiteId={
+            prefilledVisit?.siteId ??
+            prefilledJob?.siteId ??
+            searchParams.siteId ??
+            null
+          }
           prefilledJobId={prefilledJob?.id ?? null}
-          prefilledJobType={prefilledJob?.type ?? null}
+          prefilledJobType={
+            prefilledJob?.type ??
+            (prefilledVisit?.patrolSchedule?.kind === "VPI"
+              ? "VPI"
+              : prefilledVisit
+                ? "PATROL"
+                : null)
+          }
+          prefilledVisitId={prefilledVisit?.id ?? null}
         />
       </div>
     </main>

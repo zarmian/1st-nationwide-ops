@@ -9,6 +9,7 @@
  * Optional env: SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD,
  *               IMPORT_DIR (default ../import_out)
  */
+import "dotenv/config";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { readFileSync, existsSync } from "node:fs";
@@ -163,6 +164,28 @@ async function main() {
     upserts++;
   }
   console.log(`  ✓ ${upserts} sites`);
+
+  // ── 4. Partners ──────────────────────────────────────────────────────────
+  const partners: Array<{
+    name: string;
+    role: "CUSTOMER" | "SUBCONTRACTOR" | "BOTH";
+    preferred: "EMAIL" | "PHONE" | "THEIR_APP" | "WHATSAPP" | "PORTAL";
+    notes?: string;
+  }> = [
+    { name: "Nexus Security", role: "BOTH", preferred: "THEIR_APP", notes: "London alarm activations come to us via their app; Shurgard out-of-London jobs sub'd to them." },
+    { name: "Keyholding Company", role: "BOTH", preferred: "THEIR_APP", notes: "On-demand jobs come via their app." },
+    { name: "Aegis", role: "CUSTOMER", preferred: "EMAIL" },
+    { name: "Orbis", role: "CUSTOMER", preferred: "EMAIL" },
+    { name: "Shurgard", role: "CUSTOMER", preferred: "EMAIL", notes: "Daily report email." },
+  ];
+  for (const p of partners) {
+    await prisma.partner.upsert({
+      where: { name: p.name },
+      update: { role: p.role, preferred: p.preferred, notes: p.notes ?? null },
+      create: { name: p.name, role: p.role, preferred: p.preferred, notes: p.notes ?? null },
+    });
+  }
+  console.log(`  ✓ ${partners.length} partners`);
 
   console.log("Done.");
 }

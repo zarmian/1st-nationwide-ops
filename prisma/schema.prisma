@@ -77,6 +77,11 @@ enum PatrolFrequency {
   MONTHLY
 }
 
+enum ScheduleKind {
+  PATROL
+  VPI
+}
+
 enum DayOfWeek {
   MON
   TUE
@@ -91,15 +96,14 @@ enum VisitStatus {
   PENDING
   IN_PROGRESS
   COMPLETED
+  LATE
   MISSED
 }
 
 enum OnboardingStage {
   PROPOSED
   SURVEY
-  FRONT_KEY
-  SHUTTER_KEY
-  ALARM_FOB
+  KEY_COLLECTION
   GO_LIVE
   CANCELLED
 }
@@ -141,6 +145,7 @@ enum JobType {
   UNLOCK
   KEY_COLLECTION
   KEY_DROPOFF
+  SURVEY
   VPI
   ADHOC
   STATIC_GUARDING_SHIFT
@@ -152,6 +157,7 @@ enum JobSource {
   ALARM
   PARTNER_REQUEST
   CUSTOMER_REQUEST
+  ONBOARDING
   AD_HOC
 }
 
@@ -182,6 +188,13 @@ enum SubmissionForm {
   KEY_DROPOFF
   VPI
   ADHOC
+}
+
+enum TemplateScope {
+  GLOBAL
+  CUSTOMER
+  PARTNER
+  SITE
 }
 
 enum ReviewStatus {
@@ -262,6 +275,7 @@ model User {
   jobsAsResponder          Job[]               @relation("JobResponderUser")
   formSubmissions          FormSubmission[]    @relation("SubmittedByUser")
   reportReviews            ReportReview[]      @relation("ReportReviewer")
+  formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
 
   @@index([regionId, role])
 }
@@ -284,8 +298,26 @@ model Customer {
 
   sites           Site[]
   jobs            Job[]
+  contacts        CustomerContact[]
+  formTemplates   FormTemplate[]
 
   @@index([name])
+}
+
+model CustomerContact {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId  String   @db.Uuid
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name        String
+  role        String?
+  email       String?
+  phone       String?
+  ref         String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([customerId])
 }
 
 model Site {
@@ -315,6 +347,7 @@ model Site {
   updatedAt             DateTime     @updatedAt
 
   keys                  Key[]
+  keySets               KeySet[]
   accessInstruction     AccessInstruction?
   patrolSchedules       PatrolSchedule[]
   patrolVisits          PatrolVisit[]
@@ -323,6 +356,7 @@ model Site {
   onboardingPipelines   OnboardingPipeline[]
   jobs                  Job[]
   formSubmissions       FormSubmission[]
+  formTemplates         FormTemplate[]
 
   @@index([regionId])
   @@index([customerId])
@@ -332,6 +366,22 @@ model Site {
   @@index([active])
 }
 
+model KeySet {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId      String   @db.Uuid
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  internalNo  String?  @unique
+  label       String
+  notes       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  keys        Key[]
+
+  @@index([siteId])
+}
+
 model Key {
   id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   internalNo          String?       @unique
@@ -339,6 +389,12 @@ model Key {
   type                KeyType
   siteId              String?       @db.Uuid
   site                Site?         @relation(fields: [siteId], references: [id])
+  keySetId            String?       @db.Uuid
+  keySet              KeySet?       @relation(fields: [keySetId], references: [id], onDelete: SetNull)
+  copyOfId            String?       @db.Uuid
+  copyOf              Key?          @relation("KeyCopies", fields: [copyOfId], references: [id], onDelete: SetNull)
+  copies              Key[]         @relation("KeyCopies")
+  duplicable          Boolean       @default(true)
   currentHolderUserId String?       @db.Uuid
   currentHolder       User?         @relation("KeyHolder", fields: [currentHolderUserId], references: [id])
   status              KeyStatus     @default(WITH_US)
@@ -350,6 +406,8 @@ model Key {
   movements           KeyMovement[]
 
   @@index([siteId])
+  @@index([keySetId])
+  @@index([copyOfId])
   @@index([currentHolderUserId])
   @@index([status])
 }
@@ -377,6 +435,8 @@ model AccessInstruction {
   site            Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
   alarmCodeEnc    Bytes?
   padlockCodeEnc  Bytes?
+  alarmCode       String?
+  padlockCode     String?
   entryStepsMd    String?
   lockboxId       String?
   hazards         String?
@@ -388,6 +448,7 @@ model PatrolSchedule {
   id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   siteId            String          @db.Uuid
   site              Site            @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  kind              ScheduleKind    @default(PATROL)
   dayOfWeek         DayOfWeek
   frequency         PatrolFrequency @default(WEEKLY)
   assignedOfficerId String?         @db.Uuid
@@ -400,6 +461,7 @@ model PatrolSchedule {
 
   @@index([siteId])
   @@index([assignedOfficerId])
+  @@index([kind])
 }
 
 model PatrolVisit {
@@ -408,8 +470,8 @@ model PatrolVisit {
   site               Site            @relation(fields: [siteId], references: [id])
   patrolScheduleId   String?         @db.Uuid
   patrolSchedule     PatrolSchedule? @relation(fields: [patrolScheduleId], references: [id])
-  officerId          String          @db.Uuid
-  officer            User            @relation(fields: [officerId], references: [id])
+  officerId          String?         @db.Uuid
+  officer            User?           @relation(fields: [officerId], references: [id])
   scheduledAt        DateTime
   arrivedAt          DateTime?
   departedAt         DateTime?
@@ -421,6 +483,7 @@ model PatrolVisit {
   createdAt          DateTime        @default(now())
 
   job                Job?
+  formSubmissions    FormSubmission[]
 
   @@index([siteId, scheduledAt])
   @@index([officerId, scheduledAt])
@@ -467,14 +530,18 @@ model AlarmEvent {
 }
 
 model OnboardingPipeline {
-  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  siteId      String           @db.Uuid
-  site        Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  program     CustomerProgram
-  stage       OnboardingStage  @default(PROPOSED)
-  notes       String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  id                String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId            String           @db.Uuid
+  site              Site             @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  program           CustomerProgram
+  stage             OnboardingStage  @default(PROPOSED)
+  targetGoLiveDate  DateTime?
+  cancelReason      String?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  jobs              Job[]
 
   @@index([siteId])
   @@index([stage])
@@ -505,9 +572,10 @@ model Partner {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  contacts    PartnerContact[]
-  jobs        Job[]
-  sites       Site[]          @relation("PartnerSites")
+  contacts        PartnerContact[]
+  jobs            Job[]
+  sites           Site[]          @relation("PartnerSites")
+  formTemplates   FormTemplate[]
 
   @@index([role])
   @@index([active])
@@ -542,6 +610,9 @@ model Job {
   partnerId             String?       @db.Uuid
   partner               Partner?      @relation(fields: [partnerId], references: [id])
 
+  onboardingPipelineId  String?       @db.Uuid
+  onboardingPipeline    OnboardingPipeline? @relation(fields: [onboardingPipelineId], references: [id], onDelete: SetNull)
+
   responderType         ResponderType?
   assignedToUserId      String?       @db.Uuid
   assignedTo            User?         @relation("JobResponderUser", fields: [assignedToUserId], references: [id])
@@ -573,6 +644,7 @@ model Job {
   @@index([assignedToUserId, status])
   @@index([customerId])
   @@index([partnerId])
+  @@index([onboardingPipelineId])
   @@index([scheduledFor])
   @@index([status])
 }
@@ -580,10 +652,14 @@ model Job {
 model FormSubmission {
   id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   form                SubmissionForm
+  formTemplateId      String?         @db.Uuid
+  formTemplate        FormTemplate?   @relation(fields: [formTemplateId], references: [id], onDelete: SetNull)
   siteId              String?         @db.Uuid
   site                Site?           @relation(fields: [siteId], references: [id])
   jobId               String?         @db.Uuid
   job                 Job?            @relation(fields: [jobId], references: [id])
+  patrolVisitId       String?         @db.Uuid
+  patrolVisit         PatrolVisit?    @relation(fields: [patrolVisitId], references: [id], onDelete: SetNull)
 
   submittedByUserId   String?         @db.Uuid
   submittedBy         User?           @relation("SubmittedByUser", fields: [submittedByUserId], references: [id])
@@ -601,6 +677,34 @@ model FormSubmission {
   @@index([jobId])
   @@index([submittedByUserId])
   @@index([form])
+  @@index([formTemplateId])
+  @@index([patrolVisitId])
+}
+
+model FormTemplate {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name         String
+  jobType      SubmissionForm
+  scope        TemplateScope
+  customerId   String?        @db.Uuid
+  customer     Customer?      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  partnerId    String?        @db.Uuid
+  partner      Partner?       @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  siteId       String?        @db.Uuid
+  site         Site?          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  fields       Json           @default("[]")
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  createdById  String?        @db.Uuid
+  createdBy    User?          @relation("FormTemplateAuthor", fields: [createdById], references: [id])
+
+  submissions  FormSubmission[]
+
+  @@index([scope, jobType, active])
+  @@index([customerId])
+  @@index([partnerId])
+  @@index([siteId])
 }
 
 model ReportReview {
