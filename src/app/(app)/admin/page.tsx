@@ -57,6 +57,13 @@ export default async function AdminHubPage() {
       stat: blueprints,
       statLabel: "active",
     },
+    {
+      href: "/admin/imports/nexus",
+      title: "Nexus import",
+      blurb: "Upload the latest Nexus CSV. Reset site data first if you want a clean slate.",
+      stat: 0,
+      statLabel: "tool",
+    },
   ];
 
   return (
