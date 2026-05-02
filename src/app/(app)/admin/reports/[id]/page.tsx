@@ -182,13 +182,117 @@ export default async function ReviewDetailPage({
 }
 
 function FragmentRow({ label, value }: { label: string; value: unknown }) {
+  const labelEl = (
+    <dt className="text-slate-500">{label.replace(/_/g, " ")}</dt>
+  );
+
+  if (value === null || value === undefined || value === "") {
+    return (
+      <>
+        {labelEl}
+        <dd className="text-slate-400">—</dd>
+      </>
+    );
+  }
+
+  // Tri-state — encoded as 0/1/2 (No/Yes/N/A)
+  if (typeof value === "number" && (value === 0 || value === 1 || value === 2)) {
+    const triLabels: Record<number, string> = {
+      0: "No",
+      1: "Yes",
+      2: "N/A",
+    };
+    return (
+      <>
+        {labelEl}
+        <dd className="text-slate-800">{triLabels[value]}</dd>
+      </>
+    );
+  }
+
+  // Signature — single blob URL
+  if (typeof value === "string" && /^https:\/\/.+\.(png|jpe?g|webp)/i.test(value)) {
+    return (
+      <>
+        {labelEl}
+        <dd>
+          <img
+            src={value}
+            alt="Signature"
+            className="max-h-24 border border-slate-200 rounded bg-white p-1"
+          />
+        </dd>
+      </>
+    );
+  }
+
+  // Multiphoto — array of {url, name?}
+  if (Array.isArray(value) && value.every((p) => p && typeof p === "object" && typeof (p as any).url === "string")) {
+    const photos = value as { url: string; name?: string | null }[];
+    return (
+      <>
+        {labelEl}
+        <dd>
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-w-md">
+            {photos.map((p, i) => (
+              <a
+                key={p.url}
+                href={p.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block aspect-square"
+              >
+                <img
+                  src={p.url}
+                  alt={p.name ?? `Photo ${i + 1}`}
+                  className="w-full h-full object-cover rounded border border-slate-200"
+                />
+              </a>
+            ))}
+          </div>
+        </dd>
+      </>
+    );
+  }
+
+  // Location — {lat, lng, accuracy?, capturedAt?}
+  if (
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as any).lat === "number" &&
+    typeof (value as any).lng === "number"
+  ) {
+    const loc = value as { lat: number; lng: number; accuracy?: number | null };
+    const mapsUrl = `https://www.google.com/maps?q=${loc.lat},${loc.lng}`;
+    return (
+      <>
+        {labelEl}
+        <dd className="text-slate-800">
+          <a
+            href={mapsUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-brand-mint-dark hover:underline font-mono text-xs"
+          >
+            {loc.lat.toFixed(6)}, {loc.lng.toFixed(6)}
+          </a>
+          {loc.accuracy != null && (
+            <span className="text-xs text-slate-500 ml-2">
+              ±{Math.round(loc.accuracy)}m
+            </span>
+          )}
+        </dd>
+      </>
+    );
+  }
+
   let display: string;
-  if (value === null || value === undefined) display = "—";
-  else if (typeof value === "object") display = JSON.stringify(value);
+  if (typeof value === "object") display = JSON.stringify(value);
   else display = String(value);
   return (
     <>
-      <dt className="text-slate-500">{label.replace(/_/g, " ")}</dt>
+      {labelEl}
       <dd className="text-slate-800 break-words">{display}</dd>
     </>
   );

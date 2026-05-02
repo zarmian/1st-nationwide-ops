@@ -50,6 +50,7 @@ export default async function EditFormTemplatePage({
     required: f.required,
     options: f.options,
     helpText: f.helpText ?? null,
+    meta: f.meta ?? null,
   }));
 
   return (

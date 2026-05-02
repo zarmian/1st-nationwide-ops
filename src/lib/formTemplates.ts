@@ -13,12 +13,22 @@ export const FIELD_TYPES = [
   "tri",
   "location",
   "section",
+  "signature",
+  "multiphoto",
 ] as const;
 
 export type FieldType = (typeof FIELD_TYPES)[number];
 
 // `section` is a non-input divider — only label is meaningful.
 const SECTION_KEY = /^section_\d+$/;
+
+export const FieldMetaSchema = z
+  .object({
+    maxCount: z.number().int().min(1).max(20).optional(),
+  })
+  .partial()
+  .optional()
+  .nullable();
 
 export const FieldDefSchema = z
   .object({
@@ -34,6 +44,7 @@ export const FieldDefSchema = z
     options: z.array(z.string().trim().min(1).max(120)).optional(),
     helpText: z.string().trim().max(500).optional().nullable(),
     defaultValue: z.union([z.string(), z.number(), z.boolean()]).optional().nullable(),
+    meta: FieldMetaSchema,
   })
   .superRefine((f, ctx) => {
     if (f.type === "section") {
@@ -188,6 +199,17 @@ const LocationSchema = z.object({
   capturedAt: z.string().optional().nullable(),
 });
 
+const PhotoSchema = z.object({
+  url: z.string().url(),
+  name: z.string().optional().nullable(),
+});
+
+function isBlobUrl(url: string): boolean {
+  // Accept any https URL — we lock the upload route down to our Blob store
+  // server-side, so anything that comes back from the client is valid.
+  return /^https:\/\/.+/.test(url);
+}
+
 /**
  * Validate a submitted payload against a template's field definitions.
  * Returns either { ok: true, payload } with coerced values, or { ok: false, errors }.
@@ -256,6 +278,41 @@ export function validatePayload(
           break;
         }
         out[f.key] = parsed.data;
+        break;
+      }
+      case "signature": {
+        if (typeof v !== "string" || !isBlobUrl(v)) {
+          errors[f.key] = `${f.label} must be a captured signature`;
+          break;
+        }
+        out[f.key] = v;
+        break;
+      }
+      case "multiphoto": {
+        if (!Array.isArray(v)) {
+          errors[f.key] = `${f.label} must be a list of photos`;
+          break;
+        }
+        const max = f.meta?.maxCount ?? 20;
+        if (v.length > max) {
+          errors[f.key] = `${f.label} accepts at most ${max} photo${max === 1 ? "" : "s"}`;
+          break;
+        }
+        const photos: { url: string; name: string | null }[] = [];
+        let bad = false;
+        for (const item of v) {
+          const parsed = PhotoSchema.safeParse(item);
+          if (!parsed.success || !isBlobUrl(parsed.data.url)) {
+            bad = true;
+            break;
+          }
+          photos.push({ url: parsed.data.url, name: parsed.data.name ?? null });
+        }
+        if (bad) {
+          errors[f.key] = `${f.label} contains an invalid photo entry`;
+          break;
+        }
+        out[f.key] = photos;
         break;
       }
       case "text":

@@ -35,6 +35,8 @@ const FIELD_TYPES = [
   { v: "datetime", label: "Date + time" },
   { v: "tri", label: "Yes / No / N/A" },
   { v: "location", label: "GPS location (auto-capture)" },
+  { v: "signature", label: "Signature" },
+  { v: "multiphoto", label: "Photos (multiple)" },
   { v: "section", label: "— Section heading —" },
 ] as const;
 
@@ -45,6 +47,7 @@ export type FieldRow = {
   required: boolean;
   options?: string[];
   helpText?: string | null;
+  meta?: { maxCount?: number } | null;
 };
 
 export type TemplateFormValues = {
@@ -513,6 +516,33 @@ function FieldEditor({
           {errKey("options") && (
             <p className="text-xs text-red-600 mt-1">{errKey("options")}</p>
           )}
+        </div>
+      )}
+
+      {field.type === "multiphoto" && (
+        <div className="grid md:grid-cols-[160px_1fr] gap-2 items-end">
+          <div>
+            <label className="label">Max photos</label>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              className="input"
+              value={field.meta?.maxCount ?? 5}
+              onChange={(e) =>
+                onChange({
+                  meta: {
+                    ...(field.meta ?? {}),
+                    maxCount: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                  },
+                })
+              }
+            />
+          </div>
+          <p className="text-xs text-slate-500 pb-2">
+            Officers can attach up to this many photos. Files upload directly
+            from the phone camera.
+          </p>
         </div>
       )}
 

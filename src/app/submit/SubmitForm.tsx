@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import type { FieldDef } from "@/lib/formTemplates";
+import { SignaturePad } from "./_components/SignaturePad";
+import { PhotoGrid, type Photo } from "./_components/PhotoGrid";
 
 type Site = {
   id: string;
@@ -253,6 +255,7 @@ export function SubmitForm({
           values={values}
           setField={setField}
           fieldErrors={fieldErrors}
+          siteId={siteId}
         />
       )}
 
@@ -278,11 +281,13 @@ function TemplateBody({
   values,
   setField,
   fieldErrors,
+  siteId,
 }: {
   template: SubmitTemplate | null;
   values: Record<string, unknown>;
   setField: (k: string, v: unknown) => void;
   fieldErrors: Record<string, string>;
+  siteId: string;
 }) {
   if (!template) {
     return (
@@ -311,6 +316,7 @@ function TemplateBody({
           value={values[f.key]}
           onChange={(v) => setField(f.key, v)}
           error={fieldErrors[f.key]}
+          siteId={siteId}
         />
       ))}
     </div>
@@ -322,11 +328,13 @@ function FieldInput({
   value,
   onChange,
   error,
+  siteId,
 }: {
   field: FieldDef;
   value: unknown;
   onChange: (v: unknown) => void;
   error?: string;
+  siteId: string;
 }) {
   const id = `f_${field.key}`;
   const labelEl = (
@@ -537,6 +545,36 @@ function FieldInput({
           {errorEl}
         </div>
       );
+    case "signature":
+      return (
+        <div>
+          {labelEl}
+          <SignaturePad
+            value={(value as string | null) ?? null}
+            onChange={(url) => onChange(url)}
+            siteId={siteId}
+          />
+          {helpEl}
+          {errorEl}
+        </div>
+      );
+    case "multiphoto": {
+      const photos = (Array.isArray(value) ? value : []) as Photo[];
+      const max = field.meta?.maxCount ?? 5;
+      return (
+        <div>
+          {labelEl}
+          <PhotoGrid
+            value={photos}
+            onChange={(next) => onChange(next)}
+            siteId={siteId}
+            maxCount={max}
+          />
+          {helpEl}
+          {errorEl}
+        </div>
+      );
+    }
     case "text":
     default:
       return (

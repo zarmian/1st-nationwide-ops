@@ -267,6 +267,20 @@ async function main() {
         required: true,
         helpText: "Tap 'Capture location' once you're on site.",
       },
+      {
+        key: "site_photos",
+        label: "Photos of any issue noted above",
+        type: "multiphoto",
+        required: false,
+        meta: { maxCount: 2 },
+        helpText: "Maximum 2 pictures.",
+      },
+      {
+        key: "officer_signature",
+        label: "Signature",
+        type: "signature",
+        required: true,
+      },
     ];
 
     const existing = await prisma.formTemplate.findFirst({
