@@ -105,7 +105,9 @@ export default async function FormsAdminPage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <span className="chip-slate">
-                      {SUBMISSION_FORM_LABEL[t.jobType] ?? t.jobType}
+                      {t.jobType
+                        ? (SUBMISSION_FORM_LABEL[t.jobType] ?? t.jobType)
+                        : "Any"}
                     </span>
                   </td>
                   <td className="px-4 py-2.5">

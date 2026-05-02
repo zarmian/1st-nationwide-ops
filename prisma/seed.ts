@@ -187,6 +187,122 @@ async function main() {
   }
   console.log(`  ✓ ${partners.length} partners`);
 
+  // ── 5. Direct customers ──────────────────────────────────────────────────
+  // Per CLAUDE.md, Shurgard / Aegis / Orbis are direct customers (we get the
+  // alarm, our officer attends, we send the daily report). Seed them as
+  // Customer rows so site.customerId can be set and customer-scoped form
+  // templates resolve correctly.
+  const directCustomers = [
+    { name: "Shurgard", contactEmail: null, notes: "Direct customer — daily report email." },
+    { name: "Aegis", contactEmail: null, notes: "Direct customer." },
+    { name: "Orbis", contactEmail: null, notes: "Direct customer." },
+  ];
+  for (const c of directCustomers) {
+    await prisma.customer.upsert({
+      where: { name: c.name },
+      update: { notes: c.notes },
+      create: {
+        name: c.name,
+        type: "CORPORATE" as any,
+        contactEmail: c.contactEmail,
+        notes: c.notes,
+        active: true,
+      },
+    });
+  }
+  console.log(`  ✓ ${directCustomers.length} direct customers`);
+
+  // ── 6. Shurgard mobile patrol form template ─────────────────────────────
+  const shurgard = await prisma.customer.findUnique({
+    where: { name: "Shurgard" },
+    select: { id: true },
+  });
+  if (shurgard) {
+    const TEMPLATE_NAME = "Shurgard activity log / call out / mobile patrol";
+    const fields = [
+      {
+        key: `section_intro_${Date.now().toString(36)}`,
+        label: "Section 1",
+        type: "section",
+        required: false,
+      },
+      {
+        key: "main_gates_secured",
+        label: "Main gates and internal doors secured?",
+        type: "tri",
+        required: true,
+      },
+      {
+        key: "fire_police_called",
+        label: "Fire services / police called?",
+        type: "tri",
+        required: true,
+      },
+      {
+        key: "incident_at",
+        label: "Time of incident",
+        type: "datetime",
+        required: true,
+        helpText:
+          "When the incident occurred — separate from call-out time and your arrival time.",
+      },
+      {
+        key: "stuck_customer_unit",
+        label:
+          "Customer name and unit number (only if a customer is stuck on site beyond close hours)",
+        type: "text",
+        required: false,
+        helpText: "Leave blank if not applicable.",
+      },
+      {
+        key: "callout_reason",
+        label: "Call-out reason — explain any issues with gates or doors",
+        type: "textarea",
+        required: true,
+      },
+      {
+        key: "site_location",
+        label: "Location / GPS",
+        type: "location",
+        required: true,
+        helpText: "Tap 'Capture location' once you're on site.",
+      },
+    ];
+
+    const existing = await prisma.formTemplate.findFirst({
+      where: {
+        name: TEMPLATE_NAME,
+        scope: "CUSTOMER",
+        customerId: shurgard.id,
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.formTemplate.update({
+        where: { id: existing.id },
+        data: {
+          jobType: null,
+          fields: fields as any,
+          active: true,
+        },
+      });
+    } else {
+      await prisma.formTemplate.create({
+        data: {
+          name: TEMPLATE_NAME,
+          scope: "CUSTOMER",
+          customerId: shurgard.id,
+          jobType: null,
+          fields: fields as any,
+          active: true,
+        },
+      });
+    }
+    console.log(`  ✓ Shurgard form template`);
+  } else {
+    console.warn(`  ! Shurgard customer not found — form template skipped`);
+  }
+
   console.log("Done.");
 }
 

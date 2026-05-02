@@ -23,7 +23,7 @@ const JOB_TYPES = [
 const TemplateInput = z
   .object({
     name: z.string().trim().min(1, "Name is required").max(120),
-    jobType: z.enum(JOB_TYPES),
+    jobType: z.enum(JOB_TYPES).nullable(),
     scope: z.enum(SCOPES),
     customerId: z.string().uuid().optional().nullable(),
     partnerId: z.string().uuid().optional().nullable(),
@@ -80,9 +80,10 @@ function safeJson<T>(raw: string | null | undefined, fallback: T): T {
 
 function parseForm(formData: FormData) {
   const scope = formData.get("scope")?.toString() ?? "GLOBAL";
+  const jobTypeRaw = formData.get("jobType")?.toString() ?? "";
   const raw = {
     name: formData.get("name")?.toString() ?? "",
-    jobType: formData.get("jobType")?.toString() ?? "PATROL",
+    jobType: jobTypeRaw === "" ? null : jobTypeRaw,
     scope,
     customerId:
       scope === "CUSTOMER"

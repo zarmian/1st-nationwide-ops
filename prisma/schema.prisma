@@ -250,6 +250,7 @@ model User {
   name          String
   passwordHash  String?
   phone         String?
+  siaNumber     String?  @unique
   role          UserRole
   regionId      Int?
   region        Region?  @relation("OfficerRegion", fields: [regionId], references: [id])
@@ -682,9 +683,9 @@ model FormSubmission {
 }
 
 model FormTemplate {
-  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  id           String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name         String
-  jobType      SubmissionForm
+  jobType      SubmissionForm?
   scope        TemplateScope
   customerId   String?        @db.Uuid
   customer     Customer?      @relation(fields: [customerId], references: [id], onDelete: Cascade)

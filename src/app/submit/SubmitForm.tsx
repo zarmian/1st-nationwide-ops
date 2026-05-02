@@ -14,7 +14,7 @@ type Site = {
 export type SubmitTemplate = {
   id: string;
   name: string;
-  jobType: string;
+  jobType: string | null;
   scope: "GLOBAL" | "CUSTOMER" | "PARTNER" | "SITE";
   customerId: string | null;
   partnerId: string | null;
@@ -37,6 +37,7 @@ export function SubmitForm({
   sites,
   templates,
   officerName,
+  officerSia,
   isInternal,
   prefilledSiteId,
   prefilledJobId,
@@ -46,6 +47,7 @@ export function SubmitForm({
   sites: Site[];
   templates: SubmitTemplate[];
   officerName: string;
+  officerSia?: string | null;
   isInternal: boolean;
   prefilledSiteId: string | null;
   prefilledJobId: string | null;
@@ -218,7 +220,8 @@ export function SubmitForm({
         />
         {isInternal && (
           <p className="text-xs text-slate-500 mt-1">
-            Pre-filled from your account.
+            Pre-filled from your account
+            {officerSia ? ` · SIA ${officerSia}` : ""}.
           </p>
         )}
       </div>
@@ -340,6 +343,109 @@ function FieldInput({
   ) : null;
 
   switch (field.type) {
+    case "section":
+      return (
+        <div className="pt-3 pb-1 border-b border-slate-200">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-brand-mint-dark">
+            {field.label}
+          </h3>
+        </div>
+      );
+    case "tri":
+      return (
+        <div>
+          {labelEl}
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { v: 1, label: "Yes" },
+              { v: 0, label: "No" },
+              { v: 2, label: "N/A" },
+            ].map((opt) => {
+              const selected = Number(value) === opt.v;
+              return (
+                <button
+                  key={opt.v}
+                  type="button"
+                  onClick={() => onChange(opt.v)}
+                  className={
+                    "rounded-xl border px-3 py-2 text-sm font-medium transition " +
+                    (selected
+                      ? "border-brand-mint bg-brand-mint-light text-brand-mint-dark"
+                      : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")
+                  }
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          {helpEl}
+          {errorEl}
+        </div>
+      );
+    case "location": {
+      const loc = value as
+        | { lat: number; lng: number; accuracy?: number | null; capturedAt?: string | null }
+        | null
+        | undefined;
+      const captured = !!(loc && typeof loc.lat === "number");
+      return (
+        <div>
+          {labelEl}
+          <div className="rounded-xl border border-slate-200 p-3 space-y-2 bg-white">
+            {captured ? (
+              <div className="text-sm text-slate-700 space-y-0.5">
+                <div className="font-mono text-xs">
+                  Lat: {loc!.lat.toFixed(6)} · Long: {loc!.lng.toFixed(6)}
+                </div>
+                {loc!.accuracy != null && (
+                  <div className="text-xs text-slate-500">
+                    Accuracy ±{Math.round(loc!.accuracy)}m
+                  </div>
+                )}
+                {loc!.capturedAt && (
+                  <div className="text-xs text-slate-500">
+                    Captured {new Date(loc!.capturedAt).toLocaleTimeString()}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-slate-500 italic">
+                Not captured yet.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof navigator === "undefined" || !navigator.geolocation) {
+                  onChange(null);
+                  return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                  (pos) => {
+                    onChange({
+                      lat: pos.coords.latitude,
+                      lng: pos.coords.longitude,
+                      accuracy: pos.coords.accuracy,
+                      capturedAt: new Date().toISOString(),
+                    });
+                  },
+                  () => {
+                    onChange(null);
+                  },
+                  { enableHighAccuracy: true, timeout: 15000 },
+                );
+              }}
+              className="btn-secondary text-sm w-full"
+            >
+              {captured ? "Re-capture location" : "Capture location"}
+            </button>
+          </div>
+          {helpEl}
+          {errorEl}
+        </div>
+      );
+    }
     case "checkbox":
       return (
         <div>
@@ -458,34 +564,48 @@ function resolveTemplate(
   templates: SubmitTemplate[],
 ): SubmitTemplate | null {
   const site = sites.find((s) => s.id === siteId);
+  // Within a scope, exact jobType match beats a null (any-job-type) template.
+  const matchJobType = (t: SubmitTemplate) =>
+    t.jobType === jobType || t.jobType === null;
+  const pickBest = (matches: SubmitTemplate[]): SubmitTemplate | null => {
+    if (matches.length === 0) return null;
+    const exact = matches.find((m) => m.jobType === jobType);
+    return exact ?? matches[0];
+  };
+
   if (siteId) {
-    const t = templates.find(
-      (x) => x.scope === "SITE" && x.siteId === siteId && x.jobType === jobType,
+    const t = pickBest(
+      templates.filter(
+        (x) => x.scope === "SITE" && x.siteId === siteId && matchJobType(x),
+      ),
     );
     if (t) return t;
   }
   if (site?.customerId) {
-    const t = templates.find(
-      (x) =>
-        x.scope === "CUSTOMER" &&
-        x.customerId === site.customerId &&
-        x.jobType === jobType,
+    const t = pickBest(
+      templates.filter(
+        (x) =>
+          x.scope === "CUSTOMER" &&
+          x.customerId === site.customerId &&
+          matchJobType(x),
+      ),
     );
     if (t) return t;
   }
   if (site?.partnerId) {
-    const t = templates.find(
-      (x) =>
-        x.scope === "PARTNER" &&
-        x.partnerId === site.partnerId &&
-        x.jobType === jobType,
+    const t = pickBest(
+      templates.filter(
+        (x) =>
+          x.scope === "PARTNER" &&
+          x.partnerId === site.partnerId &&
+          matchJobType(x),
+      ),
     );
     if (t) return t;
   }
-  const g = templates.find(
-    (x) => x.scope === "GLOBAL" && x.jobType === jobType,
+  return pickBest(
+    templates.filter((x) => x.scope === "GLOBAL" && matchJobType(x)),
   );
-  return g ?? null;
 }
 
 function localNow() {

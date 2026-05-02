@@ -60,7 +60,7 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    if (template.jobType !== data.form) {
+    if (template.jobType !== null && template.jobType !== data.form) {
       return NextResponse.json(
         { error: "Form template does not match job type" },
         { status: 400 },

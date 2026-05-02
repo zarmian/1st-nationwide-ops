@@ -33,6 +33,9 @@ const FIELD_TYPES = [
   { v: "date", label: "Date" },
   { v: "time", label: "Time" },
   { v: "datetime", label: "Date + time" },
+  { v: "tri", label: "Yes / No / N/A" },
+  { v: "location", label: "GPS location (auto-capture)" },
+  { v: "section", label: "— Section heading —" },
 ] as const;
 
 export type FieldRow = {
@@ -47,7 +50,7 @@ export type FieldRow = {
 export type TemplateFormValues = {
   id?: string;
   name: string;
-  jobType: string;
+  jobType: string | null;
   scope: string;
   customerId: string | null;
   partnerId: string | null;
@@ -86,6 +89,19 @@ export function FormTemplateForm({
         key: `field_${n}`,
         label: "",
         type: "text",
+        required: false,
+      },
+    ]);
+  }
+
+  function addSection() {
+    const sectionCount = fields.filter((f) => f.type === "section").length + 1;
+    setFields((rs) => [
+      ...rs,
+      {
+        key: `section_${sectionCount}_${Date.now().toString(36)}`,
+        label: "Section heading",
+        type: "section",
         required: false,
       },
     ]);
@@ -142,9 +158,10 @@ export function FormTemplateForm({
             <select
               id="jobType"
               name="jobType"
-              defaultValue={initial.jobType}
+              defaultValue={initial.jobType ?? ""}
               className="input"
             >
+              <option value="">Any job type (applies to all)</option>
               {JOB_TYPES.map((t) => (
                 <option key={t} value={t}>
                   {SUBMISSION_FORM_LABEL[t] ?? t}
@@ -274,9 +291,14 @@ export function FormTemplateForm({
               The questions an officer answers. Order is the display order.
             </p>
           </div>
-          <button type="button" onClick={addField} className="btn-secondary text-sm">
-            + Add field
-          </button>
+          <div className="flex gap-2">
+            <button type="button" onClick={addField} className="btn-secondary text-sm">
+              + Add field
+            </button>
+            <button type="button" onClick={addSection} className="btn-secondary text-sm">
+              + Section heading
+            </button>
+          </div>
         </div>
 
         {fields.length === 0 ? (
@@ -335,6 +357,50 @@ function FieldEditor({
 }) {
   const errKey = (suffix: string) =>
     fieldErrors[`fields.${fieldIndex}.${suffix}`]?.join(", ");
+
+  if (field.type === "section") {
+    return (
+      <div className="rounded-xl border-2 border-dashed border-brand-mint/40 bg-brand-mint-light/30 p-3">
+        <div className="grid md:grid-cols-[auto_1fr_auto_auto] gap-2 items-center">
+          <span className="chip-mint text-[10px]">SECTION</span>
+          <input
+            className="input font-semibold"
+            value={field.label}
+            onChange={(e) => onChange({ label: e.target.value })}
+            placeholder="Section heading"
+            required
+          />
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => onMove(-1)}
+              disabled={isFirst}
+              className="btn-ghost text-xs disabled:text-slate-300"
+              aria-label="Move up"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              onClick={() => onMove(1)}
+              disabled={isLast}
+              className="btn-ghost text-xs disabled:text-slate-300"
+              aria-label="Move down"
+            >
+              ↓
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="btn-ghost text-sm text-red-600"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 p-3 space-y-3 bg-slate-50/40">

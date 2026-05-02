@@ -75,6 +75,16 @@ export default async function SubmitPage({
   const officerName =
     session?.user?.name ?? (session?.user as any)?.email ?? "";
 
+  let officerSia: string | null = null;
+  const sessionUserId = (session?.user as any)?.id as string | undefined;
+  if (sessionUserId) {
+    const me = await prisma.user.findUnique({
+      where: { id: sessionUserId },
+      select: { siaNumber: true },
+    });
+    officerSia = me?.siaNumber ?? null;
+  }
+
   return (
     <main className="min-h-screen bg-slate-50">
       <header className="bg-white border-b border-slate-200">
@@ -95,6 +105,7 @@ export default async function SubmitPage({
           sites={sites}
           templates={templates}
           officerName={officerName}
+          officerSia={officerSia}
           isInternal={!!session}
           prefilledSiteId={
             prefilledVisit?.siteId ??
