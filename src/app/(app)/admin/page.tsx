@@ -4,8 +4,11 @@ import { prisma } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function AdminHubPage() {
+  // $transaction runs queries serially over a single connection — avoids the
+  // Vercel + Supabase pgbouncer pool-exhaustion that bites Promise.all when
+  // connection_limit on DATABASE_URL is low.
   const [customers, partners, regions, pending, templates, blueprints] =
-    await Promise.all([
+    await prisma.$transaction([
       prisma.customer.count({ where: { active: true } }),
       prisma.partner.count({ where: { active: true } }),
       prisma.region.count(),
