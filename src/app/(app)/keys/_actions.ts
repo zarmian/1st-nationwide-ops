@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { notifyKeyHandover } from "@/lib/notifications";
 
 const HandoverInput = z.object({
   toUserId: z
@@ -58,24 +59,28 @@ export async function handoverKey(
 
   const newStatus = toUserId ? "WITH_OFFICER" : "WITH_US";
 
-  await prisma.$transaction([
-    prisma.keyMovement.create({
-      data: {
-        keyId,
-        fromUserId: key.currentHolderUserId ?? null,
-        toUserId,
-        reason: reason ?? null,
-        signedOffById: signedOffById ?? null,
-      },
-    }),
-    prisma.key.update({
-      where: { id: keyId },
-      data: {
-        currentHolderUserId: toUserId,
-        status: newStatus as any,
-      },
-    }),
-  ]);
+  const movement = await prisma.keyMovement.create({
+    data: {
+      keyId,
+      fromUserId: key.currentHolderUserId ?? null,
+      toUserId,
+      reason: reason ?? null,
+      signedOffById: signedOffById ?? null,
+    },
+    select: { id: true },
+  });
+  await prisma.key.update({
+    where: { id: keyId },
+    data: {
+      currentHolderUserId: toUserId,
+      status: newStatus as any,
+    },
+  });
+
+  notifyKeyHandover(movement.id).catch((e) =>
+    console.error("notifyKeyHandover failed", e),
+  );
+
   revalidatePath(`/keys/${keyId}`);
   revalidatePath("/keys");
   return { ok: true };

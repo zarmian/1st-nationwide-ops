@@ -30,6 +30,7 @@ export default async function NewOfficerPage() {
           name: "",
           email: "",
           phone: null,
+          whatsappNumber: null,
           siaNumber: null,
           regionId: null,
           role: "OFFICER",

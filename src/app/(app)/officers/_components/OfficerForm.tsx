@@ -15,6 +15,7 @@ export type OfficerFormValues = {
   name: string;
   email: string;
   phone: string | null;
+  whatsappNumber: string | null;
   siaNumber: string | null;
   regionId: number | null;
   role: string;
@@ -86,6 +87,27 @@ export function OfficerForm({
               className="input"
               placeholder="+44 7…"
             />
+          </div>
+          <div>
+            <label className="label" htmlFor="whatsappNumber">
+              WhatsApp number
+            </label>
+            <input
+              id="whatsappNumber"
+              name="whatsappNumber"
+              defaultValue={initial.whatsappNumber ?? ""}
+              className="input"
+              placeholder="07700 900123 or +44…"
+            />
+            {fe.whatsappNumber && (
+              <p className="text-xs text-red-600 mt-1">
+                {fe.whatsappNumber.join(", ")}
+              </p>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              Receives WhatsApp notifications for visits, alarms, and key
+              handovers. Leave blank to opt out.
+            </p>
           </div>
           <div>
             <label className="label" htmlFor="siaNumber">

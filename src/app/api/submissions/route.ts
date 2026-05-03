@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseFields, validatePayload } from "@/lib/formTemplates";
+import { notifyVisitCompleted } from "@/lib/notifications";
 
 const Body = z.object({
   siteId: z.string().min(1),
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
   if (data.patrolVisitId) {
     const visit = await prisma.patrolVisit.findUnique({
       where: { id: data.patrolVisitId },
-      select: { arrivedAt: true },
+      select: { arrivedAt: true, status: true },
     });
     const departed = data.departedAt ? new Date(data.departedAt) : new Date();
     await prisma.patrolVisit.update({
@@ -119,6 +120,11 @@ export async function POST(req: Request) {
           (data.arrivedAt ? new Date(data.arrivedAt) : new Date()),
       },
     });
+    if (visit?.status !== "COMPLETED") {
+      notifyVisitCompleted(data.patrolVisitId).catch((e) =>
+        console.error("notifyVisitCompleted failed", e),
+      );
+    }
   }
 
   return NextResponse.json({ ok: true, id: submitted.id });

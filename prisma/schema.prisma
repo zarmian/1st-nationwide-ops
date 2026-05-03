@@ -253,6 +253,28 @@ enum RateUnit {
   FIXED
 }
 
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+}
+
+enum NotificationKind {
+  VISIT_STARTED
+  VISIT_COMPLETED
+  VISIT_LATE
+  VISIT_MISSED
+  ALARM_RECEIVED
+  KEY_HANDOVER
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 // ----------- Models -----------
 
 model Region {
@@ -267,13 +289,14 @@ model Region {
 }
 
 model User {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email         String   @unique @db.Citext
-  name          String
-  passwordHash  String?
-  phone         String?
-  siaNumber     String?  @unique
-  role          UserRole
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String   @unique @db.Citext
+  name            String
+  passwordHash    String?
+  phone           String?
+  whatsappNumber  String?
+  siaNumber       String?  @unique
+  role            UserRole
   regionId      Int?
   region        Region?  @relation("OfficerRegion", fields: [regionId], references: [id])
   active        Boolean  @default(true)
@@ -300,6 +323,7 @@ model User {
   reportReviews            ReportReview[]      @relation("ReportReviewer")
   formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
   formBlueprintsAuthored   FormBlueprint[]     @relation("FormBlueprintAuthor")
+  notifications            Notification[]      @relation("NotificationRecipient")
 
   @@index([regionId, role])
 }
@@ -824,4 +848,29 @@ model ClientReport {
 
   @@index([reviewId])
   @@index([status])
+}
+
+model Notification {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel         NotificationChannel @default(WHATSAPP)
+  kind            NotificationKind
+  recipientUserId String?             @db.Uuid
+  recipientUser   User?               @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientNumber String?
+  templateName    String
+  templateParams  Json                @default("[]")
+  bodyPreview     String?
+  status          NotificationStatus  @default(PENDING)
+  attempts        Int                 @default(0)
+  error           String?
+  eventEntity     String?
+  eventEntityId   String?
+  sentAt          DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([status, createdAt])
+  @@index([recipientUserId])
+  @@index([eventEntity, eventEntityId])
+  @@index([kind])
 }
