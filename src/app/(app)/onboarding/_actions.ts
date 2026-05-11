@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 
 const STAGES = [
@@ -19,13 +18,6 @@ const PROGRAMS = ["TESCO", "SHURGARD", "OTHER"] as const;
 
 const SETUP_JOB_TYPES = ["SURVEY", "KEY_COLLECTION"] as const;
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN" && role !== "DISPATCHER") {
-    throw new Error("Not authorised");
-  }
-}
 
 const StartInput = z.object({
   siteId: z.string().uuid(),
@@ -41,7 +33,7 @@ export type StartResult =
 export async function startOnboarding(
   input: z.infer<typeof StartInput>,
 ): Promise<StartResult> {
-  await requireAdmin();
+  await requireStaff();
   const parsed = StartInput.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "Invalid input." };
@@ -84,7 +76,7 @@ const AdvanceInput = z.object({
 export async function advanceStage(
   input: z.infer<typeof AdvanceInput>,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAdmin();
+  await requireStaff();
   const parsed = AdvanceInput.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input." };
   const { pipelineId, toStage, notes } = parsed.data;
@@ -126,7 +118,7 @@ const AddJobInput = z.object({
 export async function addSetupJob(
   input: z.infer<typeof AddJobInput>,
 ): Promise<{ ok: boolean; error?: string; jobId?: string }> {
-  await requireAdmin();
+  await requireStaff();
   const parsed = AddJobInput.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input." };
   const d = parsed.data;
@@ -160,7 +152,7 @@ export async function addSetupJob(
 export async function closeSetupJob(
   jobId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAdmin();
+  await requireStaff();
   const job = await prisma.job.findUnique({
     where: { id: jobId },
     select: { onboardingPipelineId: true },

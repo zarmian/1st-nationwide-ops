@@ -18,8 +18,8 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
-  const userId = (session.user as any).id as string | undefined;
-  const role = (session.user as any).role as string | undefined;
+  const userId = session.user.id;
+  const role = session.user.role;
 
   const visit = await prisma.patrolVisit.findUnique({
     where: { id: params.id },

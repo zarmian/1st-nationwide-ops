@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { FieldsArraySchema } from "@/lib/formTemplates";
 
@@ -39,14 +38,6 @@ export type BlueprintFormState = {
   fieldErrors?: Record<string, string[]>;
 };
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
-    throw new Error("Not authorised");
-  }
-  return (session?.user as any)?.id as string | undefined;
-}
 
 function safeJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
@@ -75,7 +66,8 @@ export async function createBlueprint(
   _prev: BlueprintFormState,
   formData: FormData,
 ): Promise<BlueprintFormState> {
-  const userId = await requireAdmin();
+  const me = await requireAdmin();
+  const userId = me.id;
   const parsed = parseForm(formData);
   if (!parsed.success) {
     return {

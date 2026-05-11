@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { normaliseE164 } from "@/lib/whatsapp";
 
@@ -37,13 +36,6 @@ export type OfficerFormState = {
   fieldErrors?: Record<string, string[]>;
 };
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
-    throw new Error("Not authorised");
-  }
-}
 
 function parseForm(formData: FormData) {
   const regionRaw = formData.get("regionId")?.toString() ?? "";

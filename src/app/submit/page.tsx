@@ -73,10 +73,10 @@ export default async function SubmitPage({
   }
 
   const officerName =
-    session?.user?.name ?? (session?.user as any)?.email ?? "";
+    session?.user?.name ?? session?.user?.email ?? "";
 
   let officerSia: string | null = null;
-  const sessionUserId = (session?.user as any)?.id as string | undefined;
+  const sessionUserId = session?.user?.id;
   if (sessionUserId) {
     const me = await prisma.user.findUnique({
       where: { id: sessionUserId },

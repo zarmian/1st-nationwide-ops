@@ -3,8 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { encryptString } from "@/lib/crypto";
 
@@ -194,14 +193,6 @@ function parseFormData(formData: FormData) {
   return SiteInput.safeParse(raw);
 }
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN" && role !== "DISPATCHER") {
-    throw new Error("Not authorised");
-  }
-}
-
 type ParsedSite = z.infer<typeof SiteInput>;
 
 async function syncRelations(siteId: string, d: ParsedSite) {
@@ -381,7 +372,7 @@ export async function createSite(
   _prev: SiteFormState,
   formData: FormData,
 ): Promise<SiteFormState> {
-  await requireAdmin();
+  await requireStaff();
   const parsed = parseFormData(formData);
   if (!parsed.success) {
     return {
@@ -442,7 +433,7 @@ export async function updateSite(
   _prev: SiteFormState,
   formData: FormData,
 ): Promise<SiteFormState> {
-  await requireAdmin();
+  await requireStaff();
   const parsed = parseFormData(formData);
   if (!parsed.success) {
     return {
@@ -519,7 +510,7 @@ export async function bulkUpdateSites(input: {
   partnerId: string | null | undefined;
   regionId: number | null | undefined;
 }): Promise<BulkUpdateResult> {
-  await requireAdmin();
+  await requireStaff();
   const parsed = BulkInput.safeParse(input);
   if (!parsed.success) {
     return { ok: false, error: "Invalid selection." };

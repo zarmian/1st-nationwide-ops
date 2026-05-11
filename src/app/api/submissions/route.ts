@@ -105,7 +105,7 @@ export async function POST(req: Request) {
       siteId: data.siteId,
       jobId: data.jobId ?? null,
       patrolVisitId: data.patrolVisitId ?? null,
-      submittedByUserId: session ? ((session.user as any).id as string) : null,
+      submittedByUserId: session ? (session.user.id) : null,
       officerNameRaw: data.officerNameRaw,
       arrivedAt: data.arrivedAt ? new Date(data.arrivedAt) : null,
       departedAt: data.departedAt ? new Date(data.departedAt) : null,
