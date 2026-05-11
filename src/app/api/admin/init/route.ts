@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
+import {
+  adminInitLimiter,
+  checkLimit,
+  clientKey,
+} from "@/lib/ratelimit";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +14,18 @@ export const dynamic = "force-dynamic";
 // Creates the first admin user from ADMIN_EMAIL / ADMIN_PASSWORD env vars.
 // No-op (returns "already_exists") if an admin already exists.
 export async function GET(req: Request) {
+  // Tight limit — anyone hitting this without the secret is fishing.
+  const limit = await checkLimit(adminInitLimiter, clientKey(req));
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: "Too many attempts" },
+      {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+      },
+    );
+  }
+
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
 

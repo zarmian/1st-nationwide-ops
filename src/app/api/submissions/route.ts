@@ -5,6 +5,11 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseFields, validatePayload } from "@/lib/formTemplates";
 import { notifyVisitCompleted } from "@/lib/notifications";
+import {
+  checkLimit,
+  clientKey,
+  submissionLimiter,
+} from "@/lib/ratelimit";
 
 const Body = z.object({
   siteId: z.string().min(1),
@@ -29,6 +34,21 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
+
+  // /submit is intentionally public — gate abuse here.
+  if (!session) {
+    const limit = await checkLimit(submissionLimiter, clientKey(req));
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: `Too many submissions — try again in ${limit.retryAfterSeconds}s` },
+        {
+          status: 429,
+          headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        },
+      );
+    }
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = Body.safeParse(body);
   if (!parsed.success) {

@@ -16,10 +16,14 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
     "db:import:nexus": "tsx prisma/import_nexus.ts",
+    "db:encrypt-codes": "tsx prisma/encrypt_access_codes.ts",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\""
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
+    "@sentry/nextjs": "^10.52.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "@vercel/blob": "^2.3.3",
     "bcryptjs": "^2.4.3",
     "clsx": "^2.1.1",

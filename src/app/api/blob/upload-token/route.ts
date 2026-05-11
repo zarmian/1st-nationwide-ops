@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { prisma } from "@/lib/db";
+import {
+  checkLimit,
+  clientKey,
+  uploadTokenLimiter,
+} from "@/lib/ratelimit";
 
 /**
  * Issues a short-lived Vercel Blob upload token for a single file. The client
@@ -20,6 +25,17 @@ import { prisma } from "@/lib/db";
 const MAX_FILE_BYTES = 15 * 1024 * 1024; // 15 MB per file
 
 export async function POST(req: Request): Promise<Response> {
+  const limit = await checkLimit(uploadTokenLimiter, clientKey(req));
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: `Too many uploads — try again in ${limit.retryAfterSeconds}s` },
+      {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+      },
+    );
+  }
+
   const body = (await req.json()) as HandleUploadBody;
 
   try {

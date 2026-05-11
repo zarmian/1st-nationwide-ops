@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { SiteForm } from "../../_components/SiteForm";
 import { updateSite } from "../../_actions";
+import { decryptString } from "@/lib/crypto";
 
 export const dynamic = "force-dynamic";
 
@@ -149,8 +150,14 @@ export default async function EditSitePage({
           patrolDays,
           vpiDays,
           access: {
-            alarmCode: site.accessInstruction?.alarmCode ?? null,
-            padlockCode: site.accessInstruction?.padlockCode ?? null,
+            alarmCode:
+              decryptString(site.accessInstruction?.alarmCodeEnc) ??
+              site.accessInstruction?.alarmCode ??
+              null,
+            padlockCode:
+              decryptString(site.accessInstruction?.padlockCodeEnc) ??
+              site.accessInstruction?.padlockCode ??
+              null,
             entryStepsMd: site.accessInstruction?.entryStepsMd ?? null,
             lockboxId: site.accessInstruction?.lockboxId ?? null,
             hazards: site.accessInstruction?.hazards ?? null,

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { encryptString } from "@/lib/crypto";
 
 const SITE_TYPES = [
   "COMMERCIAL",
@@ -351,9 +352,13 @@ async function syncRelations(siteId: string, d: ParsedSite) {
         where: { siteId },
         select: { id: true },
       });
+      // Encrypted at rest — plaintext columns are deprecated and cleared on
+      // write so they don't drift from the encrypted source of truth.
       const data = {
-        alarmCode: d.access.alarmCode || null,
-        padlockCode: d.access.padlockCode || null,
+        alarmCodeEnc: encryptString(d.access.alarmCode),
+        padlockCodeEnc: encryptString(d.access.padlockCode),
+        alarmCode: null,
+        padlockCode: null,
         entryStepsMd: d.access.entryStepsMd || null,
         lockboxId: d.access.lockboxId || null,
         hazards: d.access.hazards || null,
