@@ -1,0 +1,14 @@
+{
+  "extends": "next/core-web-vitals",
+  "ignorePatterns": [
+    "node_modules",
+    ".next",
+    "prisma/migrations",
+    "*.config.mjs",
+    "*.config.ts"
+  ],
+  "rules": {
+    "react/no-unescaped-entities": "off",
+    "@next/next/no-img-element": "off"
+  }
+}

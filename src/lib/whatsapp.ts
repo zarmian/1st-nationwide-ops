@@ -40,7 +40,9 @@ export function normaliseE164(input: string): string | null {
   if (/^0\d{10}$/.test(trimmed)) {
     return `+44${trimmed.slice(1)}`;
   }
-  if (/^\+\d{7,15}$/.test(trimmed)) return trimmed;
+  // Strict E.164: leading +, country code can't start with 0, total 8-16
+  // digits after the +.
+  if (/^\+[1-9]\d{6,14}$/.test(trimmed)) return trimmed;
   return null;
 }
 
