@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdmin, requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { normaliseE164 } from "@/lib/whatsapp";
 
@@ -188,5 +188,23 @@ export async function setOnDuty(
     data: { onDuty },
   });
   revalidatePath("/officers");
+  return { ok: true };
+}
+
+/**
+ * Officer toggles their own on-duty state. No admin role required — the
+ * session user can only flip their own row.
+ */
+export async function setMyOnDuty(
+  onDuty: boolean,
+): Promise<{ ok: boolean }> {
+  const me = await requireUser();
+  await prisma.user.update({
+    where: { id: me.id },
+    data: { onDuty },
+  });
+  revalidatePath("/m/today");
+  revalidatePath("/officers");
+  revalidatePath("/dispatch");
   return { ok: true };
 }

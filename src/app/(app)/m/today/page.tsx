@@ -3,12 +3,18 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { VisitCard } from "./_components/VisitCard";
+import { OnDutyBanner } from "./_components/OnDutyBanner";
+import { setMyOnDuty } from "../../officers/_actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function OfficerTodayPage() {
   const session = await getServerSession(authOptions);
-  const userId = (session!.user as any).id as string;
+  const userId = session!.user.id;
+  const me = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { onDuty: true },
+  });
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -87,6 +93,8 @@ export default async function OfficerTodayPage() {
           on your list.
         </p>
       </div>
+
+      <OnDutyBanner initialOnDuty={me?.onDuty ?? false} setOnDuty={setMyOnDuty} />
 
       {myVisits.length > 0 && (
         <section className="space-y-2">

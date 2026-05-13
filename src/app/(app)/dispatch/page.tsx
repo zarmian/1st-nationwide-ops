@@ -11,18 +11,47 @@ const liveStatuses = [
   "REVIEW_PENDING",
 ] as const;
 
+function relativeTime(date: Date | null): string {
+  if (!date) return "—";
+  const ms = Date.now() - date.getTime();
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return date.toLocaleDateString("en-GB");
+}
+
 export default async function DispatchPage() {
-  const jobs = await prisma.job.findMany({
-    where: { status: { in: liveStatuses as any } },
-    include: {
-      site: { select: { name: true, postcodeFormatted: true } },
-      customer: { select: { name: true } },
-      assignedTo: { select: { name: true } },
-      partner: { select: { name: true } },
-    },
-    orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
-    take: 100,
-  });
+  const [jobs, onDutyOfficers] = await Promise.all([
+    prisma.job.findMany({
+      where: { status: { in: liveStatuses as any } },
+      include: {
+        site: { select: { name: true, postcodeFormatted: true } },
+        customer: { select: { name: true } },
+        assignedTo: { select: { name: true } },
+        partner: { select: { name: true } },
+      },
+      orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+      take: 100,
+    }),
+    prisma.user.findMany({
+      where: {
+        active: true,
+        onDuty: true,
+        role: { in: ["OFFICER", "DISPATCHER"] },
+      },
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        role: true,
+        lastLat: true,
+        lastLng: true,
+        lastSeenAt: true,
+      },
+    }),
+  ]);
 
   const counts = liveStatuses.reduce<Record<string, number>>((acc, s) => {
     acc[s] = jobs.filter((j) => j.status === s).length;
@@ -52,6 +81,59 @@ export default async function DispatchPage() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="card p-4">
+        <div className="flex items-baseline justify-between mb-3">
+          <h2 className="font-semibold text-brand-navy">
+            On duty ({onDutyOfficers.length})
+          </h2>
+          <p className="text-xs text-slate-500">
+            Latest known position from <code className="text-xs bg-slate-100 px-1 rounded">/m/today</code>.
+          </p>
+        </div>
+        {onDutyOfficers.length === 0 ? (
+          <p className="text-sm text-slate-500 italic">
+            No one is on duty right now.
+          </p>
+        ) : (
+          <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {onDutyOfficers.map((o) => {
+              const hasLoc =
+                typeof o.lastLat === "number" && typeof o.lastLng === "number";
+              return (
+                <li
+                  key={o.id}
+                  className="flex items-center justify-between border border-slate-200 rounded-xl px-3 py-2"
+                >
+                  <div>
+                    <Link
+                      href={`/officers/${o.id}/edit`}
+                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    >
+                      {o.name}
+                    </Link>
+                    <div className="text-[11px] text-slate-500">
+                      {o.role.toLowerCase()} · seen {relativeTime(o.lastSeenAt)}
+                    </div>
+                  </div>
+                  {hasLoc ? (
+                    <a
+                      href={`https://www.google.com/maps?q=${o.lastLat},${o.lastLng}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="chip-mint text-[10px]"
+                    >
+                      Map
+                    </a>
+                  ) : (
+                    <span className="chip-slate text-[10px]">No GPS</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
 
       <div className="card overflow-hidden">
