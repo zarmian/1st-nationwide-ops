@@ -1,0 +1,134 @@
+import { describe, expect, it } from "vitest";
+import { Prisma } from "@prisma/client";
+import {
+  calculateBilling,
+  durationMinutes,
+  jobTypeToRateService,
+} from "./billing";
+
+type RateRow = {
+  id: string;
+  service:
+    | "PATROL"
+    | "ALARM_RESPONSE"
+    | "LOCKUP"
+    | "UNLOCK"
+    | "VPI"
+    | "STATIC_GUARDING"
+    | "DOG_HANDLER"
+    | "KEYHOLDING"
+    | "ADHOC"
+    | "ANNUAL_SUBSCRIPTION"
+    | "SITE_SETUP";
+  amount: Prisma.Decimal;
+  currency: string;
+  unit:
+    | "PER_VISIT"
+    | "PER_HOUR"
+    | "PER_MONTH"
+    | "PER_YEAR"
+    | "FIXED";
+};
+
+function rate(
+  service: RateRow["service"],
+  amount: number,
+  unit: RateRow["unit"] = "PER_VISIT",
+): RateRow {
+  return {
+    id: `rate-${service}-${unit}`,
+    service,
+    amount: new Prisma.Decimal(amount),
+    currency: "GBP",
+    unit,
+  };
+}
+
+describe("calculateBilling", () => {
+  it("returns the per-visit amount when a match exists", () => {
+    const rates = [rate("PATROL", 10.35), rate("ALARM_RESPONSE", 25.36)];
+    const result = calculateBilling(rates, "PATROL");
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.amount).toBe(10.35);
+      expect(result.currency).toBe("GBP");
+      expect(result.unit).toBe("PER_VISIT");
+    }
+  });
+
+  it("misses when no rate exists for the service", () => {
+    const rates = [rate("PATROL", 10)];
+    const result = calculateBilling(rates, "ALARM_RESPONSE");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toBe("no_rate");
+  });
+
+  it("requires duration for PER_HOUR rates", () => {
+    const rates = [rate("STATIC_GUARDING", 14.5, "PER_HOUR")];
+    const noDuration = calculateBilling(rates, "STATIC_GUARDING");
+    expect(noDuration.ok).toBe(false);
+    if (!noDuration.ok) expect(noDuration.reason).toBe("duration_required");
+  });
+
+  it("multiplies PER_HOUR rate by hours from durationMinutes", () => {
+    const rates = [rate("STATIC_GUARDING", 14.5, "PER_HOUR")];
+    const r = calculateBilling(rates, "STATIC_GUARDING", 90);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.amount).toBe(21.75);
+  });
+
+  it("rounds the per-hour result to 2dp", () => {
+    const rates = [rate("STATIC_GUARDING", 13.337, "PER_HOUR")];
+    const r = calculateBilling(rates, "STATIC_GUARDING", 60);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.amount).toBe(13.34);
+  });
+
+  it("treats zero / negative duration as duration_required", () => {
+    const rates = [rate("STATIC_GUARDING", 10, "PER_HOUR")];
+    expect(calculateBilling(rates, "STATIC_GUARDING", 0).ok).toBe(false);
+    expect(calculateBilling(rates, "STATIC_GUARDING", -30).ok).toBe(false);
+  });
+});
+
+describe("jobTypeToRateService", () => {
+  it.each([
+    ["ALARM_RESPONSE", "ALARM_RESPONSE"],
+    ["PATROL", "PATROL"],
+    ["LOCK", "LOCKUP"],
+    ["UNLOCK", "UNLOCK"],
+    ["KEY_COLLECTION", "KEYHOLDING"],
+    ["KEY_DROPOFF", "KEYHOLDING"],
+    ["VPI", "VPI"],
+    ["ADHOC", "ADHOC"],
+    ["STATIC_GUARDING_SHIFT", "STATIC_GUARDING"],
+    ["DOG_HANDLER_SHIFT", "DOG_HANDLER"],
+  ])("maps %s → %s", (jobType, expected) => {
+    expect(jobTypeToRateService(jobType)).toBe(expected);
+  });
+
+  it("returns null for unmapped types", () => {
+    expect(jobTypeToRateService("SURVEY")).toBeNull();
+    expect(jobTypeToRateService("UNKNOWN")).toBeNull();
+  });
+});
+
+describe("durationMinutes", () => {
+  it("returns minutes between arrival and departure", () => {
+    const a = new Date("2026-05-01T18:00:00Z");
+    const b = new Date("2026-05-01T18:45:00Z");
+    expect(durationMinutes(a, b)).toBe(45);
+  });
+
+  it("returns null when either side is missing", () => {
+    expect(durationMinutes(null, new Date())).toBeNull();
+    expect(durationMinutes(new Date(), null)).toBeNull();
+  });
+
+  it("returns null when departure is before / equal arrival", () => {
+    const a = new Date("2026-05-01T18:00:00Z");
+    const before = new Date("2026-05-01T17:59:59Z");
+    expect(durationMinutes(a, a)).toBeNull();
+    expect(durationMinutes(a, before)).toBeNull();
+  });
+});

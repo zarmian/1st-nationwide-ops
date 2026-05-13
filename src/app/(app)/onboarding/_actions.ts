@@ -5,6 +5,11 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import {
+  applyBillingToJob,
+  billForSite,
+  jobTypeToRateService,
+} from "@/lib/billing";
 
 const STAGES = [
   "PROPOSED",
@@ -144,6 +149,18 @@ export async function addSetupJob(
     },
     select: { id: true },
   });
+
+  // Snapshot the billable amount onto the job. Best-effort: PER_HOUR jobs
+  // intentionally stay un-billed at creation (need actual duration on
+  // completion). SURVEY and similar untyped flows return no_rate and
+  // simply leave the snapshot empty.
+  const rateService = jobTypeToRateService(d.type);
+  if (rateService) {
+    const result = await billForSite(pipeline.siteId, rateService);
+    if (result.ok) {
+      await applyBillingToJob(job.id, result);
+    }
+  }
 
   revalidatePath(`/onboarding/${d.pipelineId}`);
   return { ok: true, jobId: job.id };

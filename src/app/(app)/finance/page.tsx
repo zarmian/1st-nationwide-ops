@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { recalculateBilling } from "./_actions";
+import { RecalcButton } from "./_components/RecalcButton";
 
 export const dynamic = "force-dynamic";
 
@@ -99,15 +101,86 @@ export default async function FinancePage() {
     where: { active: true, rates: { none: {} } },
   });
 
+  // Periodic billed-totals from snapshotted billedAmount on visits + jobs.
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfToday.getDate() - 6); // last 7 days inclusive
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  async function billedSum(since: Date): Promise<number> {
+    const [v, j] = await prisma.$transaction([
+      prisma.patrolVisit.aggregate({
+        _sum: { billedAmount: true },
+        where: { billedAt: { gte: since } },
+      }),
+      prisma.job.aggregate({
+        _sum: { billedAmount: true },
+        where: { billedAt: { gte: since } },
+      }),
+    ]);
+    return (
+      Number(v._sum.billedAmount ?? 0) + Number(j._sum.billedAmount ?? 0)
+    );
+  }
+
+  const [earnedToday, earnedWeek, earnedMonth] = await Promise.all([
+    billedSum(startOfToday),
+    billedSum(startOfWeek),
+    billedSum(startOfMonth),
+  ]);
+
   return (
     <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Finance</h1>
-        <p className="text-sm text-slate-500">
-          What we bill across all sites and customers. Pulled from{" "}
-          <code className="text-xs bg-slate-100 px-1 rounded">SiteRate</code>{" "}
-          rows. Auto-calculated job billing and officer pay are coming next.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-brand-navy">Finance</h1>
+          <p className="text-sm text-slate-500">
+            What we bill across all sites and customers. Per-visit and
+            per-job amounts are auto-snapshotted from{" "}
+            <code className="text-xs bg-slate-100 px-1 rounded">SiteRate</code>
+            . Officer pay rates and excess-time surcharge are next.
+          </p>
+        </div>
+        <RecalcButton recalc={recalculateBilling} />
+      </div>
+
+      <div className="grid sm:grid-cols-3 gap-3">
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Earned today
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy mt-1">
+            {fmtMoney2(earnedToday)}
+          </div>
+          <div className="text-xs text-slate-500">
+            from completed visits + jobs since midnight
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Earned this week
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy mt-1">
+            {fmtMoney2(earnedWeek)}
+          </div>
+          <div className="text-xs text-slate-500">last 7 days</div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Earned this month
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy mt-1">
+            {fmtMoney2(earnedMonth)}
+          </div>
+          <div className="text-xs text-slate-500">
+            since {startOfMonth.toLocaleDateString("en-GB")}
+          </div>
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -268,12 +341,12 @@ export default async function FinancePage() {
         </h3>
         <ul className="text-sm text-slate-700 space-y-1 list-disc list-inside">
           <li>
-            Auto-billed jobs — Job.billedAmount fills from the matching SiteRate
-            when a job is created.
-          </li>
-          <li>
             Officer pay rates — per officer per service, summed monthly into pay
             statements.
+          </li>
+          <li>
+            Excess-time surcharge — when actual on-site time exceeds the rate's
+            included duration, an uplift applies.
           </li>
           <li>
             Per-account P&amp;L — billed minus pay, per customer/partner, with

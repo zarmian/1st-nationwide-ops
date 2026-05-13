@@ -561,6 +561,10 @@ model PatrolVisit {
   gpsLng             Float?
   photoUrls          String[]        @default([])
   notes              String?
+  billedAmount       Decimal?        @db.Decimal(10, 2)
+  billedCurrency     String?
+  billedAt           DateTime?
+  payRateUnit        String?
   createdAt          DateTime        @default(now())
 
   job                Job?
@@ -712,6 +716,8 @@ model Job {
   partnerReportRef      String?
 
   billedAmount          Decimal?      @db.Decimal(10, 2)
+  billedCurrency        String?
+  billedAt              DateTime?
   paidAmount            Decimal?      @db.Decimal(10, 2)
   payRateUnit           String?
 

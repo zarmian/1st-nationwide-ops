@@ -10,6 +10,12 @@ import {
   clientKey,
   submissionLimiter,
 } from "@/lib/ratelimit";
+import {
+  applyBillingToVisit,
+  billForSite,
+  durationMinutes,
+  jobTypeToRateService,
+} from "@/lib/billing";
 
 const Body = z.object({
   siteId: z.string().min(1),
@@ -127,23 +133,39 @@ export async function POST(req: Request) {
   if (data.patrolVisitId) {
     const visit = await prisma.patrolVisit.findUnique({
       where: { id: data.patrolVisitId },
-      select: { arrivedAt: true, status: true },
+      select: { arrivedAt: true, status: true, siteId: true },
     });
     const departed = data.departedAt ? new Date(data.departedAt) : new Date();
+    const arrived =
+      visit?.arrivedAt ??
+      (data.arrivedAt ? new Date(data.arrivedAt) : new Date());
     await prisma.patrolVisit.update({
       where: { id: data.patrolVisitId },
       data: {
         status: "COMPLETED",
         departedAt: departed,
-        arrivedAt:
-          visit?.arrivedAt ??
-          (data.arrivedAt ? new Date(data.arrivedAt) : new Date()),
+        arrivedAt: arrived,
       },
     });
     if (visit?.status !== "COMPLETED") {
       notifyVisitCompleted(data.patrolVisitId).catch((e) =>
         console.error("notifyVisitCompleted failed", e),
       );
+    }
+    // Snapshot billing onto the visit. We map the SubmissionForm value back
+    // to a RateService — same lookup as for jobs, just from a different
+    // source. Best-effort: a missing rate leaves the visit unbilled rather
+    // than failing the submission.
+    if (visit?.siteId) {
+      const rateService = jobTypeToRateService(data.form);
+      if (rateService) {
+        const result = await billForSite(
+          visit.siteId,
+          rateService,
+          durationMinutes(arrived, departed),
+        );
+        await applyBillingToVisit(data.patrolVisitId, result);
+      }
     }
   }
 

@@ -39,6 +39,14 @@ export default async function ReviewDetailPage({
               partner: { select: { id: true, name: true } },
             },
           },
+          patrolVisit: {
+            select: {
+              id: true,
+              billedAmount: true,
+              billedCurrency: true,
+              payRateUnit: true,
+            },
+          },
         },
       },
       clientReports: {
@@ -95,7 +103,7 @@ export default async function ReviewDetailPage({
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid md:grid-cols-4 gap-4">
         <div className="card p-4">
           <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">
             Site
@@ -128,6 +136,40 @@ export default async function ReviewDetailPage({
             <div>Arrived: {fmt(sub.arrivedAt)}</div>
             <div>Departed: {fmt(sub.departedAt)}</div>
           </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">
+            Billed
+          </div>
+          {sub.patrolVisit?.billedAmount != null ? (
+            <>
+              <div className="font-medium text-brand-navy">
+                {new Intl.NumberFormat("en-GB", {
+                  style: "currency",
+                  currency: sub.patrolVisit.billedCurrency ?? "GBP",
+                  minimumFractionDigits: 2,
+                }).format(Number(sub.patrolVisit.billedAmount))}
+              </div>
+              <div className="text-xs text-slate-500">
+                {sub.patrolVisit.payRateUnit?.toLowerCase().replace("_", " ") ?? "—"}
+              </div>
+            </>
+          ) : job?.billedAmount != null ? (
+            <>
+              <div className="font-medium text-brand-navy">
+                {new Intl.NumberFormat("en-GB", {
+                  style: "currency",
+                  currency: job.billedCurrency ?? "GBP",
+                  minimumFractionDigits: 2,
+                }).format(Number(job.billedAmount))}
+              </div>
+              <div className="text-xs text-slate-500">
+                {job.payRateUnit?.toLowerCase().replace("_", " ") ?? "—"}
+              </div>
+            </>
+          ) : (
+            <div className="text-sm text-slate-400">No rate matched</div>
+          )}
         </div>
       </div>
 
