@@ -45,6 +45,7 @@ export function SubmitForm({
   prefilledJobId,
   prefilledJobType,
   prefilledVisitId,
+  prefilledShiftId,
 }: {
   sites: Site[];
   templates: SubmitTemplate[];
@@ -55,6 +56,7 @@ export function SubmitForm({
   prefilledJobId: string | null;
   prefilledJobType: string | null;
   prefilledVisitId: string | null;
+  prefilledShiftId: string | null;
 }) {
   const [siteId, setSiteId] = useState(prefilledSiteId ?? "");
   const [siteSearch, setSiteSearch] = useState("");
@@ -109,7 +111,8 @@ export function SubmitForm({
           siteId,
           jobId: prefilledJobId,
           patrolVisitId: prefilledVisitId,
-          form: formType,
+          shiftId: prefilledShiftId,
+          form: prefilledShiftId ? "SHIFT_CHECK" : formType,
           formTemplateId: template?.id ?? null,
           officerNameRaw: name,
           arrivedAt: arrivedAt ? new Date(arrivedAt).toISOString() : null,
@@ -663,6 +666,7 @@ function mapJobTypeToForm(t: string | null): string | null {
     KEY_DROPOFF: "KEY_DROPOFF",
     VPI: "VPI",
     SURVEY: "ADHOC",
+    SHIFT_CHECK: "SHIFT_CHECK",
   };
   return map[t] ?? "ADHOC";
 }

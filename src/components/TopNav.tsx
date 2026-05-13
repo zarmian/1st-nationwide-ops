@@ -19,6 +19,7 @@ function isActive(pathname: string, href: string): boolean {
 const links = [
   { href: "/sites", label: "Sites" },
   { href: "/patrols", label: "Patrols" },
+  { href: "/shifts", label: "Shifts" },
   { href: "/keys", label: "Keys" },
   { href: "/onboarding", label: "Onboarding" },
   { href: "/officers", label: "Officers" },

@@ -193,6 +193,33 @@ export async function notifyAlarmReceived(
   });
 }
 
+export async function notifyShiftCheckOverdue(
+  shiftId: string,
+): Promise<number> {
+  const shift = await prisma.shift.findUnique({
+    where: { id: shiftId },
+    include: {
+      site: { select: { name: true, code: true } },
+      officer: { select: { name: true } },
+    },
+  });
+  if (!shift) return 0;
+  const officerName = shift.officer?.name ?? "Officer";
+  const siteLabel = shift.site
+    ? `${shift.site.code ? shift.site.code + " · " : ""}${shift.site.name}`
+    : "site";
+  const expectedEvery = `${shift.checkIntervalMin} min`;
+  return queueAll({
+    kind: "SHIFT_CHECK_OVERDUE",
+    recipients: await staffRecipients(),
+    templateName: "shift_check_overdue",
+    templateParams: [officerName, siteLabel, expectedEvery],
+    bodyPreview: `${officerName} at ${siteLabel} — hourly check overdue (expected every ${expectedEvery})`,
+    eventEntity: "Shift",
+    eventEntityId: shiftId,
+  });
+}
+
 export async function notifyKeyHandover(
   movementId: string,
 ): Promise<number> {

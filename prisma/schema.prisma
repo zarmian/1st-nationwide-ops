@@ -188,6 +188,20 @@ enum SubmissionForm {
   KEY_DROPOFF
   VPI
   ADHOC
+  SHIFT_CHECK
+}
+
+enum ShiftType {
+  STATIC_GUARDING
+  DOG_HANDLER
+}
+
+enum ShiftStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  ABANDONED
 }
 
 enum TemplateScope {
@@ -266,6 +280,7 @@ enum NotificationKind {
   VISIT_MISSED
   ALARM_RECEIVED
   KEY_HANDOVER
+  SHIFT_CHECK_OVERDUE
 }
 
 enum NotificationStatus {
@@ -325,6 +340,7 @@ model User {
   formBlueprintsAuthored   FormBlueprint[]     @relation("FormBlueprintAuthor")
   notifications            Notification[]      @relation("NotificationRecipient")
   officerRates             OfficerRate[]
+  shifts                   Shift[]             @relation("ShiftOfficer")
 
   @@index([regionId, role])
 }
@@ -418,6 +434,7 @@ model Site {
   formSubmissions       FormSubmission[]
   formTemplates         FormTemplate[]
   rates                 SiteRate[]
+  shifts                Shift[]
 
   @@index([regionId])
   @@index([customerId])
@@ -756,6 +773,8 @@ model FormSubmission {
   job                 Job?            @relation(fields: [jobId], references: [id])
   patrolVisitId       String?         @db.Uuid
   patrolVisit         PatrolVisit?    @relation(fields: [patrolVisitId], references: [id], onDelete: SetNull)
+  shiftId             String?         @db.Uuid
+  shift               Shift?          @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   submittedByUserId   String?         @db.Uuid
   submittedBy         User?           @relation("SubmittedByUser", fields: [submittedByUserId], references: [id])
@@ -775,6 +794,7 @@ model FormSubmission {
   @@index([form])
   @@index([formTemplateId])
   @@index([patrolVisitId])
+  @@index([shiftId])
 }
 
 model FormTemplate {
@@ -888,6 +908,31 @@ model Notification {
   @@index([recipientUserId])
   @@index([eventEntity, eventEntityId])
   @@index([kind])
+}
+
+model Shift {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId             String       @db.Uuid
+  site               Site         @relation(fields: [siteId], references: [id])
+  officerId          String?      @db.Uuid
+  officer            User?        @relation("ShiftOfficer", fields: [officerId], references: [id])
+  type               ShiftType
+  scheduledStartsAt  DateTime
+  scheduledEndsAt    DateTime
+  actualStartedAt    DateTime?
+  actualEndedAt      DateTime?
+  status             ShiftStatus  @default(PENDING)
+  checkIntervalMin   Int          @default(60)
+  graceMinutes       Int          @default(15)
+  notes              String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  formSubmissions    FormSubmission[]
+
+  @@index([siteId, scheduledStartsAt])
+  @@index([officerId, scheduledStartsAt])
+  @@index([status])
 }
 
 model OfficerRate {

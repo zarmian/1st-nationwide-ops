@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function SubmitPage({
   searchParams,
 }: {
-  searchParams: { jobId?: string; siteId?: string; visitId?: string };
+  searchParams: { jobId?: string; siteId?: string; visitId?: string; shiftId?: string };
 }) {
   const session = await getServerSession(authOptions);
 
@@ -115,14 +115,17 @@ export default async function SubmitPage({
           }
           prefilledJobId={prefilledJob?.id ?? null}
           prefilledJobType={
-            prefilledJob?.type ??
-            (prefilledVisit?.patrolSchedule?.kind === "VPI"
-              ? "VPI"
-              : prefilledVisit
-                ? "PATROL"
-                : null)
+            searchParams.shiftId
+              ? "ADHOC"
+              : prefilledJob?.type ??
+                (prefilledVisit?.patrolSchedule?.kind === "VPI"
+                  ? "VPI"
+                  : prefilledVisit
+                    ? "PATROL"
+                    : null)
           }
           prefilledVisitId={prefilledVisit?.id ?? null}
+          prefilledShiftId={searchParams.shiftId ?? null}
         />
       </div>
     </main>

@@ -23,6 +23,7 @@ const Body = z.object({
   siteId: z.string().min(1),
   jobId: z.string().nullable().optional(),
   patrolVisitId: z.string().uuid().nullable().optional(),
+  shiftId: z.string().uuid().nullable().optional(),
   form: z.enum([
     "ALARM_RESPONSE",
     "PATROL",
@@ -32,6 +33,7 @@ const Body = z.object({
     "KEY_DROPOFF",
     "VPI",
     "ADHOC",
+    "SHIFT_CHECK",
   ]),
   formTemplateId: z.string().uuid().nullable().optional(),
   officerNameRaw: z.string().min(1).max(120),
@@ -113,6 +115,7 @@ export async function POST(req: Request) {
       siteId: data.siteId,
       jobId: data.jobId ?? null,
       patrolVisitId: data.patrolVisitId ?? null,
+      shiftId: data.shiftId ?? null,
       submittedByUserId: session ? (session.user.id) : null,
       officerNameRaw: data.officerNameRaw,
       arrivedAt: data.arrivedAt ? new Date(data.arrivedAt) : null,

@@ -295,6 +295,48 @@ async function main() {
         },
       ],
     },
+    {
+      slug: "shift-hourly-check",
+      name: "Hourly shift check",
+      description:
+        "Default form for static guarding / dog handler shifts. Officers submit this every hour while on shift.",
+      jobType: null,
+      source: "Built-in",
+      fields: [
+        {
+          key: "all_clear",
+          label: "All clear?",
+          type: "tri",
+          required: true,
+        },
+        {
+          key: "perimeter_secure",
+          label: "Perimeter secure?",
+          type: "tri",
+          required: true,
+        },
+        {
+          key: "incidents",
+          label: "Any incidents to report?",
+          type: "textarea",
+          required: false,
+          helpText: "Leave blank if nothing to report.",
+        },
+        {
+          key: "check_location",
+          label: "Location",
+          type: "location",
+          required: true,
+        },
+        {
+          key: "check_photos",
+          label: "Photos (optional)",
+          type: "multiphoto",
+          required: false,
+          meta: { maxCount: 3 },
+        },
+      ],
+    },
   ];
 
   for (const bp of blueprints) {
@@ -368,6 +410,47 @@ async function main() {
     console.log(`  ✓ Shurgard customer template (from blueprint)`);
   } else if (!shurgard) {
     console.warn(`  ! Shurgard customer not found — template skipped`);
+  }
+
+  // ── 8. Global SHIFT_CHECK template ───────────────────────────────────────
+  // Drives the hourly check form. Customer-scoped overrides can be added
+  // via /admin/forms later.
+  const shiftBlueprint = await prisma.formBlueprint.findUnique({
+    where: { slug: "shift-hourly-check" },
+    select: { id: true, fields: true },
+  });
+  if (shiftBlueprint) {
+    const SHIFT_TEMPLATE_NAME = "Hourly shift check";
+    const existing = await prisma.formTemplate.findFirst({
+      where: {
+        name: SHIFT_TEMPLATE_NAME,
+        scope: "GLOBAL",
+        jobType: "SHIFT_CHECK",
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.formTemplate.update({
+        where: { id: existing.id },
+        data: {
+          fields: shiftBlueprint.fields as any,
+          blueprintId: shiftBlueprint.id,
+          active: true,
+        },
+      });
+    } else {
+      await prisma.formTemplate.create({
+        data: {
+          name: SHIFT_TEMPLATE_NAME,
+          scope: "GLOBAL",
+          jobType: "SHIFT_CHECK",
+          fields: shiftBlueprint.fields as any,
+          blueprintId: shiftBlueprint.id,
+          active: true,
+        },
+      });
+    }
+    console.log(`  ✓ Global SHIFT_CHECK form template`);
   }
 
   console.log("Done.");
