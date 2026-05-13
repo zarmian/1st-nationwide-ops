@@ -36,7 +36,60 @@ function fmtMoney2(amount: number, currency = "GBP"): string {
   }).format(amount);
 }
 
-export default async function FinancePage() {
+/**
+ * Parse "YYYY-MM-DD" into a local-midnight Date (or end-of-day with
+ * `endOfDay=true`). Returns null for missing/invalid input — callers fall
+ * back to defaults.
+ */
+function parseLocalDate(
+  s: string | undefined,
+  endOfDay = false,
+): Date | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const [, y, mo, d] = m;
+  const dt = endOfDay
+    ? new Date(Number(y), Number(mo) - 1, Number(d), 23, 59, 59, 999)
+    : new Date(Number(y), Number(mo) - 1, Number(d));
+  return Number.isFinite(dt.getTime()) ? dt : null;
+}
+
+function ymd(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function addDays(d: Date, n: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + n);
+  return out;
+}
+
+function RangePreset({
+  label,
+  from,
+  to,
+}: {
+  label: string;
+  from: Date;
+  to: Date;
+}) {
+  return (
+    <a
+      href={`/finance?from=${ymd(from)}&to=${ymd(to)}`}
+      className="chip-slate hover:bg-slate-200 cursor-pointer"
+    >
+      {label}
+    </a>
+  );
+}
+
+export default async function FinancePage({
+  searchParams,
+}: {
+  searchParams: { from?: string; to?: string };
+}) {
   // Pull every site that has at least one rate row, plus its rates and the
   // partner/customer it belongs to. Stays in JS for the aggregations because
   // the per-row work is small (handful of customers/partners).
@@ -101,26 +154,30 @@ export default async function FinancePage() {
     where: { active: true, rates: { none: {} } },
   });
 
-  // Periodic billed-totals from snapshotted billedAmount on visits + jobs.
+  // Date-range scope. Defaults to the current calendar month. The two
+  // search params drive every KPI / P&L total below.
   const now = new Date();
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
-  const startOfWeek = new Date(startOfToday);
-  startOfWeek.setDate(startOfToday.getDate() - 6); // last 7 days inclusive
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  monthEnd.setMilliseconds(-1); // last ms of the month
 
-  async function billedSum(since: Date): Promise<number> {
+  const fromDate = parseLocalDate(searchParams.from) ?? monthStart;
+  const toDate = parseLocalDate(searchParams.to, true) ?? monthEnd;
+
+  // Comparison: same length ending the day before `fromDate`.
+  const periodMs = toDate.getTime() - fromDate.getTime();
+  const prevTo = new Date(fromDate.getTime() - 1);
+  const prevFrom = new Date(prevTo.getTime() - periodMs);
+
+  async function billedSum(from: Date, to: Date): Promise<number> {
     const [v, j] = await prisma.$transaction([
       prisma.patrolVisit.aggregate({
         _sum: { billedAmount: true },
-        where: { billedAt: { gte: since } },
+        where: { billedAt: { gte: from, lte: to } },
       }),
       prisma.job.aggregate({
         _sum: { billedAmount: true },
-        where: { billedAt: { gte: since } },
+        where: { billedAt: { gte: from, lte: to } },
       }),
     ]);
     return (
@@ -128,11 +185,20 @@ export default async function FinancePage() {
     );
   }
 
-  const [earnedToday, earnedWeek, earnedMonth] = await Promise.all([
-    billedSum(startOfToday),
-    billedSum(startOfWeek),
-    billedSum(startOfMonth),
+  // KPI: today (always anchored to "now"), the chosen range, the previous
+  // range of the same length (so admin can eyeball trend).
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  );
+  const [earnedToday, earnedRange, earnedPrev] = await Promise.all([
+    billedSum(startOfToday, now),
+    billedSum(fromDate, toDate),
+    billedSum(prevFrom, prevTo),
   ]);
+  const rangeDelta =
+    earnedPrev > 0 ? ((earnedRange - earnedPrev) / earnedPrev) * 100 : null;
 
   // Per-account P&L for the current month (calendar). Billed and paid come
   // from snapshotted amounts on visits + jobs. Profit = billed − paid.
@@ -173,9 +239,9 @@ export default async function FinancePage() {
     return fresh;
   }
 
-  const [monthVisits, monthJobs] = await Promise.all([
+  const [rangeVisits, rangeJobs] = await Promise.all([
     prisma.patrolVisit.findMany({
-      where: { billedAt: { gte: startOfMonth } },
+      where: { billedAt: { gte: fromDate, lte: toDate } },
       select: {
         billedAmount: true,
         paidAmount: true,
@@ -190,7 +256,7 @@ export default async function FinancePage() {
       },
     }),
     prisma.job.findMany({
-      where: { billedAt: { gte: startOfMonth } },
+      where: { billedAt: { gte: fromDate, lte: toDate } },
       select: {
         billedAmount: true,
         paidAmount: true,
@@ -201,7 +267,7 @@ export default async function FinancePage() {
       },
     }),
   ]);
-  for (const v of monthVisits) {
+  for (const v of rangeVisits) {
     const b = bucketFor(
       v.site?.customerId ?? null,
       v.site?.customer?.name ?? null,
@@ -212,7 +278,7 @@ export default async function FinancePage() {
     b.paid += Number(v.paidAmount ?? 0);
     b.activities++;
   }
-  for (const j of monthJobs) {
+  for (const j of rangeJobs) {
     const b = bucketFor(
       j.customerId,
       j.customer?.name ?? null,
@@ -247,8 +313,73 @@ export default async function FinancePage() {
             . Officer pay rates and excess-time surcharge are next.
           </p>
         </div>
-        <RecalcButton recalc={recalculateBilling} />
+        <div className="flex items-center gap-2">
+          <Link href="/finance/payroll" className="btn-secondary text-sm">
+            Payroll →
+          </Link>
+          <RecalcButton recalc={recalculateBilling} />
+        </div>
       </div>
+
+      <form className="card p-3 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="label" htmlFor="from">
+            From
+          </label>
+          <input
+            id="from"
+            name="from"
+            type="date"
+            defaultValue={ymd(fromDate)}
+            className="input"
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="to">
+            To
+          </label>
+          <input
+            id="to"
+            name="to"
+            type="date"
+            defaultValue={ymd(toDate)}
+            className="input"
+          />
+        </div>
+        <button type="submit" className="btn-secondary text-sm">
+          Apply
+        </button>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <RangePreset label="Today" from={startOfToday} to={now} />
+          <RangePreset
+            label="Last 7 days"
+            from={addDays(startOfToday, -6)}
+            to={now}
+          />
+          <RangePreset
+            label="This month"
+            from={monthStart}
+            to={monthEnd}
+          />
+          <RangePreset
+            label="Last month"
+            from={
+              new Date(now.getFullYear(), now.getMonth() - 1, 1)
+            }
+            to={
+              new Date(
+                now.getFullYear(),
+                now.getMonth(),
+                0,
+                23,
+                59,
+                59,
+                999,
+              )
+            }
+          />
+        </div>
+      </form>
 
       <div className="grid sm:grid-cols-3 gap-3">
         <div className="card p-4">
@@ -259,27 +390,41 @@ export default async function FinancePage() {
             {fmtMoney2(earnedToday)}
           </div>
           <div className="text-xs text-slate-500">
-            from completed visits + jobs since midnight
+            since midnight (always anchored to now)
           </div>
         </div>
         <div className="card p-4">
           <div className="text-xs uppercase tracking-wider text-slate-500">
-            Earned this week
+            Earned in range
           </div>
           <div className="text-2xl font-semibold text-brand-navy mt-1">
-            {fmtMoney2(earnedWeek)}
-          </div>
-          <div className="text-xs text-slate-500">last 7 days</div>
-        </div>
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Earned this month
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy mt-1">
-            {fmtMoney2(earnedMonth)}
+            {fmtMoney2(earnedRange)}
           </div>
           <div className="text-xs text-slate-500">
-            since {startOfMonth.toLocaleDateString("en-GB")}
+            {fromDate.toLocaleDateString("en-GB")} →{" "}
+            {toDate.toLocaleDateString("en-GB")}
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Previous period
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy mt-1">
+            {fmtMoney2(earnedPrev)}
+          </div>
+          <div
+            className={
+              "text-xs " +
+              (rangeDelta == null
+                ? "text-slate-500"
+                : rangeDelta >= 0
+                  ? "text-brand-mint-dark"
+                  : "text-red-600")
+            }
+          >
+            {rangeDelta == null
+              ? "No prior data to compare"
+              : `${rangeDelta >= 0 ? "+" : ""}${rangeDelta.toFixed(0)}% vs same-length window before`}
           </div>
         </div>
       </div>
@@ -287,11 +432,13 @@ export default async function FinancePage() {
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100">
           <h2 className="font-semibold text-brand-navy">
-            This month — P&amp;L by account
+            P&amp;L by account
           </h2>
           <p className="text-xs text-slate-500">
             Billed minus officer pay, per customer / partner. Activities count
-            visits + jobs with a billed snapshot since {startOfMonth.toLocaleDateString("en-GB")}.
+            visits + jobs with a billed snapshot in the selected range
+            ({fromDate.toLocaleDateString("en-GB")} →{" "}
+            {toDate.toLocaleDateString("en-GB")}).
           </p>
         </div>
         <table className="w-full text-sm">
