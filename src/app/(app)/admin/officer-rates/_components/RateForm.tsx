@@ -117,16 +117,49 @@ export function RateForm({
           />
         </div>
       </div>
-      <div>
-        <label className="label" htmlFor="notes">
-          Notes
-        </label>
-        <input id="notes" name="notes" className="input" />
+      <div className="grid sm:grid-cols-3 gap-3">
+        <div>
+          <label className="label" htmlFor="includedMinutes">
+            Included minutes
+          </label>
+          <input
+            id="includedMinutes"
+            name="includedMinutes"
+            type="number"
+            min="0"
+            max="1440"
+            className="input"
+            placeholder="e.g. 30"
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Beyond this, excess kicks in.
+          </p>
+        </div>
+        <div>
+          <label className="label" htmlFor="excessRatePerMin">
+            Excess rate / minute
+          </label>
+          <input
+            id="excessRatePerMin"
+            name="excessRatePerMin"
+            type="number"
+            min="0"
+            step="0.01"
+            className="input"
+            placeholder="e.g. 0.50"
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="notes">
+            Notes
+          </label>
+          <input id="notes" name="notes" className="input" />
+        </div>
       </div>
       <SubmitButton />
       <p className="text-xs text-slate-500">
         Saving with the same (officer × service) pair overwrites the existing
-        rate.
+        rate. Excess fields are optional — leave blank for no surcharge.
       </p>
     </form>
   );

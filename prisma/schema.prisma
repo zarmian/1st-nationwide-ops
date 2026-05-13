@@ -429,19 +429,22 @@ model Site {
 }
 
 model SiteRate {
-  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  siteId      String       @db.Uuid
-  site        Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  service     RateService
-  amount      Decimal      @db.Decimal(10, 2)
-  currency    String       @default("GBP")
-  unit        RateUnit     @default(PER_VISIT)
-  validFrom   DateTime?
-  validTo     DateTime?
-  notes       String?
-  source      String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId          String       @db.Uuid
+  site            Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  service         RateService
+  amount          Decimal      @db.Decimal(10, 2)
+  currency        String       @default("GBP")
+  unit            RateUnit     @default(PER_VISIT)
+  // Minutes covered by `amount`. Beyond this, excessRatePerMin applies.
+  includedMinutes Int?
+  excessRatePerMin Decimal?    @db.Decimal(10, 4)
+  validFrom       DateTime?
+  validTo         DateTime?
+  notes           String?
+  source          String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   @@unique([siteId, service])
   @@index([siteId])
@@ -888,18 +891,21 @@ model Notification {
 }
 
 model OfficerRate {
-  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  officerId   String?      @db.Uuid
-  officer     User?        @relation(fields: [officerId], references: [id], onDelete: Cascade)
-  service     RateService
-  amount      Decimal      @db.Decimal(10, 2)
-  currency    String       @default("GBP")
-  unit        RateUnit     @default(PER_VISIT)
-  validFrom   DateTime?
-  validTo     DateTime?
-  notes       String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  officerId        String?     @db.Uuid
+  officer          User?       @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  service          RateService
+  amount           Decimal     @db.Decimal(10, 2)
+  currency         String      @default("GBP")
+  unit             RateUnit    @default(PER_VISIT)
+  // Minutes covered by `amount`. Beyond this, excessRatePerMin applies.
+  includedMinutes  Int?
+  excessRatePerMin Decimal?    @db.Decimal(10, 4)
+  validFrom        DateTime?
+  validTo          DateTime?
+  notes            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
 
   @@unique([officerId, service])
   @@index([officerId])

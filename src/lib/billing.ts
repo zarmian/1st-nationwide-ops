@@ -31,22 +31,30 @@ export type BillingMiss =
 
 export type BillingResult = ({ ok: true } & BillingCalc) | BillingMiss;
 
+type RateWithExcess = Pick<
+  SiteRate,
+  "id" | "service" | "amount" | "currency" | "unit"
+> & {
+  includedMinutes?: number | null;
+  excessRatePerMin?: Prisma.Decimal | number | null;
+};
+
 /**
- * Pure calculator. Picks the most recently updated active rate matching
- * `service` from the supplied `rates` array (already scoped to one site).
- * For PER_HOUR rates `durationMinutes` is required; everything else is
- * rate.amount as a one-off charge.
+ * Pure calculator. Picks the first rate matching `service` from the supplied
+ * `rates` array (already scoped to one site).
+ *
+ * For PER_HOUR rates the amount is rate × hours from `durationMinutes`.
+ * For other units the amount is `rate.amount` as a one-off charge, plus an
+ * excess-time surcharge when `durationMinutes` exceeds `includedMinutes`.
+ * The excess is `(duration - includedMinutes) × excessRatePerMin`.
  */
 export function calculateBilling(
-  rates: Pick<SiteRate, "id" | "service" | "amount" | "currency" | "unit">[],
+  rates: RateWithExcess[],
   service: RateService,
   durationMinutes: number | null = null,
 ): BillingResult {
   const matched = rates.filter((r) => r.service === service);
   if (matched.length === 0) return { ok: false, reason: "no_rate", service };
-  // If multiple rates exist for the same service (no validFrom/To pruning at
-  // this level), prefer the largest amount as the "active" one. Real
-  // rate-history support comes later.
   const rate = matched[0];
 
   if (rate.unit === "PER_HOUR") {
@@ -65,14 +73,33 @@ export function calculateBilling(
     };
   }
 
+  const base = Number(rate.amount);
+  const excess = excessSurcharge(rate, durationMinutes);
   return {
     ok: true,
-    amount: round2(Number(rate.amount)),
+    amount: round2(base + excess),
     currency: rate.currency,
     service,
     unit: rate.unit,
     matchedRateId: rate.id,
   };
+}
+
+/**
+ * Excess-time surcharge: minutes beyond `includedMinutes` are charged at
+ * `excessRatePerMin`. Returns 0 when either threshold or rate is unset, or
+ * when the duration is within the included window.
+ */
+function excessSurcharge(
+  rate: { includedMinutes?: number | null; excessRatePerMin?: Prisma.Decimal | number | null },
+  durationMinutes: number | null,
+): number {
+  if (durationMinutes == null || durationMinutes <= 0) return 0;
+  const included = rate.includedMinutes ?? 0;
+  const perMin = rate.excessRatePerMin != null ? Number(rate.excessRatePerMin) : 0;
+  if (included <= 0 || perMin <= 0) return 0;
+  if (durationMinutes <= included) return 0;
+  return (durationMinutes - included) * perMin;
 }
 
 function round2(n: number): number {
@@ -138,6 +165,8 @@ export async function billForSite(
       amount: true,
       currency: true,
       unit: true,
+      includedMinutes: true,
+      excessRatePerMin: true,
     },
   });
   return calculateBilling(rates, service, durationMinutes);
@@ -209,17 +238,23 @@ export async function applyBillingToJob(
  * Same shape as calculateBilling so callers handle no_rate / duration_required
  * symmetrically.
  */
+type PayRateRow = {
+  id: string;
+  officerId: string | null;
+  service: RateService;
+  amount: Prisma.Decimal | number;
+  currency: string;
+  unit: RateUnit;
+  includedMinutes?: number | null;
+  excessRatePerMin?: Prisma.Decimal | number | null;
+};
+
 export function calculatePay(
-  rates: Pick<
-    { id: string; officerId: string | null; service: RateService; amount: Prisma.Decimal | number; currency: string; unit: RateUnit },
-    "id" | "officerId" | "service" | "amount" | "currency" | "unit"
-  >[],
+  rates: PayRateRow[],
   officerId: string,
   service: RateService,
   durationMinutes: number | null = null,
 ): BillingResult {
-  // Prefer a per-officer rate for the service; fall back to the company
-  // default (officerId === null).
   const officerSpecific = rates.find(
     (r) => r.officerId === officerId && r.service === service,
   );
@@ -244,9 +279,11 @@ export function calculatePay(
     };
   }
 
+  const base = Number(rate.amount);
+  const excess = excessSurcharge(rate, durationMinutes);
   return {
     ok: true,
-    amount: round2(Number(rate.amount)),
+    amount: round2(base + excess),
     currency: rate.currency,
     service,
     unit: rate.unit,
@@ -272,6 +309,8 @@ export async function payForOfficer(
       amount: true,
       currency: true,
       unit: true,
+      includedMinutes: true,
+      excessRatePerMin: true,
     },
   });
   return calculatePay(rates, officerId, service, durationMinutes);

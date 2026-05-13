@@ -28,6 +28,16 @@ const RateInput = z.object({
   amount: z.coerce.number().min(0).max(100000),
   unit: z.enum(UNITS),
   currency: z.string().trim().min(3).max(3).default("GBP"),
+  includedMinutes: z
+    .union([z.literal(""), z.coerce.number().int().min(0).max(1440)])
+    .transform((v) => (v === "" ? null : v))
+    .nullable()
+    .optional(),
+  excessRatePerMin: z
+    .union([z.literal(""), z.coerce.number().min(0).max(1000)])
+    .transform((v) => (v === "" ? null : v))
+    .nullable()
+    .optional(),
   notes: z.string().trim().max(500).optional().nullable(),
 });
 
@@ -41,6 +51,8 @@ function parse(formData: FormData) {
     amount: formData.get("amount")?.toString() ?? "0",
     unit: formData.get("unit")?.toString() ?? "PER_VISIT",
     currency: (formData.get("currency")?.toString() ?? "GBP").toUpperCase(),
+    includedMinutes: formData.get("includedMinutes")?.toString() ?? "",
+    excessRatePerMin: formData.get("excessRatePerMin")?.toString() ?? "",
     notes: formData.get("notes")?.toString() || null,
   });
 }
@@ -72,6 +84,9 @@ export async function upsertOfficerRate(
     amount: new Prisma.Decimal(d.amount),
     currency: d.currency,
     unit: d.unit as any,
+    includedMinutes: d.includedMinutes ?? null,
+    excessRatePerMin:
+      d.excessRatePerMin != null ? new Prisma.Decimal(d.excessRatePerMin) : null,
     notes: d.notes,
   };
 

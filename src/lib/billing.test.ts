@@ -29,12 +29,15 @@ type RateRow = {
     | "PER_MONTH"
     | "PER_YEAR"
     | "FIXED";
+  includedMinutes?: number | null;
+  excessRatePerMin?: Prisma.Decimal | null;
 };
 
 function rate(
   service: RateRow["service"],
   amount: number,
   unit: RateRow["unit"] = "PER_VISIT",
+  excess?: { included: number; perMin: number },
 ): RateRow {
   return {
     id: `rate-${service}-${unit}`,
@@ -42,6 +45,8 @@ function rate(
     amount: new Prisma.Decimal(amount),
     currency: "GBP",
     unit,
+    includedMinutes: excess?.included ?? null,
+    excessRatePerMin: excess ? new Prisma.Decimal(excess.perMin) : null,
   };
 }
 
@@ -89,6 +94,58 @@ describe("calculateBilling", () => {
     const rates = [rate("STATIC_GUARDING", 10, "PER_HOUR")];
     expect(calculateBilling(rates, "STATIC_GUARDING", 0).ok).toBe(false);
     expect(calculateBilling(rates, "STATIC_GUARDING", -30).ok).toBe(false);
+  });
+
+  describe("excess-time surcharge", () => {
+    it("adds (duration - included) × perMin when over the included window", () => {
+      const rates = [
+        rate("ALARM_RESPONSE", 25, "PER_VISIT", {
+          included: 30,
+          perMin: 0.5,
+        }),
+      ];
+      const r = calculateBilling(rates, "ALARM_RESPONSE", 50);
+      expect(r.ok).toBe(true);
+      // 25 base + (50 - 30) * 0.5 = 25 + 10 = 35
+      if (r.ok) expect(r.amount).toBe(35);
+    });
+
+    it("charges only the base when duration is within included minutes", () => {
+      const rates = [
+        rate("ALARM_RESPONSE", 25, "PER_VISIT", {
+          included: 30,
+          perMin: 0.5,
+        }),
+      ];
+      const r = calculateBilling(rates, "ALARM_RESPONSE", 25);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.amount).toBe(25);
+    });
+
+    it("ignores excess config when duration is null", () => {
+      const rates = [
+        rate("ALARM_RESPONSE", 25, "PER_VISIT", {
+          included: 30,
+          perMin: 0.5,
+        }),
+      ];
+      const r = calculateBilling(rates, "ALARM_RESPONSE", null);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.amount).toBe(25);
+    });
+
+    it("rounds the excess-inclusive total to 2 dp", () => {
+      const rates = [
+        rate("ALARM_RESPONSE", 10, "PER_VISIT", {
+          included: 30,
+          perMin: 0.1725,
+        }),
+      ];
+      const r = calculateBilling(rates, "ALARM_RESPONSE", 47);
+      // 10 + 17 * 0.1725 = 10 + 2.9325 → 12.93 (banker's-not — Math.round)
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.amount).toBe(12.93);
+    });
   });
 });
 
