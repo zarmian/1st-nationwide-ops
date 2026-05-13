@@ -76,6 +76,13 @@ export default async function AdminHubPage() {
       statLabel: "tool",
     },
     {
+      href: "/admin/officer-rates",
+      title: "Officer pay rates",
+      blurb: "Monthly retainer + per-service rates. Company defaults with per-officer overrides.",
+      stat: 0,
+      statLabel: "rates",
+    },
+    {
       href: "/admin/notifications",
       title: "Notifications",
       blurb: "WhatsApp queue — visit, alarm, and key-handover events sent to staff.",

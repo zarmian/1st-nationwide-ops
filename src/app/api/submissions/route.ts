@@ -12,9 +12,11 @@ import {
 } from "@/lib/ratelimit";
 import {
   applyBillingToVisit,
+  applyPayToVisit,
   billForSite,
   durationMinutes,
   jobTypeToRateService,
+  payForOfficer,
 } from "@/lib/billing";
 
 const Body = z.object({
@@ -133,7 +135,12 @@ export async function POST(req: Request) {
   if (data.patrolVisitId) {
     const visit = await prisma.patrolVisit.findUnique({
       where: { id: data.patrolVisitId },
-      select: { arrivedAt: true, status: true, siteId: true },
+      select: {
+        arrivedAt: true,
+        status: true,
+        siteId: true,
+        officerId: true,
+      },
     });
     const departed = data.departedAt ? new Date(data.departedAt) : new Date();
     const arrived =
@@ -158,13 +165,27 @@ export async function POST(req: Request) {
     // than failing the submission.
     if (visit?.siteId) {
       const rateService = jobTypeToRateService(data.form);
+      const duration = durationMinutes(arrived, departed);
       if (rateService) {
-        const result = await billForSite(
+        const billResult = await billForSite(
           visit.siteId,
           rateService,
-          durationMinutes(arrived, departed),
+          duration,
         );
-        await applyBillingToVisit(data.patrolVisitId, result);
+        await applyBillingToVisit(data.patrolVisitId, billResult);
+
+        // Officer pay snapshot — only meaningful when we know who attended.
+        const attendingOfficerId =
+          visit.officerId ??
+          (session ? session.user.id : null);
+        if (attendingOfficerId) {
+          const payResult = await payForOfficer(
+            attendingOfficerId,
+            rateService,
+            duration,
+          );
+          await applyPayToVisit(data.patrolVisitId, payResult);
+        }
       }
     }
   }

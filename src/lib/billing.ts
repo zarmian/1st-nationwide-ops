@@ -200,3 +200,121 @@ export async function applyBillingToJob(
     },
   });
 }
+
+// ── Officer pay ───────────────────────────────────────────────────────────
+
+/**
+ * Compute officer pay for one activity, using the OfficerRate rows already
+ * loaded. Per-officer rates win over company defaults (officerId = null).
+ * Same shape as calculateBilling so callers handle no_rate / duration_required
+ * symmetrically.
+ */
+export function calculatePay(
+  rates: Pick<
+    { id: string; officerId: string | null; service: RateService; amount: Prisma.Decimal | number; currency: string; unit: RateUnit },
+    "id" | "officerId" | "service" | "amount" | "currency" | "unit"
+  >[],
+  officerId: string,
+  service: RateService,
+  durationMinutes: number | null = null,
+): BillingResult {
+  // Prefer a per-officer rate for the service; fall back to the company
+  // default (officerId === null).
+  const officerSpecific = rates.find(
+    (r) => r.officerId === officerId && r.service === service,
+  );
+  const companyDefault = rates.find(
+    (r) => r.officerId === null && r.service === service,
+  );
+  const rate = officerSpecific ?? companyDefault;
+  if (!rate) return { ok: false, reason: "no_rate", service };
+
+  if (rate.unit === "PER_HOUR") {
+    if (durationMinutes == null || durationMinutes <= 0) {
+      return { ok: false, reason: "duration_required", service };
+    }
+    const hours = durationMinutes / 60;
+    return {
+      ok: true,
+      amount: round2(Number(rate.amount) * hours),
+      currency: rate.currency,
+      service,
+      unit: rate.unit,
+      matchedRateId: rate.id,
+    };
+  }
+
+  return {
+    ok: true,
+    amount: round2(Number(rate.amount)),
+    currency: rate.currency,
+    service,
+    unit: rate.unit,
+    matchedRateId: rate.id,
+  };
+}
+
+/** Convenience: load all OfficerRates and resolve pay for one activity. */
+export async function payForOfficer(
+  officerId: string,
+  service: RateService,
+  durationMinutes: number | null = null,
+): Promise<BillingResult> {
+  const rates = await prisma.officerRate.findMany({
+    where: {
+      service,
+      OR: [{ officerId }, { officerId: null }],
+    },
+    select: {
+      id: true,
+      officerId: true,
+      service: true,
+      amount: true,
+      currency: true,
+      unit: true,
+    },
+  });
+  return calculatePay(rates, officerId, service, durationMinutes);
+}
+
+export async function applyPayToVisit(
+  visitId: string,
+  result: BillingResult,
+): Promise<void> {
+  if (!result.ok) {
+    await prisma.patrolVisit.update({
+      where: { id: visitId },
+      data: { paidAmount: null, paidCurrency: null, paidAt: null },
+    });
+    return;
+  }
+  await prisma.patrolVisit.update({
+    where: { id: visitId },
+    data: {
+      paidAmount: new Prisma.Decimal(result.amount),
+      paidCurrency: result.currency,
+      paidAt: new Date(),
+    },
+  });
+}
+
+export async function applyPayToJob(
+  jobId: string,
+  result: BillingResult,
+): Promise<void> {
+  if (!result.ok) {
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { paidAmount: null, paidCurrency: null, paidAt: null },
+    });
+    return;
+  }
+  await prisma.job.update({
+    where: { id: jobId },
+    data: {
+      paidAmount: new Prisma.Decimal(result.amount),
+      paidCurrency: result.currency,
+      paidAt: new Date(),
+    },
+  });
+}

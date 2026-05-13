@@ -7,8 +7,10 @@ import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import {
   applyBillingToJob,
+  applyPayToJob,
   billForSite,
   jobTypeToRateService,
+  payForOfficer,
 } from "@/lib/billing";
 import { notifyAlarmReceived } from "@/lib/notifications";
 
@@ -165,9 +167,11 @@ export async function createJob(
   // completion when we know actual hours.
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
-    const result = await billForSite(d.siteId, rateService);
-    if (result.ok) {
-      await applyBillingToJob(created.id, result);
+    const bill = await billForSite(d.siteId, rateService);
+    if (bill.ok) await applyBillingToJob(created.id, bill);
+    if (d.assignedToUserId) {
+      const pay = await payForOfficer(d.assignedToUserId, rateService);
+      if (pay.ok) await applyPayToJob(created.id, pay);
     }
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Prisma } from "@prisma/client";
 import {
   calculateBilling,
+  calculatePay,
   durationMinutes,
   jobTypeToRateService,
 } from "./billing";
@@ -88,6 +89,71 @@ describe("calculateBilling", () => {
     const rates = [rate("STATIC_GUARDING", 10, "PER_HOUR")];
     expect(calculateBilling(rates, "STATIC_GUARDING", 0).ok).toBe(false);
     expect(calculateBilling(rates, "STATIC_GUARDING", -30).ok).toBe(false);
+  });
+});
+
+describe("calculatePay", () => {
+  type PayRate = {
+    id: string;
+    officerId: string | null;
+    service: RateRow["service"];
+    amount: Prisma.Decimal;
+    currency: string;
+    unit: RateRow["unit"];
+  };
+
+  function payRate(
+    officerId: string | null,
+    service: PayRate["service"],
+    amount: number,
+    unit: PayRate["unit"] = "PER_VISIT",
+  ): PayRate {
+    return {
+      id: `${officerId ?? "default"}-${service}-${unit}`,
+      officerId,
+      service,
+      amount: new Prisma.Decimal(amount),
+      currency: "GBP",
+      unit,
+    };
+  }
+
+  it("returns the per-officer rate when one exists", () => {
+    const rates = [
+      payRate(null, "ALARM_RESPONSE", 10), // company default
+      payRate("officer-1", "ALARM_RESPONSE", 15), // per-officer override
+    ];
+    const r = calculatePay(rates, "officer-1", "ALARM_RESPONSE");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.amount).toBe(15);
+  });
+
+  it("falls back to the company default when no per-officer rate", () => {
+    const rates = [payRate(null, "ALARM_RESPONSE", 10)];
+    const r = calculatePay(rates, "officer-1", "ALARM_RESPONSE");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.amount).toBe(10);
+  });
+
+  it("misses when neither per-officer nor default exists", () => {
+    const rates = [payRate(null, "PATROL", 5)];
+    const r = calculatePay(rates, "officer-1", "ALARM_RESPONSE");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("no_rate");
+  });
+
+  it("multiplies PER_HOUR pay rate by hours from duration", () => {
+    const rates = [payRate(null, "STATIC_GUARDING", 12, "PER_HOUR")];
+    const r = calculatePay(rates, "officer-1", "STATIC_GUARDING", 120);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.amount).toBe(24);
+  });
+
+  it("requires duration for PER_HOUR pay", () => {
+    const rates = [payRate(null, "STATIC_GUARDING", 12, "PER_HOUR")];
+    const r = calculatePay(rates, "officer-1", "STATIC_GUARDING");
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toBe("duration_required");
   });
 });
 

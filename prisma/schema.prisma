@@ -324,6 +324,7 @@ model User {
   formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
   formBlueprintsAuthored   FormBlueprint[]     @relation("FormBlueprintAuthor")
   notifications            Notification[]      @relation("NotificationRecipient")
+  officerRates             OfficerRate[]
 
   @@index([regionId, role])
 }
@@ -565,6 +566,9 @@ model PatrolVisit {
   billedCurrency     String?
   billedAt           DateTime?
   payRateUnit        String?
+  paidAmount         Decimal?        @db.Decimal(10, 2)
+  paidCurrency       String?
+  paidAt             DateTime?
   createdAt          DateTime        @default(now())
 
   job                Job?
@@ -719,6 +723,8 @@ model Job {
   billedCurrency        String?
   billedAt              DateTime?
   paidAmount            Decimal?      @db.Decimal(10, 2)
+  paidCurrency          String?
+  paidAt                DateTime?
   payRateUnit           String?
 
   notes                 String?
@@ -879,4 +885,23 @@ model Notification {
   @@index([recipientUserId])
   @@index([eventEntity, eventEntityId])
   @@index([kind])
+}
+
+model OfficerRate {
+  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  officerId   String?      @db.Uuid
+  officer     User?        @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  service     RateService
+  amount      Decimal      @db.Decimal(10, 2)
+  currency    String       @default("GBP")
+  unit        RateUnit     @default(PER_VISIT)
+  validFrom   DateTime?
+  validTo     DateTime?
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([officerId, service])
+  @@index([officerId])
+  @@index([service])
 }

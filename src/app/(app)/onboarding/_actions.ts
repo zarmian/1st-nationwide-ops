@@ -7,8 +7,10 @@ import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import {
   applyBillingToJob,
+  applyPayToJob,
   billForSite,
   jobTypeToRateService,
+  payForOfficer,
 } from "@/lib/billing";
 
 const STAGES = [
@@ -156,9 +158,11 @@ export async function addSetupJob(
   // simply leave the snapshot empty.
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
-    const result = await billForSite(pipeline.siteId, rateService);
-    if (result.ok) {
-      await applyBillingToJob(job.id, result);
+    const bill = await billForSite(pipeline.siteId, rateService);
+    if (bill.ok) await applyBillingToJob(job.id, bill);
+    if (d.assignedToUserId) {
+      const pay = await payForOfficer(d.assignedToUserId, rateService);
+      if (pay.ok) await applyPayToJob(job.id, pay);
     }
   }
 

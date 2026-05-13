@@ -6,9 +6,12 @@ import { prisma } from "@/lib/db";
 import {
   applyBillingToJob,
   applyBillingToVisit,
+  applyPayToJob,
+  applyPayToVisit,
   billForSite,
   durationMinutes,
   jobTypeToRateService,
+  payForOfficer,
 } from "@/lib/billing";
 
 export type RecalcResult = {
@@ -51,6 +54,7 @@ export async function recalculateBilling(
     select: {
       id: true,
       siteId: true,
+      officerId: true,
       arrivedAt: true,
       departedAt: true,
       formSubmissions: {
@@ -65,13 +69,14 @@ export async function recalculateBilling(
     const form = v.formSubmissions[0]?.form ?? "PATROL";
     const rateService = jobTypeToRateService(form);
     if (!rateService) continue;
-    const result = await billForSite(
-      v.siteId,
-      rateService,
-      durationMinutes(v.arrivedAt, v.departedAt),
-    );
-    await applyBillingToVisit(v.id, result);
-    if (result.ok) visitsBilled++;
+    const duration = durationMinutes(v.arrivedAt, v.departedAt);
+    const bill = await billForSite(v.siteId, rateService, duration);
+    await applyBillingToVisit(v.id, bill);
+    if (bill.ok) visitsBilled++;
+    if (v.officerId) {
+      const pay = await payForOfficer(v.officerId, rateService, duration);
+      await applyPayToVisit(v.id, pay);
+    }
   }
 
   const jobWhere =
@@ -84,6 +89,7 @@ export async function recalculateBilling(
       id: true,
       siteId: true,
       type: true,
+      assignedToUserId: true,
       startedAt: true,
       completedAt: true,
     },
@@ -93,13 +99,14 @@ export async function recalculateBilling(
     if (!j.siteId) continue;
     const rateService = jobTypeToRateService(j.type);
     if (!rateService) continue;
-    const result = await billForSite(
-      j.siteId,
-      rateService,
-      durationMinutes(j.startedAt, j.completedAt),
-    );
-    await applyBillingToJob(j.id, result);
-    if (result.ok) jobsBilled++;
+    const duration = durationMinutes(j.startedAt, j.completedAt);
+    const bill = await billForSite(j.siteId, rateService, duration);
+    await applyBillingToJob(j.id, bill);
+    if (bill.ok) jobsBilled++;
+    if (j.assignedToUserId) {
+      const pay = await payForOfficer(j.assignedToUserId, rateService, duration);
+      await applyPayToJob(j.id, pay);
+    }
   }
 
   revalidatePath("/finance");
