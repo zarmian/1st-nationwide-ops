@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
+import { Sparkline } from "@/components/Sparkline";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,12 @@ function parseLocalDate(
 }
 
 function ymd(d: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** YYYY-MM-DD bucket for the sparkline densification. UTC-safe. */
+function toIsoDay(d: Date): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
@@ -199,6 +206,52 @@ export default async function FinancePage({
   ]);
   const rangeDelta =
     earnedPrev > 0 ? ((earnedRange - earnedPrev) / earnedPrev) * 100 : null;
+
+  // Daily billed series for the sparklines — last 14 calendar days,
+  // anchored on the "to" end of the chosen range. Cheap raw SQL because
+  // grouping JS-side over thousands of rows would round-trip too much.
+  const sparkEnd = new Date(
+    toDate.getFullYear(),
+    toDate.getMonth(),
+    toDate.getDate(),
+    23,
+    59,
+    59,
+    999,
+  );
+  const sparkStart = new Date(sparkEnd);
+  sparkStart.setDate(sparkEnd.getDate() - 13);
+  sparkStart.setHours(0, 0, 0, 0);
+
+  const dailyRows = await prisma.$queryRaw<{ day: Date; total: number }[]>`
+    SELECT day,
+           COALESCE(SUM(amount), 0)::float8 AS total
+    FROM (
+      SELECT date_trunc('day', "billedAt") AS day, "billedAmount" AS amount
+      FROM "PatrolVisit"
+      WHERE "billedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+        AND "billedAmount" IS NOT NULL
+      UNION ALL
+      SELECT date_trunc('day', "billedAt") AS day, "billedAmount" AS amount
+      FROM "Job"
+      WHERE "billedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+        AND "billedAmount" IS NOT NULL
+    ) s
+    GROUP BY day
+    ORDER BY day ASC
+  `;
+  // Densify to 14 entries — fill gaps with 0 so the line shows real
+  // quiet days, not just compressed peaks.
+  const dailyMap = new Map<string, number>();
+  for (const r of dailyRows) {
+    dailyMap.set(toIsoDay(r.day), Number(r.total) || 0);
+  }
+  const dailyBilled: number[] = [];
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(sparkStart);
+    d.setDate(sparkStart.getDate() + i);
+    dailyBilled.push(dailyMap.get(toIsoDay(d)) ?? 0);
+  }
 
   // Per-account P&L for the current month (calendar). Billed and paid come
   // from snapshotted amounts on visits + jobs. Profit = billed − paid.
@@ -394,15 +447,24 @@ export default async function FinancePage({
           </div>
         </div>
         <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Earned in range
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <div className="text-xs uppercase tracking-wider text-slate-500">
+                Earned in range
+              </div>
+              <div className="text-2xl font-semibold text-brand-navy mt-1">
+                {fmtMoney2(earnedRange)}
+              </div>
+            </div>
+            <Sparkline
+              values={dailyBilled}
+              ariaLabel="Daily billed for the last 14 days"
+              fill="#2FCB80"
+            />
           </div>
-          <div className="text-2xl font-semibold text-brand-navy mt-1">
-            {fmtMoney2(earnedRange)}
-          </div>
-          <div className="text-xs text-slate-500">
+          <div className="text-xs text-slate-500 mt-1">
             {fromDate.toLocaleDateString("en-GB")} →{" "}
-            {toDate.toLocaleDateString("en-GB")}
+            {toDate.toLocaleDateString("en-GB")} · trend: last 14 days
           </div>
         </div>
         <div className="card p-4">
