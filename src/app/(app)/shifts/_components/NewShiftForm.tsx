@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import type { ShiftFormState } from "../_actions";
+import { FormError } from "@/components/FormError";
 
 const TYPES = [
   { v: "STATIC_GUARDING", label: "Static guarding" },
@@ -23,11 +24,7 @@ export function NewShiftForm({
 
   return (
     <form action={formAction} className="space-y-6 max-w-2xl">
-      {state.error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {state.error}
-        </div>
-      )}
+      <FormError message={state.error} />
 
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-brand-navy">Basics</h2>

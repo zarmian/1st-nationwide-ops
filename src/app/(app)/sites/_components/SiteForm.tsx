@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import type { SiteFormState } from "../_actions";
+import { FormError } from "@/components/FormError";
 
 type Lookup = { id: string | number; name: string };
 
@@ -183,11 +184,7 @@ export function SiteForm({
 
   return (
     <form action={formAction} className="space-y-6 max-w-4xl">
-      {state.error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {state.error}
-        </div>
-      )}
+      <FormError message={state.error} />
 
       {/* Basics */}
       <div className="card p-5 space-y-4">

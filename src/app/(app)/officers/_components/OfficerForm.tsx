@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import type { OfficerFormState } from "../_actions";
+import { FormError } from "@/components/FormError";
 
 const ROLES = [
   { v: "OFFICER", label: "Officer" },
@@ -40,11 +41,7 @@ export function OfficerForm({
 
   return (
     <form action={formAction} className="space-y-6 max-w-3xl">
-      {state.error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {state.error}
-        </div>
-      )}
+      <FormError message={state.error} />
 
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-brand-navy">Identity</h2>
