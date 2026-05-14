@@ -1,0 +1,26 @@
+{
+  "name": "1st Nationwide Ops",
+  "short_name": "1NW Ops",
+  "description": "Internal operations platform for 1st Nationwide Security Services.",
+  "start_url": "/m/today",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0F1929",
+  "theme_color": "#2FCB80",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["business", "productivity"]
+}

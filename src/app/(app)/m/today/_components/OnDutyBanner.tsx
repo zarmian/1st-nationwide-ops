@@ -82,9 +82,38 @@ export function OnDutyBanner({
         return current;
       });
     }, LOCATION_INTERVAL_MS);
+
+    // Phones aggressively kill background JS. When the tab regains focus
+    // (e.g. officer wakes the phone), pull a fresh fix and ping the server
+    // so dispatch doesn't see a stale 30-minute-old position.
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const next: LocationState = {
+            kind: "ok",
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: pos.coords.accuracy ?? null,
+            at: Date.now(),
+          };
+          setLoc(next);
+          // Bypass the throttle on wake — dispatch wants fresh data after a gap.
+          lastPostedRef.current = 0;
+          postLocation(next.lat, next.lng, next.accuracy);
+        },
+        () => {
+          /* keep last state */
+        },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: LOCATION_TIMEOUT_MS },
+      );
+    }
+    document.addEventListener("visibilitychange", onVisible);
+
     return () => {
       navigator.geolocation.clearWatch(watchId);
       clearInterval(ticker);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [onDuty]);
 

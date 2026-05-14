@@ -5,6 +5,8 @@ import Link from "next/link";
 import { VisitCard } from "./_components/VisitCard";
 import { OnDutyBanner } from "./_components/OnDutyBanner";
 import { ShiftCard } from "./_components/ShiftCard";
+import { AutoRefresh } from "./_components/AutoRefresh";
+import { InstallHint } from "./_components/InstallHint";
 import { setMyOnDuty } from "../../officers/_actions";
 import { startShift, endShift } from "../../shifts/_actions";
 
@@ -106,6 +108,7 @@ export default async function OfficerTodayPage() {
 
   return (
     <div className="space-y-5">
+      <AutoRefresh />
       <div>
         <h1 className="text-2xl font-semibold text-brand-navy">Today</h1>
         <p className="text-sm text-slate-500">
@@ -117,6 +120,7 @@ export default async function OfficerTodayPage() {
         </p>
       </div>
 
+      <InstallHint />
       <OnDutyBanner initialOnDuty={me?.onDuty ?? false} setOnDuty={setMyOnDuty} />
 
       {myShifts.length > 0 && (

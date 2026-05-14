@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { TopNav } from "@/components/TopNav";
+import { PWARegister } from "@/components/PWARegister";
 
 export default async function AppShell({
   children,
@@ -13,6 +14,7 @@ export default async function AppShell({
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <PWARegister />
       <TopNav
         userName={session.user?.name ?? session.user?.email ?? "User"}
         role={session.user.role}

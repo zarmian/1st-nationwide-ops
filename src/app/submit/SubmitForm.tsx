@@ -191,6 +191,10 @@ export function SubmitForm({
           value={siteSearch}
           onChange={(e) => setSiteSearch(e.target.value)}
           className="input mb-2"
+          autoCapitalize="none"
+          autoCorrect="off"
+          inputMode="search"
+          enterKeyHint="search"
         />
         <select
           value={siteId}
@@ -222,6 +226,9 @@ export function SubmitForm({
           className="input"
           required
           readOnly={isInternal && !!officerName}
+          autoComplete="name"
+          autoCapitalize="words"
+          enterKeyHint="next"
         />
         {isInternal && (
           <p className="text-xs text-slate-500 mt-1">
