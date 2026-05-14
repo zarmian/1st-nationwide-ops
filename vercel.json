@@ -5,6 +5,10 @@
       "schedule": "5 0 * * *"
     },
     {
+      "path": "/api/cron/lockunlock-jobs",
+      "schedule": "10 0 * * *"
+    },
+    {
       "path": "/api/cron/visit-statuses",
       "schedule": "0 * * * *"
     },
