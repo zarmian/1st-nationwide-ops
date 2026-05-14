@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
+import { FilterPanel } from "@/components/FilterPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -105,67 +106,98 @@ export default async function KeysPage({
         ))}
       </div>
 
-      <form className="card p-3 flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[180px]">
-          <label className="label" htmlFor="q">
-            Search
-          </label>
-          <input
-            id="q"
-            name="q"
-            defaultValue={q}
-            placeholder="Label, code, site…"
-            className="input"
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="site">
-            Site
-          </label>
-          <select
-            id="site"
-            name="site"
-            defaultValue={siteFilter}
-            className="input"
-          >
-            <option value="">All sites</option>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.code ? `${s.code} · ` : ""}
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="holder">
-            Holder
-          </label>
-          <select
-            id="holder"
-            name="holder"
-            defaultValue={holderFilter}
-            className="input"
-          >
-            <option value="">Any</option>
-            <option value="none">No holder</option>
-            {holders.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <input type="hidden" name="status" value={statusFilter} />
-        <button type="submit" className="btn-secondary text-sm">
-          Apply
-        </button>
-        {(q || statusFilter || siteFilter || holderFilter) && (
-          <Link href="/keys" className="btn-ghost text-sm">
-            Clear
-          </Link>
-        )}
-      </form>
+      <FilterPanel
+        clearAllHref="/keys"
+        activeFilters={(() => {
+          const filters: { label: string; clearHref: string }[] = [];
+          const drop = (k: string): string => {
+            const sp = new URLSearchParams(searchParams as any);
+            sp.delete(k);
+            const qs = sp.toString();
+            return qs ? `/keys?${qs}` : "/keys";
+          };
+          if (q) filters.push({ label: `Search: ${q}`, clearHref: drop("q") });
+          if (statusFilter) {
+            filters.push({
+              label: `Status: ${STATUS_LABEL[statusFilter] ?? statusFilter}`,
+              clearHref: drop("status"),
+            });
+          }
+          if (siteFilter) {
+            const siteName =
+              sites.find((s) => s.id === siteFilter)?.name ?? "Site";
+            filters.push({ label: `Site: ${siteName}`, clearHref: drop("site") });
+          }
+          if (holderFilter) {
+            const holderName =
+              holderFilter === "none"
+                ? "No holder"
+                : holders.find((h) => h.id === holderFilter)?.name ?? "Holder";
+            filters.push({
+              label: `Holder: ${holderName}`,
+              clearHref: drop("holder"),
+            });
+          }
+          return filters;
+        })()}
+      >
+        <form className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <label className="label" htmlFor="q">
+              Search
+            </label>
+            <input
+              id="q"
+              name="q"
+              defaultValue={q}
+              placeholder="Label, code, site…"
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="site">
+              Site
+            </label>
+            <select
+              id="site"
+              name="site"
+              defaultValue={siteFilter}
+              className="input"
+            >
+              <option value="">All sites</option>
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code ? `${s.code} · ` : ""}
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="holder">
+              Holder
+            </label>
+            <select
+              id="holder"
+              name="holder"
+              defaultValue={holderFilter}
+              className="input"
+            >
+              <option value="">Any</option>
+              <option value="none">No holder</option>
+              {holders.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <input type="hidden" name="status" value={statusFilter} />
+          <button type="submit" className="btn-secondary text-sm">
+            Apply
+          </button>
+        </form>
+      </FilterPanel>
 
       <DataTable
         rows={keys}

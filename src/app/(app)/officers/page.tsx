@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { TimeAgo } from "@/components/TimeAgo";
+import { FilterPanel } from "@/components/FilterPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -67,62 +68,92 @@ export default async function OfficersPage({
         </Link>
       </div>
 
-      <form className="card p-3 flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[180px]">
-          <label className="label" htmlFor="q">
-            Search
-          </label>
-          <input
-            id="q"
-            name="q"
-            defaultValue={q}
-            placeholder="Name, email, SIA…"
-            className="input"
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="region">
-            Region
-          </label>
-          <select
-            id="region"
-            name="region"
-            defaultValue={searchParams.region ?? ""}
-            className="input"
-          >
-            <option value="">All regions</option>
-            {regions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="status">
-            Status
-          </label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={searchParams.status ?? ""}
-            className="input"
-          >
-            <option value="">All</option>
-            <option value="onduty">On duty</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-        </div>
-        <button type="submit" className="btn-secondary text-sm">
-          Apply
-        </button>
-        {(q || searchParams.region || searchParams.status) && (
-          <Link href="/officers" className="btn-ghost text-sm">
-            Clear
-          </Link>
-        )}
-      </form>
+      <FilterPanel
+        clearAllHref="/officers"
+        activeFilters={(() => {
+          const filters: { label: string; clearHref: string }[] = [];
+          if (q) {
+            const sp = new URLSearchParams(searchParams as any);
+            sp.delete("q");
+            filters.push({
+              label: `Search: ${q}`,
+              clearHref: `/officers?${sp.toString()}`,
+            });
+          }
+          if (searchParams.region) {
+            const regionName =
+              regions.find((r) => r.id === Number(searchParams.region))?.name ??
+              "Region";
+            const sp = new URLSearchParams(searchParams as any);
+            sp.delete("region");
+            filters.push({
+              label: `Region: ${regionName}`,
+              clearHref: `/officers?${sp.toString()}`,
+            });
+          }
+          if (searchParams.status) {
+            const sp = new URLSearchParams(searchParams as any);
+            sp.delete("status");
+            filters.push({
+              label: `Status: ${searchParams.status}`,
+              clearHref: `/officers?${sp.toString()}`,
+            });
+          }
+          return filters;
+        })()}
+      >
+        <form className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <label className="label" htmlFor="q">
+              Search
+            </label>
+            <input
+              id="q"
+              name="q"
+              defaultValue={q}
+              placeholder="Name, email, SIA…"
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="region">
+              Region
+            </label>
+            <select
+              id="region"
+              name="region"
+              defaultValue={searchParams.region ?? ""}
+              className="input"
+            >
+              <option value="">All regions</option>
+              {regions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="status">
+              Status
+            </label>
+            <select
+              id="status"
+              name="status"
+              defaultValue={searchParams.status ?? ""}
+              className="input"
+            >
+              <option value="">All</option>
+              <option value="onduty">On duty</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <button type="submit" className="btn-secondary text-sm">
+            Apply
+          </button>
+        </form>
+      </FilterPanel>
 
       <DataTable
         rows={officers}
