@@ -64,6 +64,18 @@ export function TopNav({
         </nav>
 
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              document.dispatchEvent(new CustomEvent("palette:open"))
+            }
+            aria-label="Search (⌘K)"
+            className="hidden md:flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            title="Search — ⌘K"
+          >
+            <span>Search…</span>
+            <kbd className="text-[10px] bg-slate-100 px-1 rounded font-mono">⌘K</kbd>
+          </button>
           <div className="hidden sm:block text-right leading-tight">
             <div className="text-sm font-medium text-slate-800">
               {userName ?? "User"}
