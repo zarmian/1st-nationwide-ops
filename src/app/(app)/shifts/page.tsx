@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { DataTable } from "@/components/DataTable";
 
 export const dynamic = "force-dynamic";
 
@@ -87,66 +88,63 @@ export default async function ShiftsPage({
         ))}
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Site
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Type
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Officer
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Scheduled
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Status
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {shifts.map((s) => (
-              <tr key={s.id} className="hover:bg-slate-50">
-                <td className="px-4 py-2">
-                  <Link
-                    href={`/shifts/${s.id}`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
-                  >
-                    {s.site.code ? `${s.site.code} · ` : ""}
-                    {s.site.name}
-                  </Link>
-                </td>
-                <td className="px-4 py-2 text-slate-600">
-                  {TYPE_LABEL[s.type] ?? s.type}
-                </td>
-                <td className="px-4 py-2 text-slate-600">
-                  {s.officer?.name ?? "—"}
-                </td>
-                <td className="px-4 py-2 text-slate-500 text-xs whitespace-nowrap">
-                  {fmt(s.scheduledStartsAt)} →{" "}
-                  {fmt(s.scheduledEndsAt)}
-                </td>
-                <td className="px-4 py-2">
-                  <span className={STATUS_TONE[s.status] ?? "chip-slate"}>
-                    {s.status.toLowerCase().replace("_", " ")}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {shifts.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                  No shifts match these filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        rows={shifts}
+        rowHref={(s) => `/shifts/${s.id}`}
+        emptyState={
+          statusFilter ? (
+            "No shifts match these filters."
+          ) : (
+            <div className="space-y-3">
+              <p>No shifts yet.</p>
+              <Link href="/shifts/new" className="btn-primary text-sm inline-block">
+                + Schedule your first shift
+              </Link>
+            </div>
+          )
+        }
+        columns={[
+          {
+            header: "Site",
+            cell: (s) => (
+              <span className="font-medium text-brand-navy">
+                {s.site.code ? `${s.site.code} · ` : ""}
+                {s.site.name}
+              </span>
+            ),
+          },
+          {
+            header: "Type",
+            cell: (s) => (
+              <span className="text-slate-600">
+                {TYPE_LABEL[s.type] ?? s.type}
+              </span>
+            ),
+          },
+          {
+            header: "Officer",
+            cell: (s) => (
+              <span className="text-slate-600">{s.officer?.name ?? "—"}</span>
+            ),
+          },
+          {
+            header: "Scheduled",
+            cell: (s) => (
+              <span className="text-slate-500 text-xs whitespace-nowrap">
+                {fmt(s.scheduledStartsAt)} → {fmt(s.scheduledEndsAt)}
+              </span>
+            ),
+          },
+          {
+            header: "Status",
+            cell: (s) => (
+              <span className={STATUS_TONE[s.status] ?? "chip-slate"}>
+                {s.status.toLowerCase().replace("_", " ")}
+              </span>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

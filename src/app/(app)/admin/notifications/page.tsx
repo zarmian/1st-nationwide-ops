@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { DataTable } from "@/components/DataTable";
+import { FilterPanel } from "@/components/FilterPanel";
 import { retryNotification, flushQueueNow } from "./_actions";
 import { RetryButton, FlushButton } from "./_components/RetryButton";
 
@@ -130,134 +132,152 @@ export default async function NotificationsPage({
         ))}
       </div>
 
-      <form className="card p-3 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label" htmlFor="status">
-            Status
-          </label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={statusFilter}
-            className="input"
-          >
-            <option value="">All</option>
-            <option value="PENDING">Pending</option>
-            <option value="SENT">Sent</option>
-            <option value="FAILED">Failed</option>
-            <option value="SKIPPED">Skipped</option>
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="kind">
-            Kind
-          </label>
-          <select
-            id="kind"
-            name="kind"
-            defaultValue={kindFilter}
-            className="input"
-          >
-            <option value="">All</option>
-            {Object.entries(KIND_LABEL).map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button type="submit" className="btn-secondary text-sm">
-          Apply
-        </button>
-        {(statusFilter || kindFilter) && (
-          <Link href="/admin/notifications" className="btn-ghost text-sm">
-            Clear
-          </Link>
-        )}
-      </form>
-
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                When
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Kind
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Recipient
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Body preview
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Status
-              </th>
-              <th className="px-4 py-2"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {rows.map((n) => (
-              <tr key={n.id} className="align-top">
-                <td className="px-4 py-2 text-slate-500 text-xs whitespace-nowrap">
-                  {fmt(n.createdAt)}
-                  {n.sentAt && (
-                    <div className="text-[11px] text-slate-400">
-                      sent {fmt(n.sentAt)}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-slate-700">
-                  {KIND_LABEL[n.kind] ?? n.kind}
-                </td>
-                <td className="px-4 py-2 text-slate-700">
-                  {n.recipientUser?.name ?? "—"}
-                  <div className="text-[11px] text-slate-500 font-mono">
-                    {n.recipientNumber ?? ""}
-                  </div>
-                </td>
-                <td className="px-4 py-2 text-slate-700 max-w-[440px]">
-                  <div className="line-clamp-2">{n.bodyPreview ?? "—"}</div>
-                  {n.error && (
-                    <div className="text-[11px] text-red-600 mt-0.5 line-clamp-2">
-                      {n.error}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2">
-                  <span className={STATUS_TONE[n.status] ?? "chip-slate"}>
-                    {n.status.toLowerCase()}
-                  </span>
-                  {n.attempts > 0 && (
-                    <div className="text-[11px] text-slate-400 mt-0.5">
-                      {n.attempts} attempt{n.attempts === 1 ? "" : "s"}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-right">
-                  {(n.status === "FAILED" || n.status === "SKIPPED") && (
-                    <RetryButton id={n.id} retry={retryNotification} />
-                  )}
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                  No notifications match these filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {rows.length === 200 && (
-          <div className="px-4 py-2 text-xs text-slate-500 bg-slate-50 border-t border-slate-100">
-            Showing first 200 — narrow filters to see more.
+      <FilterPanel
+        clearAllHref="/admin/notifications"
+        activeFilters={(() => {
+          const filters: { label: string; clearHref: string }[] = [];
+          const drop = (k: string): string => {
+            const sp = new URLSearchParams(searchParams as any);
+            sp.delete(k);
+            const qs = sp.toString();
+            return qs ? `/admin/notifications?${qs}` : "/admin/notifications";
+          };
+          if (statusFilter) {
+            filters.push({
+              label: `Status: ${statusFilter.toLowerCase()}`,
+              clearHref: drop("status"),
+            });
+          }
+          if (kindFilter) {
+            filters.push({
+              label: `Kind: ${KIND_LABEL[kindFilter] ?? kindFilter}`,
+              clearHref: drop("kind"),
+            });
+          }
+          return filters;
+        })()}
+      >
+        <form className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="label" htmlFor="status">
+              Status
+            </label>
+            <select
+              id="status"
+              name="status"
+              defaultValue={statusFilter}
+              className="input"
+            >
+              <option value="">All</option>
+              <option value="PENDING">Pending</option>
+              <option value="SENT">Sent</option>
+              <option value="FAILED">Failed</option>
+              <option value="SKIPPED">Skipped</option>
+            </select>
           </div>
-        )}
-      </div>
+          <div>
+            <label className="label" htmlFor="kind">
+              Kind
+            </label>
+            <select
+              id="kind"
+              name="kind"
+              defaultValue={kindFilter}
+              className="input"
+            >
+              <option value="">All</option>
+              {Object.entries(KIND_LABEL).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" className="btn-secondary text-sm">
+            Apply
+          </button>
+        </form>
+      </FilterPanel>
+
+      <DataTable
+        rows={rows}
+        footer={
+          rows.length === 200
+            ? "Showing first 200 — narrow filters to see more."
+            : undefined
+        }
+        emptyState="No notifications match these filters."
+        columns={[
+          {
+            header: "When",
+            cell: (n) => (
+              <div className="text-slate-500 text-xs whitespace-nowrap">
+                {fmt(n.createdAt)}
+                {n.sentAt && (
+                  <div className="text-[11px] text-slate-400">
+                    sent {fmt(n.sentAt)}
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          {
+            header: "Kind",
+            cell: (n) => (
+              <span className="text-slate-700">
+                {KIND_LABEL[n.kind] ?? n.kind}
+              </span>
+            ),
+          },
+          {
+            header: "Recipient",
+            cell: (n) => (
+              <div>
+                <div className="text-slate-700">{n.recipientUser?.name ?? "—"}</div>
+                <div className="text-[11px] text-slate-500 font-mono">
+                  {n.recipientNumber ?? ""}
+                </div>
+              </div>
+            ),
+          },
+          {
+            header: "Body preview",
+            cell: (n) => (
+              <div className="text-slate-700 max-w-[440px]">
+                <div className="line-clamp-2">{n.bodyPreview ?? "—"}</div>
+                {n.error && (
+                  <div className="text-[11px] text-red-600 mt-0.5 line-clamp-2">
+                    {n.error}
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          {
+            header: "Status",
+            cell: (n) => (
+              <div>
+                <span className={STATUS_TONE[n.status] ?? "chip-slate"}>
+                  {n.status.toLowerCase()}
+                </span>
+                {n.attempts > 0 && (
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    {n.attempts} attempt{n.attempts === 1 ? "" : "s"}
+                  </div>
+                )}
+              </div>
+            ),
+          },
+          {
+            header: "",
+            align: "right",
+            cell: (n) =>
+              n.status === "FAILED" || n.status === "SKIPPED" ? (
+                <RetryButton id={n.id} retry={retryNotification} />
+              ) : null,
+          },
+        ]}
+      />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { FilterPanel } from "@/components/FilterPanel";
 import {
   reassignSchedule,
   reassignVisit,
@@ -149,68 +150,103 @@ export default async function PatrolsPage({
         ))}
       </div>
 
-      <form className="card p-3 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="label" htmlFor="region">
-            Region
-          </label>
-          <select
-            id="region"
-            name="region"
-            defaultValue={searchParams.region ?? ""}
-            className="input"
-          >
-            <option value="">All regions</option>
-            {regions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="officer">
-            Officer
-          </label>
-          <select
-            id="officer"
-            name="officer"
-            defaultValue={officerFilter}
-            className="input"
-          >
-            <option value="">All officers</option>
-            <option value="none">Unassigned</option>
-            {officers.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="kind">
-            Kind
-          </label>
-          <select
-            id="kind"
-            name="kind"
-            defaultValue={kindFilter}
-            className="input"
-          >
-            <option value="">All</option>
-            <option value="PATROL">Patrol</option>
-            <option value="VPI">VPI</option>
-          </select>
-        </div>
-        <button type="submit" className="btn-secondary text-sm">
-          Apply
-        </button>
-        {(searchParams.region || officerFilter || kindFilter) && (
-          <Link href="/patrols" className="btn-ghost text-sm">
-            Clear
-          </Link>
-        )}
-      </form>
+      <FilterPanel
+        clearAllHref="/patrols"
+        activeFilters={(() => {
+          const filters: { label: string; clearHref: string }[] = [];
+          const drop = (k: string): string => {
+            const sp = new URLSearchParams(searchParams as any);
+            sp.delete(k);
+            const qs = sp.toString();
+            return qs ? `/patrols?${qs}` : "/patrols";
+          };
+          if (searchParams.region) {
+            const r = regions.find(
+              (x) => x.id === Number(searchParams.region),
+            );
+            filters.push({
+              label: `Region: ${r?.name ?? searchParams.region}`,
+              clearHref: drop("region"),
+            });
+          }
+          if (officerFilter) {
+            const label =
+              officerFilter === "none"
+                ? "Unassigned"
+                : officers.find((o) => o.id === officerFilter)?.name ??
+                  "Officer";
+            filters.push({
+              label: `Officer: ${label}`,
+              clearHref: drop("officer"),
+            });
+          }
+          if (kindFilter) {
+            filters.push({
+              label: `Kind: ${kindFilter === "VPI" ? "VPI" : "Patrol"}`,
+              clearHref: drop("kind"),
+            });
+          }
+          return filters;
+        })()}
+      >
+        <form className="flex flex-wrap items-end gap-3">
+          <div>
+            <label className="label" htmlFor="region">
+              Region
+            </label>
+            <select
+              id="region"
+              name="region"
+              defaultValue={searchParams.region ?? ""}
+              className="input"
+            >
+              <option value="">All regions</option>
+              {regions.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="officer">
+              Officer
+            </label>
+            <select
+              id="officer"
+              name="officer"
+              defaultValue={officerFilter}
+              className="input"
+            >
+              <option value="">All officers</option>
+              <option value="none">Unassigned</option>
+              {officers.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="kind">
+              Kind
+            </label>
+            <select
+              id="kind"
+              name="kind"
+              defaultValue={kindFilter}
+              className="input"
+            >
+              <option value="">All</option>
+              <option value="PATROL">Patrol</option>
+              <option value="VPI">VPI</option>
+            </select>
+          </div>
+          <button type="submit" className="btn-secondary text-sm">
+            Apply
+          </button>
+        </form>
+      </FilterPanel>
 
       <div className="grid xl:grid-cols-[1fr_420px] gap-5">
         <div className="card overflow-hidden">
