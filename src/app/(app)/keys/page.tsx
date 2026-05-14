@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { DataTable } from "@/components/DataTable";
 
 export const dynamic = "force-dynamic";
 
@@ -166,104 +167,71 @@ export default async function KeysPage({
         )}
       </form>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Code
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Label
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Type
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Site
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Holder
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Status
-              </th>
-              <th className="px-4 py-2.5"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {keys.map((k) => (
-              <tr key={k.id} className="hover:bg-slate-50">
-                <td className="px-4 py-2.5 font-mono text-xs text-slate-600">
-                  {k.internalNo ?? "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  <Link
-                    href={`/keys/${k.id}`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
-                  >
-                    {k.label}
-                  </Link>
-                  {k.keySet && (
-                    <div className="text-xs text-slate-500">
-                      Set: {k.keySet.label}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-slate-600">
-                  {k.type.charAt(0) + k.type.slice(1).toLowerCase()}
-                </td>
-                <td className="px-4 py-2.5 text-slate-600">
-                  {k.site ? (
-                    <Link
-                      href={`/sites/${k.site.id}`}
-                      className="hover:text-brand-mint-dark"
-                    >
-                      {k.site.name}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-slate-600">
-                  {k.currentHolder ? (
-                    <Link
-                      href={`/officers/${k.currentHolder.id}/edit`}
-                      className="hover:text-brand-mint-dark"
-                    >
-                      {k.currentHolder.name}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className={STATUS_TONE[k.status] ?? "chip-slate"}>
-                    {STATUS_LABEL[k.status] ?? k.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-right">
-                  <Link href={`/keys/${k.id}`} className="btn-ghost text-sm">
-                    View
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {keys.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                  No keys match these filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {keys.length === 200 && (
-          <div className="px-4 py-2 text-xs text-slate-500 bg-slate-50 border-t border-slate-100">
-            Showing first 200 — narrow the filters to see more.
-          </div>
-        )}
-      </div>
+      <DataTable
+        rows={keys}
+        rowHref={(k) => `/keys/${k.id}`}
+        footer={
+          keys.length === 200
+            ? "Showing first 200 — narrow the filters to see more."
+            : undefined
+        }
+        emptyState={
+          q || statusFilter || siteFilter || holderFilter
+            ? "No keys match these filters."
+            : "No keys recorded yet. Add keys per site from the site detail."
+        }
+        columns={[
+          {
+            header: "Code",
+            cell: (k) => (
+              <span className="font-mono text-xs text-slate-600">
+                {k.internalNo ?? "—"}
+              </span>
+            ),
+          },
+          {
+            header: "Label",
+            cell: (k) => (
+              <div>
+                <div className="font-medium text-brand-navy">{k.label}</div>
+                {k.keySet && (
+                  <div className="text-xs text-slate-500">Set: {k.keySet.label}</div>
+                )}
+              </div>
+            ),
+          },
+          {
+            header: "Type",
+            cell: (k) => (
+              <span className="text-slate-600">
+                {k.type.charAt(0) + k.type.slice(1).toLowerCase()}
+              </span>
+            ),
+          },
+          {
+            header: "Site",
+            cell: (k) => (
+              <span className="text-slate-600">{k.site?.name ?? "—"}</span>
+            ),
+          },
+          {
+            header: "Holder",
+            cell: (k) => (
+              <span className="text-slate-600">
+                {k.currentHolder?.name ?? "—"}
+              </span>
+            ),
+          },
+          {
+            header: "Status",
+            cell: (k) => (
+              <span className={STATUS_TONE[k.status] ?? "chip-slate"}>
+                {STATUS_LABEL[k.status] ?? k.status}
+              </span>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

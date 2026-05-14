@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { DataTable } from "@/components/DataTable";
 
 export const dynamic = "force-dynamic";
 
@@ -136,68 +137,74 @@ export default async function DispatchPage() {
         )}
       </div>
 
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left px-4 py-2.5 font-medium">Type</th>
-              <th className="text-left px-4 py-2.5 font-medium">Site</th>
-              <th className="text-left px-4 py-2.5 font-medium">Customer</th>
-              <th className="text-left px-4 py-2.5 font-medium">Source</th>
-              <th className="text-left px-4 py-2.5 font-medium">Assigned</th>
-              <th className="text-left px-4 py-2.5 font-medium">Status</th>
-              <th className="text-left px-4 py-2.5 font-medium">Priority</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {jobs.map((j) => (
-              <tr key={j.id} className="hover:bg-slate-50">
-                <td className="px-4 py-2.5 font-medium">
-                  {j.type.replace(/_/g, " ")}
-                </td>
-                <td className="px-4 py-2.5">
-                  <div className="font-medium text-brand-navy">
-                    {j.site?.name ?? "—"}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {j.site?.postcodeFormatted}
-                  </div>
-                </td>
-                <td className="px-4 py-2.5">
-                  {j.customer?.name ?? j.partner?.name ?? "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className="chip-slate">
-                    {j.source.replace(/_/g, " ")}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5">
-                  {j.assignedTo?.name ?? (
-                    <span className="text-slate-400">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className="chip-mint">{j.status}</span>
-                </td>
-                <td className="px-4 py-2.5">
-                  {j.priority === "HIGH" ? (
-                    <span className="chip-red">{j.priority}</span>
-                  ) : (
-                    <span className="chip-slate">{j.priority}</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-            {jobs.length === 0 && (
-              <tr>
-                <td className="px-4 py-8 text-center text-slate-500" colSpan={7}>
-                  No live jobs.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <DataTable
+        rows={jobs}
+        emptyState={
+          <div className="space-y-3">
+            <p>No live jobs.</p>
+            <Link href="/dispatch/new" className="btn-primary text-sm inline-block">
+              + Create a job
+            </Link>
+          </div>
+        }
+        columns={[
+          {
+            header: "Type",
+            cell: (j) => (
+              <span className="font-medium text-brand-navy">
+                {j.type.replace(/_/g, " ")}
+              </span>
+            ),
+          },
+          {
+            header: "Site",
+            cell: (j) => (
+              <div>
+                <div className="font-medium text-brand-navy">
+                  {j.site?.name ?? "—"}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {j.site?.postcodeFormatted}
+                </div>
+              </div>
+            ),
+          },
+          {
+            header: "Customer",
+            cell: (j) => (
+              <span>{j.customer?.name ?? j.partner?.name ?? "—"}</span>
+            ),
+          },
+          {
+            header: "Source",
+            cell: (j) => (
+              <span className="chip-slate">
+                {j.source.replace(/_/g, " ")}
+              </span>
+            ),
+          },
+          {
+            header: "Assigned",
+            cell: (j) =>
+              j.assignedTo?.name ?? (
+                <span className="text-slate-400">—</span>
+              ),
+          },
+          {
+            header: "Status",
+            cell: (j) => <span className="chip-mint">{j.status}</span>,
+          },
+          {
+            header: "Priority",
+            cell: (j) =>
+              j.priority === "HIGH" ? (
+                <span className="chip-red">{j.priority}</span>
+              ) : (
+                <span className="chip-slate">{j.priority}</span>
+              ),
+          },
+        ]}
+      />
     </div>
   );
 }
