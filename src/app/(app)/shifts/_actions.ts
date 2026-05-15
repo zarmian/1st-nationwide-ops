@@ -89,6 +89,52 @@ export async function createShift(
   redirect("/shifts");
 }
 
+export async function updateShift(
+  shiftId: string,
+  _prev: ShiftFormState,
+  formData: FormData,
+): Promise<ShiftFormState> {
+  await requireStaff();
+  const parsed = parseNew(formData);
+  if (!parsed.success) {
+    return {
+      error: "Please fix the errors below.",
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+  const d = parsed.data;
+  const existing = await prisma.shift.findUnique({
+    where: { id: shiftId },
+    select: { id: true },
+  });
+  if (!existing) return { error: "Shift not found" };
+  await prisma.shift.update({
+    where: { id: shiftId },
+    data: {
+      siteId: d.siteId,
+      officerId: d.officerId && d.officerId !== "" ? d.officerId : null,
+      type: d.type as any,
+      scheduledStartsAt: new Date(d.scheduledStartsAt),
+      scheduledEndsAt: new Date(d.scheduledEndsAt),
+      checkIntervalMin: d.checkIntervalMin,
+      graceMinutes: d.graceMinutes,
+      notes: d.notes,
+    },
+  });
+  revalidatePath("/shifts");
+  revalidatePath(`/shifts/${shiftId}`);
+  redirect(`/shifts/${shiftId}`);
+}
+
+export async function deleteShift(
+  shiftId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireStaff();
+  await prisma.shift.delete({ where: { id: shiftId } });
+  revalidatePath("/shifts");
+  return { ok: true };
+}
+
 // ── Officer self-actions on /m/today ──────────────────────────────────────
 
 export async function startShift(

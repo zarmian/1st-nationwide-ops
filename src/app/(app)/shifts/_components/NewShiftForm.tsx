@@ -10,14 +10,31 @@ const TYPES = [
   { v: "DOG_HANDLER", label: "Dog handler" },
 ];
 
+export type ShiftFormInitial = {
+  siteId: string;
+  officerId: string | null;
+  type: string;
+  scheduledStartsAt: string; // "yyyy-MM-ddTHH:mm"
+  scheduledEndsAt: string;
+  checkIntervalMin: number;
+  graceMinutes: number;
+  notes: string | null;
+};
+
 export function NewShiftForm({
   action,
   sites,
   officers,
+  initial,
+  submitLabel = "Create shift",
+  cancelHref = "/shifts",
 }: {
   action: (s: ShiftFormState, fd: FormData) => Promise<ShiftFormState>;
   sites: { id: string; name: string; code: string | null; postcodeFormatted: string }[];
   officers: { id: string; name: string }[];
+  initial?: ShiftFormInitial;
+  submitLabel?: string;
+  cancelHref?: string;
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -33,7 +50,13 @@ export function NewShiftForm({
           <label className="label" htmlFor="siteId">
             Site <span className="text-red-500">*</span>
           </label>
-          <select id="siteId" name="siteId" className="input" required defaultValue="">
+          <select
+            id="siteId"
+            name="siteId"
+            className="input"
+            required
+            defaultValue={initial?.siteId ?? ""}
+          >
             <option value="">— pick a site —</option>
             {sites.map((s) => (
               <option key={s.id} value={s.id}>
@@ -52,7 +75,12 @@ export function NewShiftForm({
             <label className="label" htmlFor="type">
               Type
             </label>
-            <select id="type" name="type" className="input" defaultValue="STATIC_GUARDING">
+            <select
+              id="type"
+              name="type"
+              className="input"
+              defaultValue={initial?.type ?? "STATIC_GUARDING"}
+            >
               {TYPES.map((t) => (
                 <option key={t.v} value={t.v}>
                   {t.label}
@@ -64,7 +92,12 @@ export function NewShiftForm({
             <label className="label" htmlFor="officerId">
               Officer
             </label>
-            <select id="officerId" name="officerId" className="input" defaultValue="">
+            <select
+              id="officerId"
+              name="officerId"
+              className="input"
+              defaultValue={initial?.officerId ?? ""}
+            >
               <option value="">— unassigned —</option>
               {officers.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -86,6 +119,7 @@ export function NewShiftForm({
               type="datetime-local"
               className="input"
               required
+              defaultValue={initial?.scheduledStartsAt ?? ""}
             />
             {fe.scheduledStartsAt && (
               <p className="text-xs text-red-600 mt-1">{fe.scheduledStartsAt.join(", ")}</p>
@@ -101,6 +135,7 @@ export function NewShiftForm({
               type="datetime-local"
               className="input"
               required
+              defaultValue={initial?.scheduledEndsAt ?? ""}
             />
             {fe.scheduledEndsAt && (
               <p className="text-xs text-red-600 mt-1">{fe.scheduledEndsAt.join(", ")}</p>
@@ -119,7 +154,7 @@ export function NewShiftForm({
               type="number"
               min={5}
               max={720}
-              defaultValue={60}
+              defaultValue={initial?.checkIntervalMin ?? 60}
               className="input"
             />
           </div>
@@ -133,7 +168,7 @@ export function NewShiftForm({
               type="number"
               min={0}
               max={120}
-              defaultValue={15}
+              defaultValue={initial?.graceMinutes ?? 15}
               className="input"
             />
             <p className="text-xs text-slate-500 mt-1">
@@ -146,13 +181,19 @@ export function NewShiftForm({
           <label className="label" htmlFor="notes">
             Notes
           </label>
-          <textarea id="notes" name="notes" rows={3} className="input" />
+          <textarea
+            id="notes"
+            name="notes"
+            rows={3}
+            className="input"
+            defaultValue={initial?.notes ?? ""}
+          />
         </div>
       </div>
 
       <div className="flex items-center gap-3">
-        <SubmitButton />
-        <Link href="/shifts" className="btn-secondary">
+        <SubmitButton label={submitLabel} />
+        <Link href={cancelHref} className="btn-secondary">
           Cancel
         </Link>
       </div>
@@ -160,11 +201,11 @@ export function NewShiftForm({
   );
 }
 
-function SubmitButton() {
+function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
     <button type="submit" className="btn-primary" disabled={pending}>
-      {pending ? "Creating…" : "Create shift"}
+      {pending ? "Saving…" : label}
     </button>
   );
 }

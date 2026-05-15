@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { DeleteShiftButton } from "../_components/DeleteShiftButton";
 
 export const dynamic = "force-dynamic";
 
@@ -79,14 +80,22 @@ export default async function ShiftDetailPage({
         >
           ← Shifts
         </Link>
-        <div className="flex items-baseline gap-3 mt-1">
-          <h1 className="text-2xl font-semibold text-brand-navy">
-            {shift.site.code ? `${shift.site.code} · ` : ""}
-            {shift.site.name}
-          </h1>
-          <span className={STATUS_TONE[shift.status] ?? "chip-slate"}>
-            {shift.status.toLowerCase().replace("_", " ")}
-          </span>
+        <div className="flex items-baseline justify-between gap-3 mt-1">
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-2xl font-semibold text-brand-navy">
+              {shift.site.code ? `${shift.site.code} · ` : ""}
+              {shift.site.name}
+            </h1>
+            <span className={STATUS_TONE[shift.status] ?? "chip-slate"}>
+              {shift.status.toLowerCase().replace("_", " ")}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Link href={`/shifts/${shift.id}/edit`} className="btn-secondary">
+              Edit
+            </Link>
+            <DeleteShiftButton shiftId={shift.id} />
+          </div>
         </div>
         <p className="text-sm text-slate-500 mt-1">
           {TYPE_LABEL[shift.type] ?? shift.type} ·{" "}

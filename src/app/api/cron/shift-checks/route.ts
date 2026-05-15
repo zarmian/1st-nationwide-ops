@@ -4,18 +4,43 @@ import { isAuthorisedCron } from "@/lib/cronAuth";
 import { notifyShiftCheckOverdue } from "@/lib/notifications";
 
 /**
- * Hourly sweep for overdue shift check-ins. For every IN_PROGRESS shift,
- * compare the most recent SHIFT_CHECK submission against
- * `checkIntervalMin + graceMinutes`. If overdue, queue a notification —
- * but only once per overdue window (we de-dupe by checking whether a
- * SHIFT_CHECK_OVERDUE notification already exists newer than the latest
- * check submission).
+ * 15-min sweep that does two things:
+ *
+ *   1. For PENDING shifts whose `scheduledStartsAt + graceMinutes` is in
+ *      the past, flip status to MISSED. Catches shifts the officer never
+ *      started.
+ *   2. For IN_PROGRESS shifts, compare the most recent SHIFT_CHECK
+ *      submission against `checkIntervalMin + graceMinutes`. If overdue,
+ *      queue a notification — de-duped by checking whether a
+ *      SHIFT_CHECK_OVERDUE notification already exists newer than the
+ *      latest check submission.
  */
 export async function GET(req: Request) {
   if (!isAuthorisedCron(req)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
 
+  const now = new Date();
+
+  // ── 1. PENDING → MISSED ─────────────────────────────────────────────────
+  // Pull every PENDING shift whose scheduled start has already passed; the
+  // grace check is done in JS because graceMinutes varies per row.
+  const pending = await prisma.shift.findMany({
+    where: { status: "PENDING", scheduledStartsAt: { lt: now } },
+    select: { id: true, scheduledStartsAt: true, graceMinutes: true },
+  });
+  let markedMissed = 0;
+  for (const s of pending) {
+    const cutoff = s.scheduledStartsAt.getTime() + s.graceMinutes * 60_000;
+    if (now.getTime() < cutoff) continue;
+    await prisma.shift.update({
+      where: { id: s.id },
+      data: { status: "MISSED" },
+    });
+    markedMissed++;
+  }
+
+  // ── 2. IN_PROGRESS overdue check-ins ────────────────────────────────────
   const shifts = await prisma.shift.findMany({
     where: { status: "IN_PROGRESS" },
     select: {
@@ -32,7 +57,7 @@ export async function GET(req: Request) {
     },
   });
 
-  const now = Date.now();
+  const nowMs = now.getTime();
   let flagged = 0;
 
   for (const s of shifts) {
@@ -40,7 +65,7 @@ export async function GET(req: Request) {
     if (!last) continue;
     const dueAtMs =
       last.getTime() + (s.checkIntervalMin + s.graceMinutes) * 60_000;
-    if (now < dueAtMs) continue;
+    if (nowMs < dueAtMs) continue;
 
     // Don't spam: only queue if the most recent overdue notification for
     // this shift predates the most recent check (or there is no overdue
@@ -62,5 +87,11 @@ export async function GET(req: Request) {
     flagged++;
   }
 
-  return NextResponse.json({ ok: true, scanned: shifts.length, flagged });
+  return NextResponse.json({
+    ok: true,
+    pendingScanned: pending.length,
+    markedMissed,
+    inProgressScanned: shifts.length,
+    flagged,
+  });
 }
