@@ -530,13 +530,32 @@ export default async function FinancePage({
             {pnlRows.map((r) => {
               const profit = r.billed - r.paid;
               const margin = r.billed > 0 ? (profit / r.billed) * 100 : 0;
+              const activitiesHref = `/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`;
               return (
                 <tr key={r.key}>
                   <td className="px-4 py-2 font-medium text-brand-navy">
-                    {r.label}
+                    {r.key === "unassigned" ? (
+                      r.label
+                    ) : (
+                      <Link
+                        href={activitiesHref}
+                        className="hover:text-brand-mint-dark hover:underline"
+                      >
+                        {r.label}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
-                    {r.activities}
+                    {r.key === "unassigned" ? (
+                      r.activities
+                    ) : (
+                      <Link
+                        href={activitiesHref}
+                        className="text-brand-navy hover:text-brand-mint-dark hover:underline"
+                      >
+                        {r.activities}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
                     {fmtMoney2(r.billed)}
@@ -673,10 +692,29 @@ export default async function FinancePage({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {groups.map((g) => (
+              {groups.map((g) => {
+                const owner =
+                  g.sites[0]?.partnerId
+                    ? `partner:${g.sites[0].partnerId}`
+                    : g.sites[0]?.customerId
+                      ? `customer:${g.sites[0].customerId}`
+                      : null;
+                const activitiesHref = owner
+                  ? `/activities?accountId=${encodeURIComponent(owner)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`
+                  : null;
+                return (
                 <tr key={g.label}>
                   <td className="px-4 py-2 text-brand-navy font-medium">
-                    {g.label}
+                    {activitiesHref ? (
+                      <Link
+                        href={activitiesHref}
+                        className="hover:text-brand-mint-dark hover:underline"
+                      >
+                        {g.label}
+                      </Link>
+                    ) : (
+                      g.label
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-slate-700">
                     {g.sites.length}
@@ -688,7 +726,8 @@ export default async function FinancePage({
                     {g.setup > 0 ? fmtMoney(g.setup) : "—"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {groups.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-slate-500">

@@ -51,6 +51,7 @@ const QUICK_NAV: Action[] = [
   { id: "nav-keys", group: "Navigation", label: "Keys", hint: "/keys", href: "/keys" },
   { id: "nav-patrols", group: "Navigation", label: "Schedules (patrols, lock-ups)", hint: "/patrols", href: "/patrols" },
   { id: "nav-shifts", group: "Navigation", label: "Shifts", hint: "/shifts", href: "/shifts" },
+  { id: "nav-activities", group: "Navigation", label: "Activities log", hint: "/activities", href: "/activities" },
   { id: "nav-finance", group: "Navigation", label: "Finance", hint: "/finance", href: "/finance" },
   { id: "nav-reports", group: "Navigation", label: "Reports / review queue", hint: "/admin/reports", href: "/admin/reports" },
   { id: "nav-admin", group: "Navigation", label: "Admin home", hint: "/admin", href: "/admin" },
