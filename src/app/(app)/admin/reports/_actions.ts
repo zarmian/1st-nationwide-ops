@@ -18,11 +18,11 @@ export type ReviewActionState = { error?: string };
 
 async function requireReviewer() {
   const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   if (role !== "ADMIN" && role !== "DISPATCHER") {
     throw new Error("Not authorised");
   }
-  return (session?.user as any)?.id as string;
+  return session?.user?.id ?? "";
 }
 
 function parseDateTimeLocal(v: string | undefined): Date | null | undefined {

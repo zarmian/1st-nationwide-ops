@@ -4,15 +4,26 @@ import { prisma } from "@/lib/db";
 export const dynamic = "force-dynamic";
 
 export default async function AdminHubPage() {
-  const [customers, partners, regions, pending, templates, blueprints] =
-    await Promise.all([
-      prisma.customer.count({ where: { active: true } }),
-      prisma.partner.count({ where: { active: true } }),
-      prisma.region.count(),
-      prisma.reportReview.count({ where: { status: "PENDING" } }),
-      prisma.formTemplate.count({ where: { active: true } }),
-      prisma.formBlueprint.count({ where: { active: true } }),
-    ]);
+  // $transaction runs queries serially over a single connection — avoids the
+  // Vercel + Supabase pgbouncer pool-exhaustion that bites Promise.all when
+  // connection_limit on DATABASE_URL is low.
+  const [
+    customers,
+    partners,
+    regions,
+    pending,
+    templates,
+    blueprints,
+    notifyPending,
+  ] = await prisma.$transaction([
+    prisma.customer.count({ where: { active: true } }),
+    prisma.partner.count({ where: { active: true } }),
+    prisma.region.count(),
+    prisma.reportReview.count({ where: { status: "PENDING" } }),
+    prisma.formTemplate.count({ where: { active: true } }),
+    prisma.formBlueprint.count({ where: { active: true } }),
+    prisma.notification.count({ where: { status: "PENDING" } }),
+  ]);
 
   const cards = [
     {
@@ -63,6 +74,20 @@ export default async function AdminHubPage() {
       blurb: "Upload the latest Nexus CSV. Reset site data first if you want a clean slate.",
       stat: 0,
       statLabel: "tool",
+    },
+    {
+      href: "/admin/officer-rates",
+      title: "Officer pay rates",
+      blurb: "Monthly retainer + per-service rates. Company defaults with per-officer overrides.",
+      stat: 0,
+      statLabel: "rates",
+    },
+    {
+      href: "/admin/notifications",
+      title: "Notifications",
+      blurb: "WhatsApp queue — visit, alarm, and key-handover events sent to staff.",
+      stat: notifyPending,
+      statLabel: "pending",
     },
   ];
 

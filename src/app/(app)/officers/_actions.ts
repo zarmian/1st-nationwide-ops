@@ -4,9 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAdmin, requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import { normaliseE164 } from "@/lib/whatsapp";
 
 const ROLES = ["OFFICER", "DISPATCHER", "ADMIN"] as const;
 
@@ -14,6 +14,16 @@ const OfficerInput = z.object({
   name: z.string().trim().min(1, "Name is required").max(120),
   email: z.string().trim().toLowerCase().email("Valid email required").max(200),
   phone: z.string().trim().max(40).optional().nullable(),
+  whatsappNumber: z
+    .string()
+    .trim()
+    .max(40)
+    .optional()
+    .nullable()
+    .transform((v) => (v ? normaliseE164(v) : null))
+    .refine((v) => v === null || v.startsWith("+"), {
+      message: "Use a UK mobile (07…) or full international (+44…)",
+    }),
   siaNumber: z.string().trim().max(40).optional().nullable(),
   regionId: z.coerce.number().int().positive().optional().nullable(),
   role: z.enum(ROLES).default("OFFICER"),
@@ -26,13 +36,6 @@ export type OfficerFormState = {
   fieldErrors?: Record<string, string[]>;
 };
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
-    throw new Error("Not authorised");
-  }
-}
 
 function parseForm(formData: FormData) {
   const regionRaw = formData.get("regionId")?.toString() ?? "";
@@ -40,6 +43,7 @@ function parseForm(formData: FormData) {
     name: formData.get("name")?.toString() ?? "",
     email: formData.get("email")?.toString() ?? "",
     phone: formData.get("phone")?.toString() || null,
+    whatsappNumber: formData.get("whatsappNumber")?.toString() || null,
     siaNumber: formData.get("siaNumber")?.toString() || null,
     regionId: regionRaw === "" ? null : regionRaw,
     role: formData.get("role")?.toString() ?? "OFFICER",
@@ -96,6 +100,7 @@ export async function createOfficer(
       name: d.name,
       email: d.email,
       phone: d.phone,
+      whatsappNumber: d.whatsappNumber,
       siaNumber: d.siaNumber,
       regionId: d.regionId,
       role: d.role as any,
@@ -160,6 +165,7 @@ export async function updateOfficer(
       name: d.name,
       email: d.email,
       phone: d.phone,
+      whatsappNumber: d.whatsappNumber,
       siaNumber: d.siaNumber,
       regionId: d.regionId,
       role: d.role as any,
@@ -182,5 +188,23 @@ export async function setOnDuty(
     data: { onDuty },
   });
   revalidatePath("/officers");
+  return { ok: true };
+}
+
+/**
+ * Officer toggles their own on-duty state. No admin role required — the
+ * session user can only flip their own row.
+ */
+export async function setMyOnDuty(
+  onDuty: boolean,
+): Promise<{ ok: boolean }> {
+  const me = await requireUser();
+  await prisma.user.update({
+    where: { id: me.id },
+    data: { onDuty },
+  });
+  revalidatePath("/m/today");
+  revalidatePath("/officers");
+  revalidatePath("/dispatch");
   return { ok: true };
 }

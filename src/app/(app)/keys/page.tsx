@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { DataTable } from "@/components/DataTable";
+import { FilterPanel } from "@/components/FilterPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -104,166 +106,164 @@ export default async function KeysPage({
         ))}
       </div>
 
-      <form className="card p-3 flex flex-wrap items-end gap-3">
-        <div className="flex-1 min-w-[180px]">
-          <label className="label" htmlFor="q">
-            Search
-          </label>
-          <input
-            id="q"
-            name="q"
-            defaultValue={q}
-            placeholder="Label, code, site…"
-            className="input"
-          />
-        </div>
-        <div>
-          <label className="label" htmlFor="site">
-            Site
-          </label>
-          <select
-            id="site"
-            name="site"
-            defaultValue={siteFilter}
-            className="input"
-          >
-            <option value="">All sites</option>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.code ? `${s.code} · ` : ""}
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="holder">
-            Holder
-          </label>
-          <select
-            id="holder"
-            name="holder"
-            defaultValue={holderFilter}
-            className="input"
-          >
-            <option value="">Any</option>
-            <option value="none">No holder</option>
-            {holders.map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <input type="hidden" name="status" value={statusFilter} />
-        <button type="submit" className="btn-secondary text-sm">
-          Apply
-        </button>
-        {(q || statusFilter || siteFilter || holderFilter) && (
-          <Link href="/keys" className="btn-ghost text-sm">
-            Clear
-          </Link>
-        )}
-      </form>
-
-      <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Code
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Label
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Type
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Site
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Holder
-              </th>
-              <th className="text-left px-4 py-2.5 font-medium uppercase tracking-wider text-xs">
-                Status
-              </th>
-              <th className="px-4 py-2.5"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {keys.map((k) => (
-              <tr key={k.id} className="hover:bg-slate-50">
-                <td className="px-4 py-2.5 font-mono text-xs text-slate-600">
-                  {k.internalNo ?? "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  <Link
-                    href={`/keys/${k.id}`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
-                  >
-                    {k.label}
-                  </Link>
-                  {k.keySet && (
-                    <div className="text-xs text-slate-500">
-                      Set: {k.keySet.label}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-slate-600">
-                  {k.type.charAt(0) + k.type.slice(1).toLowerCase()}
-                </td>
-                <td className="px-4 py-2.5 text-slate-600">
-                  {k.site ? (
-                    <Link
-                      href={`/sites/${k.site.id}`}
-                      className="hover:text-brand-mint-dark"
-                    >
-                      {k.site.name}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-4 py-2.5 text-slate-600">
-                  {k.currentHolder ? (
-                    <Link
-                      href={`/officers/${k.currentHolder.id}/edit`}
-                      className="hover:text-brand-mint-dark"
-                    >
-                      {k.currentHolder.name}
-                    </Link>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span className={STATUS_TONE[k.status] ?? "chip-slate"}>
-                    {STATUS_LABEL[k.status] ?? k.status}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-right">
-                  <Link href={`/keys/${k.id}`} className="btn-ghost text-sm">
-                    View
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {keys.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                  No keys match these filters.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-        {keys.length === 200 && (
-          <div className="px-4 py-2 text-xs text-slate-500 bg-slate-50 border-t border-slate-100">
-            Showing first 200 — narrow the filters to see more.
+      <FilterPanel
+        clearAllHref="/keys"
+        activeFilters={(() => {
+          const filters: { label: string; clearHref: string }[] = [];
+          const drop = (k: string): string => {
+            const sp = new URLSearchParams(searchParams as any);
+            sp.delete(k);
+            const qs = sp.toString();
+            return qs ? `/keys?${qs}` : "/keys";
+          };
+          if (q) filters.push({ label: `Search: ${q}`, clearHref: drop("q") });
+          if (statusFilter) {
+            filters.push({
+              label: `Status: ${STATUS_LABEL[statusFilter] ?? statusFilter}`,
+              clearHref: drop("status"),
+            });
+          }
+          if (siteFilter) {
+            const siteName =
+              sites.find((s) => s.id === siteFilter)?.name ?? "Site";
+            filters.push({ label: `Site: ${siteName}`, clearHref: drop("site") });
+          }
+          if (holderFilter) {
+            const holderName =
+              holderFilter === "none"
+                ? "No holder"
+                : holders.find((h) => h.id === holderFilter)?.name ?? "Holder";
+            filters.push({
+              label: `Holder: ${holderName}`,
+              clearHref: drop("holder"),
+            });
+          }
+          return filters;
+        })()}
+      >
+        <form className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <label className="label" htmlFor="q">
+              Search
+            </label>
+            <input
+              id="q"
+              name="q"
+              defaultValue={q}
+              placeholder="Label, code, site…"
+              className="input"
+            />
           </div>
-        )}
-      </div>
+          <div>
+            <label className="label" htmlFor="site">
+              Site
+            </label>
+            <select
+              id="site"
+              name="site"
+              defaultValue={siteFilter}
+              className="input"
+            >
+              <option value="">All sites</option>
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code ? `${s.code} · ` : ""}
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label" htmlFor="holder">
+              Holder
+            </label>
+            <select
+              id="holder"
+              name="holder"
+              defaultValue={holderFilter}
+              className="input"
+            >
+              <option value="">Any</option>
+              <option value="none">No holder</option>
+              {holders.map((h) => (
+                <option key={h.id} value={h.id}>
+                  {h.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <input type="hidden" name="status" value={statusFilter} />
+          <button type="submit" className="btn-secondary text-sm">
+            Apply
+          </button>
+        </form>
+      </FilterPanel>
+
+      <DataTable
+        rows={keys}
+        rowHref={(k) => `/keys/${k.id}`}
+        footer={
+          keys.length === 200
+            ? "Showing first 200 — narrow the filters to see more."
+            : undefined
+        }
+        emptyState={
+          q || statusFilter || siteFilter || holderFilter
+            ? "No keys match these filters."
+            : "No keys recorded yet. Add keys per site from the site detail."
+        }
+        columns={[
+          {
+            header: "Code",
+            cell: (k) => (
+              <span className="font-mono text-xs text-slate-600">
+                {k.internalNo ?? "—"}
+              </span>
+            ),
+          },
+          {
+            header: "Label",
+            cell: (k) => (
+              <div>
+                <div className="font-medium text-brand-navy">{k.label}</div>
+                {k.keySet && (
+                  <div className="text-xs text-slate-500">Set: {k.keySet.label}</div>
+                )}
+              </div>
+            ),
+          },
+          {
+            header: "Type",
+            cell: (k) => (
+              <span className="text-slate-600">
+                {k.type.charAt(0) + k.type.slice(1).toLowerCase()}
+              </span>
+            ),
+          },
+          {
+            header: "Site",
+            cell: (k) => (
+              <span className="text-slate-600">{k.site?.name ?? "—"}</span>
+            ),
+          },
+          {
+            header: "Holder",
+            cell: (k) => (
+              <span className="text-slate-600">
+                {k.currentHolder?.name ?? "—"}
+              </span>
+            ),
+          },
+          {
+            header: "Status",
+            cell: (k) => (
+              <span className={STATUS_TONE[k.status] ?? "chip-slate"}>
+                {STATUS_LABEL[k.status] ?? k.status}
+              </span>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 }

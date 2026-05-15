@@ -1,8 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import {
   previewNexusImport,
@@ -10,13 +9,6 @@ import {
   type ImportSkip,
 } from "@/lib/nexusImport";
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
-    throw new Error("Not authorised");
-  }
-}
 
 export type ResetCounts = {
   sites: number;
@@ -40,6 +32,10 @@ export type ResetCounts = {
 
 export async function getResetCounts(): Promise<ResetCounts> {
   await requireAdmin();
+  // $transaction with the array form runs queries sequentially over a single
+  // connection — important on Vercel where Prisma defaults to a pool of 1
+  // against the Supabase transaction pooler. Promise.all here would queue
+  // and time out at 10s.
   const [
     sites,
     keySets,
@@ -58,7 +54,7 @@ export async function getResetCounts(): Promise<ResetCounts> {
     accessInstructions,
     onboardingPipelines,
     activityLogs,
-  ] = await Promise.all([
+  ] = await prisma.$transaction([
     prisma.site.count(),
     prisma.keySet.count(),
     prisma.key.count(),

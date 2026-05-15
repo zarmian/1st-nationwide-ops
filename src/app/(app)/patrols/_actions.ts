@@ -2,17 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-
-async function requireStaff() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (!role || !["ADMIN", "DISPATCHER"].includes(role)) {
-    throw new Error("Not authorised");
-  }
-}
+import { requireStaff } from "@/lib/authz";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),

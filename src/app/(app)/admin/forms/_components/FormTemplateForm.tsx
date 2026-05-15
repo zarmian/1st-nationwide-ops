@@ -11,6 +11,7 @@ import {
   newSection,
   type FieldRow,
 } from "./FieldEditor";
+import { FormError } from "@/components/FormError";
 
 export type { FieldRow } from "./FieldEditor";
 
@@ -97,11 +98,7 @@ export function FormTemplateForm({
 
   return (
     <form action={formAction} className="space-y-6 max-w-4xl">
-      {state.error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {state.error}
-        </div>
-      )}
+      <FormError message={state.error} />
 
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-brand-navy">Basics</h2>

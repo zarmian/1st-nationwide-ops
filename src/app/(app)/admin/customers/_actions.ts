@@ -3,9 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/authz";
 
 const CUSTOMER_TYPES = ["CORPORATE", "RESIDENTIAL", "RESELLER"] as const;
 
@@ -36,14 +35,6 @@ export type CustomerFormState = {
   error?: string;
   fieldErrors?: Record<string, string[]>;
 };
-
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
-    throw new Error("Not authorised");
-  }
-}
 
 function safeJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { notifyVisitStarted } from "@/lib/notifications";
 
 const Body = z.object({
   lat: z.number().nullable().optional(),
@@ -17,8 +18,8 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ error: "Sign in required" }, { status: 401 });
   }
-  const userId = (session.user as any).id as string | undefined;
-  const role = (session.user as any).role as string | undefined;
+  const userId = session.user.id;
+  const role = session.user.role;
 
   const visit = await prisma.patrolVisit.findUnique({
     where: { id: params.id },
@@ -64,6 +65,8 @@ export async function POST(
   if (typeof lng === "number") data.gpsLng = lng;
   if (!visit.officerId && userId) data.officerId = userId;
 
+  const wasAlreadyStarted = visit.status === "IN_PROGRESS";
+
   const updated = await prisma.patrolVisit.update({
     where: { id: params.id },
     data,
@@ -76,6 +79,14 @@ export async function POST(
       siteId: true,
     },
   });
+
+  if (!wasAlreadyStarted) {
+    // Don't fail the request if notification queueing fails — the visit
+    // transition is what matters; the queue is best-effort.
+    notifyVisitStarted(updated.id).catch((e) =>
+      console.error("notifyVisitStarted failed", e),
+    );
+  }
 
   return NextResponse.json({ ok: true, visit: updated });
 }

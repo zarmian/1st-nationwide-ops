@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isAuthorisedCron } from "@/lib/cronAuth";
+import { notifyVisitLateOrMissed } from "@/lib/notifications";
 
 /**
  * Hourly status sweep:
@@ -18,7 +19,23 @@ export async function GET(req: Request) {
   const lateCutoff = new Date(now.getTime() - 60 * 60 * 1000);
   const missedCutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-  const [late, missed] = await prisma.$transaction([
+  // Find which visits will flip BEFORE updating, so we can notify each.
+  const toLate = await prisma.patrolVisit.findMany({
+    where: {
+      status: "PENDING",
+      scheduledAt: { lte: lateCutoff, gt: missedCutoff },
+    },
+    select: { id: true },
+  });
+  const toMissed = await prisma.patrolVisit.findMany({
+    where: {
+      status: { in: ["PENDING", "LATE", "IN_PROGRESS"] },
+      scheduledAt: { lte: missedCutoff },
+    },
+    select: { id: true },
+  });
+
+  await prisma.$transaction([
     prisma.patrolVisit.updateMany({
       where: {
         status: "PENDING",
@@ -35,9 +52,21 @@ export async function GET(req: Request) {
     }),
   ]);
 
+  // Queue notifications best-effort (don't fail the cron if any error).
+  for (const v of toLate) {
+    await notifyVisitLateOrMissed(v.id, "LATE").catch((e) =>
+      console.error("notifyVisitLateOrMissed failed", e),
+    );
+  }
+  for (const v of toMissed) {
+    await notifyVisitLateOrMissed(v.id, "MISSED").catch((e) =>
+      console.error("notifyVisitLateOrMissed failed", e),
+    );
+  }
+
   return NextResponse.json({
     ok: true,
-    flippedToLate: late.count,
-    flippedToMissed: missed.count,
+    flippedToLate: toLate.length,
+    flippedToMissed: toMissed.length,
   });
 }

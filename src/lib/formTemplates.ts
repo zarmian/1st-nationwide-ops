@@ -90,6 +90,7 @@ const SUBMISSION_FORMS = [
   "KEY_DROPOFF",
   "VPI",
   "ADHOC",
+  "SHIFT_CHECK",
 ] as const;
 
 export const SUBMISSION_FORM_LABEL: Record<string, string> = {
@@ -101,6 +102,7 @@ export const SUBMISSION_FORM_LABEL: Record<string, string> = {
   KEY_DROPOFF: "Key drop-off",
   VPI: "Void property inspection",
   ADHOC: "Ad-hoc / other",
+  SHIFT_CHECK: "Hourly shift check",
 };
 
 export type SubmissionFormType = (typeof SUBMISSION_FORMS)[number];

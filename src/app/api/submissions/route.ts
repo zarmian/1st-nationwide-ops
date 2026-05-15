@@ -4,11 +4,26 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseFields, validatePayload } from "@/lib/formTemplates";
+import { notifyVisitCompleted } from "@/lib/notifications";
+import {
+  checkLimit,
+  clientKey,
+  submissionLimiter,
+} from "@/lib/ratelimit";
+import {
+  applyBillingToVisit,
+  applyPayToVisit,
+  billForSite,
+  durationMinutes,
+  jobTypeToRateService,
+  payForOfficer,
+} from "@/lib/billing";
 
 const Body = z.object({
   siteId: z.string().min(1),
   jobId: z.string().nullable().optional(),
   patrolVisitId: z.string().uuid().nullable().optional(),
+  shiftId: z.string().uuid().nullable().optional(),
   form: z.enum([
     "ALARM_RESPONSE",
     "PATROL",
@@ -18,6 +33,7 @@ const Body = z.object({
     "KEY_DROPOFF",
     "VPI",
     "ADHOC",
+    "SHIFT_CHECK",
   ]),
   formTemplateId: z.string().uuid().nullable().optional(),
   officerNameRaw: z.string().min(1).max(120),
@@ -28,6 +44,21 @@ const Body = z.object({
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
+
+  // /submit is intentionally public — gate abuse here.
+  if (!session) {
+    const limit = await checkLimit(submissionLimiter, clientKey(req));
+    if (!limit.allowed) {
+      return NextResponse.json(
+        { error: `Too many submissions — try again in ${limit.retryAfterSeconds}s` },
+        {
+          status: 429,
+          headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        },
+      );
+    }
+  }
+
   const body = await req.json().catch(() => null);
   const parsed = Body.safeParse(body);
   if (!parsed.success) {
@@ -84,7 +115,8 @@ export async function POST(req: Request) {
       siteId: data.siteId,
       jobId: data.jobId ?? null,
       patrolVisitId: data.patrolVisitId ?? null,
-      submittedByUserId: session ? ((session.user as any).id as string) : null,
+      shiftId: data.shiftId ?? null,
+      submittedByUserId: session ? (session.user.id) : null,
       officerNameRaw: data.officerNameRaw,
       arrivedAt: data.arrivedAt ? new Date(data.arrivedAt) : null,
       departedAt: data.departedAt ? new Date(data.departedAt) : null,
@@ -106,19 +138,59 @@ export async function POST(req: Request) {
   if (data.patrolVisitId) {
     const visit = await prisma.patrolVisit.findUnique({
       where: { id: data.patrolVisitId },
-      select: { arrivedAt: true },
+      select: {
+        arrivedAt: true,
+        status: true,
+        siteId: true,
+        officerId: true,
+      },
     });
     const departed = data.departedAt ? new Date(data.departedAt) : new Date();
+    const arrived =
+      visit?.arrivedAt ??
+      (data.arrivedAt ? new Date(data.arrivedAt) : new Date());
     await prisma.patrolVisit.update({
       where: { id: data.patrolVisitId },
       data: {
         status: "COMPLETED",
         departedAt: departed,
-        arrivedAt:
-          visit?.arrivedAt ??
-          (data.arrivedAt ? new Date(data.arrivedAt) : new Date()),
+        arrivedAt: arrived,
       },
     });
+    if (visit?.status !== "COMPLETED") {
+      notifyVisitCompleted(data.patrolVisitId).catch((e) =>
+        console.error("notifyVisitCompleted failed", e),
+      );
+    }
+    // Snapshot billing onto the visit. We map the SubmissionForm value back
+    // to a RateService — same lookup as for jobs, just from a different
+    // source. Best-effort: a missing rate leaves the visit unbilled rather
+    // than failing the submission.
+    if (visit?.siteId) {
+      const rateService = jobTypeToRateService(data.form);
+      const duration = durationMinutes(arrived, departed);
+      if (rateService) {
+        const billResult = await billForSite(
+          visit.siteId,
+          rateService,
+          duration,
+        );
+        await applyBillingToVisit(data.patrolVisitId, billResult);
+
+        // Officer pay snapshot — only meaningful when we know who attended.
+        const attendingOfficerId =
+          visit.officerId ??
+          (session ? session.user.id : null);
+        if (attendingOfficerId) {
+          const payResult = await payForOfficer(
+            attendingOfficerId,
+            rateService,
+            duration,
+          );
+          await applyPayToVisit(data.patrolVisitId, payResult);
+        }
+      }
+    }
   }
 
   return NextResponse.json({ ok: true, id: submitted.id });

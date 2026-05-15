@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { notifyKeyHandover } from "@/lib/notifications";
+import { requireStaff } from "@/lib/authz";
 
 const HandoverInput = z.object({
   toUserId: z
@@ -21,21 +21,13 @@ export type HandoverState = {
   ok?: boolean;
 };
 
-async function requireStaff() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (!role || !["ADMIN", "DISPATCHER"].includes(role)) {
-    throw new Error("Not authorised");
-  }
-  return (session?.user as any)?.id as string | undefined;
-}
-
 export async function handoverKey(
   keyId: string,
   _prev: HandoverState,
   formData: FormData,
 ): Promise<HandoverState> {
-  const signedOffById = await requireStaff();
+  const me = await requireStaff();
+  const signedOffById = me.id;
   const raw = {
     toUserId: formData.get("toUserId")?.toString() || null,
     reason: formData.get("reason")?.toString() || null,
@@ -58,24 +50,28 @@ export async function handoverKey(
 
   const newStatus = toUserId ? "WITH_OFFICER" : "WITH_US";
 
-  await prisma.$transaction([
-    prisma.keyMovement.create({
-      data: {
-        keyId,
-        fromUserId: key.currentHolderUserId ?? null,
-        toUserId,
-        reason: reason ?? null,
-        signedOffById: signedOffById ?? null,
-      },
-    }),
-    prisma.key.update({
-      where: { id: keyId },
-      data: {
-        currentHolderUserId: toUserId,
-        status: newStatus as any,
-      },
-    }),
-  ]);
+  const movement = await prisma.keyMovement.create({
+    data: {
+      keyId,
+      fromUserId: key.currentHolderUserId ?? null,
+      toUserId,
+      reason: reason ?? null,
+      signedOffById: signedOffById ?? null,
+    },
+    select: { id: true },
+  });
+  await prisma.key.update({
+    where: { id: keyId },
+    data: {
+      currentHolderUserId: toUserId,
+      status: newStatus as any,
+    },
+  });
+
+  notifyKeyHandover(movement.id).catch((e) =>
+    console.error("notifyKeyHandover failed", e),
+  );
+
   revalidatePath(`/keys/${keyId}`);
   revalidatePath("/keys");
   return { ok: true };

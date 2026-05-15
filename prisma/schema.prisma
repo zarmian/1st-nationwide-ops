@@ -188,6 +188,20 @@ enum SubmissionForm {
   KEY_DROPOFF
   VPI
   ADHOC
+  SHIFT_CHECK
+}
+
+enum ShiftType {
+  STATIC_GUARDING
+  DOG_HANDLER
+}
+
+enum ShiftStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  ABANDONED
 }
 
 enum TemplateScope {
@@ -253,6 +267,29 @@ enum RateUnit {
   FIXED
 }
 
+enum NotificationChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+}
+
+enum NotificationKind {
+  VISIT_STARTED
+  VISIT_COMPLETED
+  VISIT_LATE
+  VISIT_MISSED
+  ALARM_RECEIVED
+  KEY_HANDOVER
+  SHIFT_CHECK_OVERDUE
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 // ----------- Models -----------
 
 model Region {
@@ -267,13 +304,14 @@ model Region {
 }
 
 model User {
-  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  email         String   @unique @db.Citext
-  name          String
-  passwordHash  String?
-  phone         String?
-  siaNumber     String?  @unique
-  role          UserRole
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email           String   @unique @db.Citext
+  name            String
+  passwordHash    String?
+  phone           String?
+  whatsappNumber  String?
+  siaNumber       String?  @unique
+  role            UserRole
   regionId      Int?
   region        Region?  @relation("OfficerRegion", fields: [regionId], references: [id])
   active        Boolean  @default(true)
@@ -300,6 +338,9 @@ model User {
   reportReviews            ReportReview[]      @relation("ReportReviewer")
   formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
   formBlueprintsAuthored   FormBlueprint[]     @relation("FormBlueprintAuthor")
+  notifications            Notification[]      @relation("NotificationRecipient")
+  officerRates             OfficerRate[]
+  shifts                   Shift[]             @relation("ShiftOfficer")
 
   @@index([regionId, role])
 }
@@ -393,6 +434,7 @@ model Site {
   formSubmissions       FormSubmission[]
   formTemplates         FormTemplate[]
   rates                 SiteRate[]
+  shifts                Shift[]
 
   @@index([regionId])
   @@index([customerId])
@@ -404,19 +446,22 @@ model Site {
 }
 
 model SiteRate {
-  id          String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  siteId      String       @db.Uuid
-  site        Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
-  service     RateService
-  amount      Decimal      @db.Decimal(10, 2)
-  currency    String       @default("GBP")
-  unit        RateUnit     @default(PER_VISIT)
-  validFrom   DateTime?
-  validTo     DateTime?
-  notes       String?
-  source      String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId          String       @db.Uuid
+  site            Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  service         RateService
+  amount          Decimal      @db.Decimal(10, 2)
+  currency        String       @default("GBP")
+  unit            RateUnit     @default(PER_VISIT)
+  // Minutes covered by `amount`. Beyond this, excessRatePerMin applies.
+  includedMinutes Int?
+  excessRatePerMin Decimal?    @db.Decimal(10, 4)
+  validFrom       DateTime?
+  validTo         DateTime?
+  notes           String?
+  source          String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   @@unique([siteId, service])
   @@index([siteId])
@@ -537,6 +582,13 @@ model PatrolVisit {
   gpsLng             Float?
   photoUrls          String[]        @default([])
   notes              String?
+  billedAmount       Decimal?        @db.Decimal(10, 2)
+  billedCurrency     String?
+  billedAt           DateTime?
+  payRateUnit        String?
+  paidAmount         Decimal?        @db.Decimal(10, 2)
+  paidCurrency       String?
+  paidAt             DateTime?
   createdAt          DateTime        @default(now())
 
   job                Job?
@@ -688,7 +740,11 @@ model Job {
   partnerReportRef      String?
 
   billedAmount          Decimal?      @db.Decimal(10, 2)
+  billedCurrency        String?
+  billedAt              DateTime?
   paidAmount            Decimal?      @db.Decimal(10, 2)
+  paidCurrency          String?
+  paidAt                DateTime?
   payRateUnit           String?
 
   notes                 String?
@@ -717,6 +773,8 @@ model FormSubmission {
   job                 Job?            @relation(fields: [jobId], references: [id])
   patrolVisitId       String?         @db.Uuid
   patrolVisit         PatrolVisit?    @relation(fields: [patrolVisitId], references: [id], onDelete: SetNull)
+  shiftId             String?         @db.Uuid
+  shift               Shift?          @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   submittedByUserId   String?         @db.Uuid
   submittedBy         User?           @relation("SubmittedByUser", fields: [submittedByUserId], references: [id])
@@ -736,6 +794,7 @@ model FormSubmission {
   @@index([form])
   @@index([formTemplateId])
   @@index([patrolVisitId])
+  @@index([shiftId])
 }
 
 model FormTemplate {
@@ -824,4 +883,76 @@ model ClientReport {
 
   @@index([reviewId])
   @@index([status])
+}
+
+model Notification {
+  id              String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  channel         NotificationChannel @default(WHATSAPP)
+  kind            NotificationKind
+  recipientUserId String?             @db.Uuid
+  recipientUser   User?               @relation("NotificationRecipient", fields: [recipientUserId], references: [id], onDelete: SetNull)
+  recipientNumber String?
+  templateName    String
+  templateParams  Json                @default("[]")
+  bodyPreview     String?
+  status          NotificationStatus  @default(PENDING)
+  attempts        Int                 @default(0)
+  error           String?
+  eventEntity     String?
+  eventEntityId   String?
+  sentAt          DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  @@index([status, createdAt])
+  @@index([recipientUserId])
+  @@index([eventEntity, eventEntityId])
+  @@index([kind])
+}
+
+model Shift {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  siteId             String       @db.Uuid
+  site               Site         @relation(fields: [siteId], references: [id])
+  officerId          String?      @db.Uuid
+  officer            User?        @relation("ShiftOfficer", fields: [officerId], references: [id])
+  type               ShiftType
+  scheduledStartsAt  DateTime
+  scheduledEndsAt    DateTime
+  actualStartedAt    DateTime?
+  actualEndedAt      DateTime?
+  status             ShiftStatus  @default(PENDING)
+  checkIntervalMin   Int          @default(60)
+  graceMinutes       Int          @default(15)
+  notes              String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  formSubmissions    FormSubmission[]
+
+  @@index([siteId, scheduledStartsAt])
+  @@index([officerId, scheduledStartsAt])
+  @@index([status])
+}
+
+model OfficerRate {
+  id               String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  officerId        String?     @db.Uuid
+  officer          User?       @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  service          RateService
+  amount           Decimal     @db.Decimal(10, 2)
+  currency         String      @default("GBP")
+  unit             RateUnit    @default(PER_VISIT)
+  // Minutes covered by `amount`. Beyond this, excessRatePerMin applies.
+  includedMinutes  Int?
+  excessRatePerMin Decimal?    @db.Decimal(10, 4)
+  validFrom        DateTime?
+  validTo          DateTime?
+  notes            String?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@unique([officerId, service])
+  @@index([officerId])
+  @@index([service])
 }

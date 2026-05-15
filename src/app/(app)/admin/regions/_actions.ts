@@ -2,8 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 
 const RegionInput = z.object({
@@ -16,13 +15,6 @@ export type RegionFormState = {
   fieldErrors?: Record<string, string[]>;
 };
 
-async function requireAdmin() {
-  const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
-  if (role !== "ADMIN") {
-    throw new Error("Not authorised");
-  }
-}
 
 function parseForm(formData: FormData) {
   return RegionInput.safeParse({

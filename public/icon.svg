@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background — brand mint with a subtle gradient for depth -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#34D88A" />
+      <stop offset="1" stop-color="#2FCB80" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <!-- The "1" -->
+  <text
+    x="50%"
+    y="50%"
+    text-anchor="middle"
+    dominant-baseline="central"
+    font-family="-apple-system, system-ui, sans-serif"
+    font-weight="800"
+    font-size="320"
+    fill="#FFFFFF"
+  >1</text>
+  <!-- "NW" hint underneath, smaller -->
+  <text
+    x="50%"
+    y="84%"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-family="-apple-system, system-ui, sans-serif"
+    font-weight="700"
+    font-size="64"
+    letter-spacing="8"
+    fill="#0F1929"
+  >NW</text>
+</svg>

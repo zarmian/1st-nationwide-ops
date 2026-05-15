@@ -92,6 +92,7 @@ export default async function EditOfficerPage({
             name: officer.name,
             email: officer.email,
             phone: officer.phone,
+            whatsappNumber: officer.whatsappNumber,
             siaNumber: officer.siaNumber,
             regionId: officer.regionId,
             role: officer.role,

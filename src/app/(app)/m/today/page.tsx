@@ -3,19 +3,32 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import Link from "next/link";
 import { VisitCard } from "./_components/VisitCard";
+import { OnDutyBanner } from "./_components/OnDutyBanner";
+import { ShiftCard } from "./_components/ShiftCard";
+import { AutoRefresh } from "./_components/AutoRefresh";
+import { InstallHint } from "./_components/InstallHint";
+import { setMyOnDuty } from "../../officers/_actions";
+import { startShift, endShift } from "../../shifts/_actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function OfficerTodayPage() {
   const session = await getServerSession(authOptions);
-  const userId = (session!.user as any).id as string;
+  const userId = session!.user.id;
+  const me = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { onDuty: true },
+  });
 
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
-  const [myVisits, unassignedVisits, jobs] = await Promise.all([
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const [myVisits, unassignedVisits, jobs, myShifts] = await Promise.all([
     prisma.patrolVisit.findMany({
       where: {
         officerId: userId,
@@ -71,12 +84,31 @@ export default async function OfficerTodayPage() {
       },
       orderBy: [{ scheduledFor: "asc" }, { createdAt: "asc" }],
     }),
+    prisma.shift.findMany({
+      where: {
+        OR: [{ officerId: userId }, { officerId: null }],
+        status: { in: ["PENDING", "IN_PROGRESS"] },
+        scheduledStartsAt: { lte: todayEnd },
+        scheduledEndsAt: { gte: startOfDay },
+      },
+      orderBy: { scheduledStartsAt: "asc" },
+      include: {
+        site: { select: { id: true, name: true } },
+        formSubmissions: {
+          where: { form: "SHIFT_CHECK" },
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+          select: { submittedAt: true },
+        },
+      },
+    }),
   ]);
 
   const totalVisits = myVisits.length + unassignedVisits.length;
 
   return (
     <div className="space-y-5">
+      <AutoRefresh />
       <div>
         <h1 className="text-2xl font-semibold text-brand-navy">Today</h1>
         <p className="text-sm text-slate-500">
@@ -87,6 +119,38 @@ export default async function OfficerTodayPage() {
           on your list.
         </p>
       </div>
+
+      <InstallHint />
+      <OnDutyBanner initialOnDuty={me?.onDuty ?? false} setOnDuty={setMyOnDuty} />
+
+      {myShifts.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-xs uppercase tracking-wider text-slate-500">
+            Your shifts
+          </h2>
+          {myShifts.map((s) => (
+            <ShiftCard
+              key={s.id}
+              startShift={startShift}
+              endShift={endShift}
+              shift={{
+                id: s.id,
+                type: s.type,
+                status: s.status,
+                siteId: s.site.id,
+                siteName: s.site.name,
+                scheduledStartsAt: s.scheduledStartsAt.toISOString(),
+                scheduledEndsAt: s.scheduledEndsAt.toISOString(),
+                actualStartedAt: s.actualStartedAt?.toISOString() ?? null,
+                checkIntervalMin: s.checkIntervalMin,
+                graceMinutes: s.graceMinutes,
+                lastCheckAt:
+                  s.formSubmissions[0]?.submittedAt.toISOString() ?? null,
+              }}
+            />
+          ))}
+        </section>
+      )}
 
       {myVisits.length > 0 && (
         <section className="space-y-2">

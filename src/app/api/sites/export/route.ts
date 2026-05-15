@@ -18,7 +18,7 @@ function csvEscape(v: unknown): string {
 
 export async function GET(req: Request) {
   const session = await getServerSession(authOptions);
-  const role = (session?.user as any)?.role;
+  const role = session?.user?.role;
   if (role !== "ADMIN" && role !== "DISPATCHER") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

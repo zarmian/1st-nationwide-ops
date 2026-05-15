@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import type { OfficerFormState } from "../_actions";
+import { FormError } from "@/components/FormError";
 
 const ROLES = [
   { v: "OFFICER", label: "Officer" },
@@ -15,6 +16,7 @@ export type OfficerFormValues = {
   name: string;
   email: string;
   phone: string | null;
+  whatsappNumber: string | null;
   siaNumber: string | null;
   regionId: number | null;
   role: string;
@@ -39,11 +41,7 @@ export function OfficerForm({
 
   return (
     <form action={formAction} className="space-y-6 max-w-3xl">
-      {state.error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-          {state.error}
-        </div>
-      )}
+      <FormError message={state.error} />
 
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-brand-navy">Identity</h2>
@@ -86,6 +84,27 @@ export function OfficerForm({
               className="input"
               placeholder="+44 7…"
             />
+          </div>
+          <div>
+            <label className="label" htmlFor="whatsappNumber">
+              WhatsApp number
+            </label>
+            <input
+              id="whatsappNumber"
+              name="whatsappNumber"
+              defaultValue={initial.whatsappNumber ?? ""}
+              className="input"
+              placeholder="07700 900123 or +44…"
+            />
+            {fe.whatsappNumber && (
+              <p className="text-xs text-red-600 mt-1">
+                {fe.whatsappNumber.join(", ")}
+              </p>
+            )}
+            <p className="text-xs text-slate-500 mt-1">
+              Receives WhatsApp notifications for visits, alarms, and key
+              handovers. Leave blank to opt out.
+            </p>
           </div>
           <div>
             <label className="label" htmlFor="siaNumber">
