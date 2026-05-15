@@ -176,15 +176,25 @@ export default async function FinancePage({
   const prevTo = new Date(fromDate.getTime() - 1);
   const prevFrom = new Date(prevTo.getTime() - periodMs);
 
+  // Only counts work that has actually been done. Scheduled-but-unattended
+  // jobs are auto-billed by the cron at creation time, so we must anchor
+  // on completion (departedAt for visits, completedAt for jobs) and
+  // require the visit/job to be in a terminal state — otherwise tomorrow's
+  // lock-ups would land in today's "earned" figure.
   async function billedSum(from: Date, to: Date): Promise<number> {
     const [v, j] = await prisma.$transaction([
       prisma.patrolVisit.aggregate({
         _sum: { billedAmount: true },
-        where: { billedAt: { gte: from, lte: to } },
+        where: {
+          status: "COMPLETED",
+          departedAt: { gte: from, lte: to },
+        },
       }),
       prisma.job.aggregate({
         _sum: { billedAmount: true },
-        where: { billedAt: { gte: from, lte: to } },
+        where: {
+          completedAt: { gte: from, lte: to },
+        },
       }),
     ]);
     return (
@@ -227,14 +237,15 @@ export default async function FinancePage({
     SELECT day,
            COALESCE(SUM(amount), 0)::float8 AS total
     FROM (
-      SELECT date_trunc('day', "billedAt") AS day, "billedAmount" AS amount
+      SELECT date_trunc('day', "departedAt") AS day, "billedAmount" AS amount
       FROM "PatrolVisit"
-      WHERE "billedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+      WHERE "departedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+        AND "status" = 'COMPLETED'
         AND "billedAmount" IS NOT NULL
       UNION ALL
-      SELECT date_trunc('day', "billedAt") AS day, "billedAmount" AS amount
+      SELECT date_trunc('day', "completedAt") AS day, "billedAmount" AS amount
       FROM "Job"
-      WHERE "billedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+      WHERE "completedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
         AND "billedAmount" IS NOT NULL
     ) s
     GROUP BY day
@@ -294,7 +305,10 @@ export default async function FinancePage({
 
   const [rangeVisits, rangeJobs] = await Promise.all([
     prisma.patrolVisit.findMany({
-      where: { billedAt: { gte: fromDate, lte: toDate } },
+      where: {
+        status: "COMPLETED",
+        departedAt: { gte: fromDate, lte: toDate },
+      },
       select: {
         billedAmount: true,
         paidAmount: true,
@@ -309,7 +323,9 @@ export default async function FinancePage({
       },
     }),
     prisma.job.findMany({
-      where: { billedAt: { gte: fromDate, lte: toDate } },
+      where: {
+        completedAt: { gte: fromDate, lte: toDate },
+      },
       select: {
         billedAmount: true,
         paidAmount: true,
@@ -497,10 +513,11 @@ export default async function FinancePage({
             P&amp;L by account
           </h2>
           <p className="text-xs text-slate-500">
-            Billed minus officer pay, per customer / partner. Activities count
-            visits + jobs with a billed snapshot in the selected range
-            ({fromDate.toLocaleDateString("en-GB")} →{" "}
-            {toDate.toLocaleDateString("en-GB")}).
+            Billed minus officer pay, per customer / partner. Only counts
+            visits + jobs that have been completed by the officer in the
+            selected range ({fromDate.toLocaleDateString("en-GB")} →{" "}
+            {toDate.toLocaleDateString("en-GB")}). Scheduled work doesn't
+            count until it's done.
           </p>
         </div>
         <table className="w-full text-sm">

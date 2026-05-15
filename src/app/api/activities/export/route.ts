@@ -73,21 +73,18 @@ export async function GET(req: Request) {
   const visitWhere: any = {};
   const jobWhere: any = {};
   if (status === "billed") {
+    visitWhere.status = "COMPLETED";
     visitWhere.billedAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { not: null };
     jobWhere.billedAt = { gte: fromDate, lte: toDate };
   } else if (status === "paid") {
+    visitWhere.status = "COMPLETED";
     visitWhere.paidAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { not: null };
     jobWhere.paidAt = { gte: fromDate, lte: toDate };
-  } else if (status === "all") {
-    visitWhere.scheduledAt = { gte: fromDate, lte: toDate };
-    jobWhere.OR = [
-      { scheduledFor: { gte: fromDate, lte: toDate } },
-      { createdAt: { gte: fromDate, lte: toDate } },
-    ];
   } else {
     visitWhere.status = "COMPLETED";
     visitWhere.departedAt = { gte: fromDate, lte: toDate };
-    jobWhere.status = { in: ["APPROVED", "SENT_TO_CLIENT", "CLOSED"] };
     jobWhere.completedAt = { gte: fromDate, lte: toDate };
   }
   if (officerId) {

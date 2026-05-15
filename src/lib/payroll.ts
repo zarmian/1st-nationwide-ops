@@ -109,10 +109,14 @@ export async function buildPayrollReport(
   // Paid totals per officer over the period. Visits → officerId; Jobs →
   // assignedToUserId. groupBy doesn't compose inside $transaction's array
   // form, so we await sequentially — one connection still, same effect.
+  // Same rule as /finance: only completed work counts. Scheduled jobs are
+  // auto-billed + auto-paid at creation by the cron — payroll must not
+  // include them until the officer has actually attended.
   const visitPay = await prisma.patrolVisit.groupBy({
     by: ["officerId"],
     where: {
       officerId: { not: null },
+      status: "COMPLETED",
       paidAt: { gte: from, lte: to },
     },
     _sum: { paidAmount: true },
@@ -123,6 +127,7 @@ export async function buildPayrollReport(
     by: ["assignedToUserId"],
     where: {
       assignedToUserId: { not: null },
+      completedAt: { not: null },
       paidAt: { gte: from, lte: to },
     },
     _sum: { paidAmount: true },

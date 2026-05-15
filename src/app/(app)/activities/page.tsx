@@ -195,24 +195,23 @@ export default async function ActivitiesPage({
   const visitWhere: any = {};
   const jobWhere: any = {};
 
+  // Every status mode requires the work to actually be done. Jobs are
+  // auto-billed by the cron at creation time, so without these guards a
+  // scheduled lock-up that no one attended yet would show up here.
   if (status === "billed") {
+    visitWhere.status = "COMPLETED";
     visitWhere.billedAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { not: null };
     jobWhere.billedAt = { gte: fromDate, lte: toDate };
   } else if (status === "paid") {
+    visitWhere.status = "COMPLETED";
     visitWhere.paidAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { not: null };
     jobWhere.paidAt = { gte: fromDate, lte: toDate };
-  } else if (status === "all") {
-    // Use scheduled time as the anchor — gives the broadest view.
-    visitWhere.scheduledAt = { gte: fromDate, lte: toDate };
-    jobWhere.OR = [
-      { scheduledFor: { gte: fromDate, lte: toDate } },
-      { createdAt: { gte: fromDate, lte: toDate } },
-    ];
   } else {
     // default: completed
     visitWhere.status = "COMPLETED";
     visitWhere.departedAt = { gte: fromDate, lte: toDate };
-    jobWhere.status = { in: ["APPROVED", "SENT_TO_CLIENT", "CLOSED"] };
     jobWhere.completedAt = { gte: fromDate, lte: toDate };
   }
 

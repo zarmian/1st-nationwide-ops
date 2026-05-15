@@ -92,10 +92,9 @@ export function ActivitiesFilters({
             defaultValue={initial.status}
             className="input"
           >
-            <option value="completed">Completed</option>
-            <option value="billed">Billed in range</option>
-            <option value="paid">Paid in range</option>
-            <option value="all">All (scheduled in range)</option>
+            <option value="completed">Completed (by date done)</option>
+            <option value="billed">Billed (by date billed)</option>
+            <option value="paid">Paid (by date paid)</option>
           </select>
         </div>
         <div>
