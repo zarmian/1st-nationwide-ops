@@ -77,8 +77,42 @@ export default async function PatrolsPage({
   if (officerFilter === "none") visitWhere.officerId = null;
   else if (officerFilter) visitWhere.officerId = officerFilter;
 
-  const [schedules, upcomingVisits, regions, officers, totals] =
-    await Promise.all([
+  // Lock/unlock schedule filter mirrors the patrol one (same officer + region
+  // filters apply; the patrol-only "kind" filter is ignored for these rows).
+  const lockUnlockWhere: any = { active: true };
+  if (regionFilter && Number.isFinite(regionFilter)) {
+    lockUnlockWhere.site = { regionId: regionFilter };
+  }
+  if (officerFilter === "none") {
+    lockUnlockWhere.assignedOfficerId = null;
+  } else if (officerFilter) {
+    lockUnlockWhere.assignedOfficerId = officerFilter;
+  }
+
+  // Upcoming lock/unlock jobs (next 14 days, status still live).
+  const jobsWhere: any = {
+    type: { in: ["LOCK", "UNLOCK"] },
+    status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
+    scheduledFor: {
+      gte: new Date(),
+      lte: new Date(Date.now() + 14 * 86400000),
+    },
+  };
+  if (regionFilter && Number.isFinite(regionFilter)) {
+    jobsWhere.site = { regionId: regionFilter };
+  }
+  if (officerFilter === "none") jobsWhere.assignedToUserId = null;
+  else if (officerFilter) jobsWhere.assignedToUserId = officerFilter;
+
+  const [
+    schedules,
+    upcomingVisits,
+    lockUnlockSchedules,
+    upcomingLockUnlockJobs,
+    regions,
+    officers,
+    totals,
+  ] = await Promise.all([
       prisma.patrolSchedule.findMany({
         where: scheduleWhere,
         orderBy: [{ active: "desc" }, { kind: "asc" }, { dayOfWeek: "asc" }],
@@ -104,6 +138,30 @@ export default async function PatrolsPage({
           patrolSchedule: { select: { kind: true } },
         },
       }),
+      prisma.lockUnlockSchedule.findMany({
+        where: lockUnlockWhere,
+        orderBy: { siteId: "asc" },
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
+            },
+          },
+          assignedOfficer: { select: { id: true, name: true } },
+        },
+      }),
+      prisma.job.findMany({
+        where: jobsWhere,
+        orderBy: { scheduledFor: "asc" },
+        take: 50,
+        include: {
+          site: { select: { id: true, name: true, code: true } },
+          assignedTo: { select: { id: true, name: true } },
+        },
+      }),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.user.findMany({
         where: { role: { in: ["OFFICER", "DISPATCHER"] }, active: true },
@@ -125,9 +183,10 @@ export default async function PatrolsPage({
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Patrols</h1>
+        <h1 className="text-2xl font-semibold text-brand-navy">Schedules</h1>
         <p className="text-sm text-slate-500">
-          Schedules and upcoming visits across all sites.
+          Recurring work across all sites — patrols, VPI, lock-ups, unlocks
+          — plus what's coming up over the next 14 days.
         </p>
       </div>
 
@@ -249,10 +308,11 @@ export default async function PatrolsPage({
       </FilterPanel>
 
       <div className="grid xl:grid-cols-[1fr_420px] gap-5">
+        <div className="space-y-5">
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-brand-navy">
-              Schedules ({schedules.length})
+              Patrol & VPI schedules ({schedules.length})
             </h2>
             <p className="text-xs text-slate-500">
               Inline-edit officer to reassign. Click status chip to pause /
@@ -321,7 +381,7 @@ export default async function PatrolsPage({
               {schedules.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
-                    No schedules match these filters.
+                    No patrol schedules match these filters.
                   </td>
                 </tr>
               )}
@@ -329,6 +389,85 @@ export default async function PatrolsPage({
           </table>
         </div>
 
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">
+              Lock-up & unlock schedules ({lockUnlockSchedules.length})
+            </h2>
+            <p className="text-xs text-slate-500">
+              Days the site is locked / unlocked. The cron creates a Job for
+              each scheduled day at the configured time, then the officer
+              attends and submits.
+            </p>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600">
+              <tr>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Site
+                </th>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Days
+                </th>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Unlock
+                </th>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Lock
+                </th>
+                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Officer
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {lockUnlockSchedules.map((s) => (
+                <tr key={s.id}>
+                  <td className="px-4 py-2">
+                    <Link
+                      href={`/sites/${s.site.id}`}
+                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    >
+                      {s.site.name}
+                    </Link>
+                    <div className="text-xs text-slate-500">
+                      {s.site.code ? `${s.site.code} · ` : ""}
+                      {s.site.region?.name ?? "—"}
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 text-slate-600 text-xs">
+                    {s.days.length === 0
+                      ? "—"
+                      : s.days
+                          .map((d) => DAY_LABEL[d] ?? d)
+                          .join(", ")}
+                  </td>
+                  <td className="px-4 py-2 text-slate-600 font-mono text-xs">
+                    {s.unlockTime ?? "—"}
+                  </td>
+                  <td className="px-4 py-2 text-slate-600 font-mono text-xs">
+                    {s.lockdownTime ?? "—"}
+                  </td>
+                  <td className="px-4 py-2 text-slate-600">
+                    {s.assignedOfficer?.name ?? (
+                      <span className="text-slate-400">unassigned</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {lockUnlockSchedules.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
+                    No lock-up / unlock schedules match these filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        </div>
+
+        <div className="space-y-5">
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-brand-navy">Upcoming visits</h2>
@@ -371,6 +510,50 @@ export default async function PatrolsPage({
               ))}
             </ul>
           )}
+        </div>
+
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">
+              Upcoming lock-ups & unlocks
+            </h2>
+            <p className="text-xs text-slate-500">
+              Jobs created by the daily cron from the schedules above. Next
+              {" "}{upcomingLockUnlockJobs.length} jobs, soonest first.
+            </p>
+          </div>
+          {upcomingLockUnlockJobs.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-slate-500 text-center">
+              Nothing scheduled in the next 14 days.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {upcomingLockUnlockJobs.map((j) => (
+                <li key={j.id} className="px-4 py-3 space-y-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <Link
+                      href={`/sites/${j.site?.id ?? ""}`}
+                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    >
+                      {j.site?.name ?? "—"}
+                    </Link>
+                    <span className="chip-slate">
+                      {j.type === "LOCK" ? "Lock-up" : "Unlock"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {j.scheduledFor ? fmt(j.scheduledFor) : "Time TBD"}
+                  </div>
+                  <div className="text-xs text-slate-600">
+                    {j.assignedTo?.name ?? (
+                      <span className="text-slate-400">unassigned</span>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         </div>
       </div>
     </div>

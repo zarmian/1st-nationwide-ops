@@ -25,7 +25,7 @@ const STAFF_GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { href: "/patrols", label: "Patrols" },
+      { href: "/patrols", label: "Schedules" },
       { href: "/shifts", label: "Shifts" },
       { href: "/keys", label: "Keys" },
       { href: "/onboarding", label: "Onboarding" },

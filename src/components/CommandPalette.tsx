@@ -49,7 +49,7 @@ const QUICK_NAV: Action[] = [
   { id: "nav-sites", group: "Navigation", label: "Sites", hint: "/sites", href: "/sites" },
   { id: "nav-officers", group: "Navigation", label: "Officers", hint: "/officers", href: "/officers" },
   { id: "nav-keys", group: "Navigation", label: "Keys", hint: "/keys", href: "/keys" },
-  { id: "nav-patrols", group: "Navigation", label: "Patrols", hint: "/patrols", href: "/patrols" },
+  { id: "nav-patrols", group: "Navigation", label: "Schedules (patrols, lock-ups)", hint: "/patrols", href: "/patrols" },
   { id: "nav-shifts", group: "Navigation", label: "Shifts", hint: "/shifts", href: "/shifts" },
   { id: "nav-finance", group: "Navigation", label: "Finance", hint: "/finance", href: "/finance" },
   { id: "nav-reports", group: "Navigation", label: "Reports / review queue", hint: "/admin/reports", href: "/admin/reports" },
