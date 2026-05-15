@@ -89,6 +89,92 @@ export function QuickReassignVisit({
   );
 }
 
+export function QuickReassignLockUnlockSchedule({
+  scheduleId,
+  currentOfficerId,
+  officers,
+  reassign,
+}: {
+  scheduleId: string;
+  currentOfficerId: string | null;
+  officers: { id: string; name: string }[];
+  reassign: (
+    formData: FormData,
+  ) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const fd = new FormData();
+    fd.set("scheduleId", scheduleId);
+    fd.set("officerId", e.target.value);
+    startTransition(async () => {
+      await reassign(fd);
+      router.refresh();
+    });
+  }
+
+  return (
+    <select
+      defaultValue={currentOfficerId ?? ""}
+      onChange={onChange}
+      disabled={pending}
+      className="input text-xs py-1"
+    >
+      <option value="">— Unassigned —</option>
+      {officers.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+export function QuickReassignJob({
+  jobId,
+  currentOfficerId,
+  officers,
+  reassign,
+}: {
+  jobId: string;
+  currentOfficerId: string | null;
+  officers: { id: string; name: string }[];
+  reassign: (
+    formData: FormData,
+  ) => Promise<{ ok: boolean; error?: string }>;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+
+  function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const fd = new FormData();
+    fd.set("jobId", jobId);
+    fd.set("officerId", e.target.value);
+    startTransition(async () => {
+      await reassign(fd);
+      router.refresh();
+    });
+  }
+
+  return (
+    <select
+      defaultValue={currentOfficerId ?? ""}
+      onChange={onChange}
+      disabled={pending}
+      className="input text-xs py-1"
+    >
+      <option value="">— Unassigned —</option>
+      {officers.map((o) => (
+        <option key={o.id} value={o.id}>
+          {o.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function ToggleActive({
   scheduleId,
   active,

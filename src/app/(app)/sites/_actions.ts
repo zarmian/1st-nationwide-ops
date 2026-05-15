@@ -96,6 +96,7 @@ const SiteInput = z.object({
       days: z.array(z.enum(DAYS)).default([]),
       unlockTime: z.string().trim().max(8).optional().nullable(),
       lockdownTime: z.string().trim().max(8).optional().nullable(),
+      assignedOfficerId: z.string().uuid().optional().nullable(),
     })
     .optional(),
   patrolDays: z.array(ScheduleDay).max(7).default([]),
@@ -173,6 +174,8 @@ function parseFormData(formData: FormData) {
       unlockTime: formData.get("lockunlock_unlock_time")?.toString() || null,
       lockdownTime:
         formData.get("lockunlock_lockdown_time")?.toString() || null,
+      assignedOfficerId:
+        formData.get("lockunlock_assigned_officer_id")?.toString() || null,
     },
     patrolDays: safeJson(
       formData.get("patrol_days_json")?.toString(),
@@ -288,6 +291,7 @@ async function syncRelations(siteId: string, d: ParsedSite) {
         days: d.lockUnlock.days as any,
         unlockTime: d.lockUnlock.unlockTime || null,
         lockdownTime: d.lockUnlock.lockdownTime || null,
+        assignedOfficerId: d.lockUnlock.assignedOfficerId || null,
         active: true,
       };
       if (existingLU) {

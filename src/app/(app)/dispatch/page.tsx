@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
+import { reassignJob } from "../patrols/_actions";
+import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 
 export const dynamic = "force-dynamic";
 
@@ -37,13 +39,13 @@ export default async function DispatchPage({
     ? { status: statusFilter }
     : { status: { in: liveStatuses as any } };
 
-  const [jobs, onDutyOfficers, countRows] = await Promise.all([
+  const [jobs, onDutyOfficers, countRows, assignableOfficers] = await Promise.all([
     prisma.job.findMany({
       where: jobsWhere,
       include: {
-        site: { select: { name: true, postcodeFormatted: true } },
+        site: { select: { id: true, name: true, postcodeFormatted: true } },
         customer: { select: { name: true } },
-        assignedTo: { select: { name: true } },
+        assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
       },
       orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
@@ -71,6 +73,11 @@ export default async function DispatchPage({
       by: ["status"],
       where: { status: { in: liveStatuses as any } },
       _count: { _all: true },
+    }),
+    prisma.user.findMany({
+      where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
     }),
   ]);
 
@@ -194,16 +201,28 @@ export default async function DispatchPage({
           },
           {
             header: "Site",
-            cell: (j) => (
-              <div>
-                <div className="font-medium text-brand-navy">
-                  {j.site?.name ?? "—"}
+            cell: (j) => {
+              if (!j.site) {
+                return <span className="text-slate-400">—</span>;
+              }
+              const anchor =
+                j.type === "LOCK" || j.type === "UNLOCK"
+                  ? "#lockunlock-section"
+                  : "";
+              return (
+                <div>
+                  <Link
+                    href={`/sites/${j.site.id}/edit${anchor}`}
+                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                  >
+                    {j.site.name}
+                  </Link>
+                  <div className="text-xs text-slate-500">
+                    {j.site.postcodeFormatted}
+                  </div>
                 </div>
-                <div className="text-xs text-slate-500">
-                  {j.site?.postcodeFormatted}
-                </div>
-              </div>
-            ),
+              );
+            },
           },
           {
             header: "Customer",
@@ -221,10 +240,27 @@ export default async function DispatchPage({
           },
           {
             header: "Assigned",
-            cell: (j) =>
-              j.assignedTo?.name ?? (
-                <span className="text-slate-400">—</span>
-              ),
+            cell: (j) => {
+              // Pre-start jobs are inline-reassignable; live ones show the
+              // current officer as plain text so dispatchers don't accidentally
+              // change someone mid-job.
+              const editable = j.status === "OPEN" || j.status === "ASSIGNED";
+              if (editable) {
+                return (
+                  <QuickReassignJob
+                    jobId={j.id}
+                    currentOfficerId={j.assignedTo?.id ?? null}
+                    officers={assignableOfficers}
+                    reassign={reassignJob}
+                  />
+                );
+              }
+              return (
+                j.assignedTo?.name ?? (
+                  <span className="text-slate-400">—</span>
+                )
+              );
+            },
           },
           {
             header: "Status",

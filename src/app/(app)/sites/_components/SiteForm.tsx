@@ -120,6 +120,7 @@ export type SiteFormValues = {
     days: string[];
     unlockTime: string | null;
     lockdownTime: string | null;
+    assignedOfficerId: string | null;
   };
   patrolDays: ScheduleDay[];
   vpiDays: ScheduleDay[];
@@ -138,6 +139,7 @@ export function SiteForm({
   regions,
   customers,
   partners,
+  officers,
   submitLabel,
 }: {
   action: (state: SiteFormState, formData: FormData) => Promise<SiteFormState>;
@@ -145,6 +147,7 @@ export function SiteForm({
   regions: Lookup[];
   customers: Lookup[];
   partners: Lookup[];
+  officers: Lookup[];
   submitLabel: string;
 }) {
   const [state, formAction] = useFormState(action, {});
@@ -158,6 +161,9 @@ export function SiteForm({
   );
   const [lockdownTime, setLockdownTime] = useState(
     initial.lockUnlock.lockdownTime ?? "",
+  );
+  const [lockOfficerId, setLockOfficerId] = useState<string>(
+    initial.lockUnlock.assignedOfficerId ?? "",
   );
   const [patrolDays, setPatrolDays] = useState<ScheduleDay[]>(
     initial.patrolDays,
@@ -559,13 +565,17 @@ export function SiteForm({
           setUnlockTime={setUnlockTime}
           lockdownTime={lockdownTime}
           setLockdownTime={setLockdownTime}
+          officerId={lockOfficerId}
+          setOfficerId={setLockOfficerId}
+          officers={officers}
         />
       )}
 
       {wantsPatrol && (
         <ScheduleSection
+          anchorId="patrol-section"
           title="Patrol schedule"
-          blurb="One row per day we patrol. Pick a frequency for each. Officer assignment comes later."
+          blurb="One row per day we patrol. Pick a frequency for each. Officer assignment is set per day on /schedules."
           days={patrolDays}
           setDays={setPatrolDays}
         />
@@ -573,6 +583,7 @@ export function SiteForm({
 
       {wantsVpi && (
         <ScheduleSection
+          anchorId="vpi-section"
           title="VPI schedule"
           blurb="Vacant property inspection cadence. Same day-of-week + frequency model as patrols."
           days={vpiDays}
@@ -888,6 +899,9 @@ function LockUnlockSection({
   setUnlockTime,
   lockdownTime,
   setLockdownTime,
+  officerId,
+  setOfficerId,
+  officers,
 }: {
   days: string[];
   setDays: React.Dispatch<React.SetStateAction<string[]>>;
@@ -895,16 +909,21 @@ function LockUnlockSection({
   setUnlockTime: (v: string) => void;
   lockdownTime: string;
   setLockdownTime: (v: string) => void;
+  officerId: string;
+  setOfficerId: (v: string) => void;
+  officers: Lookup[];
 }) {
   function toggleDay(d: string, on: boolean) {
     setDays((arr) => (on ? [...arr, d] : arr.filter((x) => x !== d)));
   }
   return (
-    <div className="card p-5 space-y-4">
+    <div id="lockunlock-section" className="card p-5 space-y-4 scroll-mt-20">
       <div>
         <h2 className="font-semibold text-brand-navy">Lock-up / unlock</h2>
         <p className="text-sm text-slate-500">
-          Days and times we open and secure the site. One schedule per site.
+          Days and times we open and secure the site, plus the officer who
+          covers it. One schedule per site — every daily lock/unlock job
+          inherits this officer.
         </p>
       </div>
 
@@ -942,6 +961,31 @@ function LockUnlockSection({
         </div>
       </div>
 
+      <div>
+        <label className="label" htmlFor="lockunlock_officer">
+          Assigned officer
+        </label>
+        <select
+          id="lockunlock_officer"
+          name="lockunlock_assigned_officer_id"
+          value={officerId}
+          onChange={(e) => setOfficerId(e.target.value)}
+          className="input"
+        >
+          <option value="">— Unassigned —</option>
+          {officers.map((o) => (
+            <option key={o.id} value={String(o.id)}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-slate-500 mt-1">
+          Each daily lock/unlock job created from this schedule will be
+          pre-assigned to this officer. You can still reassign a single job
+          from /dispatch or /schedules.
+        </p>
+      </div>
+
       {/* Hidden inputs for the day checkboxes (component uses state) */}
       {days.map((d) => (
         <input key={d} type="hidden" name="lockunlock_days" value={d} />
@@ -951,11 +995,13 @@ function LockUnlockSection({
 }
 
 function ScheduleSection({
+  anchorId,
   title,
   blurb,
   days,
   setDays,
 }: {
+  anchorId: string;
   title: string;
   blurb: string;
   days: ScheduleDay[];
@@ -980,7 +1026,7 @@ function ScheduleSection({
   }
 
   return (
-    <div className="card p-5 space-y-4">
+    <div id={anchorId} className="card p-5 space-y-4 scroll-mt-20">
       <div>
         <h2 className="font-semibold text-brand-navy">{title}</h2>
         <p className="text-sm text-slate-500">{blurb}</p>
