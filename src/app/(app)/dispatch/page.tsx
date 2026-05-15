@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
+import { CancelJobButton } from "./_components/CancelJobButton";
 
 export const dynamic = "force-dynamic";
 
@@ -274,6 +275,16 @@ export default async function DispatchPage({
               ) : (
                 <span className="chip-slate">{j.priority}</span>
               ),
+          },
+          {
+            header: "",
+            align: "right",
+            cell: (j) => (
+              <CancelJobButton
+                jobId={j.id}
+                jobLabel={`${j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
+              />
+            ),
           },
         ]}
       />
