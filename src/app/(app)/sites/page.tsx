@@ -137,7 +137,7 @@ export default async function SitesPage({
         initial={{ q, region, service, type }}
       />
 
-      <KpiStrip kpis={kpis} />
+      <KpiStrip kpis={kpis} current={{ q, region, service, type }} />
 
       <SitesTable
         rows={rows}
@@ -190,6 +190,7 @@ async function loadKpis() {
 
 function KpiStrip({
   kpis,
+  current,
 }: {
   kpis: {
     totalActive: number;
@@ -198,25 +199,74 @@ function KpiStrip({
     lockUnlockSites: number;
     onboarding: number;
   };
+  current: { q: string; region: string; service: string; type: string };
 }) {
-  const items = [
-    { label: "Total active", value: kpis.totalActive },
-    { label: "With keyholding", value: kpis.withKeyholding },
-    { label: "Patrol routes", value: kpis.patrolRouteSites },
-    { label: "Lock/unlock daily", value: kpis.lockUnlockSites },
-    { label: "Onboarding pipeline", value: kpis.onboarding },
+  // Build a /sites href that toggles the given service filter while
+  // preserving the search, region and type filters the user already has.
+  function siteFilterHref(service: string | null): string {
+    const qs = new URLSearchParams();
+    if (current.q) qs.set("q", current.q);
+    if (current.region) qs.set("region", current.region);
+    if (current.type) qs.set("type", current.type);
+    if (service) qs.set("service", service);
+    return qs.toString() ? `/sites?${qs}` : "/sites";
+  }
+
+  const items: {
+    label: string;
+    value: number;
+    href: string;
+    active: boolean;
+  }[] = [
+    {
+      label: "Total active",
+      value: kpis.totalActive,
+      href: siteFilterHref(null),
+      active: !current.service,
+    },
+    {
+      label: "With keyholding",
+      value: kpis.withKeyholding,
+      href: siteFilterHref("KEYHOLDING"),
+      active: current.service === "KEYHOLDING",
+    },
+    {
+      label: "Patrol routes",
+      value: kpis.patrolRouteSites,
+      href: siteFilterHref("PATROL"),
+      active: current.service === "PATROL",
+    },
+    {
+      label: "Lock/unlock daily",
+      value: kpis.lockUnlockSites,
+      href: siteFilterHref("LOCKUP"),
+      active: current.service === "LOCKUP",
+    },
+    {
+      label: "Onboarding pipeline",
+      value: kpis.onboarding,
+      href: "/onboarding",
+      active: false,
+    },
   ];
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
       {items.map((it) => (
-        <div key={it.label} className="card p-4">
+        <Link
+          key={it.label}
+          href={it.href}
+          className={`card p-4 hover:shadow-md transition-shadow ${
+            it.active ? "ring-2 ring-brand-mint/40" : ""
+          }`}
+        >
           <div className="text-xs uppercase tracking-wider text-slate-500">
             {it.label}
           </div>
           <div className="text-3xl font-semibold text-brand-navy mt-1 tabular-nums">
             {it.value.toLocaleString("en-GB")}
           </div>
-        </div>
+        </Link>
       ))}
     </div>
   );

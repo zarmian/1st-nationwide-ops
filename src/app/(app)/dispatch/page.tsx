@@ -23,10 +23,23 @@ function relativeTime(date: Date | null): string {
   return date.toLocaleDateString("en-GB");
 }
 
-export default async function DispatchPage() {
-  const [jobs, onDutyOfficers] = await Promise.all([
+export default async function DispatchPage({
+  searchParams,
+}: {
+  searchParams: { status?: string };
+}) {
+  const statusFilter =
+    searchParams.status && (liveStatuses as readonly string[]).includes(searchParams.status)
+      ? searchParams.status
+      : "";
+
+  const jobsWhere: any = statusFilter
+    ? { status: statusFilter }
+    : { status: { in: liveStatuses as any } };
+
+  const [jobs, onDutyOfficers, countRows] = await Promise.all([
     prisma.job.findMany({
-      where: { status: { in: liveStatuses as any } },
+      where: jobsWhere,
       include: {
         site: { select: { name: true, postcodeFormatted: true } },
         customer: { select: { name: true } },
@@ -52,12 +65,17 @@ export default async function DispatchPage() {
         lastSeenAt: true,
       },
     }),
+    // Card counts stay independent of the active filter so users can see
+    // every status total at a glance and click between them.
+    prisma.job.groupBy({
+      by: ["status"],
+      where: { status: { in: liveStatuses as any } },
+      _count: { _all: true },
+    }),
   ]);
 
-  const counts = liveStatuses.reduce<Record<string, number>>((acc, s) => {
-    acc[s] = jobs.filter((j) => j.status === s).length;
-    return acc;
-  }, {});
+  const counts: Record<string, number> = {};
+  for (const c of countRows) counts[c.status] = c._count._all;
 
   return (
     <div className="space-y-4">
@@ -72,17 +90,35 @@ export default async function DispatchPage() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {liveStatuses.map((s) => (
-          <div key={s} className="card p-3">
-            <div className="text-[11px] uppercase tracking-wider text-slate-500">
-              {s.replace(/_/g, " ")}
-            </div>
-            <div className="text-2xl font-semibold text-brand-navy">
-              {counts[s] ?? 0}
-            </div>
-          </div>
-        ))}
+        {liveStatuses.map((s) => {
+          const isActive = statusFilter === s;
+          return (
+            <Link
+              key={s}
+              href={isActive ? "/dispatch" : `/dispatch?status=${s}`}
+              className={`card p-3 hover:shadow-md transition-shadow ${
+                isActive ? "ring-2 ring-brand-mint/40" : ""
+              }`}
+            >
+              <div className="text-[11px] uppercase tracking-wider text-slate-500">
+                {s.replace(/_/g, " ")}
+              </div>
+              <div className="text-2xl font-semibold text-brand-navy">
+                {counts[s] ?? 0}
+              </div>
+            </Link>
+          );
+        })}
       </div>
+      {statusFilter && (
+        <div className="text-xs text-slate-500">
+          Filtered to <span className="font-medium text-brand-navy">{statusFilter.replace(/_/g, " ")}</span>
+          {" · "}
+          <Link href="/dispatch" className="text-brand-mint-dark hover:underline">
+            clear
+          </Link>
+        </div>
+      )}
 
       <div className="card p-4">
         <div className="flex items-baseline justify-between mb-3">
