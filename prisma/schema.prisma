@@ -334,6 +334,7 @@ model User {
   activityLogs             ActivityLog[]
   regionsLed               Region[]            @relation("RegionLead")
   jobsAsResponder          Job[]               @relation("JobResponderUser")
+  jobsCancelled            Job[]               @relation("JobCancelledBy")
   formSubmissions          FormSubmission[]    @relation("SubmittedByUser")
   reportReviews            ReportReview[]      @relation("ReportReviewer")
   formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
@@ -731,10 +732,16 @@ model Job {
   alarmEvent            AlarmEvent?   @relation(fields: [alarmEventId], references: [id])
   patrolVisitId         String?       @unique @db.Uuid
   patrolVisit           PatrolVisit?  @relation(fields: [patrolVisitId], references: [id])
+  shiftId               String?       @db.Uuid
+  shift                 Shift?        @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   scheduledFor          DateTime?
   startedAt             DateTime?
   completedAt           DateTime?
+
+  cancelledAt           DateTime?
+  cancelledByUserId     String?       @db.Uuid
+  cancelledBy           User?         @relation("JobCancelledBy", fields: [cancelledByUserId], references: [id])
 
   reportedViaPartnerApp Boolean       @default(false)
   partnerReportRef      String?
@@ -760,6 +767,7 @@ model Job {
   @@index([onboardingPipelineId])
   @@index([scheduledFor])
   @@index([status])
+  @@index([shiftId])
 }
 
 model FormSubmission {
@@ -770,7 +778,7 @@ model FormSubmission {
   siteId              String?         @db.Uuid
   site                Site?           @relation(fields: [siteId], references: [id])
   jobId               String?         @db.Uuid
-  job                 Job?            @relation(fields: [jobId], references: [id])
+  job                 Job?            @relation(fields: [jobId], references: [id], onDelete: SetNull)
   patrolVisitId       String?         @db.Uuid
   patrolVisit         PatrolVisit?    @relation(fields: [patrolVisitId], references: [id], onDelete: SetNull)
   shiftId             String?         @db.Uuid
@@ -929,6 +937,7 @@ model Shift {
   updatedAt          DateTime     @updatedAt
 
   formSubmissions    FormSubmission[]
+  jobs               Job[]
 
   @@index([siteId, scheduledStartsAt])
   @@index([officerId, scheduledStartsAt])

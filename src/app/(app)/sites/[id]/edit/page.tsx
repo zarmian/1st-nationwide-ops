@@ -12,7 +12,7 @@ export default async function EditSitePage({
 }: {
   params: { id: string };
 }) {
-  const [site, regions, customers, partners] = await Promise.all([
+  const [site, regions, customers, partners, officers] = await Promise.all([
     prisma.site.findUnique({
       where: { id: params.id },
       include: {
@@ -43,6 +43,11 @@ export default async function EditSitePage({
     }),
     prisma.partner.findMany({
       where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.user.findMany({
+      where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -146,6 +151,7 @@ export default async function EditSitePage({
             days: lu?.days ?? [],
             unlockTime: lu?.unlockTime ?? null,
             lockdownTime: lu?.lockdownTime ?? null,
+            assignedOfficerId: lu?.assignedOfficerId ?? null,
           },
           patrolDays,
           vpiDays,
@@ -166,6 +172,7 @@ export default async function EditSitePage({
         regions={regions.map((r) => ({ id: r.id, name: r.name }))}
         customers={customers}
         partners={partners}
+        officers={officers}
         submitLabel="Save changes"
       />
     </div>

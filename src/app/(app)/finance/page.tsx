@@ -176,15 +176,25 @@ export default async function FinancePage({
   const prevTo = new Date(fromDate.getTime() - 1);
   const prevFrom = new Date(prevTo.getTime() - periodMs);
 
+  // Only counts work that has actually been done. Scheduled-but-unattended
+  // jobs are auto-billed by the cron at creation time, so we must anchor
+  // on completion (departedAt for visits, completedAt for jobs) and
+  // require the visit/job to be in a terminal state — otherwise tomorrow's
+  // lock-ups would land in today's "earned" figure.
   async function billedSum(from: Date, to: Date): Promise<number> {
     const [v, j] = await prisma.$transaction([
       prisma.patrolVisit.aggregate({
         _sum: { billedAmount: true },
-        where: { billedAt: { gte: from, lte: to } },
+        where: {
+          status: "COMPLETED",
+          departedAt: { gte: from, lte: to },
+        },
       }),
       prisma.job.aggregate({
         _sum: { billedAmount: true },
-        where: { billedAt: { gte: from, lte: to } },
+        where: {
+          completedAt: { gte: from, lte: to },
+        },
       }),
     ]);
     return (
@@ -227,14 +237,15 @@ export default async function FinancePage({
     SELECT day,
            COALESCE(SUM(amount), 0)::float8 AS total
     FROM (
-      SELECT date_trunc('day', "billedAt") AS day, "billedAmount" AS amount
+      SELECT date_trunc('day', "departedAt") AS day, "billedAmount" AS amount
       FROM "PatrolVisit"
-      WHERE "billedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+      WHERE "departedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+        AND "status" = 'COMPLETED'
         AND "billedAmount" IS NOT NULL
       UNION ALL
-      SELECT date_trunc('day', "billedAt") AS day, "billedAmount" AS amount
+      SELECT date_trunc('day', "completedAt") AS day, "billedAmount" AS amount
       FROM "Job"
-      WHERE "billedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+      WHERE "completedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
         AND "billedAmount" IS NOT NULL
     ) s
     GROUP BY day
@@ -294,7 +305,10 @@ export default async function FinancePage({
 
   const [rangeVisits, rangeJobs] = await Promise.all([
     prisma.patrolVisit.findMany({
-      where: { billedAt: { gte: fromDate, lte: toDate } },
+      where: {
+        status: "COMPLETED",
+        departedAt: { gte: fromDate, lte: toDate },
+      },
       select: {
         billedAmount: true,
         paidAmount: true,
@@ -309,7 +323,9 @@ export default async function FinancePage({
       },
     }),
     prisma.job.findMany({
-      where: { billedAt: { gte: fromDate, lte: toDate } },
+      where: {
+        completedAt: { gte: fromDate, lte: toDate },
+      },
       select: {
         billedAmount: true,
         paidAmount: true,
@@ -497,10 +513,11 @@ export default async function FinancePage({
             P&amp;L by account
           </h2>
           <p className="text-xs text-slate-500">
-            Billed minus officer pay, per customer / partner. Activities count
-            visits + jobs with a billed snapshot in the selected range
-            ({fromDate.toLocaleDateString("en-GB")} →{" "}
-            {toDate.toLocaleDateString("en-GB")}).
+            Billed minus officer pay, per customer / partner. Only counts
+            visits + jobs that have been completed by the officer in the
+            selected range ({fromDate.toLocaleDateString("en-GB")} →{" "}
+            {toDate.toLocaleDateString("en-GB")}). Scheduled work doesn't
+            count until it's done.
           </p>
         </div>
         <table className="w-full text-sm">
@@ -530,13 +547,32 @@ export default async function FinancePage({
             {pnlRows.map((r) => {
               const profit = r.billed - r.paid;
               const margin = r.billed > 0 ? (profit / r.billed) * 100 : 0;
+              const activitiesHref = `/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`;
               return (
                 <tr key={r.key}>
                   <td className="px-4 py-2 font-medium text-brand-navy">
-                    {r.label}
+                    {r.key === "unassigned" ? (
+                      r.label
+                    ) : (
+                      <Link
+                        href={activitiesHref}
+                        className="hover:text-brand-mint-dark hover:underline"
+                      >
+                        {r.label}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
-                    {r.activities}
+                    {r.key === "unassigned" ? (
+                      r.activities
+                    ) : (
+                      <Link
+                        href={activitiesHref}
+                        className="text-brand-navy hover:text-brand-mint-dark hover:underline"
+                      >
+                        {r.activities}
+                      </Link>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
                     {fmtMoney2(r.billed)}
@@ -673,10 +709,29 @@ export default async function FinancePage({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {groups.map((g) => (
+              {groups.map((g) => {
+                const owner =
+                  g.sites[0]?.partnerId
+                    ? `partner:${g.sites[0].partnerId}`
+                    : g.sites[0]?.customerId
+                      ? `customer:${g.sites[0].customerId}`
+                      : null;
+                const activitiesHref = owner
+                  ? `/activities?accountId=${encodeURIComponent(owner)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`
+                  : null;
+                return (
                 <tr key={g.label}>
                   <td className="px-4 py-2 text-brand-navy font-medium">
-                    {g.label}
+                    {activitiesHref ? (
+                      <Link
+                        href={activitiesHref}
+                        className="hover:text-brand-mint-dark hover:underline"
+                      >
+                        {g.label}
+                      </Link>
+                    ) : (
+                      g.label
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-slate-700">
                     {g.sites.length}
@@ -688,7 +743,8 @@ export default async function FinancePage({
                     {g.setup > 0 ? fmtMoney(g.setup) : "—"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {groups.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-slate-500">

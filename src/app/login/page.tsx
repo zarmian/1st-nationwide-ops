@@ -9,7 +9,7 @@ export default function LoginPage() {
     <main className="min-h-screen grid place-items-center bg-slate-50 px-4">
       <div className="w-full max-w-md">
         <div className="mb-6 flex justify-center">
-          <BrandLogo />
+          <BrandLogo size="lg" />
         </div>
         <div className="card p-6">
           <h1 className="text-xl font-semibold text-brand-navy mb-1">

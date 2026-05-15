@@ -185,3 +185,38 @@ export async function createJob(
   revalidatePath(`/sites/${d.siteId}`);
   redirect("/dispatch");
 }
+
+/**
+ * Cancel a job — removes it from /dispatch's live view by flipping the
+ * status to CANCELLED. Records who cancelled and when for audit. We don't
+ * hard-delete because FormSubmission.jobId is now ON DELETE SetNull but
+ * we still want a record that this job existed and was deliberately
+ * cancelled (not just lost).
+ */
+export async function cancelJob(
+  jobId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await requireStaff();
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { id: true, status: true },
+  });
+  if (!job) return { ok: false, error: "Job not found" };
+  if (job.status === "CANCELLED") {
+    return { ok: true };
+  }
+  if (job.status === "CLOSED" || job.status === "SENT_TO_CLIENT") {
+    return { ok: false, error: "This job is already closed — can't cancel." };
+  }
+  await prisma.job.update({
+    where: { id: jobId },
+    data: {
+      status: "CANCELLED" as any,
+      cancelledAt: new Date(),
+      cancelledByUserId: me.id,
+    },
+  });
+  revalidatePath("/dispatch");
+  revalidatePath("/patrols");
+  return { ok: true };
+}

@@ -6,7 +6,7 @@ import { createSite } from "../_actions";
 export const dynamic = "force-dynamic";
 
 export default async function NewSitePage() {
-  const [regions, customers, partners] = await Promise.all([
+  const [regions, customers, partners, officers] = await Promise.all([
     prisma.region.findMany({ orderBy: { name: "asc" } }),
     prisma.customer.findMany({
       where: { active: true },
@@ -15,6 +15,11 @@ export default async function NewSitePage() {
     }),
     prisma.partner.findMany({
       where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.user.findMany({
+      where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -63,7 +68,12 @@ export default async function NewSitePage() {
           dne: false,
           hsMarkers: false,
           keySets: [],
-          lockUnlock: { days: [], unlockTime: null, lockdownTime: null },
+          lockUnlock: {
+            days: [],
+            unlockTime: null,
+            lockdownTime: null,
+            assignedOfficerId: null,
+          },
           patrolDays: [],
           vpiDays: [],
           access: {
@@ -77,6 +87,7 @@ export default async function NewSitePage() {
         regions={regions.map((r) => ({ id: r.id, name: r.name }))}
         customers={customers}
         partners={partners}
+        officers={officers}
         submitLabel="Create site"
       />
     </div>
