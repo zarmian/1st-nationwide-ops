@@ -129,9 +129,27 @@ export async function updateShift(
 export async function deleteShift(
   shiftId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireStaff();
+  const me = await requireStaff();
+  // Cancel any live dispatch jobs tied to this shift before deleting it.
+  // Job.shiftId is ON DELETE SetNull so the rows would survive anyway, but
+  // they'd hang around on /dispatch as orphans — the bug the user reported
+  // with the Tissington Court row.
+  await prisma.job.updateMany({
+    where: {
+      shiftId,
+      status: {
+        in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REVIEW_PENDING"],
+      },
+    },
+    data: {
+      status: "CANCELLED",
+      cancelledAt: new Date(),
+      cancelledByUserId: me.id,
+    },
+  });
   await prisma.shift.delete({ where: { id: shiftId } });
   revalidatePath("/shifts");
+  revalidatePath("/dispatch");
   return { ok: true };
 }
 
