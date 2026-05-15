@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runDemoSeed } from "@/lib/demoSeed";
+import { getSessionUser } from "@/lib/authz";
 import {
   adminInitLimiter,
   checkLimit,
@@ -10,11 +11,14 @@ export const dynamic = "force-dynamic";
 
 /**
  * Seed the database with demo data so every page in the app has something
- * to render. Same auth model as /api/admin/init — gated by INIT_SECRET so
- * accidental hits don't run it.
+ * to render.
  *
- *   GET /api/admin/seed-demo?secret=<INIT_SECRET>            (idempotent — refuses if demo already seeded)
- *   GET /api/admin/seed-demo?secret=<INIT_SECRET>&reset=true (wipes existing demo rows first)
+ * Auth accepts either route:
+ *   1. Logged-in ADMIN session — just visit while signed in.
+ *   2. ?secret=<INIT_SECRET> — for automation / when no admin exists.
+ *
+ *   GET /api/admin/seed-demo             (idempotent — refuses if demo already seeded)
+ *   GET /api/admin/seed-demo?reset=true  (wipes existing demo rows first)
  *
  * Demo rows are identified by a "DEMO-" prefix on their unique fields
  * (site code, customer name, partner name, officer email). Real data is
@@ -36,14 +40,19 @@ export async function GET(req: Request) {
   const secret = url.searchParams.get("secret");
   const reset = url.searchParams.get("reset") === "true";
 
-  if (!process.env.INIT_SECRET) {
+  const me = await getSessionUser();
+  const isAdmin = me?.role === "ADMIN";
+  const hasSecret =
+    process.env.INIT_SECRET && secret === process.env.INIT_SECRET;
+
+  if (!isAdmin && !hasSecret) {
     return NextResponse.json(
-      { error: "INIT_SECRET not configured on the server." },
-      { status: 500 },
+      {
+        error: "Forbidden",
+        hint: "Sign in as an admin user and visit this URL, or pass ?secret=<INIT_SECRET>.",
+      },
+      { status: 403 },
     );
-  }
-  if (secret !== process.env.INIT_SECRET) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
