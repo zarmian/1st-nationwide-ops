@@ -4,6 +4,15 @@ import { DataTable } from "@/components/DataTable";
 import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 import { CancelJobButton } from "./_components/CancelJobButton";
+import { DispatchMap } from "./_components/DispatchMap";
+import { MapLayerToggles } from "./_components/MapLayerToggles";
+import { AutoRefresh } from "../m/today/_components/AutoRefresh";
+import type {
+  OfficerPin,
+  SitePin,
+  AssignmentLine,
+  Freshness,
+} from "./_components/DispatchMapInner";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +23,9 @@ const liveStatuses = [
   "SUBMITTED",
   "REVIEW_PENDING",
 ] as const;
+
+const VALID_LAYERS = ["jobs", "sites", "lines"] as const;
+type LayerKey = (typeof VALID_LAYERS)[number];
 
 function relativeTime(date: Date | null): string {
   if (!date) return "—";
@@ -26,25 +38,42 @@ function relativeTime(date: Date | null): string {
   return date.toLocaleDateString("en-GB");
 }
 
+function freshnessOf(lastSeenAt: Date | null): Freshness {
+  if (!lastSeenAt) return "old";
+  const mins = (Date.now() - lastSeenAt.getTime()) / 60000;
+  if (mins < 5) return "fresh";
+  if (mins < 15) return "stale";
+  return "old";
+}
+
 export default async function DispatchPage({
   searchParams,
 }: {
-  searchParams: { status?: string };
+  searchParams: { status?: string; layers?: string };
 }) {
   const statusFilter =
     searchParams.status && (liveStatuses as readonly string[]).includes(searchParams.status)
       ? searchParams.status
       : "";
 
+  const activeLayers = new Set<LayerKey>(
+    (searchParams.layers ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s): s is LayerKey =>
+        (VALID_LAYERS as readonly string[]).includes(s),
+      ),
+  );
+
   const jobsWhere: any = statusFilter
     ? { status: statusFilter }
     : { status: { in: liveStatuses as any } };
 
-  const [jobs, onDutyOfficers, countRows, assignableOfficers] = await Promise.all([
+  const [jobs, onDutyOfficers, countRows, assignableOfficers, allActiveSites] = await Promise.all([
     prisma.job.findMany({
       where: jobsWhere,
       include: {
-        site: { select: { id: true, name: true, postcodeFormatted: true } },
+        site: { select: { id: true, name: true, postcodeFormatted: true, lat: true, lng: true } },
         customer: { select: { name: true } },
         assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
@@ -80,10 +109,83 @@ export default async function DispatchPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    // Only hit the DB when the "All active sites" overlay is on — this can
+    // be 400+ rows once the importer runs.
+    activeLayers.has("sites")
+      ? prisma.site.findMany({
+          where: { active: true, lat: { not: null }, lng: { not: null } },
+          select: { id: true, name: true, lat: true, lng: true },
+        })
+      : Promise.resolve([] as Array<{ id: string; name: string; lat: number | null; lng: number | null }>),
   ]);
 
   const counts: Record<string, number> = {};
   for (const c of countRows) counts[c.status] = c._count._all;
+
+  // --- Map data derivation ---------------------------------------------------
+
+  const officerPins: OfficerPin[] = onDutyOfficers
+    .filter(
+      (o): o is typeof o & { lastLat: number; lastLng: number } =>
+        typeof o.lastLat === "number" && typeof o.lastLng === "number",
+    )
+    .map((o) => ({
+      id: o.id,
+      name: o.name,
+      role: o.role,
+      lat: o.lastLat,
+      lng: o.lastLng,
+      freshness: freshnessOf(o.lastSeenAt),
+      lastSeenLabel: relativeTime(o.lastSeenAt),
+    }));
+
+  // Sites with at least one live job — derived from `jobs` already fetched,
+  // so no extra DB call.
+  const jobSitesMap = new Map<string, SitePin>();
+  for (const j of jobs) {
+    const s = j.site;
+    if (!s || typeof s.lat !== "number" || typeof s.lng !== "number") continue;
+    const existing = jobSitesMap.get(s.id);
+    if (existing) {
+      existing.liveJobCount = (existing.liveJobCount ?? 0) + 1;
+    } else {
+      jobSitesMap.set(s.id, { id: s.id, name: s.name, lat: s.lat, lng: s.lng, liveJobCount: 1 });
+    }
+  }
+  const jobSites: SitePin[] = Array.from(jobSitesMap.values());
+
+  const allSites: SitePin[] = allActiveSites
+    .filter(
+      (s): s is typeof s & { lat: number; lng: number } =>
+        typeof s.lat === "number" && typeof s.lng === "number",
+    )
+    .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
+
+  // For each on-duty officer with GPS, draw a line to their next assigned
+  // live-job site (earliest scheduledFor, NULLs last).
+  const lines: AssignmentLine[] = [];
+  if (activeLayers.has("lines")) {
+    for (const o of officerPins) {
+      const myJobs = jobs
+        .filter((j) => j.assignedTo?.id === o.id && j.site?.lat != null && j.site?.lng != null)
+        .sort((a, b) => {
+          const at = a.scheduledFor?.getTime() ?? Number.POSITIVE_INFINITY;
+          const bt = b.scheduledFor?.getTime() ?? Number.POSITIVE_INFINITY;
+          return at - bt;
+        });
+      const next = myJobs[0];
+      if (!next || !next.site) continue;
+      lines.push({
+        officerId: o.id,
+        fromLat: o.lat,
+        fromLng: o.lng,
+        toLat: next.site.lat as number,
+        toLng: next.site.lng as number,
+        officerName: o.name,
+        siteName: next.site.name,
+      });
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -127,6 +229,32 @@ export default async function DispatchPage({
           </Link>
         </div>
       )}
+
+      <AutoRefresh intervalMs={60_000} />
+
+      <div className="card p-4 space-y-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-semibold text-brand-navy">Live map</h2>
+          <p className="text-xs text-slate-500">
+            Refreshes every 60s · {officerPins.length} on map
+            {onDutyOfficers.length - officerPins.length > 0
+              ? ` · ${onDutyOfficers.length - officerPins.length} without GPS`
+              : ""}
+          </p>
+        </div>
+        <MapLayerToggles active={activeLayers} />
+        <DispatchMap
+          officers={officerPins}
+          jobSites={jobSites}
+          allSites={allSites}
+          lines={lines}
+          layers={{
+            jobSites: activeLayers.has("jobs"),
+            allSites: activeLayers.has("sites"),
+            lines: activeLayers.has("lines"),
+          }}
+        />
+      </div>
 
       <div className="card p-4">
         <div className="flex items-baseline justify-between mb-3">

@@ -1,0 +1,219 @@
+"use client";
+
+import { useMemo } from "react";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Polyline,
+  CircleMarker,
+  useMap,
+} from "react-leaflet";
+import L from "leaflet";
+
+export type Freshness = "fresh" | "stale" | "old";
+
+export type OfficerPin = {
+  id: string;
+  name: string;
+  role: string;
+  lat: number;
+  lng: number;
+  freshness: Freshness;
+  lastSeenLabel: string;
+};
+
+export type SitePin = {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  liveJobCount?: number;
+};
+
+export type AssignmentLine = {
+  officerId: string;
+  fromLat: number;
+  fromLng: number;
+  toLat: number;
+  toLng: number;
+  officerName: string;
+  siteName: string;
+};
+
+export type Layers = {
+  jobSites: boolean;
+  allSites: boolean;
+  lines: boolean;
+};
+
+const UK_CENTER: [number, number] = [54.0, -2.5];
+const UK_ZOOM = 6;
+
+const FRESHNESS_COLOR: Record<Freshness, string> = {
+  fresh: "#2FCB80", // mint
+  stale: "#f59e0b", // amber-500
+  old: "#94a3b8", // slate-400
+};
+
+function officerIcon(o: OfficerPin): L.DivIcon {
+  const color = FRESHNESS_COLOR[o.freshness];
+  const initial = (o.name || "?").trim().charAt(0).toUpperCase();
+  const html = `
+    <div style="
+      width: 32px; height: 32px;
+      background: ${color};
+      border: 3px solid white;
+      border-radius: 50%;
+      box-shadow: 0 1px 4px rgba(15,25,41,0.35);
+      color: white;
+      font: 600 13px Inter, system-ui, sans-serif;
+      display: flex; align-items: center; justify-content: center;
+    ">${initial}</div>
+  `;
+  return L.divIcon({
+    className: "officer-pin",
+    html,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -14],
+  });
+}
+
+function FitBounds({
+  pins,
+}: {
+  pins: Array<{ lat: number; lng: number }>;
+}) {
+  const map = useMap();
+  if (pins.length === 0) return null;
+  if (pins.length === 1) {
+    map.setView([pins[0].lat, pins[0].lng], 12);
+    return null;
+  }
+  const bounds = L.latLngBounds(pins.map((p) => [p.lat, p.lng] as [number, number]));
+  map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+  return null;
+}
+
+export default function DispatchMapInner({
+  officers,
+  jobSites,
+  allSites,
+  lines,
+  layers,
+}: {
+  officers: OfficerPin[];
+  jobSites: SitePin[];
+  allSites: SitePin[];
+  lines: AssignmentLine[];
+  layers: Layers;
+}) {
+  const visibleSites = useMemo(() => {
+    const map = new Map<string, SitePin>();
+    if (layers.allSites) {
+      for (const s of allSites) map.set(s.id, s);
+    }
+    if (layers.jobSites) {
+      // job sites win over all-sites so liveJobCount badge renders
+      for (const s of jobSites) map.set(s.id, s);
+    }
+    return Array.from(map.values());
+  }, [allSites, jobSites, layers.allSites, layers.jobSites]);
+
+  const fitPins = useMemo(() => {
+    const pins: Array<{ lat: number; lng: number }> = [];
+    for (const o of officers) pins.push({ lat: o.lat, lng: o.lng });
+    if (layers.jobSites) for (const s of jobSites) pins.push({ lat: s.lat, lng: s.lng });
+    return pins;
+  }, [officers, jobSites, layers.jobSites]);
+
+  return (
+    <MapContainer
+      center={UK_CENTER}
+      zoom={UK_ZOOM}
+      scrollWheelZoom
+      style={{ height: 420, width: "100%", borderRadius: 16 }}
+    >
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        maxZoom={19}
+      />
+
+      <FitBounds pins={fitPins} />
+
+      {visibleSites.map((s) => (
+        <CircleMarker
+          key={`site-${s.id}`}
+          center={[s.lat, s.lng]}
+          radius={s.liveJobCount ? 8 : 5}
+          pathOptions={{
+            color: s.liveJobCount ? "#0F1929" : "#64748b",
+            fillColor: s.liveJobCount ? "#2FCB80" : "#cbd5e1",
+            fillOpacity: 0.85,
+            weight: s.liveJobCount ? 2 : 1,
+          }}
+        >
+          <Popup>
+            <div style={{ fontWeight: 600, color: "#0F1929" }}>{s.name}</div>
+            {s.liveJobCount ? (
+              <div style={{ fontSize: 12, marginTop: 2 }}>
+                {s.liveJobCount} live job{s.liveJobCount === 1 ? "" : "s"}
+              </div>
+            ) : null}
+            <a
+              href={`/sites/${s.id}/edit`}
+              style={{ fontSize: 12, color: "#2FCB80" }}
+            >
+              Open site →
+            </a>
+          </Popup>
+        </CircleMarker>
+      ))}
+
+      {layers.lines &&
+        lines.map((l) => (
+          <Polyline
+            key={`line-${l.officerId}`}
+            positions={[
+              [l.fromLat, l.fromLng],
+              [l.toLat, l.toLng],
+            ]}
+            pathOptions={{
+              color: "#0F1929",
+              weight: 2,
+              opacity: 0.5,
+              dashArray: "6 6",
+            }}
+          >
+            <Popup>
+              <div style={{ fontSize: 12 }}>
+                {l.officerName} → {l.siteName}
+              </div>
+            </Popup>
+          </Polyline>
+        ))}
+
+      {officers.map((o) => (
+        <Marker key={`officer-${o.id}`} position={[o.lat, o.lng]} icon={officerIcon(o)}>
+          <Popup>
+            <div style={{ fontWeight: 600, color: "#0F1929" }}>{o.name}</div>
+            <div style={{ fontSize: 12, color: "#475569" }}>
+              {o.role.toLowerCase()} · seen {o.lastSeenLabel}
+            </div>
+            <a
+              href={`https://www.google.com/maps?q=${o.lat},${o.lng}`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 12, color: "#2FCB80" }}
+            >
+              Open in Google Maps ↗
+            </a>
+          </Popup>
+        </Marker>
+      ))}
+    </MapContainer>
+  );
+}
