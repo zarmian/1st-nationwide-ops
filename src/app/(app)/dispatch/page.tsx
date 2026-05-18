@@ -323,9 +323,12 @@ export default async function DispatchPage({
           {
             header: "Type",
             cell: (j) => (
-              <span className="font-medium text-brand-navy">
+              <Link
+                href={`/dispatch/${j.id}`}
+                className="font-medium text-brand-navy hover:text-brand-mint-dark"
+              >
                 {j.type.replace(/_/g, " ")}
-              </span>
+              </Link>
             ),
           },
           {

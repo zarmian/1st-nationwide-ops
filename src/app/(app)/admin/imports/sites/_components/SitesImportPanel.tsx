@@ -297,13 +297,21 @@ function CommitBlock({
       <div className="text-xs uppercase tracking-wider text-brand-mint-dark">
         Import complete
       </div>
-      <div className="grid sm:grid-cols-5 gap-3">
+      <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <Stat label="Created" value={result.created} tone="mint" />
         <Stat label="Updated" value={result.updated} tone="mint" />
         <Stat label="Customers linked" value={result.customersLinked} tone="mint" />
         <Stat label="Partners linked" value={result.partnersLinked} tone="mint" />
         <Stat label="Regions added" value={result.regionsCreated} tone="mint" />
+        <Stat label="Geocoded" value={result.geocoded} tone="mint" />
       </div>
+      {result.geocodeFailed > 0 && (
+        <p className="text-xs text-slate-700">
+          {result.geocodeFailed} postcode
+          {result.geocodeFailed === 1 ? "" : "s"} didn't resolve to coordinates
+          — fix and use the Geocode panel to retry.
+        </p>
+      )}
       {result.skipped.length > 0 && (
         <p className="text-xs text-slate-700">
           {result.skipped.length} row

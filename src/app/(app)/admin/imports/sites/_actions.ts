@@ -9,6 +9,10 @@ import {
   type SitesImportPreview,
   type SitesImportResult,
 } from "@/lib/sitesImport";
+import {
+  geocodeSitesMissingCoords,
+  type GeocodeBackfillResult,
+} from "@/lib/geocode";
 
 export type SitesPreviewActionResult =
   | ({ ok: true } & SitesImportPreview)
@@ -34,6 +38,33 @@ export async function previewSites(
 export type SitesCommitActionResult =
   | ({ ok: true } & SitesImportResult)
   | { ok: false; error: string };
+
+export async function countSitesMissingCoords(): Promise<number> {
+  await requireAdmin();
+  return prisma.site.count({
+    where: {
+      OR: [{ lat: null }, { lng: null }],
+      postcode: { not: "" },
+    },
+  });
+}
+
+export type GeocodeActionResult =
+  | ({ ok: true } & GeocodeBackfillResult)
+  | { ok: false; error: string };
+
+export async function geocodeMissingSites(): Promise<GeocodeActionResult> {
+  await requireAdmin();
+  try {
+    const result = await geocodeSitesMissingCoords(prisma);
+    revalidatePath("/dispatch");
+    revalidatePath("/sites");
+    revalidatePath("/admin/imports/sites");
+    return { ok: true, ...result };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Geocoding failed" };
+  }
+}
 
 export async function commitSites(
   formData: FormData,

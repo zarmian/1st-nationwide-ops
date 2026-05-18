@@ -15,6 +15,7 @@ import {
   normalisePostcode,
   formatPostcode,
 } from "./nexusImport";
+import { geocodeSitesMissingCoords } from "./geocode";
 
 const SITE_TYPES = new Set<SiteType>([
   "COMMERCIAL",
@@ -88,6 +89,8 @@ export type SitesImportResult = {
   customersLinked: number;
   partnersLinked: number;
   regionsCreated: number;
+  geocoded: number;
+  geocodeFailed: number;
   skipped: SiteImportSkip[];
 };
 
@@ -443,12 +446,27 @@ export async function runSitesImport(
     if (partnerId) partnersLinked++;
   }
 
+  // Best-effort: fill in coordinates for any site that just landed without
+  // them, so the dispatch map renders pins straight away. Postcodes.io down
+  // or rate-limiting must NOT roll back the import.
+  let geocoded = 0;
+  let geocodeFailed = 0;
+  try {
+    const geo = await geocodeSitesMissingCoords(prisma);
+    geocoded = geo.geocoded;
+    geocodeFailed = geo.failed;
+  } catch (e) {
+    console.error("post-import geocoding failed", e);
+  }
+
   return {
     created,
     updated,
     customersLinked,
     partnersLinked,
     regionsCreated,
+    geocoded,
+    geocodeFailed,
     skipped,
   };
 }

@@ -1,10 +1,17 @@
 import Link from "next/link";
-import { previewSites, commitSites } from "./_actions";
+import {
+  previewSites,
+  commitSites,
+  geocodeMissingSites,
+  countSitesMissingCoords,
+} from "./_actions";
 import { SitesImportPanel } from "./_components/SitesImportPanel";
+import { GeocodePanel } from "./_components/GeocodePanel";
 
 export const dynamic = "force-dynamic";
 
-export default function SitesImportPage() {
+export default async function SitesImportPage() {
+  const missingCoords = await countSitesMissingCoords();
   return (
     <div className="space-y-5 max-w-5xl">
       <div>
@@ -56,6 +63,8 @@ export default function SitesImportPage() {
       </div>
 
       <SitesImportPanel preview={previewSites} commit={commitSites} />
+
+      <GeocodePanel missing={missingCoords} geocode={geocodeMissingSites} />
     </div>
   );
 }
