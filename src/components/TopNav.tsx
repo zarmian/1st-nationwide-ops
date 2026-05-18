@@ -45,6 +45,7 @@ const STAFF_GROUPS: NavGroup[] = [
       { href: "/admin/blueprints", label: "Form blueprints" },
       { href: "/admin/officer-rates", label: "Officer rates" },
       { href: "/admin/notifications", label: "Notifications" },
+      { href: "/admin/imports/sites", label: "Sites import" },
       { href: "/admin/imports/nexus", label: "Nexus import" },
     ],
   },
