@@ -84,7 +84,12 @@ export default async function JobDetailPage({
       shift: { select: { id: true, type: true } },
       onboardingPipeline: { select: { id: true } },
       formSubmissions: {
-        select: { id: true, form: true, submittedAt: true },
+        select: {
+          id: true,
+          form: true,
+          submittedAt: true,
+          review: { select: { id: true, status: true } },
+        },
         orderBy: { submittedAt: "desc" },
       },
     },
@@ -315,12 +320,23 @@ export default async function JobDetailPage({
             {job.formSubmissions.map((fs) => (
               <li key={fs.id}>
                 <span className="text-slate-500">Submission:</span>{" "}
-                <Link
-                  href={`/admin/reports/${fs.id}`}
-                  className="text-brand-mint-dark hover:underline"
-                >
-                  {fs.form.replace(/_/g, " ")} · {relativeTime(fs.submittedAt)} →
-                </Link>
+                {fs.review ? (
+                  <Link
+                    href={`/admin/reports/${fs.review.id}`}
+                    className="text-brand-mint-dark hover:underline"
+                  >
+                    {fs.form.replace(/_/g, " ")} ·{" "}
+                    {relativeTime(fs.submittedAt)} →
+                  </Link>
+                ) : (
+                  <span className="text-slate-700">
+                    {fs.form.replace(/_/g, " ")} ·{" "}
+                    {relativeTime(fs.submittedAt)}
+                    <span className="ml-2 text-xs text-slate-500">
+                      (no review queue entry)
+                    </span>
+                  </span>
+                )}
               </li>
             ))}
             {job.partnerReportRef && (
