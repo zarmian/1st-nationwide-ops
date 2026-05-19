@@ -12,6 +12,34 @@ import { startShift, endShift } from "../../shifts/_actions";
 
 export const dynamic = "force-dynamic";
 
+function formatScheduled(date: Date | null | undefined): {
+  day: string;
+  time: string;
+} | null {
+  if (!date) return null;
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const diffDays = Math.floor(
+    (date.getTime() - startOfToday.getTime()) / dayMs,
+  );
+  const time = date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  let day: string;
+  if (diffDays === 0) day = "Today";
+  else if (diffDays === 1) day = "Tomorrow";
+  else if (diffDays === -1) day = "Yesterday";
+  else
+    day = date.toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+    });
+  return { day, time };
+}
+
 export default async function OfficerTodayPage() {
   const session = await getServerSession(authOptions);
   const userId = session!.user.id;
@@ -20,41 +48,19 @@ export default async function OfficerTodayPage() {
     select: { onDuty: true },
   });
 
+  // Officer's "next 2 days" window: from now, up to end of (today + 2 days).
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date();
-  endOfDay.setHours(23, 59, 59, 999);
+  const endOfWindow = new Date();
+  endOfWindow.setDate(endOfWindow.getDate() + 2);
+  endOfWindow.setHours(23, 59, 59, 999);
 
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
-
-  const [myVisits, unassignedVisits, jobs, myShifts] = await Promise.all([
+  const [myVisits, jobs, myShifts] = await Promise.all([
     prisma.patrolVisit.findMany({
       where: {
         officerId: userId,
-        scheduledAt: { gte: startOfDay, lte: endOfDay },
+        scheduledAt: { gte: startOfDay, lte: endOfWindow },
         status: { in: ["PENDING", "LATE", "IN_PROGRESS"] },
-      },
-      include: {
-        site: {
-          select: {
-            id: true,
-            name: true,
-            addressLine: true,
-            postcodeFormatted: true,
-            lat: true,
-            lng: true,
-          },
-        },
-        patrolSchedule: { select: { kind: true, frequency: true } },
-      },
-      orderBy: { scheduledAt: "asc" },
-    }),
-    prisma.patrolVisit.findMany({
-      where: {
-        officerId: null,
-        scheduledAt: { gte: startOfDay, lte: endOfDay },
-        status: { in: ["PENDING", "LATE"] },
       },
       include: {
         site: {
@@ -74,9 +80,14 @@ export default async function OfficerTodayPage() {
     prisma.job.findMany({
       where: {
         assignedToUserId: userId,
+        status: {
+          in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REVIEW_PENDING"],
+        },
+        // Show jobs scheduled within the next 2 days, plus undated ones
+        // (dispatch may have assigned them without a fixed time).
         OR: [
-          { scheduledFor: { gte: startOfDay, lte: endOfDay } },
-          { status: { in: ["ASSIGNED", "IN_PROGRESS"] } },
+          { scheduledFor: { lte: endOfWindow } },
+          { scheduledFor: null },
         ],
       },
       include: {
@@ -88,7 +99,7 @@ export default async function OfficerTodayPage() {
       where: {
         OR: [{ officerId: userId }, { officerId: null }],
         status: { in: ["PENDING", "IN_PROGRESS"] },
-        scheduledStartsAt: { lte: todayEnd },
+        scheduledStartsAt: { lte: endOfWindow },
         scheduledEndsAt: { gte: startOfDay },
       },
       orderBy: { scheduledStartsAt: "asc" },
@@ -104,19 +115,19 @@ export default async function OfficerTodayPage() {
     }),
   ]);
 
-  const totalVisits = myVisits.length + unassignedVisits.length;
+  const totalVisits = myVisits.length;
 
   return (
     <div className="space-y-5">
       <AutoRefresh />
       <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Today</h1>
+        <h1 className="text-2xl font-semibold text-brand-navy">Your work</h1>
         <p className="text-sm text-slate-500">
           {totalVisits} patrol{totalVisits === 1 ? "" : "s"}
           {jobs.length > 0
             ? ` · ${jobs.length} job${jobs.length === 1 ? "" : "s"}`
             : ""}{" "}
-          on your list.
+          assigned to you for the next 2 days.
         </p>
       </div>
 
@@ -155,7 +166,7 @@ export default async function OfficerTodayPage() {
       {myVisits.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-xs uppercase tracking-wider text-slate-500">
-            Your patrols
+            Your patrols — next 2 days
           </h2>
           {myVisits.map((v) => (
             <VisitCard
@@ -181,62 +192,37 @@ export default async function OfficerTodayPage() {
         </section>
       )}
 
-      {unassignedVisits.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-xs uppercase tracking-wider text-slate-500">
-            Unassigned — claim by tapping "On site"
-          </h2>
-          {unassignedVisits.map((v) => (
-            <VisitCard
-              key={v.id}
-              visit={{
-                id: v.id,
-                status: v.status,
-                scheduledAt: v.scheduledAt.toISOString(),
-                arrivedAt: v.arrivedAt?.toISOString() ?? null,
-                kind: v.patrolSchedule?.kind ?? "PATROL",
-                site: {
-                  id: v.site.id,
-                  name: v.site.name,
-                  addressLine: v.site.addressLine,
-                  postcodeFormatted: v.site.postcodeFormatted,
-                  lat: v.site.lat,
-                  lng: v.site.lng,
-                },
-                isMine: false,
-              }}
-            />
-          ))}
-        </section>
-      )}
-
       {jobs.length > 0 && (
         <section className="space-y-2">
           <h2 className="text-xs uppercase tracking-wider text-slate-500">
-            Other jobs
+            Your jobs — next 2 days
           </h2>
-          {jobs.map((j) => (
-            <Link
-              key={j.id}
-              href={`/submit?jobId=${j.id}`}
-              className="card p-4 flex items-start justify-between hover:bg-slate-50"
-            >
-              <div>
-                <div className="text-xs uppercase tracking-wider text-slate-500">
-                  {j.type.replace(/_/g, " ")}
+          {jobs.map((j) => {
+            const f = formatScheduled(j.scheduledFor);
+            return (
+              <Link
+                key={j.id}
+                href={`/submit?jobId=${j.id}`}
+                className="card p-4 flex items-start justify-between hover:bg-slate-50 gap-3"
+              >
+                <div className="min-w-0">
+                  <div className="text-xs uppercase tracking-wider text-slate-500">
+                    {j.type.replace(/_/g, " ")}
+                    {f ? ` · ${f.day} · ${f.time}` : ""}
+                  </div>
+                  <div className="font-medium text-brand-navy">
+                    {j.site?.name ?? "Site TBD"}
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {[j.site?.addressLine, j.site?.postcodeFormatted]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
                 </div>
-                <div className="font-medium text-brand-navy">
-                  {j.site?.name ?? "Site TBD"}
-                </div>
-                <div className="text-xs text-slate-500">
-                  {[j.site?.addressLine, j.site?.postcodeFormatted]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </div>
-              </div>
-              <span className="chip-slate">{j.status}</span>
-            </Link>
-          ))}
+                <span className="chip-slate shrink-0">{j.status}</span>
+              </Link>
+            );
+          })}
         </section>
       )}
 

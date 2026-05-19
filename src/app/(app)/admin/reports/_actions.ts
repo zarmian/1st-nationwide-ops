@@ -150,10 +150,26 @@ export async function approveReview(
         },
       });
     }
+
+    // Move the linked Job out of "needs attention" so it stops showing on
+    // dispatch and starts showing in the activity log. Use departedAt as the
+    // completion timestamp when we have it (= when the officer left site);
+    // fall back to "now" if the submission didn't capture a departure time.
+    if (job) {
+      await tx.job.update({
+        where: { id: job.id },
+        data: {
+          status: "APPROVED",
+          completedAt: job.completedAt ?? sub.departedAt ?? new Date(),
+        },
+      });
+    }
   });
 
   revalidatePath("/admin/reports");
   revalidatePath(`/admin/reports/${reviewId}`);
+  revalidatePath("/dispatch");
+  revalidatePath("/activities");
   redirect("/admin/reports");
 }
 

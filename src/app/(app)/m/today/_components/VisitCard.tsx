@@ -43,10 +43,28 @@ export function VisitCard({ visit }: { visit: Visit }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const time = new Date(visit.scheduledAt).toLocaleTimeString("en-GB", {
+  const scheduled = new Date(visit.scheduledAt);
+  const time = scheduled.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
   });
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const diffDays = Math.floor(
+    (scheduled.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000),
+  );
+  const day =
+    diffDays === 0
+      ? "Today"
+      : diffDays === 1
+        ? "Tomorrow"
+        : diffDays === -1
+          ? "Yesterday"
+          : scheduled.toLocaleDateString("en-GB", {
+              weekday: "short",
+              day: "2-digit",
+              month: "short",
+            });
 
   const mapsQuery = encodeURIComponent(
     `${visit.site.addressLine}, ${visit.site.postcodeFormatted}`,
@@ -94,7 +112,7 @@ export function VisitCard({ visit }: { visit: Visit }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wider text-slate-500">
-            {visit.kind === "VPI" ? "VPI" : "Patrol"} · {time}
+            {visit.kind === "VPI" ? "VPI" : "Patrol"} · {day} · {time}
           </div>
           <div className="font-semibold text-brand-navy">
             {visit.site.name}

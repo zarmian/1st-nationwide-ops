@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Prisma, JobStatus } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { reassignJob } from "../patrols/_actions";
@@ -16,13 +17,52 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-const liveStatuses = [
+const LIVE_STATUSES = [
   "OPEN",
   "ASSIGNED",
   "IN_PROGRESS",
   "SUBMITTED",
   "REVIEW_PENDING",
+] satisfies JobStatus[];
+
+const COMPLETED_STATUSES = [
+  "APPROVED",
+  "SENT_TO_CLIENT",
+  "CLOSED",
+] satisfies JobStatus[];
+
+const BUCKETS = [
+  "pending",
+  "in_progress",
+  "review",
+  "missed",
+  "completed",
+  "cancelled",
 ] as const;
+type Bucket = (typeof BUCKETS)[number];
+
+function bucketWhere(bucket: Bucket | null, now: Date): Prisma.JobWhereInput {
+  switch (bucket) {
+    case "pending":
+      return { status: { in: ["OPEN", "ASSIGNED"] } };
+    case "in_progress":
+      return { status: "IN_PROGRESS" };
+    case "review":
+      return { status: { in: ["SUBMITTED", "REVIEW_PENDING"] } };
+    case "missed":
+      return {
+        status: { in: ["OPEN", "ASSIGNED"] },
+        scheduledFor: { lt: now },
+      };
+    case "completed":
+      return { status: { in: COMPLETED_STATUSES as JobStatus[] } };
+    case "cancelled":
+      return { status: "CANCELLED" };
+    default:
+      // No bucket selected = "live work in progress".
+      return { status: { in: LIVE_STATUSES as JobStatus[] } };
+  }
+}
 
 const VALID_LAYERS = ["jobs", "sites", "lines"] as const;
 type LayerKey = (typeof VALID_LAYERS)[number];
@@ -38,6 +78,41 @@ function relativeTime(date: Date | null): string {
   return date.toLocaleDateString("en-GB");
 }
 
+/**
+ * "Today · 14:30", "Tomorrow · 09:00", "Mon 19 May · 14:30",
+ * "Yesterday · 22:15", or the long form for far-out dates.
+ */
+function formatScheduled(date: Date | null | undefined): {
+  day: string;
+  time: string;
+} | null {
+  if (!date) return null;
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const diffDays = Math.floor(
+    (date.getTime() - startOfToday.getTime()) / dayMs,
+  );
+
+  const time = date.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  let day: string;
+  if (diffDays === 0) day = "Today";
+  else if (diffDays === 1) day = "Tomorrow";
+  else if (diffDays === -1) day = "Yesterday";
+  else
+    day = date.toLocaleDateString("en-GB", {
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+    });
+  return { day, time };
+}
+
 function freshnessOf(lastSeenAt: Date | null): Freshness {
   if (!lastSeenAt) return "old";
   const mins = (Date.now() - lastSeenAt.getTime()) / 60000;
@@ -49,12 +124,13 @@ function freshnessOf(lastSeenAt: Date | null): Freshness {
 export default async function DispatchPage({
   searchParams,
 }: {
-  searchParams: { status?: string; layers?: string };
+  searchParams: { bucket?: string; layers?: string };
 }) {
-  const statusFilter =
-    searchParams.status && (liveStatuses as readonly string[]).includes(searchParams.status)
-      ? searchParams.status
-      : "";
+  const now = new Date();
+  const bucket: Bucket | null =
+    searchParams.bucket && (BUCKETS as readonly string[]).includes(searchParams.bucket)
+      ? (searchParams.bucket as Bucket)
+      : null;
 
   const activeLayers = new Set<LayerKey>(
     (searchParams.layers ?? "")
@@ -65,11 +141,26 @@ export default async function DispatchPage({
       ),
   );
 
-  const jobsWhere: any = statusFilter
-    ? { status: statusFilter }
-    : { status: { in: liveStatuses as any } };
+  const jobsWhere = bucketWhere(bucket, now);
+  const jobsOrderBy: Prisma.JobOrderByWithRelationInput[] =
+    bucket === "completed"
+      ? [{ completedAt: "desc" }]
+      : bucket === "cancelled"
+        ? [{ cancelledAt: "desc" }]
+        : [{ priority: "asc" }, { scheduledFor: "asc" }, { createdAt: "desc" }];
 
-  const [jobs, onDutyOfficers, countRows, assignableOfficers, allActiveSites] = await Promise.all([
+  const [
+    jobs,
+    onDutyOfficers,
+    pendingCount,
+    inProgressCount,
+    reviewCount,
+    missedCount,
+    completedCount,
+    cancelledCount,
+    assignableOfficers,
+    allActiveSites,
+  ] = await Promise.all([
     prisma.job.findMany({
       where: jobsWhere,
       include: {
@@ -78,7 +169,7 @@ export default async function DispatchPage({
         assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
       },
-      orderBy: [{ priority: "asc" }, { createdAt: "desc" }],
+      orderBy: jobsOrderBy,
       take: 100,
     }),
     prisma.user.findMany({
@@ -97,13 +188,12 @@ export default async function DispatchPage({
         lastSeenAt: true,
       },
     }),
-    // Card counts stay independent of the active filter so users can see
-    // every status total at a glance and click between them.
-    prisma.job.groupBy({
-      by: ["status"],
-      where: { status: { in: liveStatuses as any } },
-      _count: { _all: true },
-    }),
+    prisma.job.count({ where: bucketWhere("pending", now) }),
+    prisma.job.count({ where: bucketWhere("in_progress", now) }),
+    prisma.job.count({ where: bucketWhere("review", now) }),
+    prisma.job.count({ where: bucketWhere("missed", now) }),
+    prisma.job.count({ where: bucketWhere("completed", now) }),
+    prisma.job.count({ where: bucketWhere("cancelled", now) }),
     prisma.user.findMany({
       where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
       orderBy: { name: "asc" },
@@ -119,8 +209,22 @@ export default async function DispatchPage({
       : Promise.resolve([] as Array<{ id: string; name: string; lat: number | null; lng: number | null }>),
   ]);
 
-  const counts: Record<string, number> = {};
-  for (const c of countRows) counts[c.status] = c._count._all;
+  const bucketCounts: Record<Bucket, number> = {
+    pending: pendingCount,
+    in_progress: inProgressCount,
+    review: reviewCount,
+    missed: missedCount,
+    completed: completedCount,
+    cancelled: cancelledCount,
+  };
+  const bucketLabels: Record<Bucket, string> = {
+    pending: "Pending",
+    in_progress: "In progress",
+    review: "Awaiting review",
+    missed: "Missed",
+    completed: "Completed",
+    cancelled: "Cancelled",
+  };
 
   // --- Map data derivation ---------------------------------------------------
 
@@ -199,30 +303,49 @@ export default async function DispatchPage({
         </Link>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {liveStatuses.map((s) => {
-          const isActive = statusFilter === s;
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {BUCKETS.map((b) => {
+          const isActive = bucket === b;
+          const layersQs = activeLayers.size
+            ? `&layers=${Array.from(activeLayers).join(",")}`
+            : "";
+          const href = isActive
+            ? `/dispatch${activeLayers.size ? `?layers=${Array.from(activeLayers).join(",")}` : ""}`
+            : `/dispatch?bucket=${b}${layersQs}`;
+          const isMissed = b === "missed";
+          const ring = isActive
+            ? isMissed
+              ? "ring-2 ring-red-300"
+              : "ring-2 ring-brand-mint/40"
+            : "";
           return (
             <Link
-              key={s}
-              href={isActive ? "/dispatch" : `/dispatch?status=${s}`}
-              className={`card p-3 hover:shadow-md transition-shadow ${
-                isActive ? "ring-2 ring-brand-mint/40" : ""
-              }`}
+              key={b}
+              href={href}
+              className={`card p-3 hover:shadow-md transition-shadow ${ring}`}
             >
               <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                {s.replace(/_/g, " ")}
+                {bucketLabels[b]}
               </div>
-              <div className="text-2xl font-semibold text-brand-navy">
-                {counts[s] ?? 0}
+              <div
+                className={`text-2xl font-semibold tabular-nums ${
+                  isMissed && bucketCounts[b] > 0
+                    ? "text-red-600"
+                    : "text-brand-navy"
+                }`}
+              >
+                {bucketCounts[b].toLocaleString("en-GB")}
               </div>
             </Link>
           );
         })}
       </div>
-      {statusFilter && (
+      {bucket && (
         <div className="text-xs text-slate-500">
-          Filtered to <span className="font-medium text-brand-navy">{statusFilter.replace(/_/g, " ")}</span>
+          Filtered to{" "}
+          <span className="font-medium text-brand-navy">
+            {bucketLabels[bucket]}
+          </span>
           {" · "}
           <Link href="/dispatch" className="text-brand-mint-dark hover:underline">
             clear
@@ -330,6 +453,35 @@ export default async function DispatchPage({
                 {j.type.replace(/_/g, " ")}
               </Link>
             ),
+          },
+          {
+            header: "Scheduled",
+            cell: (j) => {
+              const f = formatScheduled(j.scheduledFor);
+              if (!f) {
+                return <span className="text-slate-400">—</span>;
+              }
+              const overdue =
+                j.scheduledFor != null &&
+                j.scheduledFor < now &&
+                (j.status === "OPEN" || j.status === "ASSIGNED");
+              return (
+                <div className="leading-tight">
+                  <div
+                    className={
+                      overdue
+                        ? "text-sm font-medium text-red-600"
+                        : "text-sm font-medium text-brand-navy"
+                    }
+                  >
+                    {f.day}
+                  </div>
+                  <div className="text-xs text-slate-500 tabular-nums">
+                    {f.time}
+                  </div>
+                </div>
+              );
+            },
           },
           {
             header: "Site",
