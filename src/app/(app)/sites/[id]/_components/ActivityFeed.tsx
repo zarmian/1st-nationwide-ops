@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ActivityEvent } from "../_lib/activity";
 
 const SEVERITY_BG: Record<ActivityEvent["severity"], string> = {
@@ -5,6 +6,13 @@ const SEVERITY_BG: Record<ActivityEvent["severity"], string> = {
   info: "bg-sky-50 border-sky-200",
   warn: "bg-amber-50 border-amber-200",
   danger: "bg-rose-50 border-rose-200",
+};
+
+const HOVER_BG: Record<ActivityEvent["severity"], string> = {
+  ok: "hover:bg-emerald-100/70",
+  info: "hover:bg-sky-100/70",
+  warn: "hover:bg-amber-100/70",
+  danger: "hover:bg-rose-100/70",
 };
 
 const DOT: Record<ActivityEvent["severity"], string> = {
@@ -25,12 +33,9 @@ export function ActivityFeed({ events }: { events: ActivityEvent[] }) {
   }
   return (
     <ul className="space-y-2.5">
-      {events.map((e) => (
-        <li key={e.id} className="flex items-start gap-3">
-          <span className={`mt-2 size-2.5 rounded-full shrink-0 ${DOT[e.severity]}`} />
-          <div
-            className={`flex-1 rounded-xl border px-4 py-2.5 ${SEVERITY_BG[e.severity]}`}
-          >
+      {events.map((e) => {
+        const inner = (
+          <>
             <div className="flex items-start justify-between gap-3">
               <div className="text-sm font-semibold text-slate-900">
                 {e.title}
@@ -42,9 +47,30 @@ export function ActivityFeed({ events }: { events: ActivityEvent[] }) {
             {e.detail && (
               <p className="text-sm text-slate-700 mt-0.5">{e.detail}</p>
             )}
-          </div>
-        </li>
-      ))}
+          </>
+        );
+        return (
+          <li key={e.id} className="flex items-start gap-3">
+            <span
+              className={`mt-2 size-2.5 rounded-full shrink-0 ${DOT[e.severity]}`}
+            />
+            {e.href ? (
+              <Link
+                href={e.href}
+                className={`flex-1 block rounded-xl border px-4 py-2.5 transition-colors ${SEVERITY_BG[e.severity]} ${HOVER_BG[e.severity]}`}
+              >
+                {inner}
+              </Link>
+            ) : (
+              <div
+                className={`flex-1 rounded-xl border px-4 py-2.5 ${SEVERITY_BG[e.severity]}`}
+              >
+                {inner}
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ul>
   );
 }

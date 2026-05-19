@@ -345,7 +345,7 @@ export default async function ActivitiesPage({
     const vkind = v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL";
     rows.push({
       id: `v:${v.id}`,
-      href: `/sites/${v.site?.id ?? ""}`,
+      href: `/patrols/visits/${v.id}`,
       source: "VISIT",
       kind: `VISIT_${vkind}`,
       kindLabel: KIND_LABEL[`VISIT_${vkind}`] ?? "Visit",
@@ -374,7 +374,7 @@ export default async function ActivitiesPage({
   for (const j of jobs) {
     rows.push({
       id: `j:${j.id}`,
-      href: `/dispatch`,
+      href: `/dispatch/${j.id}`,
       source: "JOB",
       kind: j.type,
       kindLabel: KIND_LABEL[j.type] ?? j.type,
