@@ -132,13 +132,18 @@ export default async function DispatchPage({
       ? (searchParams.bucket as Bucket)
       : null;
 
+  // Default the map to show jobs + all sites unless the user has explicitly
+  // turned them off. The empty string `"layers="` in the URL means
+  // "everything off"; absent means "use defaults".
   const activeLayers = new Set<LayerKey>(
-    (searchParams.layers ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s): s is LayerKey =>
-        (VALID_LAYERS as readonly string[]).includes(s),
-      ),
+    searchParams.layers === undefined
+      ? (["jobs", "sites"] satisfies LayerKey[])
+      : searchParams.layers
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s): s is LayerKey =>
+            (VALID_LAYERS as readonly string[]).includes(s),
+          ),
   );
 
   const jobsWhere = bucketWhere(bucket, now);
@@ -164,7 +169,7 @@ export default async function DispatchPage({
     prisma.job.findMany({
       where: jobsWhere,
       include: {
-        site: { select: { id: true, name: true, postcodeFormatted: true, lat: true, lng: true } },
+        site: { select: { id: true, name: true, postcode: true, postcodeFormatted: true, lat: true, lng: true } },
         customer: { select: { name: true } },
         assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
@@ -204,9 +209,17 @@ export default async function DispatchPage({
     activeLayers.has("sites")
       ? prisma.site.findMany({
           where: { active: true, lat: { not: null }, lng: { not: null } },
-          select: { id: true, name: true, lat: true, lng: true },
+          select: { id: true, name: true, postcodeFormatted: true, lat: true, lng: true },
         })
-      : Promise.resolve([] as Array<{ id: string; name: string; lat: number | null; lng: number | null }>),
+      : Promise.resolve(
+          [] as Array<{
+            id: string;
+            name: string;
+            postcodeFormatted: string;
+            lat: number | null;
+            lng: number | null;
+          }>,
+        ),
   ]);
 
   const bucketCounts: Record<Bucket, number> = {
@@ -253,7 +266,14 @@ export default async function DispatchPage({
     if (existing) {
       existing.liveJobCount = (existing.liveJobCount ?? 0) + 1;
     } else {
-      jobSitesMap.set(s.id, { id: s.id, name: s.name, lat: s.lat, lng: s.lng, liveJobCount: 1 });
+      jobSitesMap.set(s.id, {
+        id: s.id,
+        name: s.name,
+        lat: s.lat,
+        lng: s.lng,
+        postcode: s.postcodeFormatted,
+        liveJobCount: 1,
+      });
     }
   }
   const jobSites: SitePin[] = Array.from(jobSitesMap.values());
@@ -263,7 +283,13 @@ export default async function DispatchPage({
       (s): s is typeof s & { lat: number; lng: number } =>
         typeof s.lat === "number" && typeof s.lng === "number",
     )
-    .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }));
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      lat: s.lat,
+      lng: s.lng,
+      postcode: s.postcodeFormatted,
+    }));
 
   // For each on-duty officer with GPS, draw a line to their next assigned
   // live-job site (earliest scheduledFor, NULLs last).
@@ -359,10 +385,16 @@ export default async function DispatchPage({
         <div className="flex items-baseline justify-between">
           <h2 className="font-semibold text-brand-navy">Live map</h2>
           <p className="text-xs text-slate-500">
-            Refreshes every 60s · {officerPins.length} on map
+            {officerPins.length} officer{officerPins.length === 1 ? "" : "s"}
             {onDutyOfficers.length - officerPins.length > 0
-              ? ` · ${onDutyOfficers.length - officerPins.length} without GPS`
+              ? ` (${onDutyOfficers.length - officerPins.length} without GPS)`
               : ""}
+            {" · "}
+            {activeLayers.has("sites")
+              ? `${allSites.length} site${allSites.length === 1 ? "" : "s"}`
+              : activeLayers.has("jobs")
+                ? `${jobSites.length} job site${jobSites.length === 1 ? "" : "s"}`
+                : "no sites layer"}
           </p>
         </div>
         <MapLayerToggles active={activeLayers} />

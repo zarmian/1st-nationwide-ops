@@ -49,6 +49,13 @@ export async function countSitesMissingCoords(): Promise<number> {
   });
 }
 
+export async function countSitesWithPostcode(): Promise<number> {
+  await requireAdmin();
+  return prisma.site.count({
+    where: { postcode: { not: "" } },
+  });
+}
+
 export type GeocodeActionResult =
   | ({ ok: true } & GeocodeBackfillResult)
   | { ok: false; error: string };
@@ -57,6 +64,23 @@ export async function geocodeMissingSites(): Promise<GeocodeActionResult> {
   await requireAdmin();
   try {
     const result = await geocodeSitesMissingCoords(prisma);
+    revalidatePath("/dispatch");
+    revalidatePath("/sites");
+    revalidatePath("/admin/imports/sites");
+    return { ok: true, ...result };
+  } catch (e: any) {
+    return { ok: false, error: e?.message ?? "Geocoding failed" };
+  }
+}
+
+/**
+ * Force-refresh lat/lng on every site with a postcode, even ones that
+ * already have coordinates. Use when an earlier import wrote wrong values.
+ */
+export async function regeocodeAllSites(): Promise<GeocodeActionResult> {
+  await requireAdmin();
+  try {
+    const result = await geocodeSitesMissingCoords(prisma, { force: true });
     revalidatePath("/dispatch");
     revalidatePath("/sites");
     revalidatePath("/admin/imports/sites");

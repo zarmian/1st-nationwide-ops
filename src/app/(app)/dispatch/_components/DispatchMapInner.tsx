@@ -29,6 +29,7 @@ export type SitePin = {
   name: string;
   lat: number;
   lng: number;
+  postcode?: string | null;
   liveJobCount?: number;
 };
 
@@ -125,9 +126,9 @@ export default function DispatchMapInner({
   const fitPins = useMemo(() => {
     const pins: Array<{ lat: number; lng: number }> = [];
     for (const o of officers) pins.push({ lat: o.lat, lng: o.lng });
-    if (layers.jobSites) for (const s of jobSites) pins.push({ lat: s.lat, lng: s.lng });
+    for (const s of visibleSites) pins.push({ lat: s.lat, lng: s.lng });
     return pins;
-  }, [officers, jobSites, layers.jobSites]);
+  }, [officers, visibleSites]);
 
   return (
     <MapContainer
@@ -158,17 +159,35 @@ export default function DispatchMapInner({
         >
           <Popup>
             <div style={{ fontWeight: 600, color: "#0F1929" }}>{s.name}</div>
+            {s.postcode && (
+              <div style={{ fontSize: 12, marginTop: 2, fontFamily: "monospace", color: "#475569" }}>
+                {s.postcode}
+              </div>
+            )}
+            <div style={{ fontSize: 11, marginTop: 2, color: "#64748b" }}>
+              {s.lat.toFixed(5)}, {s.lng.toFixed(5)}
+            </div>
             {s.liveJobCount ? (
-              <div style={{ fontSize: 12, marginTop: 2 }}>
+              <div style={{ fontSize: 12, marginTop: 4 }}>
                 {s.liveJobCount} live job{s.liveJobCount === 1 ? "" : "s"}
               </div>
             ) : null}
-            <a
-              href={`/sites/${s.id}/edit`}
-              style={{ fontSize: 12, color: "#2FCB80" }}
-            >
-              Open site →
-            </a>
+            <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+              <a
+                href={`/sites/${s.id}/edit`}
+                style={{ fontSize: 12, color: "#2FCB80" }}
+              >
+                Open site →
+              </a>
+              <a
+                href={`https://www.google.com/maps?q=${s.lat},${s.lng}`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 12, color: "#64748b" }}
+              >
+                Verify on Maps ↗
+              </a>
+            </div>
           </Popup>
         </CircleMarker>
       ))}

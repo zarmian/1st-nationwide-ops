@@ -3,7 +3,9 @@ import {
   previewSites,
   commitSites,
   geocodeMissingSites,
+  regeocodeAllSites,
   countSitesMissingCoords,
+  countSitesWithPostcode,
 } from "./_actions";
 import { SitesImportPanel } from "./_components/SitesImportPanel";
 import { GeocodePanel } from "./_components/GeocodePanel";
@@ -11,7 +13,10 @@ import { GeocodePanel } from "./_components/GeocodePanel";
 export const dynamic = "force-dynamic";
 
 export default async function SitesImportPage() {
-  const missingCoords = await countSitesMissingCoords();
+  const [missingCoords, totalWithPostcode] = await Promise.all([
+    countSitesMissingCoords(),
+    countSitesWithPostcode(),
+  ]);
   return (
     <div className="space-y-5 max-w-5xl">
       <div>
@@ -64,7 +69,12 @@ export default async function SitesImportPage() {
 
       <SitesImportPanel preview={previewSites} commit={commitSites} />
 
-      <GeocodePanel missing={missingCoords} geocode={geocodeMissingSites} />
+      <GeocodePanel
+        missing={missingCoords}
+        total={totalWithPostcode}
+        geocode={geocodeMissingSites}
+        regeocodeAll={regeocodeAllSites}
+      />
     </div>
   );
 }

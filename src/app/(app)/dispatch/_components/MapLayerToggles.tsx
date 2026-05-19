@@ -23,7 +23,9 @@ export function MapLayerToggles({ active }: { active: Set<LayerKey> }) {
 
     const params = new URLSearchParams(searchParams.toString());
     if (next.size === 0) {
-      params.delete("layers");
+      // Don't delete — that would re-enable the page's defaults.
+      // Empty value signals "user turned everything off on purpose".
+      params.set("layers", "");
     } else {
       params.set("layers", Array.from(next).join(","));
     }

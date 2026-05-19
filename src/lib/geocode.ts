@@ -14,17 +14,24 @@ type BulkResultRow = {
 const ENDPOINT = "https://api.postcodes.io/postcodes";
 const BATCH_SIZE = 100; // postcodes.io max per bulk POST
 
+/** "SW1A 1AA" / "sw1a1aa" → "SW1A1AA" so callers can key consistently. */
+function normalise(pc: string): string {
+  return pc.replace(/\s+/g, "").toUpperCase();
+}
+
 /**
- * Look up a list of postcodes. Returns a Map keyed by the *exact string* you
- * passed in (so the caller controls casing/spacing). Postcodes that don't
- * resolve are simply omitted from the result map.
+ * Look up a list of postcodes. Returns a Map keyed by the *normalised*
+ * postcode (no spaces, uppercase) — postcodes.io can echo the query back
+ * in either form, so we normalise both ends to stay safe.
+ * Postcodes that don't resolve are simply omitted from the result map.
  */
 export async function geocodePostcodes(
   postcodes: string[],
 ): Promise<Map<string, { lat: number; lng: number }>> {
   const out = new Map<string, { lat: number; lng: number }>();
-  // dedupe to keep the request small
-  const unique = Array.from(new Set(postcodes.filter((p) => p && p.length > 0)));
+  const unique = Array.from(
+    new Set(postcodes.filter((p) => p && p.length > 0).map(normalise)),
+  );
   for (let i = 0; i < unique.length; i += BATCH_SIZE) {
     const batch = unique.slice(i, i + BATCH_SIZE);
     let json: { result?: BulkResultRow[] } | null = null;
@@ -49,7 +56,7 @@ export async function geocodePostcodes(
         Number.isFinite(latitude) &&
         Number.isFinite(longitude)
       ) {
-        out.set(row.query, { lat: latitude, lng: longitude });
+        out.set(normalise(row.query), { lat: latitude, lng: longitude });
       }
     }
   }
@@ -64,17 +71,23 @@ export type GeocodeBackfillResult = {
 
 /**
  * Find every Site that has a postcode but is missing lat/lng, look them up,
- * and write coordinates back. Safe to re-run — only touches rows where coords
- * are still null. Returns counts for the caller to surface in the UI.
+ * and write coordinates back. Safe to re-run.
+ *
+ * Pass `{ force: true }` to re-geocode every site that has a postcode —
+ * including those whose lat/lng are already set. Useful when an earlier run
+ * wrote wrong values and you want to refresh from postcodes.io.
  */
 export async function geocodeSitesMissingCoords(
   prisma: PrismaClient,
+  opts: { force?: boolean } = {},
 ): Promise<GeocodeBackfillResult> {
   const sites = await prisma.site.findMany({
-    where: {
-      OR: [{ lat: null }, { lng: null }],
-      postcode: { not: "" },
-    },
+    where: opts.force
+      ? { postcode: { not: "" } }
+      : {
+          OR: [{ lat: null }, { lng: null }],
+          postcode: { not: "" },
+        },
     select: { id: true, postcode: true },
   });
   if (sites.length === 0) return { scanned: 0, geocoded: 0, failed: 0 };
@@ -83,7 +96,7 @@ export async function geocodeSitesMissingCoords(
   let geocoded = 0;
   let failed = 0;
   for (const s of sites) {
-    const c = coords.get(s.postcode);
+    const c = coords.get(normalise(s.postcode));
     if (!c) {
       failed++;
       continue;
