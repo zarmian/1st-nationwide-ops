@@ -18,7 +18,7 @@ export default async function AppShell({
     <div className="min-h-screen bg-slate-50">
       <PWARegister />
       <RouteProgress />
-      <CommandPalette />
+      <CommandPalette role={session.user.role} />
       <TopNav
         userName={session.user?.name ?? session.user?.email ?? "User"}
         role={session.user.role}

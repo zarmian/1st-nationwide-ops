@@ -31,13 +31,18 @@ const STAFF_GROUPS: NavGroup[] = [
       { href: "/activities", label: "Activities log" },
       { href: "/onboarding", label: "Onboarding" },
       { href: "/officers", label: "Officers" },
+      // Dispatcher needs the review queue — it's the one /admin path they
+      // can access. Surface it here so they don't need the Admin group.
+      { href: "/admin/reports", label: "Review queue" },
     ],
   },
+];
+
+const ADMIN_GROUPS: NavGroup[] = [
   {
     label: "Admin",
     items: [
       { href: "/admin", label: "Admin home" },
-      { href: "/admin/reports", label: "Review queue" },
       { href: "/admin/customers", label: "Customers" },
       { href: "/admin/partners", label: "Partners" },
       { href: "/admin/regions", label: "Regions" },
@@ -68,7 +73,9 @@ export function TopNav({
   role?: string;
 }) {
   const pathname = usePathname() ?? "";
-  const isStaff = role === "ADMIN" || role === "DISPATCHER";
+  const isAdmin = role === "ADMIN";
+  const isStaff = isAdmin || role === "DISPATCHER";
+  const groups = isAdmin ? [...STAFF_GROUPS, ...ADMIN_GROUPS] : STAFF_GROUPS;
 
   return (
     <header className="bg-white border-b border-slate-200">
@@ -87,7 +94,7 @@ export function TopNav({
                   active={isItemActive(pathname, item.href)}
                 />
               ))}
-              {STAFF_GROUPS.map((g) => (
+              {groups.map((g) => (
                 <NavDropdown
                   key={g.label}
                   group={g}
@@ -152,7 +159,7 @@ export function TopNav({
       {/* Mobile nav strip — primary items only, scrolls horizontally */}
       <div className="md:hidden border-t border-slate-100 overflow-x-auto">
         <div className="px-3 py-2 flex items-center gap-1 whitespace-nowrap">
-          {(isStaff ? [...STAFF_TOP, ...STAFF_GROUPS.flatMap((g) => g.items.slice(0, 1))] : OFFICER_LINKS).map(
+          {(isStaff ? [...STAFF_TOP, ...groups.flatMap((g) => g.items.slice(0, 1))] : OFFICER_LINKS).map(
             (item) => {
               const active = isItemActive(pathname, item.href);
               return (
