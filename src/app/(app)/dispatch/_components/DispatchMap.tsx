@@ -6,9 +6,9 @@ import type {
   SitePin,
   AssignmentLine,
   Layers,
-} from "./DispatchMapInner";
+} from "@/components/map/MapInner";
 
-const DispatchMapInner = dynamic(() => import("./DispatchMapInner"), {
+const DispatchMapInner = dynamic(() => import("@/components/map/MapInner"), {
   ssr: false,
   loading: () => (
     <div

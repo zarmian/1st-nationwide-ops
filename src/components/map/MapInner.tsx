@@ -31,6 +31,12 @@ export type SitePin = {
   lng: number;
   postcode?: string | null;
   liveJobCount?: number;
+  /** Marker fill colour. When unset, falls back to the live-job / neutral default. */
+  colorHex?: string | null;
+  /** Stable owner key — used by callers to filter pins (e.g. "shurgard"). */
+  ownerKey?: string | null;
+  /** Human label for the owner — shown in the popup. */
+  ownerLabel?: string | null;
 };
 
 export type AssignmentLine = {
@@ -104,12 +110,14 @@ export default function DispatchMapInner({
   allSites,
   lines,
   layers,
+  height = 420,
 }: {
   officers: OfficerPin[];
   jobSites: SitePin[];
   allSites: SitePin[];
   lines: AssignmentLine[];
   layers: Layers;
+  height?: number;
 }) {
   const visibleSites = useMemo(() => {
     const map = new Map<string, SitePin>();
@@ -135,7 +143,7 @@ export default function DispatchMapInner({
       center={UK_CENTER}
       zoom={UK_ZOOM}
       scrollWheelZoom
-      style={{ height: 420, width: "100%", borderRadius: 16 }}
+      style={{ height, width: "100%", borderRadius: 16 }}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -145,52 +153,76 @@ export default function DispatchMapInner({
 
       <FitBounds pins={fitPins} />
 
-      {visibleSites.map((s) => (
-        <CircleMarker
-          key={`site-${s.id}`}
-          center={[s.lat, s.lng]}
-          radius={s.liveJobCount ? 8 : 5}
-          pathOptions={{
-            color: s.liveJobCount ? "#0F1929" : "#64748b",
-            fillColor: s.liveJobCount ? "#2FCB80" : "#cbd5e1",
-            fillOpacity: 0.85,
-            weight: s.liveJobCount ? 2 : 1,
-          }}
-        >
-          <Popup>
-            <div style={{ fontWeight: 600, color: "#0F1929" }}>{s.name}</div>
-            {s.postcode && (
-              <div style={{ fontSize: 12, marginTop: 2, fontFamily: "monospace", color: "#475569" }}>
-                {s.postcode}
+      {visibleSites.map((s) => {
+        // Owner colour wins when set; otherwise fall back to the original
+        // job-vs-neutral palette (mint for live-job sites, slate for the rest).
+        const ownerColored = !!s.colorHex;
+        const fill = s.colorHex ?? (s.liveJobCount ? "#2FCB80" : "#cbd5e1");
+        const stroke = s.liveJobCount || ownerColored ? "#0F1929" : "#64748b";
+        const radius = s.liveJobCount ? 9 : ownerColored ? 7 : 5;
+        const weight = s.liveJobCount ? 2 : ownerColored ? 1.5 : 1;
+        return (
+          <CircleMarker
+            key={`site-${s.id}`}
+            center={[s.lat, s.lng]}
+            radius={radius}
+            pathOptions={{
+              color: stroke,
+              fillColor: fill,
+              fillOpacity: 0.85,
+              weight,
+            }}
+          >
+            <Popup>
+              <div style={{ fontWeight: 600, color: "#0F1929" }}>{s.name}</div>
+              {s.ownerLabel && (
+                <div style={{ fontSize: 12, marginTop: 2, color: "#475569", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    aria-hidden
+                    style={{
+                      display: "inline-block",
+                      width: 10,
+                      height: 10,
+                      borderRadius: 2,
+                      background: fill,
+                    }}
+                  />
+                  {s.ownerLabel}
+                </div>
+              )}
+              {s.postcode && (
+                <div style={{ fontSize: 12, marginTop: 2, fontFamily: "monospace", color: "#475569" }}>
+                  {s.postcode}
+                </div>
+              )}
+              <div style={{ fontSize: 11, marginTop: 2, color: "#64748b" }}>
+                {s.lat.toFixed(5)}, {s.lng.toFixed(5)}
               </div>
-            )}
-            <div style={{ fontSize: 11, marginTop: 2, color: "#64748b" }}>
-              {s.lat.toFixed(5)}, {s.lng.toFixed(5)}
-            </div>
-            {s.liveJobCount ? (
-              <div style={{ fontSize: 12, marginTop: 4 }}>
-                {s.liveJobCount} live job{s.liveJobCount === 1 ? "" : "s"}
+              {s.liveJobCount ? (
+                <div style={{ fontSize: 12, marginTop: 4 }}>
+                  {s.liveJobCount} live job{s.liveJobCount === 1 ? "" : "s"}
+                </div>
+              ) : null}
+              <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                <a
+                  href={`/sites/${s.id}/edit`}
+                  style={{ fontSize: 12, color: "#2FCB80" }}
+                >
+                  Open site →
+                </a>
+                <a
+                  href={`https://www.google.com/maps?q=${s.lat},${s.lng}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ fontSize: 12, color: "#64748b" }}
+                >
+                  Verify on Maps ↗
+                </a>
               </div>
-            ) : null}
-            <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
-              <a
-                href={`/sites/${s.id}/edit`}
-                style={{ fontSize: 12, color: "#2FCB80" }}
-              >
-                Open site →
-              </a>
-              <a
-                href={`https://www.google.com/maps?q=${s.lat},${s.lng}`}
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontSize: 12, color: "#64748b" }}
-              >
-                Verify on Maps ↗
-              </a>
-            </div>
-          </Popup>
-        </CircleMarker>
-      ))}
+            </Popup>
+          </CircleMarker>
+        );
+      })}
 
       {layers.lines &&
         lines.map((l) => (
