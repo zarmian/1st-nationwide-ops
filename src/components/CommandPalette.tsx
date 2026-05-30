@@ -67,7 +67,26 @@ const QUICK_ACTIONS: Action[] = [
 
 const STATIC_ACTIONS = [...QUICK_ACTIONS, ...QUICK_NAV];
 
-export function CommandPalette() {
+// Hrefs that only ADMIN can reach. DISPATCHER also sees /admin/reports
+// because they're the reviewers; everything else under /admin redirects them.
+// OFFICER can only reach /m/* and /submit (see middleware.ts).
+function isAllowedForRole(href: string, role?: string): boolean {
+  if (role === "OFFICER") {
+    return (
+      href === "/m" ||
+      href.startsWith("/m/") ||
+      href === "/submit" ||
+      href.startsWith("/submit/")
+    );
+  }
+  if (href.startsWith("/admin")) {
+    if (role === "ADMIN") return true;
+    return href === "/admin/reports" || href.startsWith("/admin/reports/");
+  }
+  return true;
+}
+
+export function CommandPalette({ role }: { role?: string } = {}) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -138,7 +157,7 @@ export function CommandPalette() {
   }, [query, open]);
 
   // Build the flat ordered action list (quick actions + nav + search results).
-  const items = buildItems(query, results);
+  const items = buildItems(query, results, role);
 
   // Keep active index in bounds
   useEffect(() => {
@@ -258,12 +277,18 @@ export function CommandPalette() {
   );
 }
 
-function buildItems(query: string, results: SearchResults | null): Action[] {
+function buildItems(
+  query: string,
+  results: SearchResults | null,
+  role?: string,
+): Action[] {
   const q = query.trim().toLowerCase();
   const items: Action[] = [];
 
-  // Always include searchable static actions, filtered by label
+  // Include searchable static actions, filtered by label AND by role —
+  // surfacing /admin/customers to a dispatcher would just bounce them.
   for (const a of STATIC_ACTIONS) {
+    if (!isAllowedForRole(a.href, role)) continue;
     if (!q || a.label.toLowerCase().includes(q) || (a.hint ?? "").toLowerCase().includes(q)) {
       items.push(a);
     }

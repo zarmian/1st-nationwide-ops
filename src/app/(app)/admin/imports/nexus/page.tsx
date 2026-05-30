@@ -1,7 +1,7 @@
 import Link from "next/link";
 import {
   getResetCounts,
-  resetSiteData,
+  resetData,
   previewImport,
   commitImport,
 } from "./_actions";
@@ -26,12 +26,12 @@ export default async function NexusImportPage() {
           Nexus CSV import
         </h1>
         <p className="text-sm text-slate-500 max-w-2xl">
-          Reset existing site data, then upload the latest Nexus export. Always
+          Reset existing data, then upload the latest Nexus export. Always
           safe to preview first — no DB writes happen until you click Import.
         </p>
       </div>
 
-      <ResetPanel counts={counts} reset={resetSiteData} />
+      <ResetPanel counts={counts} reset={resetData} />
       <ImportPanel preview={previewImport} commit={commitImport} />
     </div>
   );

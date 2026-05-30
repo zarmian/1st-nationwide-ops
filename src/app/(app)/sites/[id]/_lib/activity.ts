@@ -2,12 +2,13 @@ import { prisma } from "@/lib/db";
 
 export type ActivityEvent = {
   id: string;
-  kind: "ALARM" | "PATROL" | "SUBMISSION";
+  kind: "ALARM" | "PATROL" | "SUBMISSION" | "JOB";
   severity: "ok" | "info" | "warn" | "danger";
   at: Date;
   title: string;
   detail: string | null;
   actor: string | null;
+  href: string | null;
 };
 
 export async function loadActivity(
@@ -20,37 +21,55 @@ export async function loadActivity(
   // with thousands of events we'll later move this to a unified view.
   const fanout = take + skip + 20;
 
-  const [alarms, patrols, submissions, totalAlarms, totalPatrols, totalSubs] =
-    await Promise.all([
-      prisma.alarmEvent.findMany({
-        where: { siteId },
-        orderBy: { receivedAt: "desc" },
-        take: fanout,
-        include: {
-          assignedTo: { select: { name: true } },
-        },
-      }),
-      prisma.patrolVisit.findMany({
-        where: { siteId },
-        orderBy: { scheduledAt: "desc" },
-        take: fanout,
-        include: {
-          officer: { select: { name: true } },
-          patrolSchedule: { select: { frequency: true, kind: true } },
-        },
-      }),
-      prisma.formSubmission.findMany({
-        where: { siteId },
-        orderBy: { submittedAt: "desc" },
-        take: fanout,
-        include: {
-          submittedBy: { select: { name: true } },
-        },
-      }),
-      prisma.alarmEvent.count({ where: { siteId } }),
-      prisma.patrolVisit.count({ where: { siteId } }),
-      prisma.formSubmission.count({ where: { siteId } }),
-    ]);
+  const [
+    alarms,
+    patrols,
+    submissions,
+    jobs,
+    totalAlarms,
+    totalPatrols,
+    totalSubs,
+    totalJobs,
+  ] = await Promise.all([
+    prisma.alarmEvent.findMany({
+      where: { siteId },
+      orderBy: { receivedAt: "desc" },
+      take: fanout,
+      include: {
+        assignedTo: { select: { name: true } },
+      },
+    }),
+    prisma.patrolVisit.findMany({
+      where: { siteId },
+      orderBy: { scheduledAt: "desc" },
+      take: fanout,
+      include: {
+        officer: { select: { name: true } },
+        patrolSchedule: { select: { frequency: true, kind: true } },
+      },
+    }),
+    prisma.formSubmission.findMany({
+      where: { siteId },
+      orderBy: { submittedAt: "desc" },
+      take: fanout,
+      include: {
+        submittedBy: { select: { name: true } },
+        review: { select: { id: true, status: true } },
+      },
+    }),
+    prisma.job.findMany({
+      where: { siteId },
+      orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+      take: fanout,
+      include: {
+        assignedTo: { select: { name: true } },
+      },
+    }),
+    prisma.alarmEvent.count({ where: { siteId } }),
+    prisma.patrolVisit.count({ where: { siteId } }),
+    prisma.formSubmission.count({ where: { siteId } }),
+    prisma.job.count({ where: { siteId } }),
+  ]);
 
   const events: ActivityEvent[] = [
     ...alarms.map<ActivityEvent>((a) => ({
@@ -71,6 +90,7 @@ export async function loadActivity(
       detail:
         a.notes ?? a.rawSubject ?? (a.zone ? `Zone ${a.zone}` : null),
       actor: a.assignedTo?.name ?? null,
+      href: `/alarms/${a.id}`,
     })),
     ...patrols.map<ActivityEvent>((p) => {
       const onSite =
@@ -101,6 +121,7 @@ export async function loadActivity(
         }`,
         detail: p.notes,
         actor: p.officer?.name ?? null,
+        href: `/patrols/visits/${p.id}`,
       };
     }),
     ...submissions.map<ActivityEvent>((s) => ({
@@ -113,11 +134,34 @@ export async function loadActivity(
       }`,
       detail: extractDetail(s.payload),
       actor: s.submittedBy?.name ?? s.officerNameRaw,
+      // If there's a review row, open the review page (admin's submission
+      // detail). Otherwise fall back to the parent job, which always exists
+      // for cron-created jobs but not for ad-hoc /submit submissions.
+      href: s.review?.id ? `/admin/reports/${s.review.id}` : null,
+    })),
+    ...jobs.map<ActivityEvent>((j) => ({
+      id: `job:${j.id}`,
+      kind: "JOB",
+      severity:
+        j.status === "CANCELLED"
+          ? "warn"
+          : j.status === "CLOSED" ||
+              j.status === "SENT_TO_CLIENT" ||
+              j.status === "APPROVED"
+            ? "ok"
+            : "info",
+      at: j.completedAt ?? j.scheduledFor ?? j.createdAt,
+      title: `${prettyJobType(j.type)} · ${j.status
+        .replace(/_/g, " ")
+        .toLowerCase()}${j.assignedTo ? ` · ${j.assignedTo.name}` : ""}`,
+      detail: j.notes,
+      actor: j.assignedTo?.name ?? null,
+      href: `/dispatch/${j.id}`,
     })),
   ];
 
   events.sort((a, b) => b.at.getTime() - a.at.getTime());
-  const total = totalAlarms + totalPatrols + totalSubs;
+  const total = totalAlarms + totalPatrols + totalSubs + totalJobs;
   return {
     events: events.slice(skip, skip + take),
     total,
@@ -153,6 +197,10 @@ function prettySubmissionForm(f: string) {
     default:
       return f.replace(/_/g, " ").toLowerCase();
   }
+}
+
+function prettyJobType(t: string) {
+  return t.replace(/_/g, " ").toLowerCase();
 }
 
 function submissionSeverity(f: string): ActivityEvent["severity"] {

@@ -348,7 +348,7 @@ export default async function PatrolsPage({
                 <tr key={s.id}>
                   <td className="px-4 py-2">
                     <Link
-                      href={`/sites/${s.site.id}/edit#${s.kind === "VPI" ? "vpi-section" : "patrol-section"}`}
+                      href={`/patrols/schedules/${s.id}`}
                       className="font-medium text-brand-navy hover:text-brand-mint-dark"
                     >
                       {s.site.name}
@@ -429,7 +429,7 @@ export default async function PatrolsPage({
                 <tr key={s.id}>
                   <td className="px-4 py-2">
                     <Link
-                      href={`/sites/${s.site.id}/edit#lockunlock-section`}
+                      href={`/patrols/lockup-schedules/${s.id}`}
                       className="font-medium text-brand-navy hover:text-brand-mint-dark"
                     >
                       {s.site.name}
@@ -492,7 +492,7 @@ export default async function PatrolsPage({
                 <li key={v.id} className="px-4 py-3 space-y-1">
                   <div className="flex items-baseline justify-between gap-2">
                     <Link
-                      href={`/sites/${v.site.id}/edit#${v.patrolSchedule?.kind === "VPI" ? "vpi-section" : "patrol-section"}`}
+                      href={`/patrols/visits/${v.id}`}
                       className="font-medium text-brand-navy hover:text-brand-mint-dark"
                     >
                       {v.site.name}
@@ -539,7 +539,7 @@ export default async function PatrolsPage({
                 <li key={j.id} className="px-4 py-3 space-y-1">
                   <div className="flex items-baseline justify-between gap-2">
                     <Link
-                      href={`/sites/${j.site?.id ?? ""}/edit#lockunlock-section`}
+                      href={`/dispatch/${j.id}`}
                       className="font-medium text-brand-navy hover:text-brand-mint-dark"
                     >
                       {j.site?.name ?? "—"}
