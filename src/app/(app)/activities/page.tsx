@@ -745,7 +745,7 @@ export default async function ActivitiesPage({
                     <td className="px-4 py-2 text-slate-600 text-xs">
                       <div className="flex items-center gap-2">
                         <span>{r.status.toLowerCase().replace(/_/g, " ")}</span>
-                        {isAdmin && r.source === "JOB" && (
+                        {isAdmin && (
                           <Link
                             href={`${r.href}/edit`}
                             className="text-brand-mint-dark hover:text-brand-navy underline"

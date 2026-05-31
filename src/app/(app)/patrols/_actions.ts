@@ -1,9 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { requireStaff } from "@/lib/authz";
+import { requireAdmin, requireStaff } from "@/lib/authz";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),
@@ -109,4 +110,92 @@ export async function reassignJob(
   revalidatePath("/patrols");
   revalidatePath("/dispatch");
   return { ok: true };
+}
+
+/**
+ * Admin edit for a PatrolVisit. Mirrors the admin Job edit — admins
+ * sometimes need to correct attendance times after the fact (officer
+ * forgot to check out, status stuck on MISSED when actually attended,
+ * etc.). To this business "every activity is a job", so visits get the
+ * same edit affordance everywhere a job does.
+ */
+const VisitStatuses = [
+  "PENDING",
+  "IN_PROGRESS",
+  "COMPLETED",
+  "LATE",
+  "MISSED",
+] as const;
+
+const EditVisitInput = z
+  .object({
+    officerId: z.string().uuid().or(z.literal("")).optional().nullable(),
+    scheduledAt: z.string().min(1, "Scheduled time is required"),
+    arrivedAt: z.string().optional().nullable(),
+    departedAt: z.string().optional().nullable(),
+    status: z.enum(VisitStatuses),
+    notes: z.string().trim().max(2000).optional().nullable(),
+  })
+  .superRefine((d, ctx) => {
+    const arr = d.arrivedAt ? new Date(d.arrivedAt) : null;
+    const dep = d.departedAt ? new Date(d.departedAt) : null;
+    if (arr && dep && !Number.isNaN(arr.getTime()) && !Number.isNaN(dep.getTime()) && dep <= arr) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["departedAt"],
+        message: "Departure must be after arrival.",
+      });
+    }
+  });
+
+export type EditVisitState = {
+  error?: string;
+  fieldErrors?: Record<string, string[]>;
+};
+
+export async function updatePatrolVisit(
+  visitId: string,
+  _prev: EditVisitState,
+  formData: FormData,
+): Promise<EditVisitState> {
+  await requireAdmin();
+  const parsed = EditVisitInput.safeParse({
+    officerId: formData.get("officerId")?.toString() || null,
+    scheduledAt: formData.get("scheduledAt")?.toString() ?? "",
+    arrivedAt: formData.get("arrivedAt")?.toString() || null,
+    departedAt: formData.get("departedAt")?.toString() || null,
+    status: formData.get("status")?.toString() ?? "PENDING",
+    notes: formData.get("notes")?.toString() || null,
+  });
+  if (!parsed.success) {
+    return {
+      error: "Please fix the errors below.",
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+  const d = parsed.data;
+
+  const existing = await prisma.patrolVisit.findUnique({
+    where: { id: visitId },
+    select: { id: true, siteId: true },
+  });
+  if (!existing) return { error: "Visit not found." };
+
+  await prisma.patrolVisit.update({
+    where: { id: visitId },
+    data: {
+      officerId: d.officerId || null,
+      scheduledAt: new Date(d.scheduledAt),
+      arrivedAt: d.arrivedAt ? new Date(d.arrivedAt) : null,
+      departedAt: d.departedAt ? new Date(d.departedAt) : null,
+      status: d.status as any,
+      notes: d.notes ?? null,
+    },
+  });
+
+  revalidatePath("/patrols");
+  revalidatePath(`/patrols/visits/${visitId}`);
+  revalidatePath("/activities");
+  if (existing.siteId) revalidatePath(`/sites/${existing.siteId}`);
+  redirect(`/patrols/visits/${visitId}`);
 }

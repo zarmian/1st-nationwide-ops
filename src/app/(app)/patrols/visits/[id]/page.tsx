@@ -42,7 +42,7 @@ export default async function PatrolVisitDetailPage({
 }: {
   params: { id: string };
 }) {
-  await requireStaff();
+  const me = await requireStaff();
 
   const visit = await prisma.patrolVisit.findUnique({
     where: { id: params.id },
@@ -118,6 +118,14 @@ export default async function PatrolVisitDetailPage({
               )}
             </div>
           </div>
+          {me.role === "ADMIN" && (
+            <Link
+              href={`/patrols/visits/${visit.id}/edit`}
+              className="btn-secondary text-sm"
+            >
+              Edit
+            </Link>
+          )}
         </div>
       </div>
 
