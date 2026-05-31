@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { DataTable } from "@/components/DataTable";
 import { FilterPanel } from "@/components/FilterPanel";
+import { KeysTable, type KeyTableRow } from "./_components/KeysTable";
 
 export const dynamic = "force-dynamic";
 
@@ -11,14 +11,6 @@ const STATUS_LABEL: Record<string, string> = {
   WITH_CUSTOMER: "With customer",
   LOST: "Lost",
   RETIRED: "Retired",
-};
-
-const STATUS_TONE: Record<string, string> = {
-  WITH_US: "chip-mint",
-  WITH_OFFICER: "chip-amber",
-  WITH_CUSTOMER: "chip-slate",
-  LOST: "chip-red",
-  RETIRED: "chip-slate",
 };
 
 export default async function KeysPage({
@@ -53,7 +45,7 @@ export default async function KeysPage({
       include: {
         site: { select: { id: true, name: true, code: true } },
         currentHolder: { select: { id: true, name: true } },
-        keySet: { select: { id: true, label: true } },
+        keySet: { select: { id: true, label: true, internalNo: true } },
       },
     }),
     prisma.site.findMany({
@@ -77,6 +69,42 @@ export default async function KeysPage({
 
   const counts: Record<string, number> = {};
   for (const t of totalsByStatus) counts[t.status] = t._count._all;
+
+  // Group keys by KeySet so a set renders as one row (expandable) instead
+  // of one row per key. Loose keys (no set) keep their own row.
+  // Order within a set is preserved from the query.
+  const rows: KeyTableRow[] = [];
+  const setIndex = new Map<string, number>();
+  for (const k of keys) {
+    const keyEntry = {
+      id: k.id,
+      internalNo: k.internalNo,
+      label: k.label,
+      type: k.type,
+      status: k.status,
+      site: k.site,
+      currentHolder: k.currentHolder,
+    };
+    if (k.keySet) {
+      const existing = setIndex.get(k.keySet.id);
+      if (existing != null) {
+        const row = rows[existing] as Extract<KeyTableRow, { kind: "set" }>;
+        row.keys.push(keyEntry);
+      } else {
+        setIndex.set(k.keySet.id, rows.length);
+        rows.push({
+          kind: "set",
+          setId: k.keySet.id,
+          setLabel: k.keySet.label,
+          setInternalNo: k.keySet.internalNo,
+          site: k.site,
+          keys: [keyEntry],
+        });
+      }
+    } else {
+      rows.push({ kind: "loose", key: keyEntry });
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -199,12 +227,11 @@ export default async function KeysPage({
         </form>
       </FilterPanel>
 
-      <DataTable
-        rows={keys}
-        rowHref={(k) => `/keys/${k.id}`}
+      <KeysTable
+        rows={rows}
         footer={
           keys.length === 200
-            ? "Showing first 200 — narrow the filters to see more."
+            ? "Showing first 200 keys — narrow the filters to see more."
             : undefined
         }
         emptyState={
@@ -212,57 +239,6 @@ export default async function KeysPage({
             ? "No keys match these filters."
             : "No keys recorded yet. Add keys per site from the site detail."
         }
-        columns={[
-          {
-            header: "Code",
-            cell: (k) => (
-              <span className="font-mono text-xs text-slate-600">
-                {k.internalNo ?? "—"}
-              </span>
-            ),
-          },
-          {
-            header: "Label",
-            cell: (k) => (
-              <div>
-                <div className="font-medium text-brand-navy">{k.label}</div>
-                {k.keySet && (
-                  <div className="text-xs text-slate-500">Set: {k.keySet.label}</div>
-                )}
-              </div>
-            ),
-          },
-          {
-            header: "Type",
-            cell: (k) => (
-              <span className="text-slate-600">
-                {k.type.charAt(0) + k.type.slice(1).toLowerCase()}
-              </span>
-            ),
-          },
-          {
-            header: "Site",
-            cell: (k) => (
-              <span className="text-slate-600">{k.site?.name ?? "—"}</span>
-            ),
-          },
-          {
-            header: "Holder",
-            cell: (k) => (
-              <span className="text-slate-600">
-                {k.currentHolder?.name ?? "—"}
-              </span>
-            ),
-          },
-          {
-            header: "Status",
-            cell: (k) => (
-              <span className={STATUS_TONE[k.status] ?? "chip-slate"}>
-                {STATUS_LABEL[k.status] ?? k.status}
-              </span>
-            ),
-          },
-        ]}
       />
     </div>
   );
