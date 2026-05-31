@@ -92,6 +92,75 @@ describe("CalloutInput — enums", () => {
   });
 });
 
+describe("CalloutInput — partner handler", () => {
+  const VALID_PARTNER = "00000000-0000-4000-8000-00000000000a";
+
+  it("accepts a hand-off to a partner with just a partner picked", () => {
+    const r = CalloutInput.safeParse({
+      siteId: VALID_SITE,
+      type: "ALARM_RESPONSE",
+      source: "PARTNER_REQUEST",
+      handlerKind: "partner",
+      handlerPartnerId: VALID_PARTNER,
+      handedOffAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      notes: "Given to Nexus 30/05",
+      excludeFromClientReport: false,
+      partnerReportRef: null,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects partner handler with no partner picked", () => {
+    const r = CalloutInput.safeParse({
+      siteId: VALID_SITE,
+      type: "ALARM_RESPONSE",
+      source: "PARTNER_REQUEST",
+      handlerKind: "partner",
+      handedOffAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      excludeFromClientReport: false,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const msgs = r.error.flatten().fieldErrors.handlerPartnerId ?? [];
+      expect(msgs.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("attendance times are optional when handler is partner", () => {
+    // No startedAt or completedAt — admin doesn't know yet.
+    const r = CalloutInput.safeParse({
+      siteId: VALID_SITE,
+      type: "ALARM_RESPONSE",
+      source: "PARTNER_REQUEST",
+      handlerKind: "partner",
+      handlerPartnerId: VALID_PARTNER,
+      handedOffAt: new Date().toISOString(),
+      excludeFromClientReport: false,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a future hand-off time", () => {
+    const r = CalloutInput.safeParse({
+      siteId: VALID_SITE,
+      type: "ALARM_RESPONSE",
+      source: "PARTNER_REQUEST",
+      handlerKind: "partner",
+      handlerPartnerId: VALID_PARTNER,
+      handedOffAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      excludeFromClientReport: false,
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("officer flow still works with handlerKind unset (default = officer)", () => {
+    // Backwards-compatible: forms that don't yet send handlerKind keep
+    // working under the existing officer flow.
+    const r = CalloutInput.safeParse(baseInput());
+    expect(r.success).toBe(true);
+  });
+});
+
 describe("checkBackdateAllowed", () => {
   const now = new Date("2026-06-01T12:00:00Z");
 

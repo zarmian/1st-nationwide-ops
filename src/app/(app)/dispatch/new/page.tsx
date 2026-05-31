@@ -18,7 +18,7 @@ export default async function NewJobPage({
 }: {
   searchParams: { siteId?: string };
 }) {
-  const [sites, officers, allJobTypes, allJobSources] = await Promise.all([
+  const [sites, officers, partners, allJobTypes, allJobSources] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
@@ -31,6 +31,11 @@ export default async function NewJobPage({
     }),
     prisma.user.findMany({
       where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.partner.findMany({
+      where: { active: true, role: { in: ["SUBCONTRACTOR", "BOTH"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -65,6 +70,7 @@ export default async function NewJobPage({
         action={createJob}
         sites={sites}
         officers={officers}
+        partners={partners}
         jobTypes={jobTypes}
         jobSources={allJobSources}
         defaultSiteId={searchParams.siteId}

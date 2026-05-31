@@ -28,6 +28,7 @@ export function NewJobForm({
   action,
   sites,
   officers,
+  partners,
   jobTypes,
   jobSources,
   defaultSiteId,
@@ -35,6 +36,7 @@ export function NewJobForm({
   action: (state: NewJobState, fd: FormData) => Promise<NewJobState>;
   sites: { id: string; name: string; code: string | null; postcodeFormatted: string }[];
   officers: { id: string; name: string }[];
+  partners: { id: string; name: string }[];
   jobTypes: PickerOption[];
   jobSources: PickerOption[];
   defaultSiteId?: string;
@@ -46,6 +48,9 @@ export function NewJobForm({
     jobTypes[0]?.code ??
     "ADHOC";
   const [type, setType] = useState(defaultType);
+  const [handlerKind, setHandlerKind] = useState<"officer" | "partner">(
+    "officer",
+  );
   const [siteSearch, setSiteSearch] = useState("");
   const wantsAlarm = type === "ALARM_RESPONSE";
 
@@ -165,6 +170,34 @@ export function NewJobForm({
             </p>
           </div>
           <div>
+            <div className="label">Handle by</div>
+            <div className="flex gap-3 text-sm pt-1">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="handlerKind"
+                  value="officer"
+                  checked={handlerKind === "officer"}
+                  onChange={() => setHandlerKind("officer")}
+                />
+                <span>Our officer</span>
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="handlerKind"
+                  value="partner"
+                  checked={handlerKind === "partner"}
+                  onChange={() => setHandlerKind("partner")}
+                />
+                <span>Partner</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        {handlerKind === "officer" ? (
+          <div>
             <label className="label" htmlFor="assignedToUserId">
               Assign to
             </label>
@@ -181,8 +214,62 @@ export function NewJobForm({
                 </option>
               ))}
             </select>
+            <p className="text-xs text-slate-500 mt-1">
+              Leave blank to keep the job open for any officer to claim.
+            </p>
           </div>
-        </div>
+        ) : (
+          <div className="grid md:grid-cols-2 gap-4">
+            <div>
+              <label className="label" htmlFor="handlerPartnerId">
+                Partner we're giving it to
+              </label>
+              {partners.length === 0 ? (
+                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  No subcontracting partners on file. Add Nexus or
+                  Keyholding Co in Admin → Partners first.
+                </p>
+              ) : (
+                <select
+                  id="handlerPartnerId"
+                  name="handlerPartnerId"
+                  defaultValue=""
+                  className="input"
+                  required
+                >
+                  <option value="" disabled>
+                    Pick a partner…
+                  </option>
+                  {partners.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {fe.handlerPartnerId?.[0] && (
+                <p className="text-xs text-red-600 mt-1">
+                  {fe.handlerPartnerId[0]}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="label" htmlFor="handedOffAt">
+                When handed off
+              </label>
+              <input
+                id="handedOffAt"
+                name="handedOffAt"
+                type="datetime-local"
+                className="input"
+              />
+              <p className="text-xs text-slate-500 mt-1">
+                Leave blank for "now". No officer pay is recorded for
+                sub'd jobs.
+              </p>
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="label" htmlFor="notes">

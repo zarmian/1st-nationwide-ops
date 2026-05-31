@@ -1,5 +1,7 @@
 import Link from "next/link";
 import type { Prisma, JobStatus } from "@prisma/client";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { reassignJob } from "../patrols/_actions";
@@ -124,6 +126,9 @@ export default async function DispatchPage({
 }: {
   searchParams: { bucket?: string; layers?: string };
 }) {
+  const session = await getServerSession(authOptions);
+  const isAdmin = session?.user?.role === "ADMIN";
+
   const now = new Date();
   const bucket: Bucket | null =
     searchParams.bucket && (BUCKETS as readonly string[]).includes(searchParams.bucket)
@@ -184,6 +189,7 @@ export default async function DispatchPage({
         customer: { select: { name: true } },
         assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
+        handledByPartner: { select: { id: true, name: true } },
       },
       orderBy: jobsOrderBy,
       take: 100,
@@ -596,6 +602,16 @@ export default async function DispatchPage({
           {
             header: "Assigned",
             cell: (j) => {
+              if (j.handledByPartner) {
+                return (
+                  <span className="text-slate-600 italic">
+                    {j.handledByPartner.name}{" "}
+                    <span className="text-xs text-slate-400">
+                      (partner)
+                    </span>
+                  </span>
+                );
+              }
               // Pre-start jobs are inline-reassignable; live ones show the
               // current officer as plain text so dispatchers don't accidentally
               // change someone mid-job.
@@ -634,10 +650,20 @@ export default async function DispatchPage({
             header: "",
             align: "right",
             cell: (j) => (
-              <CancelJobButton
-                jobId={j.id}
-                jobLabel={`${jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
-              />
+              <div className="flex items-center justify-end gap-2">
+                {isAdmin && j.status !== "CANCELLED" && (
+                  <Link
+                    href={`/dispatch/${j.id}/edit`}
+                    className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+                  >
+                    edit
+                  </Link>
+                )}
+                <CancelJobButton
+                  jobId={j.id}
+                  jobLabel={`${jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
+                />
+              </div>
             ),
           },
         ]}

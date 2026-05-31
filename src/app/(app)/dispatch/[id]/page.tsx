@@ -52,7 +52,7 @@ export default async function JobDetailPage({
 }: {
   params: { id: string };
 }) {
-  await requireStaff();
+  const me = await requireStaff();
 
   const job = await prisma.job.findUnique({
     where: { id: params.id },
@@ -69,6 +69,7 @@ export default async function JobDetailPage({
       customer: { select: { id: true, name: true } },
       partner: { select: { id: true, name: true } },
       assignedTo: { select: { id: true, name: true } },
+      handledByPartner: { select: { id: true, name: true } },
       cancelledBy: { select: { name: true } },
       alarmEvent: {
         select: { id: true, source: true, zone: true, priority: true },
@@ -146,12 +147,19 @@ export default async function JobDetailPage({
               )}
             </div>
           </div>
-          {!isClosed && (
-            <CancelJobButton
-              jobId={job.id}
-              jobLabel={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
-            />
-          )}
+          <div className="flex items-center gap-2">
+            {me.role === "ADMIN" && job.status !== "CANCELLED" && (
+              <Link href={`/dispatch/${job.id}/edit`} className="btn-secondary text-sm">
+                Edit
+              </Link>
+            )}
+            {!isClosed && (
+              <CancelJobButton
+                jobId={job.id}
+                jobLabel={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -215,9 +223,30 @@ export default async function JobDetailPage({
 
         <div className="card p-4 space-y-2">
           <h2 className="font-semibold text-brand-navy text-sm uppercase tracking-wider">
-            Assigned officer
+            {job.handledByPartner ? "Handed to partner" : "Assigned officer"}
           </h2>
-          {isPreStart ? (
+          {job.handledByPartner ? (
+            <div className="text-sm">
+              <div className="font-medium text-brand-navy">
+                {job.handledByPartner.name}
+              </div>
+              {job.handedOffAt && (
+                <div className="text-xs text-slate-500 mt-1">
+                  Given to them: {relativeTime(job.handedOffAt)}
+                </div>
+              )}
+              {job.externalResponder && (
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Their officer: {job.externalResponder}
+                </div>
+              )}
+              {job.partnerReportRef && (
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Their report ref: {job.partnerReportRef}
+                </div>
+              )}
+            </div>
+          ) : isPreStart ? (
             <QuickReassignJob
               jobId={job.id}
               currentOfficerId={job.assignedTo?.id ?? null}

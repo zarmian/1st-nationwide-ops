@@ -685,6 +685,7 @@ model Partner {
 
   contacts        PartnerContact[]
   jobs            Job[]
+  handledJobs     Job[]           @relation("JobHandlerPartner")
   sites           Site[]          @relation("PartnerSites")
   formTemplates   FormTemplate[]
 
@@ -728,6 +729,14 @@ model Job {
   assignedToUserId      String?       @db.Uuid
   assignedTo            User?         @relation("JobResponderUser", fields: [assignedToUserId], references: [id])
   externalResponder     String?
+
+  // Partner-as-subcontractor: when we receive a job (e.g. Shurgard non-London
+  // alarm) and hand it to Nexus / Keyholding Co. Their officer attends; we
+  // keep this stub for the audit trail + the daily client email. Distinct
+  // from `partnerId` above which mirrors Site.partnerId (partner-as-customer).
+  handledByPartnerId    String?       @db.Uuid
+  handledByPartner      Partner?      @relation("JobHandlerPartner", fields: [handledByPartnerId], references: [id])
+  handedOffAt           DateTime?
 
   alarmEventId          String?       @unique @db.Uuid
   alarmEvent            AlarmEvent?   @relation(fields: [alarmEventId], references: [id])
@@ -773,6 +782,7 @@ model Job {
   @@index([assignedToUserId, status])
   @@index([customerId])
   @@index([partnerId])
+  @@index([handledByPartnerId])
   @@index([onboardingPipelineId])
   @@index([scheduledFor])
   @@index([status])

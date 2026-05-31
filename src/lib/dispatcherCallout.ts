@@ -25,38 +25,94 @@ export const CALLOUT_SOURCES = [
   "AD_HOC",
 ] as const;
 
+export const HANDLER_KINDS = ["officer", "partner"] as const;
+export type HandlerKind = (typeof HANDLER_KINDS)[number];
+
+/**
+ * Two branches:
+ *   handlerKind="officer" → existing flow. Internal officer attended.
+ *                            startedAt + completedAt required.
+ *   handlerKind="partner" → we sub'd to a partner (Nexus, Keyholding Co).
+ *                            handedOffAt required. Attendance times +
+ *                            their guard name are optional — admin may
+ *                            not know them yet.
+ */
 export const CalloutInput = z
   .object({
     siteId: z.string().uuid("Pick a site"),
     type: z.enum(CALLOUT_JOB_TYPES),
     source: z.enum(CALLOUT_SOURCES),
-    officerId: z.string().uuid("Pick an officer"),
-    startedAt: z.string().min(1, "When did it start?"),
-    completedAt: z.string().min(1, "When did it finish?"),
+    handlerKind: z.enum(HANDLER_KINDS).default("officer"),
+    officerId: z.string().trim().optional().nullable(),
+    handlerPartnerId: z.string().trim().optional().nullable(),
+    handedOffAt: z.string().trim().optional().nullable(),
+    partnerOfficerName: z.string().trim().max(120).optional().nullable(),
+    startedAt: z.string().trim().optional().nullable(),
+    completedAt: z.string().trim().optional().nullable(),
     notes: z.string().trim().max(2000).optional().nullable(),
     excludeFromClientReport: z.boolean().default(false),
     partnerReportRef: z.string().trim().max(200).optional().nullable(),
   })
   .superRefine((d, ctx) => {
-    const start = new Date(d.startedAt);
-    const end = new Date(d.completedAt);
-    if (Number.isNaN(start.getTime())) {
+    if (d.handlerKind === "officer") {
+      if (!d.officerId || !isUuid(d.officerId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["officerId"],
+          message: "Pick an officer.",
+        });
+      }
+      if (!d.startedAt) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["startedAt"],
+          message: "When did it start?",
+        });
+      }
+      if (!d.completedAt) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["completedAt"],
+          message: "When did it finish?",
+        });
+      }
+    } else {
+      if (!d.handlerPartnerId || !isUuid(d.handlerPartnerId)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["handlerPartnerId"],
+          message: "Pick the partner you gave it to.",
+        });
+      }
+    }
+
+    // Validate any datetime fields that were provided.
+    const start = d.startedAt ? new Date(d.startedAt) : null;
+    const end = d.completedAt ? new Date(d.completedAt) : null;
+    const handed = d.handedOffAt ? new Date(d.handedOffAt) : null;
+
+    if (start && Number.isNaN(start.getTime())) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["startedAt"],
         message: "Start time isn't a valid date.",
       });
-      return;
     }
-    if (Number.isNaN(end.getTime())) {
+    if (end && Number.isNaN(end.getTime())) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["completedAt"],
         message: "End time isn't a valid date.",
       });
-      return;
     }
-    if (end <= start) {
+    if (handed && Number.isNaN(handed.getTime())) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["handedOffAt"],
+        message: "Hand-off time isn't a valid date.",
+      });
+    }
+    if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end <= start) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["completedAt"],
@@ -65,14 +121,28 @@ export const CalloutInput = z
     }
     // Allow a minute of slop so clock-skew doesn't trip a dispatcher
     // who set 'started at = now' from their browser.
-    if (start.getTime() > Date.now() + 60 * 1000) {
+    const future = Date.now() + 60 * 1000;
+    if (start && start.getTime() > future) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["startedAt"],
         message: "Can't record a callout in the future.",
       });
     }
+    if (handed && handed.getTime() > future) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["handedOffAt"],
+        message: "Hand-off time can't be in the future.",
+      });
+    }
   });
+
+function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    s,
+  );
+}
 
 /**
  * Backdate gate. Returns null if the role can record a callout that

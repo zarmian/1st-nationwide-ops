@@ -79,6 +79,7 @@ export default async function LockUnlockScheduleDetailPage({
       scheduledFor: true,
       completedAt: true,
       assignedTo: { select: { name: true } },
+      handledByPartner: { select: { name: true } },
     },
     orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
     take: 30,
@@ -203,7 +204,11 @@ export default async function LockUnlockScheduleDetailPage({
                 >
                   {j.type === "LOCK" ? "Lock-up" : "Unlock"} ·{" "}
                   {fmtFull(j.scheduledFor)}
-                  {j.assignedTo ? ` · ${j.assignedTo.name}` : ""} →
+                  {j.handledByPartner
+                    ? ` · ${j.handledByPartner.name} (partner)`
+                    : j.assignedTo
+                      ? ` · ${j.assignedTo.name}`
+                      : ""} →
                 </Link>
                 <span className={JOB_STATUS_TONE[j.status] ?? "chip-slate"}>
                   {j.status.replace(/_/g, " ").toLowerCase()}

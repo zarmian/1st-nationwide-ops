@@ -156,6 +156,7 @@ export async function GET(req: Request) {
             customer: { select: { name: true } },
             partner: { select: { name: true } },
             assignedTo: { select: { name: true } },
+            handledByPartner: { select: { name: true } },
           },
           orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
         })
@@ -202,7 +203,9 @@ export async function GET(req: Request) {
       region: j.site?.region?.name ?? null,
       customer: j.customer?.name ?? null,
       partner: j.partner?.name ?? null,
-      officer: j.assignedTo?.name ?? null,
+      officer: j.handledByPartner
+        ? `${j.handledByPartner.name} (partner)`
+        : j.assignedTo?.name ?? null,
       billed: j.billedAmount != null ? Number(j.billedAmount) : null,
       paid: j.paidAmount != null ? Number(j.paidAmount) : null,
       status: j.status,

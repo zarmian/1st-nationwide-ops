@@ -27,7 +27,7 @@ export default async function NewCalloutPage({
 }: {
   searchParams: { siteId?: string };
 }) {
-  const [sites, officers, allJobTypes, allJobSources] = await Promise.all([
+  const [sites, officers, partners, allJobTypes, allJobSources] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
@@ -40,6 +40,11 @@ export default async function NewCalloutPage({
     }),
     prisma.user.findMany({
       where: { active: true, role: "OFFICER" },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    prisma.partner.findMany({
+      where: { active: true, role: { in: ["SUBCONTRACTOR", "BOTH"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -77,6 +82,7 @@ export default async function NewCalloutPage({
         action={recordDispatcherCallout}
         sites={sites}
         officers={officers}
+        partners={partners}
         jobTypes={jobTypes}
         jobSources={jobSources}
         defaultSiteId={searchParams.siteId}

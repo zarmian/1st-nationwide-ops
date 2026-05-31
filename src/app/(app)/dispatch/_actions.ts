@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { requireStaff } from "@/lib/authz";
+import { requireAdmin, requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import {
   applyBillingToJob,
@@ -50,6 +50,8 @@ const ALARM_SOURCES = [
   "WEBHOOK",
 ] as const;
 
+const HANDLER_KINDS = ["officer", "partner"] as const;
+
 const NewJobInput = z
   .object({
     siteId: z.string().uuid("Pick a site"),
@@ -57,7 +59,11 @@ const NewJobInput = z
     source: z.enum(JOB_SOURCES),
     priority: z.enum(PRIORITIES).default("MEDIUM"),
     scheduledFor: z.string().optional().nullable(),
+    handlerKind: z.enum(HANDLER_KINDS).default("officer"),
     assignedToUserId: z.string().uuid().or(z.literal("")).optional().nullable(),
+    handlerPartnerId: z.string().uuid().or(z.literal("")).optional().nullable(),
+    handedOffAt: z.string().optional().nullable(),
+    partnerOfficerName: z.string().trim().max(120).optional().nullable(),
     notes: z.string().trim().max(2000).optional().nullable(),
     reportedViaPartnerApp: z.boolean().default(false),
     partnerReportRef: z.string().trim().max(200).optional().nullable(),
@@ -75,6 +81,13 @@ const NewJobInput = z
         message: "Alarm source is required for alarm response jobs",
       });
     }
+    if (d.handlerKind === "partner" && (!d.handlerPartnerId || d.handlerPartnerId === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["handlerPartnerId"],
+        message: "Pick the partner you're giving it to.",
+      });
+    }
   });
 
 export type NewJobState = {
@@ -89,7 +102,11 @@ function parseForm(formData: FormData) {
     source: formData.get("source")?.toString() ?? "CUSTOMER_REQUEST",
     priority: formData.get("priority")?.toString() ?? "MEDIUM",
     scheduledFor: formData.get("scheduledFor")?.toString() || null,
+    handlerKind: formData.get("handlerKind")?.toString() ?? "officer",
     assignedToUserId: formData.get("assignedToUserId")?.toString() || null,
+    handlerPartnerId: formData.get("handlerPartnerId")?.toString() || null,
+    handedOffAt: formData.get("handedOffAt")?.toString() || null,
+    partnerOfficerName: formData.get("partnerOfficerName")?.toString() || null,
     notes: formData.get("notes")?.toString() || null,
     reportedViaPartnerApp: formData.get("reportedViaPartnerApp") === "on",
     partnerReportRef: formData.get("partnerReportRef")?.toString() || null,
@@ -129,6 +146,30 @@ export async function createJob(
     };
   }
 
+  const handlerPartnerId =
+    d.handlerKind === "partner" ? d.handlerPartnerId || null : null;
+  const assignedToUserId =
+    d.handlerKind === "officer" ? d.assignedToUserId || null : null;
+
+  if (handlerPartnerId) {
+    const partner = await prisma.partner.findUnique({
+      where: { id: handlerPartnerId },
+      select: { active: true, role: true },
+    });
+    if (!partner || !partner.active) {
+      return {
+        error: "Partner not found or inactive.",
+        fieldErrors: { handlerPartnerId: ["Unknown or inactive"] },
+      };
+    }
+    if (partner.role !== "SUBCONTRACTOR" && partner.role !== "BOTH") {
+      return {
+        error: "Only subcontracting partners (Nexus, Keyholding Co) can take a sub'd job.",
+        fieldErrors: { handlerPartnerId: ["Not a subcontracting partner"] },
+      };
+    }
+  }
+
   // For alarm responses, write the AlarmEvent first and link it on the job.
   let alarmEventId: string | null = null;
   if (d.type === "ALARM_RESPONSE") {
@@ -140,24 +181,36 @@ export async function createJob(
         priority: d.priority as any,
         rawSubject: d.alarmRawSubject,
         rawBody: d.alarmRawBody,
-        assignedToId: d.assignedToUserId || null,
+        assignedToId: assignedToUserId,
       },
       select: { id: true },
     });
     alarmEventId = alarm.id;
   }
 
+  // Status: ASSIGNED if we've already designated who handles it
+  // (internal officer OR a partner). OPEN otherwise.
+  const status =
+    assignedToUserId || handlerPartnerId
+      ? ("ASSIGNED" as any)
+      : ("OPEN" as any);
+
   const created = await prisma.job.create({
     data: {
       type: d.type as any,
       source: d.source as any,
-      status: d.assignedToUserId ? ("ASSIGNED" as any) : ("OPEN" as any),
+      status,
       priority: d.priority as any,
       siteId: d.siteId,
       customerId: site.customerId,
       partnerId: site.partnerId,
-      responderType: "INTERNAL_OFFICER" as any,
-      assignedToUserId: d.assignedToUserId || null,
+      responderType:
+        d.handlerKind === "partner" ? ("PARTNER" as any) : ("INTERNAL_OFFICER" as any),
+      assignedToUserId,
+      handledByPartnerId: handlerPartnerId,
+      handedOffAt: d.handedOffAt ? new Date(d.handedOffAt) : null,
+      externalResponder:
+        d.handlerKind === "partner" ? d.partnerOfficerName ?? null : null,
       alarmEventId,
       scheduledFor: d.scheduledFor ? new Date(d.scheduledFor) : null,
       reportedViaPartnerApp: d.reportedViaPartnerApp,
@@ -167,14 +220,15 @@ export async function createJob(
     select: { id: true },
   });
 
-  // Best-effort billing snapshot. PER_HOUR types stay unbilled until
-  // completion when we know actual hours.
+  // Best-effort billing snapshot. Officer pay only when WE attended —
+  // sub'd-to-partner jobs leave the pay slot empty (what we owe the
+  // partner is tracked separately).
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
     const bill = await billForSite(d.siteId, rateService);
     if (bill.ok) await applyBillingToJob(created.id, bill);
-    if (d.assignedToUserId) {
-      const pay = await payForOfficer(d.assignedToUserId, rateService);
+    if (assignedToUserId) {
+      const pay = await payForOfficer(assignedToUserId, rateService);
       if (pay.ok) await applyPayToJob(created.id, pay);
     }
   }
@@ -223,6 +277,159 @@ export async function cancelJob(
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
   return { ok: true };
+}
+
+/**
+ * Admin job editor. Lets an admin correct any field on a Job after the
+ * fact — the original creator (cron, dispatcher form) may have got
+ * something wrong, or the operator may have learned more later (e.g.
+ * partner finally sent their report). Audit trail: just the Job's
+ * own updatedAt; we don't snapshot field-level diffs yet.
+ *
+ * Scope: editable fields are content (type, source, priority, times,
+ * notes, handover details, the rates-relevant identifiers). Status
+ * isn't free-text editable — that still flows through the cancel
+ * button + review queue + completion flow so the state machine stays
+ * honest. Cancelled jobs aren't editable (use the cancel button +
+ * un-cancel separately if needed).
+ */
+const EditJobInput = z
+  .object({
+    type: z.enum(JOB_TYPES),
+    source: z.enum(JOB_SOURCES),
+    priority: z.enum(PRIORITIES),
+    scheduledFor: z.string().optional().nullable(),
+    handlerKind: z.enum(HANDLER_KINDS).default("officer"),
+    assignedToUserId: z.string().uuid().or(z.literal("")).optional().nullable(),
+    handlerPartnerId: z.string().uuid().or(z.literal("")).optional().nullable(),
+    handedOffAt: z.string().optional().nullable(),
+    partnerOfficerName: z.string().trim().max(120).optional().nullable(),
+    startedAt: z.string().optional().nullable(),
+    completedAt: z.string().optional().nullable(),
+    notes: z.string().trim().max(2000).optional().nullable(),
+    excludeFromClientReport: z.boolean().default(false),
+    partnerReportRef: z.string().trim().max(200).optional().nullable(),
+  })
+  .superRefine((d, ctx) => {
+    if (d.handlerKind === "partner" && (!d.handlerPartnerId || d.handlerPartnerId === "")) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["handlerPartnerId"],
+        message: "Pick the partner.",
+      });
+    }
+    const start = d.startedAt ? new Date(d.startedAt) : null;
+    const end = d.completedAt ? new Date(d.completedAt) : null;
+    if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end <= start) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["completedAt"],
+        message: "End must be after start.",
+      });
+    }
+  });
+
+export type EditJobState = {
+  error?: string;
+  fieldErrors?: Record<string, string[]>;
+};
+
+function parseEditForm(formData: FormData) {
+  return EditJobInput.safeParse({
+    type: formData.get("type")?.toString() ?? "",
+    source: formData.get("source")?.toString() ?? "",
+    priority: formData.get("priority")?.toString() ?? "MEDIUM",
+    scheduledFor: formData.get("scheduledFor")?.toString() || null,
+    handlerKind: formData.get("handlerKind")?.toString() ?? "officer",
+    assignedToUserId: formData.get("assignedToUserId")?.toString() || null,
+    handlerPartnerId: formData.get("handlerPartnerId")?.toString() || null,
+    handedOffAt: formData.get("handedOffAt")?.toString() || null,
+    partnerOfficerName: formData.get("partnerOfficerName")?.toString() || null,
+    startedAt: formData.get("startedAt")?.toString() || null,
+    completedAt: formData.get("completedAt")?.toString() || null,
+    notes: formData.get("notes")?.toString() || null,
+    excludeFromClientReport: formData.get("excludeFromClientReport") === "on",
+    partnerReportRef: formData.get("partnerReportRef")?.toString() || null,
+  });
+}
+
+export async function updateJob(
+  jobId: string,
+  _prev: EditJobState,
+  formData: FormData,
+): Promise<EditJobState> {
+  await requireAdmin();
+  const existing = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: { id: true, status: true, siteId: true, alarmEventId: true },
+  });
+  if (!existing) return { error: "Job not found." };
+  if (existing.status === "CANCELLED") {
+    return {
+      error: "Cancelled jobs aren't editable. Restore via the cancel button first.",
+    };
+  }
+
+  const parsed = parseEditForm(formData);
+  if (!parsed.success) {
+    return {
+      error: "Please fix the errors below.",
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+  const d = parsed.data;
+
+  const handlerPartnerId =
+    d.handlerKind === "partner" ? d.handlerPartnerId || null : null;
+  const assignedToUserId =
+    d.handlerKind === "officer" ? d.assignedToUserId || null : null;
+
+  if (handlerPartnerId) {
+    const partner = await prisma.partner.findUnique({
+      where: { id: handlerPartnerId },
+      select: { active: true, role: true },
+    });
+    if (!partner || !partner.active) {
+      return {
+        error: "Partner not found or inactive.",
+        fieldErrors: { handlerPartnerId: ["Unknown or inactive"] },
+      };
+    }
+    if (partner.role !== "SUBCONTRACTOR" && partner.role !== "BOTH") {
+      return {
+        error: "Only subcontracting partners can take a sub'd job.",
+        fieldErrors: { handlerPartnerId: ["Not a subcontracting partner"] },
+      };
+    }
+  }
+
+  await prisma.job.update({
+    where: { id: jobId },
+    data: {
+      type: d.type as any,
+      source: d.source as any,
+      priority: d.priority as any,
+      scheduledFor: d.scheduledFor ? new Date(d.scheduledFor) : null,
+      responderType:
+        d.handlerKind === "partner" ? ("PARTNER" as any) : ("INTERNAL_OFFICER" as any),
+      assignedToUserId,
+      handledByPartnerId: handlerPartnerId,
+      handedOffAt: d.handedOffAt ? new Date(d.handedOffAt) : null,
+      externalResponder:
+        d.handlerKind === "partner" ? d.partnerOfficerName ?? null : null,
+      startedAt: d.startedAt ? new Date(d.startedAt) : null,
+      completedAt: d.completedAt ? new Date(d.completedAt) : null,
+      notes: d.notes ?? null,
+      excludeFromClientReport: d.excludeFromClientReport,
+      partnerReportRef: d.partnerReportRef ?? null,
+    },
+  });
+
+  revalidatePath("/dispatch");
+  revalidatePath(`/dispatch/${jobId}`);
+  revalidatePath("/activities");
+  if (existing.siteId) revalidatePath(`/sites/${existing.siteId}`);
+  redirect(`/dispatch/${jobId}`);
 }
 
 /**

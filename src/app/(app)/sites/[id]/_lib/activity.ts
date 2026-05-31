@@ -63,6 +63,7 @@ export async function loadActivity(
       take: fanout,
       include: {
         assignedTo: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
       },
     }),
     prisma.alarmEvent.count({ where: { siteId } }),
@@ -139,25 +140,30 @@ export async function loadActivity(
       // for cron-created jobs but not for ad-hoc /submit submissions.
       href: s.review?.id ? `/admin/reports/${s.review.id}` : null,
     })),
-    ...jobs.map<ActivityEvent>((j) => ({
-      id: `job:${j.id}`,
-      kind: "JOB",
-      severity:
-        j.status === "CANCELLED"
-          ? "warn"
-          : j.status === "CLOSED" ||
-              j.status === "SENT_TO_CLIENT" ||
-              j.status === "APPROVED"
-            ? "ok"
-            : "info",
-      at: j.completedAt ?? j.scheduledFor ?? j.createdAt,
-      title: `${prettyJobType(j.type)} · ${j.status
-        .replace(/_/g, " ")
-        .toLowerCase()}${j.assignedTo ? ` · ${j.assignedTo.name}` : ""}`,
-      detail: j.notes,
-      actor: j.assignedTo?.name ?? null,
-      href: `/dispatch/${j.id}`,
-    })),
+    ...jobs.map<ActivityEvent>((j) => {
+      const handlerName = j.handledByPartner
+        ? `${j.handledByPartner.name} (partner)`
+        : j.assignedTo?.name ?? null;
+      return {
+        id: `job:${j.id}`,
+        kind: "JOB",
+        severity:
+          j.status === "CANCELLED"
+            ? "warn"
+            : j.status === "CLOSED" ||
+                j.status === "SENT_TO_CLIENT" ||
+                j.status === "APPROVED"
+              ? "ok"
+              : "info",
+        at: j.completedAt ?? j.handedOffAt ?? j.scheduledFor ?? j.createdAt,
+        title: `${prettyJobType(j.type)} · ${j.status
+          .replace(/_/g, " ")
+          .toLowerCase()}${handlerName ? ` · ${handlerName}` : ""}`,
+        detail: j.notes,
+        actor: handlerName,
+        href: `/dispatch/${j.id}`,
+      };
+    }),
   ];
 
   events.sort((a, b) => b.at.getTime() - a.at.getTime());
