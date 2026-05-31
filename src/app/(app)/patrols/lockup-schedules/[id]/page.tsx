@@ -18,6 +18,7 @@ const DAY_LABEL: Record<string, string> = {
 function fmtFull(d: Date | null | undefined): string {
   if (!d) return "—";
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",

@@ -44,6 +44,7 @@ const STATUS_TONE: Record<string, string> = {
 
 function fmt(d: Date): string {
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",

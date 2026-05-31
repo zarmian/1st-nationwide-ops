@@ -111,5 +111,9 @@ export default async function CustomersAdminPage() {
 }
 
 function monthYear(d: Date): string {
-  return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", {
+    timeZone: "Europe/London",
+    month: "short",
+    year: "numeric",
+  });
 }

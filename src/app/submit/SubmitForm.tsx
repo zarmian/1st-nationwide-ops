@@ -447,7 +447,12 @@ function FieldInput({
                 )}
                 {loc!.capturedAt && (
                   <div className="text-xs text-slate-500">
-                    Captured {new Date(loc!.capturedAt).toLocaleTimeString()}
+                    Captured{" "}
+                    {new Date(loc!.capturedAt).toLocaleTimeString("en-GB", {
+                      timeZone: "Europe/London",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </div>
                 )}
               </div>

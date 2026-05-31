@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 function fmtFull(d: Date | null | undefined): string {
   if (!d) return "—";
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",

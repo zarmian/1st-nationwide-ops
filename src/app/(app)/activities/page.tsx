@@ -100,6 +100,7 @@ function bucketLabel(key: string, groupBy: GroupBy): string {
   if (groupBy === "day") {
     const d = new Date(`${key}T00:00:00`);
     return d.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       weekday: "short",
       day: "2-digit",
       month: "short",
@@ -109,6 +110,7 @@ function bucketLabel(key: string, groupBy: GroupBy): string {
   if (groupBy === "month") {
     const [y, m] = key.split("-").map(Number);
     return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       month: "long",
       year: "numeric",
     });
@@ -118,9 +120,11 @@ function bucketLabel(key: string, groupBy: GroupBy): string {
     const end = new Date(d);
     end.setDate(d.getDate() + 6);
     return `${d.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       day: "2-digit",
       month: "short",
     })} – ${end.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       day: "2-digit",
       month: "short",
       year: "numeric",

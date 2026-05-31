@@ -89,12 +89,14 @@ function formatRelative(d: Date): string {
     d.getDate() === yesterday.getDate();
 
   const time = d.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
     hour: "2-digit",
     minute: "2-digit",
   });
   if (sameDay) return `Today ${time}`;
   if (isYesterday) return `Yesterday ${time}`;
   const day = d.toLocaleDateString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",

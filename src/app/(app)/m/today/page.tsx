@@ -24,6 +24,7 @@ function formatScheduled(date: Date | null | undefined): {
     (date.getTime() - startOfToday.getTime()) / dayMs,
   );
   const time = date.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -33,6 +34,7 @@ function formatScheduled(date: Date | null | undefined): {
   else if (diffDays === -1) day = "Yesterday";
   else
     day = date.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       weekday: "short",
       day: "2-digit",
       month: "short",

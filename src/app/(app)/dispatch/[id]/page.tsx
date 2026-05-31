@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 function relativeTime(date: Date | null | undefined): string {
   if (!date) return "—";
   return date.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",

@@ -132,6 +132,22 @@ export async function POST(req: Request) {
     },
   });
 
+  // The officer has finished the report — move the Job out of the "live"
+  // dispatch view and into the review queue. updateMany with a status
+  // filter so we don't accidentally regress a Job that's already been
+  // approved / cancelled.
+  if (data.jobId) {
+    await prisma.job.updateMany({
+      where: {
+        id: data.jobId,
+        status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
+      },
+      data: {
+        status: "SUBMITTED",
+      },
+    });
+  }
+
   // If this submission completes a patrol visit, mark it COMPLETED with the
   // departure time (or now). arrivedAt is only set from the form when the
   // visit doesn't already have one — preserves the real "on-site" tap time.

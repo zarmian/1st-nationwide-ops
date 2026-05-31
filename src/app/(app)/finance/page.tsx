@@ -479,8 +479,8 @@ export default async function FinancePage({
             />
           </div>
           <div className="text-xs text-slate-500 mt-1">
-            {fromDate.toLocaleDateString("en-GB")} →{" "}
-            {toDate.toLocaleDateString("en-GB")} · trend: last 14 days
+            {fromDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })} →{" "}
+            {toDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })} · trend: last 14 days
           </div>
         </div>
         <div className="card p-4">
@@ -515,8 +515,8 @@ export default async function FinancePage({
           <p className="text-xs text-slate-500">
             Billed minus officer pay, per customer / partner. Only counts
             visits + jobs that have been completed by the officer in the
-            selected range ({fromDate.toLocaleDateString("en-GB")} →{" "}
-            {toDate.toLocaleDateString("en-GB")}). Scheduled work doesn't
+            selected range ({fromDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })} →{" "}
+            {toDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })}). Scheduled work doesn't
             count until it's done.
           </p>
         </div>

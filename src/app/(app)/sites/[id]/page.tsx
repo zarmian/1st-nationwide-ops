@@ -525,7 +525,7 @@ function fmtMoney(amount: unknown, currency: string): string {
 
 function fmtDate(d: Date | null): string {
   if (!d) return "—";
-  return d.toLocaleDateString("en-GB");
+  return d.toLocaleDateString("en-GB", { timeZone: "Europe/London" });
 }
 
 function FinanceTab({ site }: { site: SiteWithRelations }) {
@@ -867,5 +867,9 @@ function formatDayList(days: string[]): string {
 }
 
 function monthYear(d: Date): string {
-  return d.toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+  return d.toLocaleDateString("en-GB", {
+    timeZone: "Europe/London",
+    month: "short",
+    year: "numeric",
+  });
 }

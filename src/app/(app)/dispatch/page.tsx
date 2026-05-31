@@ -22,8 +22,6 @@ const LIVE_STATUSES = [
   "OPEN",
   "ASSIGNED",
   "IN_PROGRESS",
-  "SUBMITTED",
-  "REVIEW_PENDING",
 ] satisfies JobStatus[];
 
 const COMPLETED_STATUSES = [
@@ -76,7 +74,7 @@ function relativeTime(date: Date | null): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  return date.toLocaleDateString("en-GB");
+  return date.toLocaleDateString("en-GB", { timeZone: "Europe/London" });
 }
 
 /**
@@ -97,6 +95,7 @@ function formatScheduled(date: Date | null | undefined): {
   );
 
   const time = date.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -107,6 +106,7 @@ function formatScheduled(date: Date | null | undefined): {
   else if (diffDays === -1) day = "Yesterday";
   else
     day = date.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       weekday: "short",
       day: "2-digit",
       month: "short",

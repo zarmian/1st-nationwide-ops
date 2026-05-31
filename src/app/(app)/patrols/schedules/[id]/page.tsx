@@ -26,6 +26,7 @@ const FREQ_LABEL: Record<string, string> = {
 function fmtFull(d: Date | null | undefined): string {
   if (!d) return "—";
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -38,6 +39,7 @@ function fmtFull(d: Date | null | undefined): string {
 function fmtDate(d: Date | null | undefined): string {
   if (!d) return "—";
   return d.toLocaleDateString("en-GB", {
+    timeZone: "Europe/London",
     day: "2-digit",
     month: "short",
     year: "numeric",

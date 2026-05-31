@@ -45,6 +45,7 @@ export function VisitCard({ visit }: { visit: Visit }) {
 
   const scheduled = new Date(visit.scheduledAt);
   const time = scheduled.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -61,6 +62,7 @@ export function VisitCard({ visit }: { visit: Visit }) {
         : diffDays === -1
           ? "Yesterday"
           : scheduled.toLocaleDateString("en-GB", {
+              timeZone: "Europe/London",
               weekday: "short",
               day: "2-digit",
               month: "short",
