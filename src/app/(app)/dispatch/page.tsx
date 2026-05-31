@@ -356,9 +356,14 @@ export default async function DispatchPage({
           <h1 className="text-2xl font-semibold text-brand-navy">Dispatch</h1>
           <p className="text-sm text-slate-500">Live jobs across all sites</p>
         </div>
-        <Link href="/dispatch/new" className="btn-primary">
-          + New job
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/dispatch/callouts/new" className="btn-ghost">
+            + Record callout
+          </Link>
+          <Link href="/dispatch/new" className="btn-primary">
+            + New job
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
