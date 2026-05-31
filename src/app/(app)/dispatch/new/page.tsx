@@ -2,15 +2,23 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { createJob } from "../_actions";
 import { NewJobForm } from "../_components/NewJobForm";
+import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
+
+// NewJobForm covers one-off jobs only. Shift types are created via the
+// shift flow; we filter them out here so they don't appear in the picker.
+const NEW_JOB_TYPE_EXCLUDED = new Set([
+  "STATIC_GUARDING_SHIFT",
+  "DOG_HANDLER_SHIFT",
+]);
 
 export default async function NewJobPage({
   searchParams,
 }: {
   searchParams: { siteId?: string };
 }) {
-  const [sites, officers] = await Promise.all([
+  const [sites, officers, allJobTypes, allJobSources] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
@@ -26,7 +34,13 @@ export default async function NewJobPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    listJobTypeOptions(),
+    listJobSourceOptions(),
   ]);
+
+  const jobTypes = allJobTypes.filter(
+    (o) => !NEW_JOB_TYPE_EXCLUDED.has(o.code),
+  );
 
   return (
     <div className="space-y-4">
@@ -51,6 +65,8 @@ export default async function NewJobPage({
         action={createJob}
         sites={sites}
         officers={officers}
+        jobTypes={jobTypes}
+        jobSources={allJobSources}
         defaultSiteId={searchParams.siteId}
       />
     </div>

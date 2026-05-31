@@ -3,28 +3,16 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { BrandLogo } from "@/components/BrandLogo";
 import { ClaimForm } from "./ClaimForm";
+import { getJobTypeLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
-
-const JOB_TYPE_LABELS: Record<string, string> = {
-  ALARM_RESPONSE: "Alarm response",
-  PATROL: "Mobile patrol",
-  LOCK: "Lock-up",
-  UNLOCK: "Unlock",
-  KEY_COLLECTION: "Key collection",
-  KEY_DROPOFF: "Key drop-off",
-  SURVEY: "Survey",
-  VPI: "Void property inspection",
-  ADHOC: "Ad-hoc",
-  STATIC_GUARDING_SHIFT: "Static guarding",
-  DOG_HANDLER_SHIFT: "Dog handler",
-};
 
 export default async function PublicJobDetailPage({
   params,
 }: {
   params: { id: string };
 }) {
+  const jobTypeLabels = await getJobTypeLabels();
   const job = await prisma.job.findUnique({
     where: { id: params.id },
     select: {
@@ -73,7 +61,7 @@ export default async function PublicJobDetailPage({
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
             <span className="rounded-full bg-brand-mint-light text-brand-mint-dark px-2 py-0.5 font-medium">
-              {JOB_TYPE_LABELS[job.type] ?? job.type}
+              {jobTypeLabels[job.type] ?? job.type}
             </span>
             {job.priority === "HIGH" && (
               <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 font-medium">

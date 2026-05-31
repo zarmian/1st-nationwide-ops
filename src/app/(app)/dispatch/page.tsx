@@ -17,6 +17,7 @@ import type {
 } from "@/components/map/MapInner";
 import { siteOwner } from "@/lib/entityColor";
 import { daysFromTodayUk } from "@/lib/dates";
+import { getJobSourceLabels, getJobTypeLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,8 @@ export default async function DispatchPage({
     cancelledCount,
     assignableOfficers,
     allActiveSites,
+    jobTypeLabels,
+    jobSourceLabels,
   ] = await Promise.all([
     prisma.job.findMany({
       where: jobsWhere,
@@ -238,6 +241,8 @@ export default async function DispatchPage({
             partner: { name: string } | null;
           }>,
         ),
+    getJobTypeLabels(),
+    getJobSourceLabels(),
   ]);
 
   const bucketCounts: Record<Bucket, number> = {
@@ -516,7 +521,7 @@ export default async function DispatchPage({
                 href={`/dispatch/${j.id}`}
                 className="font-medium text-brand-navy hover:text-brand-mint-dark"
               >
-                {j.type.replace(/_/g, " ")}
+                {jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")}
               </Link>
             ),
           },
@@ -584,7 +589,7 @@ export default async function DispatchPage({
             header: "Source",
             cell: (j) => (
               <span className="chip-slate">
-                {j.source.replace(/_/g, " ")}
+                {jobSourceLabels[j.source] ?? j.source.replace(/_/g, " ")}
               </span>
             ),
           },
@@ -631,7 +636,7 @@ export default async function DispatchPage({
             cell: (j) => (
               <CancelJobButton
                 jobId={j.id}
-                jobLabel={`${j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
+                jobLabel={`${jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
               />
             ),
           },

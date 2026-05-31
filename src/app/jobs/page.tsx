@@ -1,41 +1,35 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { BrandLogo } from "@/components/BrandLogo";
+import { getJobTypeLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
-const JOB_TYPE_LABELS: Record<string, string> = {
-  ALARM_RESPONSE: "Alarm response",
-  PATROL: "Mobile patrol",
-  LOCK: "Lock-up",
-  UNLOCK: "Unlock",
-  KEY_COLLECTION: "Key collection",
-  KEY_DROPOFF: "Key drop-off",
-  SURVEY: "Survey",
-  VPI: "Void property inspection",
-  ADHOC: "Ad-hoc",
-  STATIC_GUARDING_SHIFT: "Static guarding",
-  DOG_HANDLER_SHIFT: "Dog handler",
-};
-
 export default async function PublicJobsListPage() {
-  const jobs = await prisma.job.findMany({
-    where: {
-      status: "OPEN",
-      assignedToUserId: null,
-      externalResponder: null,
-    },
-    select: {
-      id: true,
-      type: true,
-      priority: true,
-      scheduledFor: true,
-      notes: true,
-      site: { select: { name: true, postcode: true, city: true } },
-    },
-    orderBy: [{ priority: "desc" }, { scheduledFor: "asc" }, { createdAt: "asc" }],
-    take: 200,
-  });
+  const [jobs, jobTypeLabels] = await Promise.all([
+    prisma.job.findMany({
+      where: {
+        status: "OPEN",
+        assignedToUserId: null,
+        externalResponder: null,
+      },
+      select: {
+        id: true,
+        type: true,
+        priority: true,
+        scheduledFor: true,
+        notes: true,
+        site: { select: { name: true, postcode: true, city: true } },
+      },
+      orderBy: [
+        { priority: "desc" },
+        { scheduledFor: "asc" },
+        { createdAt: "asc" },
+      ],
+      take: 200,
+    }),
+    getJobTypeLabels(),
+  ]);
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -84,7 +78,7 @@ export default async function PublicJobsListPage() {
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs">
                     <span className="rounded-full bg-brand-mint-light text-brand-mint-dark px-2 py-0.5 font-medium">
-                      {JOB_TYPE_LABELS[j.type] ?? j.type}
+                      {jobTypeLabels[j.type] ?? j.type}
                     </span>
                     <span className="text-slate-500">
                       {j.scheduledFor

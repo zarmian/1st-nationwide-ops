@@ -15,6 +15,7 @@ export default async function AdminHubPage() {
     templates,
     blueprints,
     notifyPending,
+    pickerOptions,
   ] = await prisma.$transaction([
     prisma.customer.count({ where: { active: true } }),
     prisma.partner.count({ where: { active: true } }),
@@ -23,6 +24,7 @@ export default async function AdminHubPage() {
     prisma.formTemplate.count({ where: { active: true } }),
     prisma.formBlueprint.count({ where: { active: true } }),
     prisma.notification.count({ where: { status: "PENDING" } }),
+    prisma.jobTypeOption.count({ where: { active: true } }),
   ]);
 
   const cards = [
@@ -88,6 +90,13 @@ export default async function AdminHubPage() {
       blurb: "WhatsApp queue — visit, alarm, and key-handover events sent to staff.",
       stat: notifyPending,
       statLabel: "pending",
+    },
+    {
+      href: "/admin/options",
+      title: "Picker options",
+      blurb: "Labels and order of the job-type / source dropdowns. Rename, hide, reorder, or add alias labels.",
+      stat: pickerOptions,
+      statLabel: "job types",
     },
   ];
 

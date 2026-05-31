@@ -6,25 +6,7 @@ import { useFormState, useFormStatus } from "react-dom";
 import type { NewJobState } from "../_actions";
 import { FormError } from "@/components/FormError";
 
-const JOB_TYPES = [
-  { v: "ALARM_RESPONSE", label: "Alarm response" },
-  { v: "ADHOC", label: "Ad-hoc / one-off" },
-  { v: "LOCK", label: "Lock-up" },
-  { v: "UNLOCK", label: "Unlock" },
-  { v: "KEY_COLLECTION", label: "Key collection" },
-  { v: "KEY_DROPOFF", label: "Key drop-off" },
-  { v: "VPI", label: "Void property inspection" },
-  { v: "PATROL", label: "Mobile patrol (one-off)" },
-];
-
-const JOB_SOURCES = [
-  { v: "CUSTOMER_REQUEST", label: "Customer call" },
-  { v: "PARTNER_REQUEST", label: "Partner (Nexus / Keyholding Co)" },
-  { v: "ALARM", label: "Alarm activation" },
-  { v: "AD_HOC", label: "Ad-hoc" },
-  { v: "SCHEDULED", label: "Scheduled" },
-  { v: "ONBOARDING", label: "Onboarding" },
-];
+type PickerOption = { id: string; code: string; label: string };
 
 const ALARM_SOURCES = [
   { v: "ARC_EMAIL", label: "ARC — email" },
@@ -46,16 +28,24 @@ export function NewJobForm({
   action,
   sites,
   officers,
+  jobTypes,
+  jobSources,
   defaultSiteId,
 }: {
   action: (state: NewJobState, fd: FormData) => Promise<NewJobState>;
   sites: { id: string; name: string; code: string | null; postcodeFormatted: string }[];
   officers: { id: string; name: string }[];
+  jobTypes: PickerOption[];
+  jobSources: PickerOption[];
   defaultSiteId?: string;
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
-  const [type, setType] = useState("ADHOC");
+  const defaultType =
+    jobTypes.find((t) => t.code === "ADHOC")?.code ??
+    jobTypes[0]?.code ??
+    "ADHOC";
+  const [type, setType] = useState(defaultType);
   const [siteSearch, setSiteSearch] = useState("");
   const wantsAlarm = type === "ALARM_RESPONSE";
 
@@ -86,8 +76,8 @@ export function NewJobForm({
               onChange={(e) => setType(e.target.value)}
               className="input"
             >
-              {JOB_TYPES.map((t) => (
-                <option key={t.v} value={t.v}>
+              {jobTypes.map((t) => (
+                <option key={t.id} value={t.code}>
                   {t.label}
                 </option>
               ))}
@@ -104,8 +94,8 @@ export function NewJobForm({
               className="input"
               key={type}
             >
-              {JOB_SOURCES.map((s) => (
-                <option key={s.v} value={s.v}>
+              {jobSources.map((s) => (
+                <option key={s.id} value={s.code}>
                   {s.label}
                 </option>
               ))}

@@ -6,27 +6,17 @@ import { useFormState, useFormStatus } from "react-dom";
 import { FormError } from "@/components/FormError";
 import type { CalloutState } from "../_actions";
 
-const JOB_TYPES = [
-  { v: "ALARM_RESPONSE", label: "Alarm response" },
-  { v: "PATROL", label: "Mobile patrol" },
-  { v: "LOCK", label: "Lock-up" },
-  { v: "UNLOCK", label: "Unlock" },
-  { v: "VPI", label: "Void property inspection" },
-  { v: "ADHOC", label: "Ad-hoc / other" },
-];
-
-const SOURCES = [
-  { v: "ALARM", label: "Alarm activation" },
-  { v: "CUSTOMER_REQUEST", label: "Customer call" },
-  { v: "PARTNER_REQUEST", label: "Partner (Nexus / Keyholding Co)" },
-  { v: "AD_HOC", label: "Ad-hoc" },
-];
-
 type SiteOption = {
   id: string;
   name: string;
   code: string | null;
   postcodeFormatted: string;
+};
+
+type PickerOption = {
+  id: string;
+  code: string;
+  label: string;
 };
 
 /**
@@ -43,11 +33,15 @@ export function CalloutForm({
   action,
   sites,
   officers,
+  jobTypes,
+  jobSources,
   defaultSiteId,
 }: {
   action: (state: CalloutState, fd: FormData) => Promise<CalloutState>;
   sites: SiteOption[];
   officers: { id: string; name: string }[];
+  jobTypes: PickerOption[];
+  jobSources: PickerOption[];
   defaultSiteId?: string;
 }) {
   const [state, formAction] = useFormState(action, {});
@@ -86,9 +80,18 @@ export function CalloutForm({
             <label className="label" htmlFor="type">
               Type
             </label>
-            <select id="type" name="type" className="input" defaultValue="ALARM_RESPONSE">
-              {JOB_TYPES.map((t) => (
-                <option key={t.v} value={t.v}>
+            <select
+              id="type"
+              name="type"
+              className="input"
+              defaultValue={
+                jobTypes.find((t) => t.code === "ALARM_RESPONSE")?.code ??
+                jobTypes[0]?.code ??
+                ""
+              }
+            >
+              {jobTypes.map((t) => (
+                <option key={t.id} value={t.code}>
                   {t.label}
                 </option>
               ))}
@@ -100,9 +103,18 @@ export function CalloutForm({
             <label className="label" htmlFor="source">
               Source
             </label>
-            <select id="source" name="source" className="input" defaultValue="ALARM">
-              {SOURCES.map((s) => (
-                <option key={s.v} value={s.v}>
+            <select
+              id="source"
+              name="source"
+              className="input"
+              defaultValue={
+                jobSources.find((s) => s.code === "ALARM")?.code ??
+                jobSources[0]?.code ??
+                ""
+              }
+            >
+              {jobSources.map((s) => (
+                <option key={s.id} value={s.code}>
                   {s.label}
                 </option>
               ))}

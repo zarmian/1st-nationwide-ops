@@ -974,3 +974,38 @@ model OfficerRate {
   @@index([officerId])
   @@index([service])
 }
+
+/// Admin-managed labels + ordering for the JobType enum. The enum itself
+/// is the DB-level storage primitive (Job.type still references it), but
+/// the picker dropdowns and display surfaces read labels from here so
+/// admins can rename, hide, reorder, and add alias labels for an existing
+/// code without a code deploy. The first active option for a code is the
+/// canonical display label.
+model JobTypeOption {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        JobType
+  label       String
+  description String?
+  sortOrder   Int      @default(100)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([code])
+  @@index([active, sortOrder])
+}
+
+/// Same pattern as JobTypeOption but for JobSource (Job.source).
+model JobSourceOption {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        JobSource
+  label       String
+  description String?
+  sortOrder   Int       @default(100)
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([code])
+  @@index([active, sortOrder])
+}
