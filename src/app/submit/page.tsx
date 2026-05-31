@@ -10,7 +10,13 @@ export const dynamic = "force-dynamic";
 export default async function SubmitPage({
   searchParams,
 }: {
-  searchParams: { jobId?: string; siteId?: string; visitId?: string; shiftId?: string };
+  searchParams: {
+    jobId?: string;
+    siteId?: string;
+    visitId?: string;
+    shiftId?: string;
+    officerName?: string;
+  };
 }) {
   const session = await getServerSession(authOptions);
 
@@ -73,7 +79,10 @@ export default async function SubmitPage({
   }
 
   const officerName =
-    session?.user?.name ?? session?.user?.email ?? "";
+    session?.user?.name ??
+    session?.user?.email ??
+    searchParams.officerName ??
+    "";
 
   let officerSia: string | null = null;
   const sessionUserId = session?.user?.id;
@@ -98,8 +107,9 @@ export default async function SubmitPage({
           Submit a report
         </h1>
         <p className="text-sm text-slate-500 mb-6">
-          Pick the site and the type of job. The form below changes to match
-          the site's customer.
+          {prefilledJob
+            ? "Fill in what happened on this job."
+            : "Pick the site and the type of job. The form below changes to match the site's customer."}
         </p>
         <SubmitForm
           sites={sites}
@@ -126,6 +136,7 @@ export default async function SubmitPage({
           }
           prefilledVisitId={prefilledVisit?.id ?? null}
           prefilledShiftId={searchParams.shiftId ?? null}
+          lockedFromJob={!!prefilledJob}
         />
       </div>
     </main>
