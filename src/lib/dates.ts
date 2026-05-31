@@ -108,3 +108,111 @@ export function parseIsoDate(
     : new Date(Number(y), Number(mo) - 1, Number(d));
   return Number.isFinite(dt.getTime()) ? dt : null;
 }
+
+/**
+ * The Europe/London calendar date of `d` as "YYYY-MM-DD".
+ *
+ * Use this when you need to know which UK day an event falls on — not the
+ * server's UTC day. e.g. an event at 23:30 UK / 22:30 UTC during BST is
+ * still "today" in UK terms; UTC formatting would tell you it's tomorrow.
+ */
+export function ukDayString(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/**
+ * Calendar-day diff between `d` and today in UK terms.
+ *   0  = same UK day, 1 = tomorrow UK, -1 = yesterday UK.
+ *
+ * Powers the "Today / Tomorrow / Yesterday" labels in dispatch + officer
+ * views — those used to use server-local midnight (UTC on Vercel), which
+ * mislabelled late-evening events under "Yesterday" all summer.
+ */
+export function daysFromTodayUk(d: Date, now: Date = new Date()): number {
+  const [y1, m1, d1] = ukDayString(now).split("-").map(Number);
+  const [y2, m2, d2] = ukDayString(d).split("-").map(Number);
+  const t1 = Date.UTC(y1, m1 - 1, d1);
+  const t2 = Date.UTC(y2, m2 - 1, d2);
+  return Math.round((t2 - t1) / 86_400_000);
+}
+
+/**
+ * The UTC instant for a UK wall-clock moment.
+ *
+ * Background: cron code that wants "today 08:00 UK time → store as UTC"
+ * cannot just do `new Date(y, m, d, 8)` — that uses the JS runtime's
+ * local timezone, which is UTC on Vercel, so the result is 08:00 UTC
+ * (= 09:00 BST). This helper finds the correct UTC instant whose
+ * Europe/London wall-clock reading is the input.
+ *
+ * Handles DST shifts. On the "spring forward" night (clocks jump 01:00→02:00)
+ * times between 01:00 and 02:00 don't exist — we return the nearest valid
+ * instant. On the "fall back" night (01:00 occurs twice) we return the
+ * first occurrence (the BST→GMT one), which is the conservative pick for
+ * scheduling.
+ */
+export function ukWallClockToUtc(
+  year: number,
+  month: number, // 1-12
+  day: number,
+  hour: number,
+  minute: number,
+): Date {
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const seenInUk = parseUkWallClock(guess);
+  const wanted = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const seen = Date.UTC(
+    seenInUk.year,
+    seenInUk.month - 1,
+    seenInUk.day,
+    seenInUk.hour,
+    seenInUk.minute,
+    0,
+  );
+  const diffMs = wanted - seen;
+  return new Date(guess.getTime() + diffMs);
+}
+
+function parseUkWallClock(d: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const get = (t: string) =>
+    Number(parts.find((p) => p.type === t)!.value);
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    // "24" can appear instead of "00" for midnight in some Node builds —
+    // normalise.
+    hour: get("hour") % 24,
+    minute: get("minute"),
+  };
+}
+
+/**
+ * Adds whole UK days to a date and returns the UK calendar Y-M-D of that
+ * point. Useful for crons that want to materialise "tomorrow" without
+ * worrying about DST adding/removing an hour.
+ */
+export function ukDayPlus(d: Date, days: number): { year: number; month: number; day: number } {
+  const [y, m, dd] = ukDayString(d).split("-").map(Number);
+  // Walk via UTC days — the calendar day in UK shifts in lockstep with the
+  // UTC day every 24h except the 23/25-hour DST transition days. Compute
+  // the wall-clock 12:00 (noon) instant, shift by N days, re-read.
+  const noon = ukWallClockToUtc(y, m, dd, 12, 0);
+  const shifted = new Date(noon.getTime() + days * 86_400_000);
+  const [y2, m2, d2] = ukDayString(shifted).split("-").map(Number);
+  return { year: y2, month: m2, day: d2 };
+}

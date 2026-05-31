@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { daysFromTodayUk } from "@/lib/dates";
 
 type Visit = {
   id: string;
@@ -49,11 +50,7 @@ export function VisitCard({ visit }: { visit: Visit }) {
     hour: "2-digit",
     minute: "2-digit",
   });
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const diffDays = Math.floor(
-    (scheduled.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000),
-  );
+  const diffDays = daysFromTodayUk(scheduled);
   const day =
     diffDays === 0
       ? "Today"

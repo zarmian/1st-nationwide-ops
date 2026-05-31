@@ -6,6 +6,7 @@ import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 import { CancelJobButton } from "./_components/CancelJobButton";
 import { DispatchMap } from "./_components/DispatchMap";
+import { SyncSchedulesButton } from "./_components/SyncSchedulesButton";
 import { MapLayerToggles } from "./_components/MapLayerToggles";
 import { AutoRefresh } from "../m/today/_components/AutoRefresh";
 import type {
@@ -15,6 +16,7 @@ import type {
   Freshness,
 } from "@/components/map/MapInner";
 import { siteOwner } from "@/lib/entityColor";
+import { daysFromTodayUk } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -86,13 +88,7 @@ function formatScheduled(date: Date | null | undefined): {
   time: string;
 } | null {
   if (!date) return null;
-  const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const dayMs = 24 * 60 * 60 * 1000;
-  const diffDays = Math.floor(
-    (date.getTime() - startOfToday.getTime()) / dayMs,
-  );
+  const diffDays = daysFromTodayUk(date);
 
   const time = date.toLocaleTimeString("en-GB", {
     timeZone: "Europe/London",
@@ -357,6 +353,7 @@ export default async function DispatchPage({
           <p className="text-sm text-slate-500">Live jobs across all sites</p>
         </div>
         <div className="flex items-center gap-2">
+          <SyncSchedulesButton />
           <Link href="/dispatch/callouts/new" className="btn-ghost">
             + Record callout
           </Link>

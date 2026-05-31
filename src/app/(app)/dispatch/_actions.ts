@@ -13,6 +13,10 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { notifyAlarmReceived } from "@/lib/notifications";
+import {
+  materializeLockUnlockJobs,
+  materializePatrolVisits,
+} from "@/lib/scheduleSync";
 
 const JOB_TYPES = [
   "ALARM_RESPONSE",
@@ -219,4 +223,41 @@ export async function cancelJob(
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
   return { ok: true };
+}
+
+/**
+ * Manual trigger for the recurring-schedule materialiser. Backs the
+ * "Sync schedules" button on /dispatch. Same code path as the daily
+ * Vercel cron, just kicked off by a human — useful when a schedule was
+ * added late in the day or the cron run was missed.
+ *
+ * Idempotent: re-running for an already-materialised day is a no-op
+ * (the materialiser checks for an existing Job / PatrolVisit on the
+ * same site + day).
+ */
+export type SyncSchedulesResult = {
+  ok: true;
+  jobsCreated: number;
+  visitsCreated: number;
+  daysCovered: string[];
+};
+
+export async function syncSchedulesNow(): Promise<SyncSchedulesResult> {
+  await requireStaff();
+  const anchor = new Date();
+  const [lockUnlock, patrol] = await Promise.all([
+    materializeLockUnlockJobs({ anchor, offsets: [0, 1] }),
+    materializePatrolVisits({ anchor, offsets: [0, 1] }),
+  ]);
+  const jobsCreated = lockUnlock.reduce(
+    (sum, d) => sum + d.createdLock + d.createdUnlock,
+    0,
+  );
+  const visitsCreated = patrol.reduce((sum, d) => sum + d.created, 0);
+  const daysCovered = Array.from(
+    new Set([...lockUnlock.map((d) => d.date), ...patrol.map((d) => d.date)]),
+  ).sort();
+  revalidatePath("/dispatch");
+  revalidatePath("/patrols");
+  return { ok: true, jobsCreated, visitsCreated, daysCovered };
 }
