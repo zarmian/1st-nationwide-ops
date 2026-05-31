@@ -2,6 +2,9 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { SitesToolbar } from "./_components/SitesToolbar";
 import { SitesTable, type SiteRow } from "./_components/SitesTable";
+import { SitesMap, type OwnerLegend } from "./_components/SitesMap";
+import { siteOwner } from "@/lib/entityColor";
+import type { SitePin } from "@/components/map/MapInner";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +64,13 @@ export default async function SitesPage({
     ],
   };
 
-  const [sites, totalShown, kpis, regions, customers, partners] =
+  // The map shows every filtered site with coordinates — independent of the
+  // table's pagination. The table still paginates so it stays readable.
+  const mapWhere = {
+    AND: [...where.AND, { lat: { not: null } }, { lng: { not: null } }],
+  };
+
+  const [sites, totalShown, kpis, regions, customers, partners, mapSites] =
     await Promise.all([
       prisma.site.findMany({
         where,
@@ -92,7 +101,60 @@ export default async function SitesPage({
         orderBy: { name: "asc" },
         select: { id: true, name: true },
       }),
+      prisma.site.findMany({
+        where: mapWhere,
+        select: {
+          id: true,
+          name: true,
+          lat: true,
+          lng: true,
+          postcodeFormatted: true,
+          customer: { select: { name: true } },
+          partner: { select: { name: true } },
+        },
+      }),
     ]);
+
+  const mapPins: SitePin[] = mapSites
+    .filter(
+      (s): s is typeof s & { lat: number; lng: number } =>
+        typeof s.lat === "number" && typeof s.lng === "number",
+    )
+    .map((s) => {
+      const owner = siteOwner(s);
+      return {
+        id: s.id,
+        name: s.name,
+        lat: s.lat,
+        lng: s.lng,
+        postcode: s.postcodeFormatted,
+        colorHex: owner.hex,
+        ownerKey: owner.key,
+        ownerLabel: owner.label,
+      };
+    });
+
+  // Build the owner legend from the pins themselves so it stays in sync
+  // with the filtered map (e.g. region filter drops owners with no sites
+  // in that region). Keep alphabetical for predictability.
+  const legendMap = new Map<string, OwnerLegend>();
+  for (const pin of mapPins) {
+    const key = pin.ownerKey ?? "_none";
+    const entry = legendMap.get(key);
+    if (entry) {
+      entry.count += 1;
+    } else {
+      legendMap.set(key, {
+        key,
+        label: pin.ownerLabel ?? "Unassigned",
+        hex: pin.colorHex ?? "#94A3B8",
+        count: 1,
+      });
+    }
+  }
+  const legend: OwnerLegend[] = Array.from(legendMap.values()).sort((a, b) =>
+    a.label.localeCompare(b.label),
+  );
 
   const rows: SiteRow[] = sites.map((s) => ({
     id: s.id,
@@ -138,6 +200,8 @@ export default async function SitesPage({
       />
 
       <KpiStrip kpis={kpis} current={{ q, region, service, type }} />
+
+      <SitesMap pins={mapPins} legend={legend} />
 
       <SitesTable
         rows={rows}

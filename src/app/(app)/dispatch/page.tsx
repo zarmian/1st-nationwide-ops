@@ -13,7 +13,8 @@ import type {
   SitePin,
   AssignmentLine,
   Freshness,
-} from "./_components/DispatchMapInner";
+} from "@/components/map/MapInner";
+import { siteOwner } from "@/lib/entityColor";
 
 export const dynamic = "force-dynamic";
 
@@ -169,7 +170,18 @@ export default async function DispatchPage({
     prisma.job.findMany({
       where: jobsWhere,
       include: {
-        site: { select: { id: true, name: true, postcode: true, postcodeFormatted: true, lat: true, lng: true } },
+        site: {
+          select: {
+            id: true,
+            name: true,
+            postcode: true,
+            postcodeFormatted: true,
+            lat: true,
+            lng: true,
+            customer: { select: { name: true } },
+            partner: { select: { name: true } },
+          },
+        },
         customer: { select: { name: true } },
         assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
@@ -209,7 +221,15 @@ export default async function DispatchPage({
     activeLayers.has("sites")
       ? prisma.site.findMany({
           where: { active: true, lat: { not: null }, lng: { not: null } },
-          select: { id: true, name: true, postcodeFormatted: true, lat: true, lng: true },
+          select: {
+            id: true,
+            name: true,
+            postcodeFormatted: true,
+            lat: true,
+            lng: true,
+            customer: { select: { name: true } },
+            partner: { select: { name: true } },
+          },
         })
       : Promise.resolve(
           [] as Array<{
@@ -218,6 +238,8 @@ export default async function DispatchPage({
             postcodeFormatted: string;
             lat: number | null;
             lng: number | null;
+            customer: { name: string } | null;
+            partner: { name: string } | null;
           }>,
         ),
   ]);
@@ -266,6 +288,7 @@ export default async function DispatchPage({
     if (existing) {
       existing.liveJobCount = (existing.liveJobCount ?? 0) + 1;
     } else {
+      const owner = siteOwner(s);
       jobSitesMap.set(s.id, {
         id: s.id,
         name: s.name,
@@ -273,6 +296,9 @@ export default async function DispatchPage({
         lng: s.lng,
         postcode: s.postcodeFormatted,
         liveJobCount: 1,
+        colorHex: owner.hex,
+        ownerKey: owner.key,
+        ownerLabel: owner.label,
       });
     }
   }
@@ -283,13 +309,19 @@ export default async function DispatchPage({
       (s): s is typeof s & { lat: number; lng: number } =>
         typeof s.lat === "number" && typeof s.lng === "number",
     )
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      lat: s.lat,
-      lng: s.lng,
-      postcode: s.postcodeFormatted,
-    }));
+    .map((s) => {
+      const owner = siteOwner(s);
+      return {
+        id: s.id,
+        name: s.name,
+        lat: s.lat,
+        lng: s.lng,
+        postcode: s.postcodeFormatted,
+        colorHex: owner.hex,
+        ownerKey: owner.key,
+        ownerLabel: owner.label,
+      };
+    });
 
   // For each on-duty officer with GPS, draw a line to their next assigned
   // live-job site (earliest scheduledFor, NULLs last).
@@ -324,9 +356,14 @@ export default async function DispatchPage({
           <h1 className="text-2xl font-semibold text-brand-navy">Dispatch</h1>
           <p className="text-sm text-slate-500">Live jobs across all sites</p>
         </div>
-        <Link href="/dispatch/new" className="btn-primary">
-          + New job
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/dispatch/callouts/new" className="btn-ghost">
+            + Record callout
+          </Link>
+          <Link href="/dispatch/new" className="btn-primary">
+            + New job
+          </Link>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">

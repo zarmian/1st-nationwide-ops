@@ -335,6 +335,7 @@ model User {
   regionsLed               Region[]            @relation("RegionLead")
   jobsAsResponder          Job[]               @relation("JobResponderUser")
   jobsCancelled            Job[]               @relation("JobCancelledBy")
+  jobsRecorded             Job[]               @relation("JobRecordedBy")
   formSubmissions          FormSubmission[]    @relation("SubmittedByUser")
   reportReviews            ReportReview[]      @relation("ReportReviewer")
   formTemplatesAuthored    FormTemplate[]      @relation("FormTemplateAuthor")
@@ -745,6 +746,14 @@ model Job {
 
   reportedViaPartnerApp Boolean       @default(false)
   partnerReportRef      String?
+
+  // Dispatcher-recorded callouts: bypass the /submit + review workflow.
+  // recordedByUserId set means a dispatcher (or admin) typed this in
+  // directly and the job lands at APPROVED. excludeFromClientReport
+  // lets the dispatcher keep an entry internal (default: include).
+  recordedByUserId      String?       @db.Uuid
+  recordedBy            User?         @relation("JobRecordedBy", fields: [recordedByUserId], references: [id])
+  excludeFromClientReport Boolean     @default(false)
 
   billedAmount          Decimal?      @db.Decimal(10, 2)
   billedCurrency        String?
