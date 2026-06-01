@@ -49,10 +49,21 @@ edit files → commit + push (GitHub Desktop) → Vercel auto-deploys
 
 ### Build command
 ```
-prisma generate && prisma db push --skip-generate --accept-data-loss && next build
+prisma generate && prisma migrate deploy && next build
 ```
 
-`prisma db push` on each build syncs schema changes automatically. **Eventually replace this with proper `prisma migrate dev` / `prisma migrate deploy`** once we want migration history. The `--accept-data-loss` is risky — be careful with destructive schema changes.
+`prisma migrate deploy` applies any new migrations in
+`prisma/migrations/` to Supabase on each deploy.
+
+**When you change `schema.prisma` you MUST also commit a matching
+migration in `prisma/migrations/<timestamp>_<name>/migration.sql`** —
+otherwise the deployed app crashes with P2022 ("column does not
+exist") or P2010 ("relation does not exist"). The migrations
+directory already has 18+ entries; copy one as a template, name new
+ones with a UTC timestamp prefix so they sort chronologically.
+
+The earlier `prisma db push --accept-data-loss` flow was retired
+because it can silently drop columns. Don't reintroduce it.
 
 ## Folder layout
 

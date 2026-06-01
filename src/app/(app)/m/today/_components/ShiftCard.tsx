@@ -107,6 +107,7 @@ export function ShiftCard({
 
       <div className="text-xs text-slate-500">
         Scheduled {new Date(shift.scheduledStartsAt).toLocaleString("en-GB", {
+          timeZone: "Europe/London",
           day: "2-digit",
           month: "short",
           hour: "2-digit",
@@ -114,6 +115,7 @@ export function ShiftCard({
         })}
         {" → "}
         {new Date(shift.scheduledEndsAt).toLocaleString("en-GB", {
+          timeZone: "Europe/London",
           hour: "2-digit",
           minute: "2-digit",
         })}

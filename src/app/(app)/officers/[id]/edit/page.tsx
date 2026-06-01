@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 function fmt(d: Date | null): string {
   if (!d) return "—";
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     dateStyle: "short",
     timeStyle: "short",
   });

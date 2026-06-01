@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  daysFromTodayUk,
   formatDate,
   formatDateTime,
   formatTimeAgo,
+  formatUkDateTimeLocal,
   parseIsoDate,
+  parseUkDateTimeLocal,
   toIsoDate,
+  ukDayPlus,
+  ukDayString,
+  ukWallClockToUtc,
 } from "./dates";
 
 describe("formatDate / formatDateTime", () => {
@@ -76,5 +82,110 @@ describe("parseIsoDate / toIsoDate", () => {
 
   it("toIsoDate returns empty string for null", () => {
     expect(toIsoDate(null)).toBe("");
+  });
+});
+
+describe("UK-aware day helpers", () => {
+  it("ukDayString reads the Europe/London calendar day", () => {
+    // 22:30 UTC on 31 May 2026 = 23:30 BST 31 May (BST is UTC+1 in summer)
+    const inUkSameDay = new Date("2026-05-31T22:30:00Z");
+    expect(ukDayString(inUkSameDay)).toBe("2026-05-31");
+
+    // 23:30 UTC on 31 May 2026 = 00:30 BST 1 June — UK has rolled over
+    const justAfterUkMidnight = new Date("2026-05-31T23:30:00Z");
+    expect(ukDayString(justAfterUkMidnight)).toBe("2026-06-01");
+
+    // Winter — Europe/London is UTC+0
+    const winter = new Date("2026-01-15T23:30:00Z");
+    expect(ukDayString(winter)).toBe("2026-01-15");
+  });
+
+  it("daysFromTodayUk compares UK calendar days, not UTC days", () => {
+    const today = new Date("2026-05-31T12:00:00Z"); // mid-day, 31 May UK
+    expect(daysFromTodayUk(new Date("2026-05-31T22:00:00Z"), today)).toBe(0);
+    expect(daysFromTodayUk(new Date("2026-06-01T08:00:00Z"), today)).toBe(1);
+    expect(daysFromTodayUk(new Date("2026-05-30T08:00:00Z"), today)).toBe(-1);
+
+    // The historic bug: 23:30 BST on 31 May = 22:30 UTC. Server-local
+    // midnight is UTC midnight, so the old logic put this on 30 May.
+    // The new logic correctly says it's still today.
+    const lateBst = new Date("2026-05-31T22:30:00Z");
+    const nowEvening = new Date("2026-05-31T22:00:00Z");
+    expect(daysFromTodayUk(lateBst, nowEvening)).toBe(0);
+  });
+
+  it("ukWallClockToUtc maps UK wall-clock to the right UTC instant", () => {
+    // 08:00 UK on 31 May 2026 (BST = UTC+1) → 07:00 UTC
+    const bst = ukWallClockToUtc(2026, 5, 31, 8, 0);
+    expect(bst.toISOString()).toBe("2026-05-31T07:00:00.000Z");
+
+    // 08:00 UK on 15 Jan 2026 (GMT = UTC+0) → 08:00 UTC
+    const gmt = ukWallClockToUtc(2026, 1, 15, 8, 0);
+    expect(gmt.toISOString()).toBe("2026-01-15T08:00:00.000Z");
+  });
+
+  it("ukDayPlus walks UK calendar days through DST transitions", () => {
+    // 30 Mar 2025 BST starts (clocks jumped forward an hour overnight).
+    // From 29 March 2025 noon UK, +1 day → 30 March 2025.
+    const beforeDst = new Date("2025-03-29T12:00:00Z");
+    expect(ukDayPlus(beforeDst, 1)).toEqual({
+      year: 2025,
+      month: 3,
+      day: 30,
+    });
+
+    // From a winter day, +1 → next day (no DST).
+    const winter = new Date("2026-01-15T12:00:00Z");
+    expect(ukDayPlus(winter, 1)).toEqual({
+      year: 2026,
+      month: 1,
+      day: 16,
+    });
+  });
+});
+
+describe("datetime-local <-> UTC", () => {
+  it("parseUkDateTimeLocal treats the input as UK wall-clock", () => {
+    // 31 May 2026 05:45 UK (BST = UTC+1) → 04:45 UTC
+    const bst = parseUkDateTimeLocal("2026-05-31T05:45");
+    expect(bst?.toISOString()).toBe("2026-05-31T04:45:00.000Z");
+
+    // 15 Jan 2026 05:45 UK (GMT = UTC+0) → 05:45 UTC
+    const gmt = parseUkDateTimeLocal("2026-01-15T05:45");
+    expect(gmt?.toISOString()).toBe("2026-01-15T05:45:00.000Z");
+  });
+
+  it("parseUkDateTimeLocal returns null for empty / malformed input", () => {
+    expect(parseUkDateTimeLocal(null)).toBeNull();
+    expect(parseUkDateTimeLocal("")).toBeNull();
+    expect(parseUkDateTimeLocal("not a date")).toBeNull();
+  });
+
+  it("parseUkDateTimeLocal accepts seconds too (for forms that emit them)", () => {
+    const r = parseUkDateTimeLocal("2026-05-31T05:45:30");
+    expect(r?.toISOString()).toBe("2026-05-31T04:45:30.000Z");
+  });
+
+  it("formatUkDateTimeLocal round-trips through parseUkDateTimeLocal", () => {
+    // BST: 31 May 2026 17:30 UK = 16:30 UTC
+    const inUk = "2026-05-31T17:30";
+    const utc = parseUkDateTimeLocal(inUk);
+    expect(formatUkDateTimeLocal(utc)).toBe(inUk);
+
+    // GMT: 15 Jan 2026 17:30 UK = 17:30 UTC
+    const winterUk = "2026-01-15T17:30";
+    const winterUtc = parseUkDateTimeLocal(winterUk);
+    expect(formatUkDateTimeLocal(winterUtc)).toBe(winterUk);
+  });
+
+  it("formatUkDateTimeLocal renders a UTC ISO string in UK terms", () => {
+    // 22:00 UTC on 31 May 2026 = 23:00 BST
+    expect(formatUkDateTimeLocal(new Date("2026-05-31T22:00:00Z"))).toBe(
+      "2026-05-31T23:00",
+    );
+
+    // Empty / invalid → empty string for safe defaultValue use
+    expect(formatUkDateTimeLocal(null)).toBe("");
+    expect(formatUkDateTimeLocal("nonsense")).toBe("");
   });
 });

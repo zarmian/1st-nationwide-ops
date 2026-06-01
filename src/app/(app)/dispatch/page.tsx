@@ -1,11 +1,14 @@
 import Link from "next/link";
 import type { Prisma, JobStatus } from "@prisma/client";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 import { CancelJobButton } from "./_components/CancelJobButton";
 import { DispatchMap } from "./_components/DispatchMap";
+import { SyncSchedulesButton } from "./_components/SyncSchedulesButton";
 import { MapLayerToggles } from "./_components/MapLayerToggles";
 import { AutoRefresh } from "../m/today/_components/AutoRefresh";
 import type {
@@ -15,6 +18,8 @@ import type {
   Freshness,
 } from "@/components/map/MapInner";
 import { siteOwner } from "@/lib/entityColor";
+import { daysFromTodayUk } from "@/lib/dates";
+import { getJobSourceLabels, getJobTypeLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -22,8 +27,6 @@ const LIVE_STATUSES = [
   "OPEN",
   "ASSIGNED",
   "IN_PROGRESS",
-  "SUBMITTED",
-  "REVIEW_PENDING",
 ] satisfies JobStatus[];
 
 const COMPLETED_STATUSES = [
@@ -65,6 +68,50 @@ function bucketWhere(bucket: Bucket | null, now: Date): Prisma.JobWhereInput {
   }
 }
 
+/**
+ * PatrolVisit equivalent of bucketWhere — keeps the dispatch board's
+ * filters meaningful for visits even though VisitStatus has a different
+ * vocabulary than JobStatus. Returns null for buckets that don't apply
+ * to visits (review queue is a Job-only concept, visits don't cancel),
+ * so the caller can skip the query entirely.
+ */
+function emptyUuid() {
+  // Tautologically-empty id filter: lets count queries skip a bucket
+  // without conditional Promise.all branches.
+  return "00000000-0000-0000-0000-000000000000";
+}
+
+function priorityRank(p: string): number {
+  return p === "HIGH" ? 0 : p === "MEDIUM" ? 1 : 2;
+}
+
+function visitBucketWhere(
+  bucket: Bucket | null,
+  now: Date,
+): Prisma.PatrolVisitWhereInput | null {
+  switch (bucket) {
+    case "pending":
+      return { status: "PENDING" };
+    case "in_progress":
+      return { status: { in: ["IN_PROGRESS", "LATE"] } };
+    case "review":
+      return null;
+    case "missed":
+      return {
+        OR: [
+          { status: "MISSED" },
+          { status: "PENDING", scheduledAt: { lt: now } },
+        ],
+      };
+    case "completed":
+      return { status: "COMPLETED" };
+    case "cancelled":
+      return null;
+    default:
+      return { status: { in: ["PENDING", "IN_PROGRESS", "LATE"] } };
+  }
+}
+
 const VALID_LAYERS = ["jobs", "sites", "lines"] as const;
 type LayerKey = (typeof VALID_LAYERS)[number];
 
@@ -76,7 +123,7 @@ function relativeTime(date: Date | null): string {
   if (mins < 60) return `${mins}m ago`;
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
-  return date.toLocaleDateString("en-GB");
+  return date.toLocaleDateString("en-GB", { timeZone: "Europe/London" });
 }
 
 /**
@@ -88,15 +135,10 @@ function formatScheduled(date: Date | null | undefined): {
   time: string;
 } | null {
   if (!date) return null;
-  const now = new Date();
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const dayMs = 24 * 60 * 60 * 1000;
-  const diffDays = Math.floor(
-    (date.getTime() - startOfToday.getTime()) / dayMs,
-  );
+  const diffDays = daysFromTodayUk(date);
 
   const time = date.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -107,6 +149,7 @@ function formatScheduled(date: Date | null | undefined): {
   else if (diffDays === -1) day = "Yesterday";
   else
     day = date.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       weekday: "short",
       day: "2-digit",
       month: "short",
@@ -127,6 +170,9 @@ export default async function DispatchPage({
 }: {
   searchParams: { bucket?: string; layers?: string };
 }) {
+  const session = await getServerSession(authOptions);
+  const isAdmin = session?.user?.role === "ADMIN";
+
   const now = new Date();
   const bucket: Bucket | null =
     searchParams.bucket && (BUCKETS as readonly string[]).includes(searchParams.bucket)
@@ -148,15 +194,21 @@ export default async function DispatchPage({
   );
 
   const jobsWhere = bucketWhere(bucket, now);
+  const visitsWhere = visitBucketWhere(bucket, now);
   const jobsOrderBy: Prisma.JobOrderByWithRelationInput[] =
     bucket === "completed"
       ? [{ completedAt: "desc" }]
       : bucket === "cancelled"
         ? [{ cancelledAt: "desc" }]
         : [{ priority: "asc" }, { scheduledFor: "asc" }, { createdAt: "desc" }];
+  const visitsOrderBy: Prisma.PatrolVisitOrderByWithRelationInput[] =
+    bucket === "completed"
+      ? [{ departedAt: "desc" }]
+      : [{ scheduledAt: "asc" }];
 
   const [
     jobs,
+    visits,
     onDutyOfficers,
     pendingCount,
     inProgressCount,
@@ -164,8 +216,14 @@ export default async function DispatchPage({
     missedCount,
     completedCount,
     cancelledCount,
+    pendingVisitCount,
+    inProgressVisitCount,
+    missedVisitCount,
+    completedVisitCount,
     assignableOfficers,
     allActiveSites,
+    jobTypeLabels,
+    jobSourceLabels,
   ] = await Promise.all([
     prisma.job.findMany({
       where: jobsWhere,
@@ -185,10 +243,60 @@ export default async function DispatchPage({
         customer: { select: { name: true } },
         assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
+        handledByPartner: { select: { id: true, name: true } },
       },
       orderBy: jobsOrderBy,
       take: 100,
     }),
+    // PatrolVisits join the dispatch board too — every activity in one
+    // place. Skipped (resolves to []) for the buckets that don't apply
+    // to visits (review / cancelled).
+    visitsWhere
+      ? prisma.patrolVisit.findMany({
+          where: visitsWhere,
+          include: {
+            site: {
+              select: {
+                id: true,
+                name: true,
+                postcode: true,
+                postcodeFormatted: true,
+                lat: true,
+                lng: true,
+                customer: { select: { name: true } },
+                partner: { select: { name: true } },
+              },
+            },
+            officer: { select: { id: true, name: true } },
+            patrolSchedule: { select: { kind: true } },
+          },
+          orderBy: visitsOrderBy,
+          take: 100,
+        })
+      : Promise.resolve(
+          [] as Array<{
+            id: string;
+            scheduledAt: Date;
+            arrivedAt: Date | null;
+            departedAt: Date | null;
+            status: string;
+            notes: string | null;
+            billedAmount: any;
+            paidAmount: any;
+            site: {
+              id: string;
+              name: string;
+              postcode: string | null;
+              postcodeFormatted: string;
+              lat: number | null;
+              lng: number | null;
+              customer: { name: string } | null;
+              partner: { name: string } | null;
+            };
+            officer: { id: string; name: string } | null;
+            patrolSchedule: { kind: string } | null;
+          }>,
+        ),
     prisma.user.findMany({
       where: {
         active: true,
@@ -211,6 +319,18 @@ export default async function DispatchPage({
     prisma.job.count({ where: bucketWhere("missed", now) }),
     prisma.job.count({ where: bucketWhere("completed", now) }),
     prisma.job.count({ where: bucketWhere("cancelled", now) }),
+    prisma.patrolVisit.count({
+      where: visitBucketWhere("pending", now) ?? { id: emptyUuid() },
+    }),
+    prisma.patrolVisit.count({
+      where: visitBucketWhere("in_progress", now) ?? { id: emptyUuid() },
+    }),
+    prisma.patrolVisit.count({
+      where: visitBucketWhere("missed", now) ?? { id: emptyUuid() },
+    }),
+    prisma.patrolVisit.count({
+      where: visitBucketWhere("completed", now) ?? { id: emptyUuid() },
+    }),
     prisma.user.findMany({
       where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
       orderBy: { name: "asc" },
@@ -242,16 +362,87 @@ export default async function DispatchPage({
             partner: { name: string } | null;
           }>,
         ),
+    getJobTypeLabels(),
+    getJobSourceLabels(),
   ]);
 
   const bucketCounts: Record<Bucket, number> = {
-    pending: pendingCount,
-    in_progress: inProgressCount,
+    pending: pendingCount + pendingVisitCount,
+    in_progress: inProgressCount + inProgressVisitCount,
     review: reviewCount,
-    missed: missedCount,
-    completed: completedCount,
+    missed: missedCount + missedVisitCount,
+    completed: completedCount + completedVisitCount,
     cancelled: cancelledCount,
   };
+
+  // Merge Jobs and PatrolVisits into a single rows[] for the board. To
+  // the user "every activity is a job," so a recurring VPI / patrol visit
+  // shows alongside lock-ups and ad-hoc callouts. We discriminate via
+  // __visitId — null for real Jobs, the visit id for projected visits —
+  // so the cells can route edit/cancel/reassign to the right model.
+  type DispatchRow = {
+    __visitId: string | null;
+    id: string;
+    type: string;
+    source: string;
+    status: string;
+    priority: string;
+    scheduledFor: Date | null;
+    site: {
+      id: string;
+      name: string;
+      postcode: string | null;
+      postcodeFormatted: string;
+      lat: number | null;
+      lng: number | null;
+      customer: { name: string } | null;
+      partner: { name: string } | null;
+    } | null;
+    customer: { name: string } | null;
+    partner: { name: string } | null;
+    assignedTo: { id: string; name: string } | null;
+    handledByPartner: { id: string; name: string } | null;
+  };
+
+  const jobRows: DispatchRow[] = jobs.map((j) => ({
+    __visitId: null,
+    id: j.id,
+    type: j.type,
+    source: j.source,
+    status: j.status,
+    priority: j.priority,
+    scheduledFor: j.scheduledFor,
+    site: j.site,
+    customer: j.customer,
+    partner: j.partner,
+    assignedTo: j.assignedTo,
+    handledByPartner: j.handledByPartner,
+  }));
+
+  const visitRows: DispatchRow[] = visits.map((v) => ({
+    __visitId: v.id,
+    id: v.id,
+    type: v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
+    source: "SCHEDULED",
+    status: v.status,
+    priority: "MEDIUM",
+    scheduledFor: v.scheduledAt,
+    site: v.site,
+    customer: v.site?.customer ?? null,
+    partner: v.site?.partner ?? null,
+    assignedTo: v.officer,
+    handledByPartner: null,
+  }));
+
+  const rows: DispatchRow[] = [...jobRows, ...visitRows].sort((a, b) => {
+    // Mirror the Job ordering: priority HIGH first, then earliest scheduled.
+    // Priority on visits is always MEDIUM, so visits interleave by time.
+    const pri = priorityRank(a.priority) - priorityRank(b.priority);
+    if (pri !== 0) return pri;
+    const at = a.scheduledFor?.getTime() ?? Number.POSITIVE_INFINITY;
+    const bt = b.scheduledFor?.getTime() ?? Number.POSITIVE_INFINITY;
+    return at - bt;
+  });
   const bucketLabels: Record<Bucket, string> = {
     pending: "Pending",
     in_progress: "In progress",
@@ -357,6 +548,7 @@ export default async function DispatchPage({
           <p className="text-sm text-slate-500">Live jobs across all sites</p>
         </div>
         <div className="flex items-center gap-2">
+          <SyncSchedulesButton />
           <Link href="/dispatch/callouts/new" className="btn-ghost">
             + Record callout
           </Link>
@@ -502,10 +694,10 @@ export default async function DispatchPage({
       </div>
 
       <DataTable
-        rows={jobs}
+        rows={rows}
         emptyState={
           <div className="space-y-3">
-            <p>No live jobs.</p>
+            <p>No live activities.</p>
             <Link href="/dispatch/new" className="btn-primary text-sm inline-block">
               + Create a job
             </Link>
@@ -516,10 +708,14 @@ export default async function DispatchPage({
             header: "Type",
             cell: (j) => (
               <Link
-                href={`/dispatch/${j.id}`}
+                href={
+                  j.__visitId
+                    ? `/patrols/visits/${j.__visitId}`
+                    : `/dispatch/${j.id}`
+                }
                 className="font-medium text-brand-navy hover:text-brand-mint-dark"
               >
-                {j.type.replace(/_/g, " ")}
+                {jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")}
               </Link>
             ),
           },
@@ -533,7 +729,9 @@ export default async function DispatchPage({
               const overdue =
                 j.scheduledFor != null &&
                 j.scheduledFor < now &&
-                (j.status === "OPEN" || j.status === "ASSIGNED");
+                (j.status === "OPEN" ||
+                  j.status === "ASSIGNED" ||
+                  j.status === "PENDING");
               return (
                 <div className="leading-tight">
                   <div
@@ -587,13 +785,33 @@ export default async function DispatchPage({
             header: "Source",
             cell: (j) => (
               <span className="chip-slate">
-                {j.source.replace(/_/g, " ")}
+                {jobSourceLabels[j.source] ?? j.source.replace(/_/g, " ")}
               </span>
             ),
           },
           {
             header: "Assigned",
             cell: (j) => {
+              if (j.handledByPartner) {
+                return (
+                  <span className="text-slate-600 italic">
+                    {j.handledByPartner.name}{" "}
+                    <span className="text-xs text-slate-400">
+                      (partner)
+                    </span>
+                  </span>
+                );
+              }
+              // PatrolVisits use a different reassign action (reassignVisit
+              // lives in patrols/_actions). For now show the officer as
+              // plain text; admin can edit via the visit detail page.
+              if (j.__visitId) {
+                return (
+                  j.assignedTo?.name ?? (
+                    <span className="text-slate-400">—</span>
+                  )
+                );
+              }
               // Pre-start jobs are inline-reassignable; live ones show the
               // current officer as plain text so dispatchers don't accidentally
               // change someone mid-job.
@@ -631,12 +849,34 @@ export default async function DispatchPage({
           {
             header: "",
             align: "right",
-            cell: (j) => (
-              <CancelJobButton
-                jobId={j.id}
-                jobLabel={`${j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
-              />
-            ),
+            cell: (j) => {
+              const isVisit = j.__visitId != null;
+              const editHref = isVisit
+                ? `/patrols/visits/${j.__visitId}/edit`
+                : `/dispatch/${j.id}/edit`;
+              const canEdit =
+                isAdmin && j.status !== "CANCELLED";
+              return (
+                <div className="flex items-center justify-end gap-2">
+                  {canEdit && (
+                    <Link
+                      href={editHref}
+                      className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+                    >
+                      edit
+                    </Link>
+                  )}
+                  {/* Visits don't cancel through the dispatch board — they
+                      have their own status machine on the visit detail. */}
+                  {!isVisit && (
+                    <CancelJobButton
+                      jobId={j.id}
+                      jobLabel={`${jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
+                    />
+                  )}
+                </div>
+              );
+            },
           },
         ]}
       />

@@ -12,6 +12,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { CalloutInput, checkBackdateAllowed } from "@/lib/dispatcherCallout";
+import { parseUkDateTimeLocal } from "@/lib/dates";
 
 /**
  * Dispatcher-recorded callouts.
@@ -38,9 +39,13 @@ function parseForm(formData: FormData) {
     siteId: formData.get("siteId")?.toString() ?? "",
     type: formData.get("type")?.toString() ?? "ALARM_RESPONSE",
     source: formData.get("source")?.toString() ?? "ALARM",
-    officerId: formData.get("officerId")?.toString() ?? "",
-    startedAt: formData.get("startedAt")?.toString() ?? "",
-    completedAt: formData.get("completedAt")?.toString() ?? "",
+    handlerKind: formData.get("handlerKind")?.toString() ?? "officer",
+    officerId: formData.get("officerId")?.toString() || null,
+    handlerPartnerId: formData.get("handlerPartnerId")?.toString() || null,
+    handedOffAt: formData.get("handedOffAt")?.toString() || null,
+    partnerOfficerName: formData.get("partnerOfficerName")?.toString() || null,
+    startedAt: formData.get("startedAt")?.toString() || null,
+    completedAt: formData.get("completedAt")?.toString() || null,
     notes: formData.get("notes")?.toString() || null,
     excludeFromClientReport: formData.get("excludeFromClientReport") === "on",
     partnerReportRef: formData.get("partnerReportRef")?.toString() || null,
@@ -60,30 +65,31 @@ export async function recordDispatcherCallout(
     };
   }
   const d = parsed.data;
-  const startedAt = new Date(d.startedAt);
-  const completedAt = new Date(d.completedAt);
+  const startedAt = parseUkDateTimeLocal(d.startedAt);
+  const completedAt = parseUkDateTimeLocal(d.completedAt);
+  const handedOffAt = parseUkDateTimeLocal(d.handedOffAt);
 
-  // Dispatcher backdate cap (admin bypass — they may be entering historical
-  // records during rollout or fixing data after the fact).
-  const backdateErr = checkBackdateAllowed(startedAt, me.role as any);
-  if (backdateErr) {
-    return {
-      error: backdateErr,
-      fieldErrors: { startedAt: ["Too far in the past"] },
-    };
+  // Dispatcher backdate cap. Anchor on whichever time the dispatcher gave
+  // — startedAt for officer flow, handedOffAt for partner flow.
+  const anchorForBackdate = startedAt ?? handedOffAt;
+  if (anchorForBackdate) {
+    const backdateErr = checkBackdateAllowed(anchorForBackdate, me.role as any);
+    if (backdateErr) {
+      return {
+        error: backdateErr,
+        fieldErrors: {
+          [d.handlerKind === "partner" ? "handedOffAt" : "startedAt"]: [
+            "Too far in the past",
+          ],
+        },
+      };
+    }
   }
 
-  const [site, officer] = await Promise.all([
-    prisma.site.findUnique({
-      where: { id: d.siteId },
-      select: { id: true, customerId: true, partnerId: true, active: true },
-    }),
-    prisma.user.findUnique({
-      where: { id: d.officerId },
-      select: { id: true, role: true, active: true },
-    }),
-  ]);
-
+  const site = await prisma.site.findUnique({
+    where: { id: d.siteId },
+    select: { id: true, customerId: true, partnerId: true, active: true },
+  });
   if (!site) {
     return { error: "Site not found.", fieldErrors: { siteId: ["Unknown"] } };
   }
@@ -93,14 +99,49 @@ export async function recordDispatcherCallout(
       fieldErrors: { siteId: ["Site is not currently active"] },
     };
   }
-  if (!officer) {
-    return { error: "Officer not found.", fieldErrors: { officerId: ["Unknown"] } };
-  }
-  if (!officer.active) {
-    return {
-      error: "Officer is inactive.",
-      fieldErrors: { officerId: ["Officer is not currently active"] },
-    };
+
+  let officerId: string | null = null;
+  let handlerPartnerId: string | null = null;
+
+  if (d.handlerKind === "officer") {
+    const officer = await prisma.user.findUnique({
+      where: { id: d.officerId! },
+      select: { id: true, role: true, active: true },
+    });
+    if (!officer) {
+      return { error: "Officer not found.", fieldErrors: { officerId: ["Unknown"] } };
+    }
+    if (!officer.active) {
+      return {
+        error: "Officer is inactive.",
+        fieldErrors: { officerId: ["Officer is not currently active"] },
+      };
+    }
+    officerId = officer.id;
+  } else {
+    const partner = await prisma.partner.findUnique({
+      where: { id: d.handlerPartnerId! },
+      select: { id: true, role: true, active: true },
+    });
+    if (!partner) {
+      return {
+        error: "Partner not found.",
+        fieldErrors: { handlerPartnerId: ["Unknown"] },
+      };
+    }
+    if (!partner.active) {
+      return {
+        error: "Partner is inactive.",
+        fieldErrors: { handlerPartnerId: ["Partner is not currently active"] },
+      };
+    }
+    if (partner.role !== "SUBCONTRACTOR" && partner.role !== "BOTH") {
+      return {
+        error: "Only subcontractor partners (Nexus, Keyholding Co) can take a sub'd job.",
+        fieldErrors: { handlerPartnerId: ["Not a subcontracting partner"] },
+      };
+    }
+    handlerPartnerId = partner.id;
   }
 
   const created = await prisma.job.create({
@@ -111,8 +152,13 @@ export async function recordDispatcherCallout(
       siteId: d.siteId,
       customerId: site.customerId,
       partnerId: site.partnerId,
-      responderType: "INTERNAL_OFFICER" as any,
-      assignedToUserId: d.officerId,
+      responderType:
+        d.handlerKind === "partner" ? ("PARTNER" as any) : ("INTERNAL_OFFICER" as any),
+      assignedToUserId: officerId,
+      handledByPartnerId: handlerPartnerId,
+      handedOffAt,
+      externalResponder:
+        d.handlerKind === "partner" ? d.partnerOfficerName ?? null : null,
       startedAt,
       completedAt,
       notes: d.notes,
@@ -123,15 +169,16 @@ export async function recordDispatcherCallout(
     select: { id: true, siteId: true },
   });
 
-  // Snapshot billing + pay. Pay basis is per-callout (OfficerRate
-  // PER_VISIT amount); billing is whatever SiteRate holds for that
-  // service. Both no-op silently if no rate is configured.
+  // Billing snapshot still applies (we charge the customer either way).
+  // Officer pay only when WE attended.
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
     const bill = await billForSite(d.siteId, rateService);
     if (bill.ok) await applyBillingToJob(created.id, bill);
-    const pay = await payForOfficer(d.officerId, rateService);
-    if (pay.ok) await applyPayToJob(created.id, pay);
+    if (officerId) {
+      const pay = await payForOfficer(officerId, rateService);
+      if (pay.ok) await applyPayToJob(created.id, pay);
+    }
   }
 
   revalidatePath("/dispatch");

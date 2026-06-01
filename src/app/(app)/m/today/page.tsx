@@ -9,6 +9,7 @@ import { AutoRefresh } from "./_components/AutoRefresh";
 import { InstallHint } from "./_components/InstallHint";
 import { setMyOnDuty } from "../../officers/_actions";
 import { startShift, endShift } from "../../shifts/_actions";
+import { daysFromTodayUk } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -17,13 +18,9 @@ function formatScheduled(date: Date | null | undefined): {
   time: string;
 } | null {
   if (!date) return null;
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const dayMs = 24 * 60 * 60 * 1000;
-  const diffDays = Math.floor(
-    (date.getTime() - startOfToday.getTime()) / dayMs,
-  );
+  const diffDays = daysFromTodayUk(date);
   const time = date.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -33,6 +30,7 @@ function formatScheduled(date: Date | null | undefined): {
   else if (diffDays === -1) day = "Yesterday";
   else
     day = date.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       weekday: "short",
       day: "2-digit",
       month: "short",

@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 function fmtFull(d: Date | null | undefined): string {
   if (!d) return "—";
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -41,7 +42,7 @@ export default async function PatrolVisitDetailPage({
 }: {
   params: { id: string };
 }) {
-  await requireStaff();
+  const me = await requireStaff();
 
   const visit = await prisma.patrolVisit.findUnique({
     where: { id: params.id },
@@ -117,6 +118,14 @@ export default async function PatrolVisitDetailPage({
               )}
             </div>
           </div>
+          {me.role === "ADMIN" && (
+            <Link
+              href={`/patrols/visits/${visit.id}/edit`}
+              className="btn-secondary text-sm"
+            >
+              Edit
+            </Link>
+          )}
         </div>
       </div>
 

@@ -2,15 +2,32 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { recordDispatcherCallout } from "../_actions";
 import { CalloutForm } from "../_components/CalloutForm";
+import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
+
+const CALLOUT_TYPE_CODES = new Set([
+  "ALARM_RESPONSE",
+  "PATROL",
+  "LOCK",
+  "UNLOCK",
+  "VPI",
+  "ADHOC",
+]);
+
+const CALLOUT_SOURCE_CODES = new Set([
+  "ALARM",
+  "CUSTOMER_REQUEST",
+  "PARTNER_REQUEST",
+  "AD_HOC",
+]);
 
 export default async function NewCalloutPage({
   searchParams,
 }: {
   searchParams: { siteId?: string };
 }) {
-  const [sites, officers] = await Promise.all([
+  const [sites, officers, partners, allJobTypes, allJobSources] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
@@ -26,7 +43,21 @@ export default async function NewCalloutPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    prisma.partner.findMany({
+      where: { active: true, role: { in: ["SUBCONTRACTOR", "BOTH"] } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    listJobTypeOptions(),
+    listJobSourceOptions(),
   ]);
+
+  // Callout flow only covers a subset of job types/sources — scheduled work
+  // is captured via the cron, shift jobs via the shift flow, etc.
+  const jobTypes = allJobTypes.filter((o) => CALLOUT_TYPE_CODES.has(o.code));
+  const jobSources = allJobSources.filter((o) =>
+    CALLOUT_SOURCE_CODES.has(o.code),
+  );
 
   return (
     <div className="space-y-4">
@@ -51,6 +82,9 @@ export default async function NewCalloutPage({
         action={recordDispatcherCallout}
         sites={sites}
         officers={officers}
+        partners={partners}
+        jobTypes={jobTypes}
+        jobSources={jobSources}
         defaultSiteId={searchParams.siteId}
       />
     </div>

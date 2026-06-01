@@ -18,6 +18,7 @@ const DAY_LABEL: Record<string, string> = {
 function fmtFull(d: Date | null | undefined): string {
   if (!d) return "—";
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -78,6 +79,7 @@ export default async function LockUnlockScheduleDetailPage({
       scheduledFor: true,
       completedAt: true,
       assignedTo: { select: { name: true } },
+      handledByPartner: { select: { name: true } },
     },
     orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
     take: 30,
@@ -202,7 +204,11 @@ export default async function LockUnlockScheduleDetailPage({
                 >
                   {j.type === "LOCK" ? "Lock-up" : "Unlock"} ·{" "}
                   {fmtFull(j.scheduledFor)}
-                  {j.assignedTo ? ` · ${j.assignedTo.name}` : ""} →
+                  {j.handledByPartner
+                    ? ` · ${j.handledByPartner.name} (partner)`
+                    : j.assignedTo
+                      ? ` · ${j.assignedTo.name}`
+                      : ""} →
                 </Link>
                 <span className={JOB_STATUS_TONE[j.status] ?? "chip-slate"}>
                   {j.status.replace(/_/g, " ").toLowerCase()}

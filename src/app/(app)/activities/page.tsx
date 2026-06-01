@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -100,6 +102,7 @@ function bucketLabel(key: string, groupBy: GroupBy): string {
   if (groupBy === "day") {
     const d = new Date(`${key}T00:00:00`);
     return d.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       weekday: "short",
       day: "2-digit",
       month: "short",
@@ -109,6 +112,7 @@ function bucketLabel(key: string, groupBy: GroupBy): string {
   if (groupBy === "month") {
     const [y, m] = key.split("-").map(Number);
     return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       month: "long",
       year: "numeric",
     });
@@ -118,9 +122,11 @@ function bucketLabel(key: string, groupBy: GroupBy): string {
     const end = new Date(d);
     end.setDate(d.getDate() + 6);
     return `${d.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       day: "2-digit",
       month: "short",
     })} – ${end.toLocaleDateString("en-GB", {
+      timeZone: "Europe/London",
       day: "2-digit",
       month: "short",
       year: "numeric",
@@ -147,6 +153,9 @@ export default async function ActivitiesPage({
     page?: string;
   };
 }) {
+  const session = await getServerSession(authOptions);
+  const isAdmin = session?.user?.role === "ADMIN";
+
   // ── 1. Resolve params ───────────────────────────────────────────────────
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -293,6 +302,7 @@ export default async function ActivitiesPage({
               customer: { select: { id: true, name: true } },
               partner: { select: { id: true, name: true } },
               assignedTo: { select: { id: true, name: true } },
+              handledByPartner: { select: { id: true, name: true } },
             },
             orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
             take: 1000,
@@ -394,7 +404,9 @@ export default async function ActivitiesPage({
       partnerId: j.partner?.id ?? null,
       partnerName: j.partner?.name ?? null,
       officerId: j.assignedTo?.id ?? null,
-      officerName: j.assignedTo?.name ?? null,
+      officerName: j.handledByPartner
+        ? `${j.handledByPartner.name} (partner)`
+        : j.assignedTo?.name ?? null,
       billed: j.billedAmount != null ? Number(j.billedAmount) : null,
       paid: j.paidAmount != null ? Number(j.paidAmount) : null,
     });
@@ -731,7 +743,17 @@ export default async function ActivitiesPage({
                       {fmtMoney(r.paid)}
                     </td>
                     <td className="px-4 py-2 text-slate-600 text-xs">
-                      {r.status.toLowerCase().replace(/_/g, " ")}
+                      <div className="flex items-center gap-2">
+                        <span>{r.status.toLowerCase().replace(/_/g, " ")}</span>
+                        {isAdmin && (
+                          <Link
+                            href={`${r.href}/edit`}
+                            className="text-brand-mint-dark hover:text-brand-navy underline"
+                          >
+                            edit
+                          </Link>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -46,6 +46,7 @@ export function SubmitForm({
   prefilledJobType,
   prefilledVisitId,
   prefilledShiftId,
+  lockedFromJob = false,
 }: {
   sites: Site[];
   templates: SubmitTemplate[];
@@ -57,6 +58,7 @@ export function SubmitForm({
   prefilledJobType: string | null;
   prefilledVisitId: string | null;
   prefilledShiftId: string | null;
+  lockedFromJob?: boolean;
 }) {
   const [siteId, setSiteId] = useState(prefilledSiteId ?? "");
   const [siteSearch, setSiteSearch] = useState("");
@@ -162,59 +164,81 @@ export function SubmitForm({
     );
   }
 
+  const lockedSite = lockedFromJob
+    ? sites.find((s) => s.id === siteId) ?? null
+    : null;
+  const lockedTypeLabel = lockedFromJob
+    ? FORM_TYPES.find((t) => t.value === formType)?.label ?? formType
+    : null;
+
   return (
     <form className="card p-6 space-y-4" onSubmit={onSubmit}>
-      <div>
-        <label className="label">Type of job</label>
-        <select
-          value={formType}
-          onChange={(e) => {
-            setFormType(e.target.value);
-            setValues({});
-            setFieldErrors({});
-          }}
-          className="input"
-        >
-          {FORM_TYPES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
+      {lockedFromJob ? (
+        <div className="rounded-xl border border-brand-mint/40 bg-brand-mint-light/40 p-3 text-sm">
+          <div className="text-xs uppercase tracking-wider text-brand-mint-dark mb-1">
+            Claimed job
+          </div>
+          <div className="font-medium text-brand-navy">
+            {lockedSite?.name ?? "Site"}
+            {lockedSite?.postcode ? ` · ${lockedSite.postcode}` : ""}
+          </div>
+          <div className="text-xs text-slate-600 mt-0.5">{lockedTypeLabel}</div>
+        </div>
+      ) : (
+        <>
+          <div>
+            <label className="label">Type of job</label>
+            <select
+              value={formType}
+              onChange={(e) => {
+                setFormType(e.target.value);
+                setValues({});
+                setFieldErrors({});
+              }}
+              className="input"
+            >
+              {FORM_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
 
-      <div>
-        <label className="label">Site</label>
-        <input
-          type="search"
-          placeholder="Search site name or postcode…"
-          value={siteSearch}
-          onChange={(e) => setSiteSearch(e.target.value)}
-          className="input mb-2"
-          autoCapitalize="none"
-          autoCorrect="off"
-          inputMode="search"
-          enterKeyHint="search"
-        />
-        <select
-          value={siteId}
-          onChange={(e) => {
-            setSiteId(e.target.value);
-            setValues({});
-            setFieldErrors({});
-          }}
-          className="input"
-          required
-        >
-          <option value="">— pick a site —</option>
-          {filteredSites.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-              {s.postcode ? ` · ${s.postcode}` : ""}
-            </option>
-          ))}
-        </select>
-      </div>
+          <div>
+            <label className="label">Site</label>
+            <input
+              type="search"
+              placeholder="Search site name or postcode…"
+              value={siteSearch}
+              onChange={(e) => setSiteSearch(e.target.value)}
+              className="input mb-2"
+              autoCapitalize="none"
+              autoCorrect="off"
+              inputMode="search"
+              enterKeyHint="search"
+            />
+            <select
+              value={siteId}
+              onChange={(e) => {
+                setSiteId(e.target.value);
+                setValues({});
+                setFieldErrors({});
+              }}
+              className="input"
+              required
+            >
+              <option value="">— pick a site —</option>
+              {filteredSites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                  {s.postcode ? ` · ${s.postcode}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+        </>
+      )}
 
       <div>
         <label className="label">Your name</label>
@@ -423,7 +447,12 @@ function FieldInput({
                 )}
                 {loc!.capturedAt && (
                   <div className="text-xs text-slate-500">
-                    Captured {new Date(loc!.capturedAt).toLocaleTimeString()}
+                    Captured{" "}
+                    {new Date(loc!.capturedAt).toLocaleTimeString("en-GB", {
+                      timeZone: "Europe/London",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </div>
                 )}
               </div>

@@ -4,15 +4,16 @@ import { NextResponse } from "next/server";
 /**
  * Three-layer auth model:
  *
- *  1. Sign-in: every page except /login, /submit, and Next assets requires a
- *     session — that's the `withAuth` baseline.
+ *  1. Sign-in: every page except /login, /submit, /jobs, and Next assets
+ *     requires a session — that's the `withAuth` baseline.
  *  2. Role: officers are hard-locked to `/m/*` and `/submit`; non-admins are
  *     bounced from `/admin/*` (except the review queue, which dispatcher uses).
  *  3. Server actions still call requireAdmin/requireStaff as a backstop — if
  *     someone slips past middleware, the action throws.
  *
- * `/submit` is intentionally excluded so any officer (including third-party)
- * can fill it from a phone link without an account.
+ * `/submit` and `/jobs` are intentionally excluded so any outside officer
+ * can browse the public job board, claim a job, and file the report from a
+ * shared link without an account.
  */
 export default withAuth(
   function middleware(req) {
@@ -65,9 +66,10 @@ export default withAuth(
 
 export const config = {
   // Catch-all: anything that isn't a Next.js asset, the login page, /submit,
-  // /offline, the next-auth callbacks, or a file with an extension (favicons,
-  // images, manifest.json, sw.js, etc.). Everything else hits this middleware.
+  // /jobs (public job board), /offline, the next-auth callbacks, or a file
+  // with an extension (favicons, images, manifest.json, sw.js, etc.).
+  // Everything else hits this middleware.
   matcher: [
-    "/((?!api/auth|_next/static|_next/image|login|submit|offline|robots|sitemap|.*\\..*).*)",
+    "/((?!api/auth|_next/static|_next/image|login|submit|jobs|offline|robots|sitemap|.*\\..*).*)",
   ],
 };

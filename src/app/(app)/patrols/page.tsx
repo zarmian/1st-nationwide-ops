@@ -44,6 +44,7 @@ const STATUS_TONE: Record<string, string> = {
 
 function fmt(d: Date): string {
   return d.toLocaleString("en-GB", {
+    timeZone: "Europe/London",
     weekday: "short",
     day: "2-digit",
     month: "short",
@@ -164,6 +165,7 @@ export default async function PatrolsPage({
         include: {
           site: { select: { id: true, name: true, code: true } },
           assignedTo: { select: { id: true, name: true } },
+          handledByPartner: { select: { id: true, name: true } },
         },
       }),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
@@ -551,12 +553,21 @@ export default async function PatrolsPage({
                   <div className="text-xs text-slate-500">
                     {j.scheduledFor ? fmt(j.scheduledFor) : "Time TBD"}
                   </div>
-                  <QuickReassignJob
-                    jobId={j.id}
-                    currentOfficerId={j.assignedToUserId}
-                    officers={officers}
-                    reassign={reassignJob}
-                  />
+                  {j.handledByPartner ? (
+                    <span className="text-sm text-slate-600 italic">
+                      {j.handledByPartner.name}{" "}
+                      <span className="text-xs text-slate-400">
+                        (partner)
+                      </span>
+                    </span>
+                  ) : (
+                    <QuickReassignJob
+                      jobId={j.id}
+                      currentOfficerId={j.assignedToUserId}
+                      officers={officers}
+                      reassign={reassignJob}
+                    />
+                  )}
                 </li>
               ))}
             </ul>
