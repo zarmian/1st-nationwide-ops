@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { FormError } from "@/components/FormError";
+import { formatUkDateTimeLocal } from "@/lib/dates";
 import type { CalloutState } from "../_actions";
 
 type SiteOption = {
@@ -18,16 +19,6 @@ type PickerOption = {
   code: string;
   label: string;
 };
-
-/**
- * Format a Date for an <input type="datetime-local">.
- * Avoids the toISOString() pitfall (which yields UTC) by composing
- * the local-time string ourselves.
- */
-function toLocalInputValue(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 export function CalloutForm({
   action,
@@ -60,9 +51,9 @@ export function CalloutForm({
     const now = new Date();
     const start = new Date(now.getTime() - 30 * 60 * 1000);
     return {
-      startedAt: toLocalInputValue(start),
-      completedAt: toLocalInputValue(now),
-      handedOffAt: toLocalInputValue(now),
+      startedAt: formatUkDateTimeLocal(start),
+      completedAt: formatUkDateTimeLocal(now),
+      handedOffAt: formatUkDateTimeLocal(now),
     };
   }, []);
 

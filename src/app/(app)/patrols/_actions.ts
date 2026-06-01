@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAdmin, requireStaff } from "@/lib/authz";
+import { parseUkDateTimeLocal } from "@/lib/dates";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),
@@ -137,8 +138,8 @@ const EditVisitInput = z
     notes: z.string().trim().max(2000).optional().nullable(),
   })
   .superRefine((d, ctx) => {
-    const arr = d.arrivedAt ? new Date(d.arrivedAt) : null;
-    const dep = d.departedAt ? new Date(d.departedAt) : null;
+    const arr = parseUkDateTimeLocal(d.arrivedAt);
+    const dep = parseUkDateTimeLocal(d.departedAt);
     if (arr && dep && !Number.isNaN(arr.getTime()) && !Number.isNaN(dep.getTime()) && dep <= arr) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -185,9 +186,9 @@ export async function updatePatrolVisit(
     where: { id: visitId },
     data: {
       officerId: d.officerId || null,
-      scheduledAt: new Date(d.scheduledAt),
-      arrivedAt: d.arrivedAt ? new Date(d.arrivedAt) : null,
-      departedAt: d.departedAt ? new Date(d.departedAt) : null,
+      scheduledAt: parseUkDateTimeLocal(d.scheduledAt) ?? new Date(d.scheduledAt),
+      arrivedAt: parseUkDateTimeLocal(d.arrivedAt),
+      departedAt: parseUkDateTimeLocal(d.departedAt),
       status: d.status as any,
       notes: d.notes ?? null,
     },

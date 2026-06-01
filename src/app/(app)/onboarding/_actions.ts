@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import { parseUkDateTimeLocal } from "@/lib/dates";
 import {
   applyBillingToJob,
   applyPayToJob,
@@ -146,7 +147,7 @@ export async function addSetupJob(
       partnerId: pipeline.site.partnerId,
       onboardingPipelineId: d.pipelineId,
       assignedToUserId: d.assignedToUserId || null,
-      scheduledFor: d.scheduledFor ? new Date(d.scheduledFor) : null,
+      scheduledFor: parseUkDateTimeLocal(d.scheduledFor),
       notes: d.notes || null,
     },
     select: { id: true },

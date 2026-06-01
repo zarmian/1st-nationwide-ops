@@ -3,16 +3,13 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { approveReview, rejectReview } from "../_actions";
 import { ApproveForm, RejectForm } from "./_components/ReviewActions";
+import { formatUkDateTimeLocal } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
 function toDateTimeLocal(d: Date | null): string {
-  if (!d) return "";
-  // YYYY-MM-DDTHH:MM in local-naive form for <input type="datetime-local">
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
+  // YYYY-MM-DDTHH:MM in UK wall-clock for <input type="datetime-local">.
+  return formatUkDateTimeLocal(d);
 }
 
 function fmt(d: Date | null): string {

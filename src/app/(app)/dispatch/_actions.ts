@@ -13,6 +13,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { notifyAlarmReceived } from "@/lib/notifications";
+import { parseUkDateTimeLocal } from "@/lib/dates";
 import {
   materializeLockUnlockJobs,
   materializePatrolVisits,
@@ -208,11 +209,11 @@ export async function createJob(
         d.handlerKind === "partner" ? ("PARTNER" as any) : ("INTERNAL_OFFICER" as any),
       assignedToUserId,
       handledByPartnerId: handlerPartnerId,
-      handedOffAt: d.handedOffAt ? new Date(d.handedOffAt) : null,
+      handedOffAt: parseUkDateTimeLocal(d.handedOffAt),
       externalResponder:
         d.handlerKind === "partner" ? d.partnerOfficerName ?? null : null,
       alarmEventId,
-      scheduledFor: d.scheduledFor ? new Date(d.scheduledFor) : null,
+      scheduledFor: parseUkDateTimeLocal(d.scheduledFor),
       reportedViaPartnerApp: d.reportedViaPartnerApp,
       partnerReportRef: d.partnerReportRef,
       notes: d.notes,
@@ -318,8 +319,8 @@ const EditJobInput = z
         message: "Pick the partner.",
       });
     }
-    const start = d.startedAt ? new Date(d.startedAt) : null;
-    const end = d.completedAt ? new Date(d.completedAt) : null;
+    const start = parseUkDateTimeLocal(d.startedAt);
+    const end = parseUkDateTimeLocal(d.completedAt);
     if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end <= start) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -409,16 +410,16 @@ export async function updateJob(
       type: d.type as any,
       source: d.source as any,
       priority: d.priority as any,
-      scheduledFor: d.scheduledFor ? new Date(d.scheduledFor) : null,
+      scheduledFor: parseUkDateTimeLocal(d.scheduledFor),
       responderType:
         d.handlerKind === "partner" ? ("PARTNER" as any) : ("INTERNAL_OFFICER" as any),
       assignedToUserId,
       handledByPartnerId: handlerPartnerId,
-      handedOffAt: d.handedOffAt ? new Date(d.handedOffAt) : null,
+      handedOffAt: parseUkDateTimeLocal(d.handedOffAt),
       externalResponder:
         d.handlerKind === "partner" ? d.partnerOfficerName ?? null : null,
-      startedAt: d.startedAt ? new Date(d.startedAt) : null,
-      completedAt: d.completedAt ? new Date(d.completedAt) : null,
+      startedAt: parseUkDateTimeLocal(d.startedAt),
+      completedAt: parseUkDateTimeLocal(d.completedAt),
       notes: d.notes ?? null,
       excludeFromClientReport: d.excludeFromClientReport,
       partnerReportRef: d.partnerReportRef ?? null,

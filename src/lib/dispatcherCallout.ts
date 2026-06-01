@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { parseUkDateTimeLocal } from "./dates";
 
 /**
  * Pure validation + business rules for dispatcher-recorded callouts.
@@ -86,10 +87,12 @@ export const CalloutInput = z
       }
     }
 
-    // Validate any datetime fields that were provided.
-    const start = d.startedAt ? new Date(d.startedAt) : null;
-    const end = d.completedAt ? new Date(d.completedAt) : null;
-    const handed = d.handedOffAt ? new Date(d.handedOffAt) : null;
+    // Validate any datetime fields that were provided. Treat the form
+    // values as UK wall-clock — they come from a <datetime-local> input
+    // where the user typed UK time without a TZ suffix.
+    const start = parseUkDateTimeLocal(d.startedAt);
+    const end = parseUkDateTimeLocal(d.completedAt);
+    const handed = parseUkDateTimeLocal(d.handedOffAt);
 
     if (start && Number.isNaN(start.getTime())) {
       ctx.addIssue({

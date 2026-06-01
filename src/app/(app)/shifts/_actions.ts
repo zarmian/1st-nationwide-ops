@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireStaff, requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import { parseUkDateTimeLocal } from "@/lib/dates";
 
 const SHIFT_TYPES = ["STATIC_GUARDING", "DOG_HANDLER"] as const;
 
@@ -20,8 +21,8 @@ const NewShiftInput = z
     notes: z.string().trim().max(2000).optional().nullable(),
   })
   .superRefine((d, ctx) => {
-    const start = new Date(d.scheduledStartsAt);
-    const end = new Date(d.scheduledEndsAt);
+    const start = parseUkDateTimeLocal(d.scheduledStartsAt) ?? new Date(NaN);
+    const end = parseUkDateTimeLocal(d.scheduledEndsAt) ?? new Date(NaN);
     if (!Number.isFinite(start.getTime()))
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -78,8 +79,8 @@ export async function createShift(
       siteId: d.siteId,
       officerId: d.officerId && d.officerId !== "" ? d.officerId : null,
       type: d.type as any,
-      scheduledStartsAt: new Date(d.scheduledStartsAt),
-      scheduledEndsAt: new Date(d.scheduledEndsAt),
+      scheduledStartsAt: parseUkDateTimeLocal(d.scheduledStartsAt)!,
+      scheduledEndsAt: parseUkDateTimeLocal(d.scheduledEndsAt)!,
       checkIntervalMin: d.checkIntervalMin,
       graceMinutes: d.graceMinutes,
       notes: d.notes,
@@ -114,8 +115,8 @@ export async function updateShift(
       siteId: d.siteId,
       officerId: d.officerId && d.officerId !== "" ? d.officerId : null,
       type: d.type as any,
-      scheduledStartsAt: new Date(d.scheduledStartsAt),
-      scheduledEndsAt: new Date(d.scheduledEndsAt),
+      scheduledStartsAt: parseUkDateTimeLocal(d.scheduledStartsAt)!,
+      scheduledEndsAt: parseUkDateTimeLocal(d.scheduledEndsAt)!,
       checkIntervalMin: d.checkIntervalMin,
       graceMinutes: d.graceMinutes,
       notes: d.notes,

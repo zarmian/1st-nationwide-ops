@@ -6,6 +6,7 @@ import { z } from "zod";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { parseUkDateTimeLocal } from "@/lib/dates";
 
 const EditsInput = z.object({
   officerNameRaw: z.string().trim().min(1).max(120).optional(),
@@ -28,8 +29,8 @@ async function requireReviewer() {
 function parseDateTimeLocal(v: string | undefined): Date | null | undefined {
   if (v === undefined) return undefined; // not submitted = leave alone
   if (v === "") return null; // explicitly cleared
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? undefined : d;
+  // datetime-local input → treat as UK wall-clock, not server-local UTC.
+  return parseUkDateTimeLocal(v) ?? undefined;
 }
 
 function buildEdits(

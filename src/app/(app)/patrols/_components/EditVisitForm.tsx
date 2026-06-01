@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import { FormError } from "@/components/FormError";
+import { formatUkDateTimeLocal } from "@/lib/dates";
 import type { EditVisitState } from "../_actions";
 
 const STATUSES = [
@@ -101,7 +102,7 @@ export function EditVisitForm({
               type="datetime-local"
               id="scheduledAt"
               name="scheduledAt"
-              defaultValue={toLocalInput(visit.scheduledAt)}
+              defaultValue={formatUkDateTimeLocal(visit.scheduledAt)}
               className="input"
               required
             />
@@ -115,7 +116,7 @@ export function EditVisitForm({
               type="datetime-local"
               id="arrivedAt"
               name="arrivedAt"
-              defaultValue={toLocalInput(visit.arrivedAt)}
+              defaultValue={formatUkDateTimeLocal(visit.arrivedAt)}
               className="input"
             />
           </div>
@@ -125,7 +126,7 @@ export function EditVisitForm({
               type="datetime-local"
               id="departedAt"
               name="departedAt"
-              defaultValue={toLocalInput(visit.departedAt)}
+              defaultValue={formatUkDateTimeLocal(visit.departedAt)}
               className="input"
             />
             {fe.departedAt?.[0] && (
@@ -169,10 +170,3 @@ function SaveButton() {
   );
 }
 
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}

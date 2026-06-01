@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { FormError } from "@/components/FormError";
+import { formatUkDateTimeLocal } from "@/lib/dates";
 import type { EditJobState } from "../_actions";
 
 type PickerOption = { id: string; code: string; label: string };
@@ -219,7 +220,7 @@ export function EditJobForm({
                   type="datetime-local"
                   id="handedOffAt"
                   name="handedOffAt"
-                  defaultValue={toLocalInput(job.handedOffAt)}
+                  defaultValue={formatUkDateTimeLocal(job.handedOffAt)}
                   className="input"
                 />
               </div>
@@ -250,7 +251,7 @@ export function EditJobForm({
               type="datetime-local"
               id="scheduledFor"
               name="scheduledFor"
-              defaultValue={toLocalInput(job.scheduledFor)}
+              defaultValue={formatUkDateTimeLocal(job.scheduledFor)}
               className="input"
             />
           </div>
@@ -260,7 +261,7 @@ export function EditJobForm({
               type="datetime-local"
               id="startedAt"
               name="startedAt"
-              defaultValue={toLocalInput(job.startedAt)}
+              defaultValue={formatUkDateTimeLocal(job.startedAt)}
               className="input"
             />
           </div>
@@ -270,7 +271,7 @@ export function EditJobForm({
               type="datetime-local"
               id="completedAt"
               name="completedAt"
-              defaultValue={toLocalInput(job.completedAt)}
+              defaultValue={formatUkDateTimeLocal(job.completedAt)}
               className="input"
             />
             {fe.completedAt?.[0] && (
@@ -345,10 +346,3 @@ function SaveButton() {
   );
 }
 
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}

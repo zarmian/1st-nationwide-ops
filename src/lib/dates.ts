@@ -162,17 +162,18 @@ export function ukWallClockToUtc(
   day: number,
   hour: number,
   minute: number,
+  second: number = 0,
 ): Date {
-  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+  const guess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
   const seenInUk = parseUkWallClock(guess);
-  const wanted = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const wanted = Date.UTC(year, month - 1, day, hour, minute, second);
   const seen = Date.UTC(
     seenInUk.year,
     seenInUk.month - 1,
     seenInUk.day,
     seenInUk.hour,
     seenInUk.minute,
-    0,
+    second,
   );
   const diffMs = wanted - seen;
   return new Date(guess.getTime() + diffMs);
@@ -215,4 +216,60 @@ export function ukDayPlus(d: Date, days: number): { year: number; month: number;
   const shifted = new Date(noon.getTime() + days * 86_400_000);
   const [y2, m2, d2] = ukDayString(shifted).split("-").map(Number);
   return { year: y2, month: m2, day: d2 };
+}
+
+/**
+ * Parse an HTML <input type="datetime-local"> value as UK wall-clock time
+ * and return the UTC instant. Without this helper, `new Date(s)` on the
+ * server treats the bare "YYYY-MM-DDTHH:MM" as UTC (Vercel's TZ), so the
+ * user types 5:45 and the DB stores 5:45 UTC (= 6:45 BST). Use this in
+ * every server action that reads a datetime-local form field.
+ */
+export function parseUkDateTimeLocal(
+  s: string | null | undefined,
+): Date | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (!m) {
+    // Caller passed something other than the datetime-local format —
+    // fall back to native parsing (some callers pass full ISO strings).
+    const native = new Date(s);
+    return Number.isFinite(native.getTime()) ? native : null;
+  }
+  return ukWallClockToUtc(
+    Number(m[1]),
+    Number(m[2]),
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    m[6] ? Number(m[6]) : 0,
+  );
+}
+
+/**
+ * Format a UTC Date back to "YYYY-MM-DDTHH:MM" in UK wall-clock terms,
+ * for pre-filling <input type="datetime-local"> values. The naïve
+ * `d.getFullYear() / getMonth() / …` would use the runtime TZ — UTC on
+ * the server, UK in the browser — producing a hydration mismatch AND
+ * the wrong default on first render.
+ */
+export function formatUkDateTimeLocal(
+  d: Date | string | null | undefined,
+): string {
+  if (!d) return "";
+  const dt = typeof d === "string" ? new Date(d) : d;
+  if (!Number.isFinite(dt.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(dt);
+  const get = (t: string) => parts.find((p) => p.type === t)!.value;
+  // Intl can emit "24" for midnight on some Node builds — normalise.
+  const hh = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${hh}:${get("minute")}`;
 }

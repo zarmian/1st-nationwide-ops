@@ -12,6 +12,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { CalloutInput, checkBackdateAllowed } from "@/lib/dispatcherCallout";
+import { parseUkDateTimeLocal } from "@/lib/dates";
 
 /**
  * Dispatcher-recorded callouts.
@@ -64,9 +65,9 @@ export async function recordDispatcherCallout(
     };
   }
   const d = parsed.data;
-  const startedAt = d.startedAt ? new Date(d.startedAt) : null;
-  const completedAt = d.completedAt ? new Date(d.completedAt) : null;
-  const handedOffAt = d.handedOffAt ? new Date(d.handedOffAt) : null;
+  const startedAt = parseUkDateTimeLocal(d.startedAt);
+  const completedAt = parseUkDateTimeLocal(d.completedAt);
+  const handedOffAt = parseUkDateTimeLocal(d.handedOffAt);
 
   // Dispatcher backdate cap. Anchor on whichever time the dispatcher gave
   // — startedAt for officer flow, handedOffAt for partner flow.

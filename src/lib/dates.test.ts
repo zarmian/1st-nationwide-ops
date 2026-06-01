@@ -4,7 +4,9 @@ import {
   formatDate,
   formatDateTime,
   formatTimeAgo,
+  formatUkDateTimeLocal,
   parseIsoDate,
+  parseUkDateTimeLocal,
   toIsoDate,
   ukDayPlus,
   ukDayString,
@@ -139,5 +141,51 @@ describe("UK-aware day helpers", () => {
       month: 1,
       day: 16,
     });
+  });
+});
+
+describe("datetime-local <-> UTC", () => {
+  it("parseUkDateTimeLocal treats the input as UK wall-clock", () => {
+    // 31 May 2026 05:45 UK (BST = UTC+1) → 04:45 UTC
+    const bst = parseUkDateTimeLocal("2026-05-31T05:45");
+    expect(bst?.toISOString()).toBe("2026-05-31T04:45:00.000Z");
+
+    // 15 Jan 2026 05:45 UK (GMT = UTC+0) → 05:45 UTC
+    const gmt = parseUkDateTimeLocal("2026-01-15T05:45");
+    expect(gmt?.toISOString()).toBe("2026-01-15T05:45:00.000Z");
+  });
+
+  it("parseUkDateTimeLocal returns null for empty / malformed input", () => {
+    expect(parseUkDateTimeLocal(null)).toBeNull();
+    expect(parseUkDateTimeLocal("")).toBeNull();
+    expect(parseUkDateTimeLocal("not a date")).toBeNull();
+  });
+
+  it("parseUkDateTimeLocal accepts seconds too (for forms that emit them)", () => {
+    const r = parseUkDateTimeLocal("2026-05-31T05:45:30");
+    expect(r?.toISOString()).toBe("2026-05-31T04:45:30.000Z");
+  });
+
+  it("formatUkDateTimeLocal round-trips through parseUkDateTimeLocal", () => {
+    // BST: 31 May 2026 17:30 UK = 16:30 UTC
+    const inUk = "2026-05-31T17:30";
+    const utc = parseUkDateTimeLocal(inUk);
+    expect(formatUkDateTimeLocal(utc)).toBe(inUk);
+
+    // GMT: 15 Jan 2026 17:30 UK = 17:30 UTC
+    const winterUk = "2026-01-15T17:30";
+    const winterUtc = parseUkDateTimeLocal(winterUk);
+    expect(formatUkDateTimeLocal(winterUtc)).toBe(winterUk);
+  });
+
+  it("formatUkDateTimeLocal renders a UTC ISO string in UK terms", () => {
+    // 22:00 UTC on 31 May 2026 = 23:00 BST
+    expect(formatUkDateTimeLocal(new Date("2026-05-31T22:00:00Z"))).toBe(
+      "2026-05-31T23:00",
+    );
+
+    // Empty / invalid → empty string for safe defaultValue use
+    expect(formatUkDateTimeLocal(null)).toBe("");
+    expect(formatUkDateTimeLocal("nonsense")).toBe("");
   });
 });
