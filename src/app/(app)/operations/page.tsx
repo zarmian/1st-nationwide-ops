@@ -82,7 +82,7 @@ export default async function OperationsHubPage() {
       href: "/admin/reports",
       title: "Review queue",
       blurb:
-        "Officer submissions waiting for sign-off before they go to the customer (alarm responses, lock-ups, etc. Patrols + VPI auto-approve).",
+        "Officer submissions waiting for sign-off before they go to the customer (alarm responses, ad-hoc reports). Patrols, VPI, lock + unlock auto-approve.",
       stat: pendingReviews,
       statLabel: "pending",
     },
