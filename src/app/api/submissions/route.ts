@@ -125,17 +125,21 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
+  // Patrols + VPI auto-approve. They're routine observation reports;
+  // admin doesn't need to sign every one off before it counts. Other
+  // form types (alarm response, lock-up, etc.) still queue for review.
+  const autoApprove = data.form === "PATROL" || data.form === "VPI";
   await prisma.reportReview.create({
     data: {
       submissionId: submitted.id,
-      status: "PENDING",
+      status: autoApprove ? "APPROVED" : "PENDING",
+      reviewedAt: autoApprove ? new Date() : null,
     },
   });
 
   // The officer has finished the report — move the Job out of the "live"
-  // dispatch view and into the review queue. updateMany with a status
-  // filter so we don't accidentally regress a Job that's already been
-  // approved / cancelled.
+  // dispatch view. For auto-approved forms we skip SUBMITTED entirely
+  // and go straight to APPROVED so dispatch + review queue stay clean.
   if (data.jobId) {
     await prisma.job.updateMany({
       where: {
@@ -143,7 +147,7 @@ export async function POST(req: Request) {
         status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
       },
       data: {
-        status: "SUBMITTED",
+        status: autoApprove ? "APPROVED" : "SUBMITTED",
       },
     });
   }

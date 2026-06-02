@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
+import { RestoreJobButton } from "../dispatch/_components/RestoreJobButton";
 
 export const dynamic = "force-dynamic";
 
@@ -745,7 +746,16 @@ export default async function ActivitiesPage({
                     <td className="px-4 py-2 text-slate-600 text-xs">
                       <div className="flex items-center gap-2">
                         <span>{r.status.toLowerCase().replace(/_/g, " ")}</span>
-                        {isAdmin && (
+                        {isAdmin &&
+                          r.source === "JOB" &&
+                          r.status === "CANCELLED" && (
+                            <RestoreJobButton
+                              jobId={r.id.replace(/^j:/, "")}
+                              jobLabel={`${r.kindLabel} @ ${r.siteName ?? "site"}`}
+                              size="small"
+                            />
+                          )}
+                        {isAdmin && r.status !== "CANCELLED" && (
                           <Link
                             href={`${r.href}/edit`}
                             className="text-brand-mint-dark hover:text-brand-navy underline"

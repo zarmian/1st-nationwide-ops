@@ -5,6 +5,7 @@ import { requireStaff } from "@/lib/authz";
 import { reassignJob } from "../../patrols/_actions";
 import { QuickReassignJob } from "../../patrols/_components/QuickReassign";
 import { CancelJobButton } from "../_components/CancelJobButton";
+import { RestoreJobButton } from "../_components/RestoreJobButton";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,12 @@ export default async function JobDetailPage({
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {me.role === "ADMIN" && job.status === "CANCELLED" && (
+              <RestoreJobButton
+                jobId={job.id}
+                jobLabel={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+              />
+            )}
             {me.role === "ADMIN" && job.status !== "CANCELLED" && (
               <Link href={`/dispatch/${job.id}/edit`} className="btn-secondary text-sm">
                 Edit

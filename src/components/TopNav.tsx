@@ -3,11 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { useEffect, useRef, useState } from "react";
 import { BrandLogo } from "./BrandLogo";
 
 type NavItem = { href: string; label: string };
-type NavGroup = { label: string; items: NavItem[] };
 
 const OFFICER_LINKS: NavItem[] = [
   { href: "/m/today", label: "Today" },
@@ -21,48 +19,19 @@ const STAFF_TOP: NavItem[] = [
   { href: "/finance", label: "Finance" },
 ];
 
-const STAFF_GROUPS: NavGroup[] = [
-  {
-    label: "Operations",
-    items: [
-      { href: "/patrols", label: "Schedules" },
-      { href: "/shifts", label: "Shifts" },
-      { href: "/keys", label: "Keys" },
-      { href: "/activities", label: "Activities log" },
-      { href: "/onboarding", label: "Onboarding" },
-      { href: "/officers", label: "Officers" },
-      // Dispatcher needs the review queue — it's the one /admin path they
-      // can access. Surface it here so they don't need the Admin group.
-      { href: "/admin/reports", label: "Review queue" },
-    ],
-  },
+// Operations / Admin are now single buttons rather than dropdowns. Each
+// takes you to a hub page (`/operations`, `/admin`) that links out to
+// every sub-area — keeps the top bar uncluttered and avoids the "what's
+// in this menu again?" lookup.
+const STAFF_HUBS: NavItem[] = [
+  { href: "/operations", label: "Operations" },
 ];
-
-const ADMIN_GROUPS: NavGroup[] = [
-  {
-    label: "Admin",
-    items: [
-      { href: "/admin", label: "Admin home" },
-      { href: "/admin/customers", label: "Customers" },
-      { href: "/admin/partners", label: "Partners" },
-      { href: "/admin/regions", label: "Regions" },
-      { href: "/admin/forms", label: "Form templates" },
-      { href: "/admin/blueprints", label: "Form blueprints" },
-      { href: "/admin/officer-rates", label: "Officer rates" },
-      { href: "/admin/notifications", label: "Notifications" },
-      { href: "/admin/imports/sites", label: "Sites import" },
-      { href: "/admin/imports/nexus", label: "Nexus import" },
-    ],
-  },
-];
+const ADMIN_HUBS: NavItem[] = [{ href: "/admin", label: "Admin" }];
 
 function isItemActive(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === "/admin";
+  if (href === "/operations") return pathname === "/operations";
   return pathname === href || pathname.startsWith(href + "/");
-}
-
-function isGroupActive(pathname: string, group: NavGroup): boolean {
-  return group.items.some((i) => isItemActive(pathname, i.href));
 }
 
 export function TopNav({
@@ -75,7 +44,7 @@ export function TopNav({
   const pathname = usePathname() ?? "";
   const isAdmin = role === "ADMIN";
   const isStaff = isAdmin || role === "DISPATCHER";
-  const groups = isAdmin ? [...STAFF_GROUPS, ...ADMIN_GROUPS] : STAFF_GROUPS;
+  const hubs = isAdmin ? [...STAFF_HUBS, ...ADMIN_HUBS] : STAFF_HUBS;
 
   return (
     <header className="bg-white border-b border-slate-200">
@@ -94,12 +63,11 @@ export function TopNav({
                   active={isItemActive(pathname, item.href)}
                 />
               ))}
-              {groups.map((g) => (
-                <NavDropdown
-                  key={g.label}
-                  group={g}
-                  pathname={pathname}
-                  active={isGroupActive(pathname, g)}
+              {hubs.map((item) => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  active={isItemActive(pathname, item.href)}
                 />
               ))}
             </>
@@ -159,7 +127,7 @@ export function TopNav({
       {/* Mobile nav strip — primary items only, scrolls horizontally */}
       <div className="md:hidden border-t border-slate-100 overflow-x-auto">
         <div className="px-3 py-2 flex items-center gap-1 whitespace-nowrap">
-          {(isStaff ? [...STAFF_TOP, ...groups.flatMap((g) => g.items.slice(0, 1))] : OFFICER_LINKS).map(
+          {(isStaff ? [...STAFF_TOP, ...hubs] : OFFICER_LINKS).map(
             (item) => {
               const active = isItemActive(pathname, item.href);
               return (
@@ -197,94 +165,6 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
     >
       {item.label}
     </Link>
-  );
-}
-
-function NavDropdown({
-  group,
-  pathname,
-  active,
-}: {
-  group: NavGroup;
-  pathname: string;
-  active: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  // Close on click outside / ESC.
-  useEffect(() => {
-    if (!open) return;
-    function onClick(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  // Close on route change.
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        className={
-          "px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1 " +
-          (active
-            ? "bg-brand-mint-light text-brand-mint-dark"
-            : "text-slate-600 hover:bg-slate-100")
-        }
-      >
-        {group.label}
-        <ChevronDown />
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 mt-1 min-w-[200px] rounded-xl bg-white border border-slate-200 shadow-lg p-1 z-30"
-        >
-          {group.items.map((item) => {
-            const isActive = isItemActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                role="menuitem"
-                className={
-                  "block px-3 py-2 rounded-lg text-sm " +
-                  (isActive
-                    ? "bg-brand-mint-light text-brand-mint-dark"
-                    : "text-slate-700 hover:bg-slate-50")
-                }
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ChevronDown() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
   );
 }
 
