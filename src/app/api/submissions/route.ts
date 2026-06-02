@@ -125,10 +125,16 @@ export async function POST(req: Request) {
     select: { id: true },
   });
 
-  // Patrols + VPI auto-approve. They're routine observation reports;
-  // admin doesn't need to sign every one off before it counts. Other
-  // form types (alarm response, lock-up, etc.) still queue for review.
-  const autoApprove = data.form === "PATROL" || data.form === "VPI";
+  // Routine scheduled activities auto-approve. They're not the customer-
+  // facing reports that need admin sign-off (that's ALARM_RESPONSE +
+  // ad-hoc submissions); they're just the officer confirming the
+  // scheduled task happened. Skipping the review queue keeps the queue
+  // focused on what actually needs reading.
+  const autoApprove =
+    data.form === "PATROL" ||
+    data.form === "VPI" ||
+    data.form === "LOCK" ||
+    data.form === "UNLOCK";
   await prisma.reportReview.create({
     data: {
       submissionId: submitted.id,
