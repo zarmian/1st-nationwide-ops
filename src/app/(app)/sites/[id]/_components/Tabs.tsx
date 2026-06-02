@@ -9,11 +9,11 @@ export type TabKey =
   | "documents"
   | "settings";
 
-const TABS: { key: TabKey; label: string }[] = [
+const TABS: { key: TabKey; label: string; adminOnly?: boolean }[] = [
   { key: "overview", label: "Overview" },
   { key: "schedule", label: "Schedule" },
   { key: "keys", label: "Keys" },
-  { key: "finance", label: "Finance" },
+  { key: "finance", label: "Finance", adminOnly: true },
   { key: "activity", label: "Activity" },
   { key: "documents", label: "Documents" },
   { key: "settings", label: "Settings" },
@@ -23,15 +23,18 @@ export function Tabs({
   siteId,
   active,
   counts,
+  isAdmin,
 }: {
   siteId: string;
   active: TabKey;
   counts: Partial<Record<TabKey, number>>;
+  isAdmin: boolean;
 }) {
+  const visibleTabs = TABS.filter((t) => isAdmin || !t.adminOnly);
   return (
     <div className="border-b border-slate-200">
       <nav className="-mb-px flex flex-wrap gap-1">
-        {TABS.map((t) => {
+        {visibleTabs.map((t) => {
           const isActive = t.key === active;
           const count = counts[t.key];
           return (

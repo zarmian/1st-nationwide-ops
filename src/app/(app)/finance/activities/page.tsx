@@ -1,10 +1,9 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
-import { RestoreJobButton } from "../dispatch/_components/RestoreJobButton";
+import { RestoreJobButton } from "../../dispatch/_components/RestoreJobButton";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +41,14 @@ const JOB_TYPES = [
   "ADHOC",
 ] as const;
 
+function fmtMoney(amount: number | null, currency = "GBP"): string {
+  if (amount == null) return "—";
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+  }).format(amount);
+}
 
 function fmtDate(d: Date): string {
   return d.toLocaleString("en-GB", {
@@ -141,13 +148,13 @@ export default async function ActivitiesPage({
     siteId?: string;
     regionId?: string;
     kind?: string; // JobType or "VISIT_PATROL" / "VISIT_VPI"
-    status?: string; // accepted but no longer affects the query — see comment in the SQL block
+    status?: string; // "completed" | "billed" | "paid" | "all"
     groupBy?: GroupBy;
     page?: string;
   };
 }) {
-  const session = await getServerSession(authOptions);
-  const isAdmin = session?.user?.role === "ADMIN";
+  await requireAdmin();
+  const isAdmin = true;
 
   // ── 1. Resolve params ───────────────────────────────────────────────────
   const now = new Date();
@@ -197,13 +204,25 @@ export default async function ActivitiesPage({
   const visitWhere: any = {};
   const jobWhere: any = {};
 
-  // /activities is the ops log. Finance-scoped filters (billed/paid date)
-  // moved to /finance/activities. Here we just gate on the completion
-  // timestamp falling in the chosen window — every status mode behaves
-  // the same way.
-  visitWhere.status = "COMPLETED";
-  visitWhere.departedAt = { gte: fromDate, lte: toDate };
-  jobWhere.completedAt = { gte: fromDate, lte: toDate };
+  // Every status mode requires the work to actually be done. Jobs are
+  // auto-billed by the cron at creation time, so without these guards a
+  // scheduled lock-up that no one attended yet would show up here.
+  if (status === "billed") {
+    visitWhere.status = "COMPLETED";
+    visitWhere.billedAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { not: null };
+    jobWhere.billedAt = { gte: fromDate, lte: toDate };
+  } else if (status === "paid") {
+    visitWhere.status = "COMPLETED";
+    visitWhere.paidAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { not: null };
+    jobWhere.paidAt = { gte: fromDate, lte: toDate };
+  } else {
+    // default: completed
+    visitWhere.status = "COMPLETED";
+    visitWhere.departedAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { gte: fromDate, lte: toDate };
+  }
 
   if (officerId) {
     visitWhere.officerId = officerId;
@@ -326,6 +345,8 @@ export default async function ActivitiesPage({
     partnerName: string | null;
     officerId: string | null;
     officerName: string | null;
+    billed: number | null;
+    paid: number | null;
   };
 
   const rows: Row[] = [];
@@ -355,6 +376,8 @@ export default async function ActivitiesPage({
       partnerName: v.site?.partner?.name ?? null,
       officerId: v.officer?.id ?? null,
       officerName: v.officer?.name ?? null,
+      billed: v.billedAmount != null ? Number(v.billedAmount) : null,
+      paid: v.paidAmount != null ? Number(v.paidAmount) : null,
     });
   }
 
@@ -384,16 +407,25 @@ export default async function ActivitiesPage({
       officerName: j.handledByPartner
         ? `${j.handledByPartner.name} (partner)`
         : j.assignedTo?.name ?? null,
+      billed: j.billedAmount != null ? Number(j.billedAmount) : null,
+      paid: j.paidAmount != null ? Number(j.paidAmount) : null,
     });
   }
 
   rows.sort((a, b) => b.at.getTime() - a.at.getTime());
 
   // ── 5. Totals (always over the unfiltered-by-page slice) ───────────────
-  const totals = { count: rows.length };
+  const totals = rows.reduce(
+    (acc, r) => ({
+      count: acc.count + 1,
+      billed: acc.billed + (r.billed ?? 0),
+      paid: acc.paid + (r.paid ?? 0),
+    }),
+    { count: 0, billed: 0, paid: 0 },
+  );
 
   // ── 6. Group-by pivot OR paginated raw rows ────────────────────────────
-  type Bucket = { key: string; label: string; count: number };
+  type Bucket = { key: string; label: string; count: number; billed: number; paid: number };
   let pivot: Bucket[] = [];
   if (groupBy !== "none") {
     const m = new Map<string, Bucket>();
@@ -403,8 +435,12 @@ export default async function ActivitiesPage({
         key,
         label: bucketLabel(key, groupBy),
         count: 0,
+        billed: 0,
+        paid: 0,
       };
       b.count++;
+      b.billed += r.billed ?? 0;
+      b.paid += r.paid ?? 0;
       m.set(key, b);
     }
     pivot = Array.from(m.values()).sort((a, b) =>
@@ -437,10 +473,18 @@ export default async function ActivitiesPage({
     <div className="space-y-4">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Activities</h1>
+          <Link
+            href="/finance"
+            className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          >
+            ← Finance
+          </Link>
+          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
+            Finance · Activities
+          </h1>
           <p className="text-sm text-slate-500">
-            Every completed job and visit, filterable by date, account,
-            officer, site, service and region.
+            Admin-only ledger with billed + paid columns. Same filters as
+            the ops Activities log on /activities.
             {accountLabel ? (
               <>
                 {" "}Currently scoped to{" "}
@@ -458,7 +502,7 @@ export default async function ActivitiesPage({
       </div>
 
       <FilterPanel
-        clearAllHref="/activities"
+        clearAllHref="/finance/activities"
         activeFilters={(() => {
           const filters: { label: string; clearHref: string }[] = [];
           const drop = (k: string): string => {
@@ -466,7 +510,7 @@ export default async function ActivitiesPage({
             sp.delete(k);
             if (k === "customerId" || k === "partnerId") sp.delete("accountId");
             const qs = sp.toString();
-            return qs ? `/activities?${qs}` : "/activities";
+            return qs ? `/finance/activities?${qs}` : "/finance/activities";
           };
           if (customerId) {
             filters.push({
@@ -531,12 +575,30 @@ export default async function ActivitiesPage({
         />
       </FilterPanel>
 
-      <div className="card p-4 inline-block">
-        <div className="text-xs uppercase tracking-wider text-slate-500">
-          Activities in range
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Activities
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
+            {totals.count.toLocaleString("en-GB")}
+          </div>
         </div>
-        <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-          {totals.count.toLocaleString("en-GB")}
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Billed
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
+            {fmtMoney(totals.billed)}
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Paid to officers
+          </div>
+          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
+            {fmtMoney(totals.paid)}
+          </div>
         </div>
       </div>
 
@@ -559,6 +621,15 @@ export default async function ActivitiesPage({
                 <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
                   Activities
                 </th>
+                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Billed
+                </th>
+                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Paid
+                </th>
+                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Profit
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -570,11 +641,25 @@ export default async function ActivitiesPage({
                   <td className="px-4 py-2 text-right tabular-nums">
                     {p.count.toLocaleString("en-GB")}
                   </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {fmtMoney(p.billed)}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums text-slate-600">
+                    {fmtMoney(p.paid)}
+                  </td>
+                  <td
+                    className={
+                      "px-4 py-2 text-right tabular-nums font-medium " +
+                      (p.billed - p.paid >= 0 ? "text-brand-navy" : "text-red-600")
+                    }
+                  >
+                    {fmtMoney(p.billed - p.paid)}
+                  </td>
                 </tr>
               ))}
               {pivot.length === 0 && (
                 <tr>
-                  <td colSpan={2} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                     No activities for these filters.
                   </td>
                 </tr>
@@ -610,6 +695,12 @@ export default async function ActivitiesPage({
                   </th>
                   <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
                     Officer
+                  </th>
+                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                    Billed
+                  </th>
+                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                    Paid
                   </th>
                   <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
                     Status
@@ -653,6 +744,12 @@ export default async function ActivitiesPage({
                         <span className="text-slate-400">—</span>
                       )}
                     </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                      {fmtMoney(r.billed)}
+                    </td>
+                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">
+                      {fmtMoney(r.paid)}
+                    </td>
                     <td className="px-4 py-2 text-slate-600 text-xs">
                       <div className="flex items-center gap-2">
                         <span>{r.status.toLowerCase().replace(/_/g, " ")}</span>
@@ -679,7 +776,7 @@ export default async function ActivitiesPage({
                 ))}
                 {pageRows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                       No activities for these filters.
                     </td>
                   </tr>
@@ -716,7 +813,7 @@ function Pagination({
       if (v && k !== "page") qs.set(k, v);
     }
     qs.set("page", String(p));
-    return `/activities?${qs.toString()}`;
+    return `/finance/activities?${qs.toString()}`;
   };
   return (
     <nav className="flex items-center justify-center gap-1 text-sm">

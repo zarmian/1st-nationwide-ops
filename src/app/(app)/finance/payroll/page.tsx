@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireAdmin } from "@/lib/authz";
 import { buildPayrollReport } from "@/lib/payroll";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ export default async function PayrollPage({
 }: {
   searchParams: { from?: string; to?: string };
 }) {
+  await requireAdmin();
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);

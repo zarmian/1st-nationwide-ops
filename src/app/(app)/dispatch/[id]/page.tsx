@@ -388,7 +388,7 @@ export default async function JobDetailPage({
         </div>
       )}
 
-      {(billed || paid) && (
+      {me.role === "ADMIN" && (billed || paid) && (
         <div className="card p-4 space-y-2">
           <h2 className="font-semibold text-brand-navy text-sm uppercase tracking-wider">
             Finance
