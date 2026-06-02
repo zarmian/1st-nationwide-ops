@@ -60,23 +60,30 @@ const KeySetRow = z.object({
   remove: z.boolean().optional(),
 });
 
+const IsoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
+
 const ScheduleDay = z.object({
   dayOfWeek: z.enum(DAYS),
   frequency: z.enum(FREQUENCIES).default("WEEKLY"),
-  // Optional per-day overrides. Both strings come from <input> elements
-  // so we keep them as strings here and normalise on the way to Prisma.
   timeOfDay: z
     .string()
     .trim()
     .regex(/^\d{2}:\d{2}$/, "Time must be HH:MM")
     .optional()
     .nullable(),
-  startsOn: z
+  startsOn: IsoDate.optional().nullable(),
+  endsOn: IsoDate.optional().nullable(),
+  assignedOfficerId: z
     .string()
-    .trim()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .uuid()
+    .or(z.literal(""))
     .optional()
     .nullable(),
+  intervalWeeks: z.number().int().min(1).max(52).optional().nullable(),
+  exceptionDates: z.array(IsoDate).default([]),
 });
 
 const SiteInput = z.object({
@@ -139,6 +146,29 @@ function formatPostcode(pc: string): string {
   const n = normalisePostcode(pc);
   if (n.length < 5) return pc.toUpperCase().trim();
   return `${n.slice(0, n.length - 3)} ${n.slice(-3)}`;
+}
+
+function scheduleRowFromInput(
+  siteId: string,
+  kind: "PATROL" | "VPI",
+  p: z.infer<typeof ScheduleDay>,
+) {
+  return {
+    siteId,
+    kind: kind as any,
+    dayOfWeek: p.dayOfWeek as any,
+    frequency: p.frequency as any,
+    timeOfDay: p.timeOfDay ?? null,
+    startsOn: p.startsOn ? new Date(`${p.startsOn}T00:00:00Z`) : null,
+    endsOn: p.endsOn ? new Date(`${p.endsOn}T23:59:59Z`) : null,
+    assignedOfficerId:
+      p.assignedOfficerId && p.assignedOfficerId !== ""
+        ? p.assignedOfficerId
+        : null,
+    intervalWeeks: p.intervalWeeks ?? null,
+    exceptionDates: p.exceptionDates ?? [],
+    active: true,
+  };
 }
 
 function safeJson<T>(raw: string | null | undefined, fallback: T): T {
@@ -329,15 +359,7 @@ async function syncRelations(siteId: string, d: ParsedSite) {
     });
     if (wantsPatrol && d.patrolDays.length) {
       await tx.patrolSchedule.createMany({
-        data: d.patrolDays.map((p) => ({
-          siteId,
-          kind: "PATROL" as any,
-          dayOfWeek: p.dayOfWeek as any,
-          frequency: p.frequency as any,
-          timeOfDay: p.timeOfDay ?? null,
-          startsOn: p.startsOn ? new Date(`${p.startsOn}T00:00:00Z`) : null,
-          active: true,
-        })),
+        data: d.patrolDays.map((p) => scheduleRowFromInput(siteId, "PATROL", p)),
       });
     }
 
@@ -347,15 +369,7 @@ async function syncRelations(siteId: string, d: ParsedSite) {
     });
     if (wantsVpi && d.vpiDays.length) {
       await tx.patrolSchedule.createMany({
-        data: d.vpiDays.map((p) => ({
-          siteId,
-          kind: "VPI" as any,
-          dayOfWeek: p.dayOfWeek as any,
-          frequency: p.frequency as any,
-          timeOfDay: p.timeOfDay ?? null,
-          startsOn: p.startsOn ? new Date(`${p.startsOn}T00:00:00Z`) : null,
-          active: true,
-        })),
+        data: d.vpiDays.map((p) => scheduleRowFromInput(siteId, "VPI", p)),
       });
     }
 

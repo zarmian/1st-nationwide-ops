@@ -5,7 +5,11 @@ import {
   billForSite,
   payForOfficer,
 } from "@/lib/billing";
-import { shouldCreateVisitOn, defaultScheduledAt } from "@/lib/patrolDates";
+import {
+  defaultScheduledAt,
+  evaluateSchedule,
+  shouldCreateVisitOn,
+} from "@/lib/patrolDates";
 import { ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
 
 /**
@@ -30,11 +34,21 @@ export type LockUnlockDayResult = {
   skipped: number;
 };
 
+export type ScheduleDiagnostic = {
+  scheduleId: string;
+  siteName: string;
+  kind: string;
+  dayOfWeek: string;
+  status: "created" | "exists" | "skipped";
+  reason?: string;
+};
+
 export type PatrolDayResult = {
   date: string;
   created: number;
   skipped: number;
   schedulesChecked: number;
+  diagnostics: ScheduleDiagnostic[];
 };
 
 /**
@@ -124,6 +138,7 @@ export async function materializePatrolVisits(opts: {
 }): Promise<PatrolDayResult[]> {
   const schedules = await prisma.patrolSchedule.findMany({
     where: { active: true },
+    include: { site: { select: { name: true, code: true } } },
   });
 
   const out: PatrolDayResult[] = [];
@@ -137,9 +152,24 @@ export async function materializePatrolVisits(opts: {
 
     let created = 0;
     let skipped = 0;
+    const diagnostics: ScheduleDiagnostic[] = [];
 
     for (const s of schedules) {
-      if (!shouldCreateVisitOn(s, target)) continue;
+      const siteName = s.site.code
+        ? `${s.site.code} · ${s.site.name}`
+        : s.site.name;
+      const eval_ = evaluateSchedule(s, target);
+      if (!eval_.ok) {
+        diagnostics.push({
+          scheduleId: s.id,
+          siteName,
+          kind: s.kind,
+          dayOfWeek: s.dayOfWeek,
+          status: "skipped",
+          reason: eval_.reason,
+        });
+        continue;
+      }
 
       const dayStart = new Date(target);
       const dayEnd = new Date(target);
@@ -155,6 +185,13 @@ export async function materializePatrolVisits(opts: {
       });
       if (existing) {
         skipped++;
+        diagnostics.push({
+          scheduleId: s.id,
+          siteName,
+          kind: s.kind,
+          dayOfWeek: s.dayOfWeek,
+          status: "exists",
+        });
         continue;
       }
 
@@ -168,6 +205,13 @@ export async function materializePatrolVisits(opts: {
         },
       });
       created++;
+      diagnostics.push({
+        scheduleId: s.id,
+        siteName,
+        kind: s.kind,
+        dayOfWeek: s.dayOfWeek,
+        status: "created",
+      });
     }
 
     out.push({
@@ -175,6 +219,7 @@ export async function materializePatrolVisits(opts: {
       created,
       skipped,
       schedulesChecked: schedules.length,
+      diagnostics,
     });
   }
 

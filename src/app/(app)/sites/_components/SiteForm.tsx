@@ -87,12 +87,12 @@ export type KeySetRow = {
 export type ScheduleDay = {
   dayOfWeek: string;
   frequency: string;
-  // "HH:MM" UK wall-clock. Optional — falls back to the kind default
-  // (09:00 for VPI, 22:00 for patrols) when blank.
-  timeOfDay?: string;
-  // "YYYY-MM-DD". Optional anchor for fortnightly parity. Falls back to
-  // the schedule's createdAt when blank.
-  startsOn?: string;
+  timeOfDay?: string;       // "HH:MM" UK wall-clock
+  startsOn?: string;        // "YYYY-MM-DD" anchor
+  endsOn?: string;          // "YYYY-MM-DD" stop date
+  assignedOfficerId?: string; // per-day officer
+  intervalWeeks?: number;   // overrides frequency: "every N weeks"
+  exceptionDates?: string[]; // YYYY-MM-DD skips
 };
 
 export type SiteFormValues = {
@@ -581,9 +581,10 @@ export function SiteForm({
         <ScheduleSection
           anchorId="patrol-section"
           title="Patrol schedule"
-          blurb="One row per day we patrol. Pick a frequency for each. Officer assignment is set per day on /schedules."
+          blurb="One row per day we patrol. Pick day, frequency, and time; expand Advanced for per-day officer, end date, custom interval, and skip dates."
           days={patrolDays}
           setDays={setPatrolDays}
+          officers={officers}
         />
       )}
 
@@ -591,9 +592,10 @@ export function SiteForm({
         <ScheduleSection
           anchorId="vpi-section"
           title="VPI schedule"
-          blurb="Vacant property inspection cadence. Same day-of-week + frequency model as patrols."
+          blurb="Vacant property inspection cadence. Same controls as patrols."
           days={vpiDays}
           setDays={setVpiDays}
+          officers={officers}
         />
       )}
 
@@ -1006,12 +1008,14 @@ function ScheduleSection({
   blurb,
   days,
   setDays,
+  officers,
 }: {
   anchorId: string;
   title: string;
   blurb: string;
   days: ScheduleDay[];
   setDays: React.Dispatch<React.SetStateAction<ScheduleDay[]>>;
+  officers: Lookup[];
 }) {
   const selectedDays = useMemo(() => days.map((d) => d.dayOfWeek), [days]);
 
@@ -1047,6 +1051,59 @@ function ScheduleSection({
     );
   }
 
+  function setEndsOn(day: string, s: string) {
+    setDays((rows) =>
+      rows.map((r) =>
+        r.dayOfWeek === day ? { ...r, endsOn: s || undefined } : r,
+      ),
+    );
+  }
+
+  function setOfficer(day: string, id: string) {
+    setDays((rows) =>
+      rows.map((r) =>
+        r.dayOfWeek === day ? { ...r, assignedOfficerId: id || undefined } : r,
+      ),
+    );
+  }
+
+  function setIntervalWeeks(day: string, n: string) {
+    setDays((rows) =>
+      rows.map((r) => {
+        if (r.dayOfWeek !== day) return r;
+        const parsed = Number.parseInt(n, 10);
+        return {
+          ...r,
+          intervalWeeks: Number.isFinite(parsed) && parsed > 0 ? parsed : undefined,
+        };
+      }),
+    );
+  }
+
+  function addException(day: string, date: string) {
+    if (!date) return;
+    setDays((rows) =>
+      rows.map((r) => {
+        if (r.dayOfWeek !== day) return r;
+        const set = new Set(r.exceptionDates ?? []);
+        set.add(date);
+        return { ...r, exceptionDates: Array.from(set).sort() };
+      }),
+    );
+  }
+
+  function removeException(day: string, date: string) {
+    setDays((rows) =>
+      rows.map((r) => {
+        if (r.dayOfWeek !== day) return r;
+        return {
+          ...r,
+          exceptionDates: (r.exceptionDates ?? []).filter((d) => d !== date),
+        };
+      }),
+    );
+  }
+
   return (
     <div id={anchorId} className="card p-5 space-y-4 scroll-mt-20">
       <div>
@@ -1067,63 +1124,182 @@ function ScheduleSection({
             )
             .map((d) => {
               const fortnightly = d.frequency === "FORTNIGHTLY";
+              const customInterval = d.intervalWeeks != null;
               return (
                 <div
                   key={d.dayOfWeek}
-                  className="grid grid-cols-[80px_repeat(3,minmax(0,1fr))] items-end gap-3 text-sm"
+                  className="rounded-xl border border-slate-200 p-3 space-y-3"
                 >
-                  <span className="font-medium text-slate-700 self-center">
-                    {DAYS.find((x) => x.v === d.dayOfWeek)?.label}
-                  </span>
-                  <div>
-                    <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-                      Frequency
-                    </label>
-                    <select
-                      className="input"
-                      value={d.frequency}
-                      onChange={(e) => setFrequency(d.dayOfWeek, e.target.value)}
-                    >
-                      {FREQUENCIES.map((f) => (
-                        <option key={f.v} value={f.v}>
-                          {f.label}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-[80px_repeat(3,minmax(0,1fr))] items-end gap-3 text-sm">
+                    <span className="font-medium text-slate-700 self-center">
+                      {DAYS.find((x) => x.v === d.dayOfWeek)?.label}
+                    </span>
+                    <div>
+                      <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                        Frequency
+                      </label>
+                      <select
+                        className="input"
+                        value={customInterval ? "CUSTOM" : d.frequency}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "CUSTOM") {
+                            setIntervalWeeks(d.dayOfWeek, "2");
+                          } else {
+                            // Clear the custom override when picking an enum.
+                            setIntervalWeeks(d.dayOfWeek, "");
+                            setFrequency(d.dayOfWeek, v);
+                          }
+                        }}
+                      >
+                        {FREQUENCIES.map((f) => (
+                          <option key={f.v} value={f.v}>
+                            {f.label}
+                          </option>
+                        ))}
+                        <option value="CUSTOM">Every N weeks…</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                        Time (UK)
+                      </label>
+                      <input
+                        type="time"
+                        className="input"
+                        value={d.timeOfDay ?? ""}
+                        onChange={(e) =>
+                          setTimeOfDay(d.dayOfWeek, e.target.value)
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label
+                        className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5"
+                        title={
+                          fortnightly || customInterval
+                            ? "Anchors recurrence parity. Leave blank to use today."
+                            : "Skip occurrences before this date."
+                        }
+                      >
+                        {fortnightly || customInterval
+                          ? "Starts on"
+                          : "Start date"}
+                      </label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={d.startsOn ?? ""}
+                        onChange={(e) =>
+                          setStartsOn(d.dayOfWeek, e.target.value)
+                        }
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-                      Time (UK)
-                    </label>
-                    <input
-                      type="time"
-                      className="input"
-                      value={d.timeOfDay ?? ""}
-                      onChange={(e) =>
-                        setTimeOfDay(d.dayOfWeek, e.target.value)
-                      }
-                    />
-                  </div>
-                  <div>
-                    <label
-                      className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5"
-                      title={
-                        fortnightly
-                          ? "Anchors fortnightly parity. Leave blank to use today."
-                          : "Skip occurrences before this date."
-                      }
-                    >
-                      {fortnightly ? "Starts on" : "Start date"}
-                    </label>
-                    <input
-                      type="date"
-                      className="input"
-                      value={d.startsOn ?? ""}
-                      onChange={(e) =>
-                        setStartsOn(d.dayOfWeek, e.target.value)
-                      }
-                    />
-                  </div>
+
+                  <details className="group">
+                    <summary className="cursor-pointer text-xs text-slate-500 hover:text-brand-navy select-none">
+                      Advanced ▾
+                    </summary>
+                    <div className="mt-3 grid grid-cols-[80px_repeat(3,minmax(0,1fr))] items-end gap-3 text-sm">
+                      <span></span>
+                      <div>
+                        <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                          Officer
+                        </label>
+                        <select
+                          className="input"
+                          value={d.assignedOfficerId ?? ""}
+                          onChange={(e) =>
+                            setOfficer(d.dayOfWeek, e.target.value)
+                          }
+                        >
+                          <option value="">— unassigned —</option>
+                          {officers.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                          End date
+                        </label>
+                        <input
+                          type="date"
+                          className="input"
+                          value={d.endsOn ?? ""}
+                          onChange={(e) =>
+                            setEndsOn(d.dayOfWeek, e.target.value)
+                          }
+                        />
+                      </div>
+                      {customInterval ? (
+                        <div>
+                          <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                            Every N weeks
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={52}
+                            step={1}
+                            className="input"
+                            value={d.intervalWeeks ?? ""}
+                            onChange={(e) =>
+                              setIntervalWeeks(d.dayOfWeek, e.target.value)
+                            }
+                          />
+                        </div>
+                      ) : (
+                        <div />
+                      )}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-[80px_1fr] items-start gap-3 text-sm">
+                      <span></span>
+                      <div className="space-y-1.5">
+                        <label className="block text-[11px] uppercase tracking-wider text-slate-500">
+                          Skip these dates
+                        </label>
+                        {(d.exceptionDates ?? []).length > 0 && (
+                          <ul className="flex flex-wrap gap-1.5">
+                            {(d.exceptionDates ?? []).map((ex) => (
+                              <li key={ex}>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removeException(d.dayOfWeek, ex)
+                                  }
+                                  className="chip-slate hover:bg-red-100 hover:text-red-700 inline-flex items-center gap-1"
+                                  title="Click to remove"
+                                >
+                                  {ex} ×
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="date"
+                            className="input"
+                            aria-label="Add skip date"
+                            onChange={(e) => {
+                              if (e.target.value) {
+                                addException(d.dayOfWeek, e.target.value);
+                                e.target.value = "";
+                              }
+                            }}
+                          />
+                          <span className="text-xs text-slate-400">
+                            Holidays, one-off pauses
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </details>
                 </div>
               );
             })}
