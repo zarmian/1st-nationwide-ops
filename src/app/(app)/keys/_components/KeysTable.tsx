@@ -74,6 +74,7 @@ export function KeysTable({
             <th className="px-3 py-2 text-left">Site</th>
             <th className="px-3 py-2 text-left">Holder</th>
             <th className="px-3 py-2 text-left">Status</th>
+            <th className="px-3 py-2 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -102,19 +103,29 @@ function SetRowView({ row }: { row: SetRow }) {
 
   return (
     <>
-      <tr
-        className="border-t border-slate-200 hover:bg-slate-50 cursor-pointer"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <td className="px-3 py-3 text-slate-400 text-center">
+      <tr className="border-t border-slate-200 hover:bg-slate-50">
+        <td
+          className="px-3 py-3 text-slate-400 text-center cursor-pointer"
+          onClick={() => setOpen((v) => !v)}
+        >
           <span aria-hidden>{open ? "▾" : "▸"}</span>
-          <span className="sr-only">{open ? "Collapse" : "Expand"} set</span>
+          <span className="sr-only">
+            {open ? "Collapse" : "Expand"} set
+          </span>
         </td>
-        <td className="px-3 py-3 font-mono text-xs text-slate-600">
+        <td
+          className="px-3 py-3 font-mono text-xs text-slate-600 cursor-pointer"
+          onClick={() => setOpen((v) => !v)}
+        >
           {row.setInternalNo ?? "—"}
         </td>
         <td className="px-3 py-3">
-          <div className="font-medium text-brand-navy">{row.setLabel}</div>
+          <Link
+            href={`/key-sets/${row.setId}`}
+            className="font-medium text-brand-navy hover:text-brand-mint-dark"
+          >
+            {row.setLabel}
+          </Link>
           <div className="text-xs text-slate-500">
             Set · {count} key{count === 1 ? "" : "s"}
           </div>
@@ -130,6 +141,14 @@ function SetRowView({ row }: { row: SetRow }) {
               {STATUS_LABEL[summary.status] ?? summary.status}
             </span>
           )}
+        </td>
+        <td className="px-3 py-3 text-right whitespace-nowrap">
+          <Link
+            href={`/key-sets/${row.setId}`}
+            className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+          >
+            Open set
+          </Link>
         </td>
       </tr>
       {open &&
@@ -162,6 +181,20 @@ function SetRowView({ row }: { row: SetRow }) {
                 {STATUS_LABEL[k.status] ?? k.status}
               </span>
             </td>
+            <td className="px-3 py-2 text-right whitespace-nowrap">
+              <Link
+                href={`/keys/${k.id}`}
+                className="text-xs text-brand-mint-dark hover:text-brand-navy underline mr-3"
+              >
+                Hand over
+              </Link>
+              <Link
+                href={`/keys/${k.id}/edit`}
+                className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+              >
+                Edit
+              </Link>
+            </td>
           </tr>
         ))}
     </>
@@ -193,6 +226,20 @@ function LooseRowView({ row }: { row: LooseRow }) {
         <span className={STATUS_TONE[k.status] ?? "chip-slate"}>
           {STATUS_LABEL[k.status] ?? k.status}
         </span>
+      </td>
+      <td className="px-3 py-3 text-right whitespace-nowrap">
+        <Link
+          href={`/keys/${k.id}`}
+          className="text-xs text-brand-mint-dark hover:text-brand-navy underline mr-3"
+        >
+          Hand over
+        </Link>
+        <Link
+          href={`/keys/${k.id}/edit`}
+          className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+        >
+          Edit
+        </Link>
       </td>
     </tr>
   );

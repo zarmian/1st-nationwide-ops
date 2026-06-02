@@ -85,6 +85,12 @@ export default async function KeyDetailPage({
           <span className={STATUS_TONE[key.status] ?? "chip-slate"}>
             {STATUS_LABEL[key.status] ?? key.status}
           </span>
+          <Link
+            href={`/keys/${key.id}/edit`}
+            className="btn-secondary text-xs ml-auto"
+          >
+            Edit
+          </Link>
         </div>
         <p className="text-sm text-slate-500">
           {key.internalNo ? `${key.internalNo} · ` : ""}
@@ -100,7 +106,17 @@ export default async function KeyDetailPage({
               </Link>
             </>
           )}
-          {key.keySet && ` · Set: ${key.keySet.label}`}
+          {key.keySet && (
+            <>
+              {" · Set: "}
+              <Link
+                href={`/key-sets/${key.keySet.id}`}
+                className="hover:text-brand-mint-dark"
+              >
+                {key.keySet.label}
+              </Link>
+            </>
+          )}
         </p>
       </div>
 

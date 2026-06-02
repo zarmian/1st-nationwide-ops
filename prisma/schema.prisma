@@ -477,6 +477,9 @@ model KeySet {
   internalNo  String?  @unique
   label       String
   notes       String?
+  // Reference photo of the physical set — operator-uploaded so officers
+  // can recognise the actual bunch on arrival. Stored as a Vercel Blob URL.
+  photoUrl    String?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
