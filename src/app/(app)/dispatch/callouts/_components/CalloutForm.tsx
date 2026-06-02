@@ -25,6 +25,7 @@ export function CalloutForm({
   sites,
   officers,
   partners,
+  customerOnlyPartnerCount = 0,
   jobTypes,
   jobSources,
   defaultSiteId,
@@ -33,6 +34,7 @@ export function CalloutForm({
   sites: SiteOption[];
   officers: { id: string; name: string }[];
   partners: { id: string; name: string }[];
+  customerOnlyPartnerCount?: number;
   jobTypes: PickerOption[];
   jobSources: PickerOption[];
   defaultSiteId?: string;
@@ -208,10 +210,44 @@ export function CalloutForm({
                 Partner we gave it to
               </label>
               {partners.length === 0 ? (
-                <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
-                  No subcontracting partners on file. Add Nexus or Keyholding
-                  Co in Admin → Partners first.
-                </p>
+                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 space-y-1">
+                  {customerOnlyPartnerCount > 0 ? (
+                    <p>
+                      You have {customerOnlyPartnerCount} partner
+                      {customerOnlyPartnerCount === 1 ? "" : "s"} on file,
+                      but none are configured as a subcontractor. Open the
+                      partner and change its role to{" "}
+                      <span className="font-medium">Subcontractor</span> or{" "}
+                      <span className="font-medium">Both</span>.
+                    </p>
+                  ) : (
+                    <p>
+                      No subcontracting partners on file yet. Common ones
+                      to add: Nexus Security, Keyholding Co.
+                    </p>
+                  )}
+                  <p>
+                    <a
+                      href="/admin/partners"
+                      target="_blank"
+                      rel="noopener"
+                      className="underline font-medium hover:text-amber-900"
+                    >
+                      Open Admin → Partners ↗
+                    </a>
+                    {" "}
+                    {customerOnlyPartnerCount === 0 && (
+                      <a
+                        href="/admin/partners/new"
+                        target="_blank"
+                        rel="noopener"
+                        className="underline font-medium hover:text-amber-900 ml-3"
+                      >
+                        + Add a partner ↗
+                      </a>
+                    )}
+                  </p>
+                </div>
               ) : (
                 <select
                   id="handlerPartnerId"

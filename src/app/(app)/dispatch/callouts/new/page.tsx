@@ -27,7 +27,7 @@ export default async function NewCalloutPage({
 }: {
   searchParams: { siteId?: string };
 }) {
-  const [sites, officers, partners, allJobTypes, allJobSources] = await Promise.all([
+  const [sites, officers, partners, customerOnlyPartnerCount, allJobTypes, allJobSources] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
@@ -47,6 +47,12 @@ export default async function NewCalloutPage({
       where: { active: true, role: { in: ["SUBCONTRACTOR", "BOTH"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
+    }),
+    // Also count any active partners we're NOT showing so we can tell the
+    // operator "you have partners but they're configured as customers,
+    // change their role" vs "create a partner from scratch."
+    prisma.partner.count({
+      where: { active: true, role: { notIn: ["SUBCONTRACTOR", "BOTH"] } },
     }),
     listJobTypeOptions(),
     listJobSourceOptions(),
@@ -83,6 +89,7 @@ export default async function NewCalloutPage({
         sites={sites}
         officers={officers}
         partners={partners}
+        customerOnlyPartnerCount={customerOnlyPartnerCount}
         jobTypes={jobTypes}
         jobSources={jobSources}
         defaultSiteId={searchParams.siteId}
