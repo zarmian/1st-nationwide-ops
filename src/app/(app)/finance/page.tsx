@@ -320,6 +320,8 @@ export default async function FinancePage({
       select: {
         billedAmount: true,
         paidAmount: true,
+        officerId: true,
+        officer: { select: { name: true } },
         site: {
           select: {
             customerId: true,
@@ -342,6 +344,10 @@ export default async function FinancePage({
         customer: { select: { name: true } },
         partnerId: true,
         partner: { select: { name: true } },
+        assignedToUserId: true,
+        assignedTo: { select: { name: true } },
+        handledByPartnerId: true,
+        handledByPartner: { select: { name: true } },
       },
     }),
   ]);
@@ -369,6 +375,109 @@ export default async function FinancePage({
   }
   const pnlRows = Array.from(pnlByAccount.values()).sort(
     (a, b) => b.billed - a.billed,
+  );
+
+  // Officer P&L: per-officer cost (what we paid) + activity count. Used by
+  // the dashboard's Officers section and as the click-through target. Same
+  // date scope as customers.
+  type OfficerBucket = {
+    id: string;
+    name: string;
+    activities: number;
+    paid: number;
+  };
+  const officerByKey = new Map<string, OfficerBucket>();
+  function officerBucket(
+    id: string | null | undefined,
+    name: string | null | undefined,
+  ): OfficerBucket | null {
+    if (!id) return null;
+    const existing = officerByKey.get(id);
+    if (existing) return existing;
+    const fresh: OfficerBucket = {
+      id,
+      name: name ?? "Unknown officer",
+      activities: 0,
+      paid: 0,
+    };
+    officerByKey.set(id, fresh);
+    return fresh;
+  }
+  for (const v of rangeVisits) {
+    const o = officerBucket(v.officerId, v.officer?.name);
+    if (!o) continue;
+    o.activities++;
+    o.paid += Number(v.paidAmount ?? 0);
+  }
+  for (const j of rangeJobs) {
+    const o = officerBucket(j.assignedToUserId, j.assignedTo?.name);
+    if (!o) continue;
+    o.activities++;
+    o.paid += Number(j.paidAmount ?? 0);
+  }
+  const officerRows = Array.from(officerByKey.values()).sort(
+    (a, b) => b.paid - a.paid,
+  );
+
+  // Partner P&L: per-partner split between
+  //   asCustomer       = jobs/visits where the partner is the bill-to
+  //                      account (Job.partnerId or Site.partnerId via
+  //                      visits). billedAmount is our revenue from them.
+  //   asSubcontractor  = jobs where they handled the work for us
+  //                      (Job.handledByPartnerId). billedAmount on these
+  //                      is what we charged the end customer; the schema
+  //                      doesn't yet track what we owe them in return.
+  type PartnerSide = { activities: number; billed: number };
+  type PartnerBucket = {
+    id: string;
+    name: string;
+    asCustomer: PartnerSide;
+    asSubcontractor: PartnerSide;
+  };
+  const partnerByKey = new Map<string, PartnerBucket>();
+  function partnerBucket(
+    id: string | null | undefined,
+    name: string | null | undefined,
+  ): PartnerBucket | null {
+    if (!id) return null;
+    const existing = partnerByKey.get(id);
+    if (existing) return existing;
+    const fresh: PartnerBucket = {
+      id,
+      name: name ?? "Unknown partner",
+      asCustomer: { activities: 0, billed: 0 },
+      asSubcontractor: { activities: 0, billed: 0 },
+    };
+    partnerByKey.set(id, fresh);
+    return fresh;
+  }
+  for (const v of rangeVisits) {
+    const p = partnerBucket(v.site?.partnerId, v.site?.partner?.name);
+    if (p) {
+      p.asCustomer.activities++;
+      p.asCustomer.billed += Number(v.billedAmount ?? 0);
+    }
+  }
+  for (const j of rangeJobs) {
+    const asCust = partnerBucket(j.partnerId, j.partner?.name);
+    if (asCust) {
+      asCust.asCustomer.activities++;
+      asCust.asCustomer.billed += Number(j.billedAmount ?? 0);
+    }
+    const asSub = partnerBucket(
+      j.handledByPartnerId,
+      j.handledByPartner?.name,
+    );
+    if (asSub) {
+      asSub.asSubcontractor.activities++;
+      asSub.asSubcontractor.billed += Number(j.billedAmount ?? 0);
+    }
+  }
+  const partnerRows = Array.from(partnerByKey.values()).sort(
+    (a, b) =>
+      b.asCustomer.billed +
+      b.asSubcontractor.billed -
+      (a.asCustomer.billed + a.asSubcontractor.billed),
   );
   const pnlTotals = pnlRows.reduce(
     (acc, r) => ({
@@ -656,6 +765,10 @@ export default async function FinancePage({
         </table>
       </div>
 
+      <PartnerPnlTable rows={partnerRows} from={fromDate} to={toDate} />
+
+      <OfficerPnlTable rows={officerRows} from={fromDate} to={toDate} />
+
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4">
           <div className="text-xs uppercase tracking-wider text-slate-500">
@@ -845,6 +958,199 @@ export default async function FinancePage({
           </li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+// ── P&L sub-tables ─────────────────────────────────────────────────────
+
+function OfficerPnlTable({
+  rows,
+  from,
+  to,
+}: {
+  rows: { id: string; name: string; activities: number; paid: number }[];
+  from: Date;
+  to: Date;
+}) {
+  const total = rows.reduce(
+    (acc, r) => ({
+      activities: acc.activities + r.activities,
+      paid: acc.paid + r.paid,
+    }),
+    { activities: 0, paid: 0 },
+  );
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between">
+        <div>
+          <h2 className="font-semibold text-brand-navy">Officers</h2>
+          <p className="text-xs text-slate-500">
+            Per-officer activity count and pay. Click an officer to see
+            their activities in the selected range.
+          </p>
+        </div>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-slate-500 text-center">
+          No officer activity in this range.
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-600">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                Officer
+              </th>
+              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                Activities
+              </th>
+              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                Pay
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="px-4 py-2">
+                  <Link
+                    href={`/finance/officers/${r.id}?from=${ymd(from)}&to=${ymd(to)}`}
+                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                  >
+                    {r.name}
+                  </Link>
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {r.activities}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {fmtMoney2(r.paid)}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
+              <td className="px-4 py-2 text-slate-600">Total</td>
+              <td className="px-4 py-2 text-right tabular-nums">
+                {total.activities}
+              </td>
+              <td className="px-4 py-2 text-right tabular-nums">
+                {fmtMoney2(total.paid)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function PartnerPnlTable({
+  rows,
+  from,
+  to,
+}: {
+  rows: {
+    id: string;
+    name: string;
+    asCustomer: { activities: number; billed: number };
+    asSubcontractor: { activities: number; billed: number };
+  }[];
+  from: Date;
+  to: Date;
+}) {
+  const total = rows.reduce(
+    (acc, r) => ({
+      cActs: acc.cActs + r.asCustomer.activities,
+      cBilled: acc.cBilled + r.asCustomer.billed,
+      sActs: acc.sActs + r.asSubcontractor.activities,
+      sBilled: acc.sBilled + r.asSubcontractor.billed,
+    }),
+    { cActs: 0, cBilled: 0, sActs: 0, sBilled: 0 },
+  );
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100">
+        <h2 className="font-semibold text-brand-navy">Partners</h2>
+        <p className="text-xs text-slate-500">
+          Two-sided per partner: jobs <em>we did for them</em> (they're our
+          customer) vs jobs <em>they did for us</em> (we subcontracted to
+          them). Click for the split detail.
+        </p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-slate-500 text-center">
+          No partner activity in this range.
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-600">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                Partner
+              </th>
+              <th
+                className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs"
+                colSpan={2}
+              >
+                We did for them
+              </th>
+              <th
+                className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs"
+                colSpan={2}
+              >
+                They did for us
+              </th>
+            </tr>
+            <tr className="text-[10px] uppercase tracking-wider text-slate-400 bg-slate-50">
+              <th></th>
+              <th className="text-right px-4 py-1 font-normal">Activities</th>
+              <th className="text-right px-4 py-1 font-normal">Billed to them</th>
+              <th className="text-right px-4 py-1 font-normal">Activities</th>
+              <th className="text-right px-4 py-1 font-normal">
+                Billed to our customer
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((r) => (
+              <tr key={r.id}>
+                <td className="px-4 py-2">
+                  <Link
+                    href={`/finance/partners/${r.id}?from=${ymd(from)}&to=${ymd(to)}`}
+                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                  >
+                    {r.name}
+                  </Link>
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {r.asCustomer.activities}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {fmtMoney2(r.asCustomer.billed)}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {r.asSubcontractor.activities}
+                </td>
+                <td className="px-4 py-2 text-right tabular-nums">
+                  {fmtMoney2(r.asSubcontractor.billed)}
+                </td>
+              </tr>
+            ))}
+            <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
+              <td className="px-4 py-2 text-slate-600">Total</td>
+              <td className="px-4 py-2 text-right tabular-nums">{total.cActs}</td>
+              <td className="px-4 py-2 text-right tabular-nums">
+                {fmtMoney2(total.cBilled)}
+              </td>
+              <td className="px-4 py-2 text-right tabular-nums">{total.sActs}</td>
+              <td className="px-4 py-2 text-right tabular-nums">
+                {fmtMoney2(total.sBilled)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
