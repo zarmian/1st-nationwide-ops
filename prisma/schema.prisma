@@ -766,6 +766,10 @@ model Job {
   cancelledAt           DateTime?
   cancelledByUserId     String?       @db.Uuid
   cancelledBy           User?         @relation("JobCancelledBy", fields: [cancelledByUserId], references: [id])
+  // Snapshot of Job.status the moment cancel was clicked, so Restore
+  // puts the job back where it was rather than guessing OPEN/ASSIGNED.
+  // Null on jobs that have never been cancelled.
+  statusBeforeCancel    JobStatus?
 
   reportedViaPartnerApp Boolean       @default(false)
   partnerReportRef      String?

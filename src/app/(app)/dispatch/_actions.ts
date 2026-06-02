@@ -258,7 +258,7 @@ export async function cancelJob(
   const me = await requireStaff();
   const job = await prisma.job.findUnique({
     where: { id: jobId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, siteId: true },
   });
   if (!job) return { ok: false, error: "Job not found" };
   if (job.status === "CANCELLED") {
@@ -267,16 +267,95 @@ export async function cancelJob(
   if (job.status === "CLOSED" || job.status === "SENT_TO_CLIENT") {
     return { ok: false, error: "This job is already closed — can't cancel." };
   }
+  // Reverse the billing + pay snapshots. The customer shouldn't be billed
+  // for a cancelled job and the officer shouldn't be paid. We null the
+  // amount columns (finance aggregates ignore null) but keep nothing else
+  // because Restore re-runs the rate lookup with the live rates.
   await prisma.job.update({
     where: { id: jobId },
     data: {
       status: "CANCELLED" as any,
       cancelledAt: new Date(),
       cancelledByUserId: me.id,
+      statusBeforeCancel: job.status as any,
+      billedAmount: null,
+      billedCurrency: null,
+      billedAt: null,
+      paidAmount: null,
+      paidCurrency: null,
+      paidAt: null,
     },
   });
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  if (job.siteId) revalidatePath(`/sites/${job.siteId}`);
+  return { ok: true };
+}
+
+/**
+ * Restore a cancelled Job back to its pre-cancel status and re-snapshot
+ * the billing + pay so finance reflects it again. Available to admin
+ * only — Dispatcher can cancel but only Admin can restore (assume any
+ * cancel they did was deliberate).
+ */
+export async function restoreJob(
+  jobId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: {
+      id: true,
+      status: true,
+      statusBeforeCancel: true,
+      siteId: true,
+      assignedToUserId: true,
+      type: true,
+    },
+  });
+  if (!job) return { ok: false, error: "Job not found" };
+  if (job.status !== "CANCELLED") {
+    return { ok: false, error: "Job isn't cancelled." };
+  }
+  // statusBeforeCancel is only stamped by the new cancelJob. Older
+  // cancellations don't have one — restore them to OPEN/ASSIGNED based
+  // on whether they had an officer (mirrors createJob's status pick).
+  const next =
+    job.statusBeforeCancel ??
+    (job.assignedToUserId ? "ASSIGNED" : "OPEN");
+
+  await prisma.job.update({
+    where: { id: jobId },
+    data: {
+      status: next as any,
+      cancelledAt: null,
+      cancelledByUserId: null,
+      statusBeforeCancel: null,
+    },
+  });
+
+  // Re-snapshot the billing + pay from live rates. Same logic as
+  // createJob's tail. Officer pay only when the job is internally
+  // attended; partner-handled stays unpaid.
+  if (job.siteId) {
+    const rateService = jobTypeToRateService(job.type);
+    if (rateService) {
+      const bill = await billForSite(job.siteId, rateService);
+      if (bill.ok) await applyBillingToJob(jobId, bill);
+      if (job.assignedToUserId) {
+        const pay = await payForOfficer(job.assignedToUserId, rateService);
+        if (pay.ok) await applyPayToJob(jobId, pay);
+      }
+    }
+  }
+
+  revalidatePath("/dispatch");
+  revalidatePath("/patrols");
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  if (job.siteId) revalidatePath(`/sites/${job.siteId}`);
   return { ok: true };
 }
 
