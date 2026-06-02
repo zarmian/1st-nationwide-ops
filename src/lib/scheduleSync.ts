@@ -163,7 +163,7 @@ export async function materializePatrolVisits(opts: {
           siteId: s.siteId,
           patrolScheduleId: s.id,
           officerId: s.assignedOfficerId,
-          scheduledAt: defaultScheduledAt(target, s.kind),
+          scheduledAt: defaultScheduledAt(target, s.kind, s.timeOfDay),
           status: "PENDING",
         },
       });
