@@ -560,6 +560,14 @@ model PatrolSchedule {
   // ukWallClockToUtc so a value like "08:00" lands at 08:00 BST in
   // summer / 08:00 GMT in winter, never an hour adrift on the server.
   timeOfDay         String?
+  // Custom recurrence: when set, overrides the frequency enum and means
+  // "every N weeks starting from the anchor." 1=weekly, 2=fortnightly,
+  // 3=every 3rd week, etc. Null = use frequency enum.
+  intervalWeeks     Int?
+  // Per-schedule date skips ("YYYY-MM-DD"). If forDate's UK ISO date
+  // matches, the cron skips materialising for that day — useful for
+  // holidays, one-off pauses.
+  exceptionDates    String[]        @default([])
   assignedOfficerId String?         @db.Uuid
   assignedOfficer   User?           @relation(fields: [assignedOfficerId], references: [id])
   active            Boolean         @default(true)

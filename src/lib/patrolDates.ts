@@ -18,7 +18,7 @@
  *   via ukWallClockToUtc so summer BST visits land at the right hour.
  */
 
-import { ukWallClockToUtc } from "./dates";
+import { ukDayString, ukWallClockToUtc } from "./dates";
 
 const DAY_INDEX: Record<string, number> = {
   SUN: 0,
@@ -30,53 +30,113 @@ const DAY_INDEX: Record<string, number> = {
   SAT: 6,
 };
 
-export function shouldCreateVisitOn(
+export type EvaluateResult =
+  | { ok: true }
+  | { ok: false; reason: string };
+
+/**
+ * Like shouldCreateVisitOn but returns the reason for any skip — for the
+ * Sync-schedules dispatcher diagnostic UI. shouldCreateVisitOn keeps the
+ * boolean shape for existing callers.
+ */
+export function evaluateSchedule(
   schedule: {
     dayOfWeek: string;
     frequency: string;
     startsOn: Date | null;
     endsOn: Date | null;
     createdAt?: Date | null;
+    intervalWeeks?: number | null;
+    exceptionDates?: string[] | null;
   },
   forDate: Date,
-): boolean {
+): EvaluateResult {
   const day = forDate.getUTCDay();
-  if (DAY_INDEX[schedule.dayOfWeek] !== day) return false;
+  if (DAY_INDEX[schedule.dayOfWeek] !== day) {
+    return {
+      ok: false,
+      reason: `day-of-week is ${schedule.dayOfWeek}, today is ${DAY_NAMES[day]}`,
+    };
+  }
 
-  // Fortnightly anchor: startsOn > createdAt > epoch. createdAt makes the
-  // first matching day after schedule creation count as "week 0," which
-  // matches what users mean when they pick fortnightly without a date.
   const anchor =
     schedule.startsOn ?? schedule.createdAt ?? new Date(0);
-  if (schedule.startsOn && forDate < startOfDayUtc(schedule.startsOn))
-    return false;
-  if (schedule.endsOn && forDate > endOfDayUtc(schedule.endsOn)) return false;
+  if (schedule.startsOn && forDate < startOfDayUtc(schedule.startsOn)) {
+    return { ok: false, reason: "before the schedule's starts-on date" };
+  }
+  if (schedule.endsOn && forDate > endOfDayUtc(schedule.endsOn)) {
+    return { ok: false, reason: "after the schedule's end date" };
+  }
+  if (schedule.exceptionDates?.length) {
+    const ukIso = ukDayString(forDate);
+    if (schedule.exceptionDates.includes(ukIso)) {
+      return { ok: false, reason: `today (${ukIso}) is in the skip list` };
+    }
+  }
+
+  if (
+    schedule.intervalWeeks != null &&
+    Number.isFinite(schedule.intervalWeeks) &&
+    schedule.intervalWeeks >= 1
+  ) {
+    const ok = matchesEveryNWeeks(
+      schedule.intervalWeeks,
+      anchor,
+      schedule.dayOfWeek,
+      forDate,
+    );
+    return ok
+      ? { ok: true }
+      : {
+          ok: false,
+          reason: `not due — every ${schedule.intervalWeeks} weeks from the anchor`,
+        };
+  }
 
   switch (schedule.frequency) {
     case "WEEKLY":
-      return true;
-    case "FORTNIGHTLY": {
-      // Whole weeks since the anchor's matching-day-of-week. Walk the
-      // anchor forward to the first matching day-of-week so the parity
-      // is measured from instances of the chosen day, not arbitrary dates.
-      const firstMatch = startOfDayUtc(anchor);
-      const anchorDow = firstMatch.getUTCDay();
-      const targetDow = DAY_INDEX[schedule.dayOfWeek];
-      const daysToAdd = (targetDow - anchorDow + 7) % 7;
-      firstMatch.setUTCDate(firstMatch.getUTCDate() + daysToAdd);
-
-      const diffMs = startOfDayUtc(forDate).getTime() - firstMatch.getTime();
-      if (diffMs < 0) return false;
-      const weeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
-      return weeks % 2 === 0;
-    }
-    case "MONTHLY": {
-      // First matching day-of-week of the month: date 1–7 inclusive.
-      return forDate.getUTCDate() <= 7;
-    }
+      return { ok: true };
+    case "FORTNIGHTLY":
+      return matchesEveryNWeeks(2, anchor, schedule.dayOfWeek, forDate)
+        ? { ok: true }
+        : { ok: false, reason: "fortnightly parity skips this week" };
+    case "MONTHLY":
+      return forDate.getUTCDate() <= 7
+        ? { ok: true }
+        : { ok: false, reason: "monthly only triggers in week 1 of the month" };
     default:
-      return false;
+      return { ok: false, reason: `unknown frequency: ${schedule.frequency}` };
   }
+}
+
+const DAY_NAMES = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+
+export function shouldCreateVisitOn(
+  schedule: Parameters<typeof evaluateSchedule>[0],
+  forDate: Date,
+): boolean {
+  return evaluateSchedule(schedule, forDate).ok;
+}
+
+function matchesEveryNWeeks(
+  n: number,
+  anchor: Date,
+  dayOfWeek: string,
+  forDate: Date,
+): boolean {
+  // Walk the anchor forward to the first matching day-of-week so the
+  // interval is measured from instances of the chosen day, not arbitrary
+  // dates.
+  const firstMatch = startOfDayUtc(anchor);
+  const anchorDow = firstMatch.getUTCDay();
+  const targetDow = DAY_INDEX[dayOfWeek];
+  const daysToAdd = (targetDow - anchorDow + 7) % 7;
+  firstMatch.setUTCDate(firstMatch.getUTCDate() + daysToAdd);
+
+  const diffMs = startOfDayUtc(forDate).getTime() - firstMatch.getTime();
+  if (diffMs < 0) return false;
+  const weeks = Math.round(diffMs / (7 * 24 * 60 * 60 * 1000));
+  return weeks % n === 0;
 }
 
 export function defaultScheduledAt(

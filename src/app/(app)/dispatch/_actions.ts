@@ -443,11 +443,22 @@ export async function updateJob(
  * (the materialiser checks for an existing Job / PatrolVisit on the
  * same site + day).
  */
+export type SyncDiagnosticRow = {
+  date: string;
+  scheduleId: string;
+  siteName: string;
+  kind: string;
+  dayOfWeek: string;
+  status: "created" | "exists" | "skipped";
+  reason?: string;
+};
+
 export type SyncSchedulesResult = {
   ok: true;
   jobsCreated: number;
   visitsCreated: number;
   daysCovered: string[];
+  patrolDiagnostics: SyncDiagnosticRow[];
 };
 
 export async function syncSchedulesNow(): Promise<SyncSchedulesResult> {
@@ -465,7 +476,16 @@ export async function syncSchedulesNow(): Promise<SyncSchedulesResult> {
   const daysCovered = Array.from(
     new Set([...lockUnlock.map((d) => d.date), ...patrol.map((d) => d.date)]),
   ).sort();
+  const patrolDiagnostics: SyncDiagnosticRow[] = patrol.flatMap((day) =>
+    day.diagnostics.map((d) => ({ ...d, date: day.date })),
+  );
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
-  return { ok: true, jobsCreated, visitsCreated, daysCovered };
+  return {
+    ok: true,
+    jobsCreated,
+    visitsCreated,
+    daysCovered,
+    patrolDiagnostics,
+  };
 }

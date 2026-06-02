@@ -60,22 +60,22 @@ export default async function EditSitePage({
   const lu = site.lockUnlockSchedules[0];
   const toIso = (d: Date | null) =>
     d ? d.toISOString().slice(0, 10) : undefined;
+  const projectSchedule = (s: typeof site.patrolSchedules[number]) => ({
+    dayOfWeek: s.dayOfWeek,
+    frequency: s.frequency,
+    timeOfDay: s.timeOfDay ?? undefined,
+    startsOn: toIso(s.startsOn),
+    endsOn: toIso(s.endsOn),
+    assignedOfficerId: s.assignedOfficerId ?? undefined,
+    intervalWeeks: s.intervalWeeks ?? undefined,
+    exceptionDates: s.exceptionDates ?? [],
+  });
   const patrolDays = site.patrolSchedules
     .filter((s) => s.kind === "PATROL")
-    .map((s) => ({
-      dayOfWeek: s.dayOfWeek,
-      frequency: s.frequency,
-      timeOfDay: s.timeOfDay ?? undefined,
-      startsOn: toIso(s.startsOn),
-    }));
+    .map(projectSchedule);
   const vpiDays = site.patrolSchedules
     .filter((s) => s.kind === "VPI")
-    .map((s) => ({
-      dayOfWeek: s.dayOfWeek,
-      frequency: s.frequency,
-      timeOfDay: s.timeOfDay ?? undefined,
-      startsOn: toIso(s.startsOn),
-    }));
+    .map(projectSchedule);
 
   return (
     <div className="space-y-4">
