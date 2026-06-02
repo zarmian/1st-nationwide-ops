@@ -555,11 +555,17 @@ model PatrolSchedule {
   kind              ScheduleKind    @default(PATROL)
   dayOfWeek         DayOfWeek
   frequency         PatrolFrequency @default(WEEKLY)
+  // "HH:MM" UK wall-clock. When null, falls back to the kind default
+  // (09:00 for VPI, 22:00 for patrols). Time interpretation is via
+  // ukWallClockToUtc so a value like "08:00" lands at 08:00 BST in
+  // summer / 08:00 GMT in winter, never an hour adrift on the server.
+  timeOfDay         String?
   assignedOfficerId String?         @db.Uuid
   assignedOfficer   User?           @relation(fields: [assignedOfficerId], references: [id])
   active            Boolean         @default(true)
   startsOn          DateTime?
   endsOn            DateTime?
+  createdAt         DateTime        @default(now())
 
   visits            PatrolVisit[]
 

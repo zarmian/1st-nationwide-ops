@@ -63,6 +63,20 @@ const KeySetRow = z.object({
 const ScheduleDay = z.object({
   dayOfWeek: z.enum(DAYS),
   frequency: z.enum(FREQUENCIES).default("WEEKLY"),
+  // Optional per-day overrides. Both strings come from <input> elements
+  // so we keep them as strings here and normalise on the way to Prisma.
+  timeOfDay: z
+    .string()
+    .trim()
+    .regex(/^\d{2}:\d{2}$/, "Time must be HH:MM")
+    .optional()
+    .nullable(),
+  startsOn: z
+    .string()
+    .trim()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD")
+    .optional()
+    .nullable(),
 });
 
 const SiteInput = z.object({
@@ -320,6 +334,8 @@ async function syncRelations(siteId: string, d: ParsedSite) {
           kind: "PATROL" as any,
           dayOfWeek: p.dayOfWeek as any,
           frequency: p.frequency as any,
+          timeOfDay: p.timeOfDay ?? null,
+          startsOn: p.startsOn ? new Date(`${p.startsOn}T00:00:00Z`) : null,
           active: true,
         })),
       });
@@ -336,6 +352,8 @@ async function syncRelations(siteId: string, d: ParsedSite) {
           kind: "VPI" as any,
           dayOfWeek: p.dayOfWeek as any,
           frequency: p.frequency as any,
+          timeOfDay: p.timeOfDay ?? null,
+          startsOn: p.startsOn ? new Date(`${p.startsOn}T00:00:00Z`) : null,
           active: true,
         })),
       });

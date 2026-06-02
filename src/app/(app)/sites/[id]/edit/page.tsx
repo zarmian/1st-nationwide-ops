@@ -58,12 +58,24 @@ export default async function EditSitePage({
   const action = updateSite.bind(null, site.id);
 
   const lu = site.lockUnlockSchedules[0];
+  const toIso = (d: Date | null) =>
+    d ? d.toISOString().slice(0, 10) : undefined;
   const patrolDays = site.patrolSchedules
     .filter((s) => s.kind === "PATROL")
-    .map((s) => ({ dayOfWeek: s.dayOfWeek, frequency: s.frequency }));
+    .map((s) => ({
+      dayOfWeek: s.dayOfWeek,
+      frequency: s.frequency,
+      timeOfDay: s.timeOfDay ?? undefined,
+      startsOn: toIso(s.startsOn),
+    }));
   const vpiDays = site.patrolSchedules
     .filter((s) => s.kind === "VPI")
-    .map((s) => ({ dayOfWeek: s.dayOfWeek, frequency: s.frequency }));
+    .map((s) => ({
+      dayOfWeek: s.dayOfWeek,
+      frequency: s.frequency,
+      timeOfDay: s.timeOfDay ?? undefined,
+      startsOn: toIso(s.startsOn),
+    }));
 
   return (
     <div className="space-y-4">

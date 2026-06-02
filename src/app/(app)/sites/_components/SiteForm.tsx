@@ -87,6 +87,12 @@ export type KeySetRow = {
 export type ScheduleDay = {
   dayOfWeek: string;
   frequency: string;
+  // "HH:MM" UK wall-clock. Optional — falls back to the kind default
+  // (09:00 for VPI, 22:00 for patrols) when blank.
+  timeOfDay?: string;
+  // "YYYY-MM-DD". Optional anchor for fortnightly parity. Falls back to
+  // the schedule's createdAt when blank.
+  startsOn?: string;
 };
 
 export type SiteFormValues = {
@@ -1025,6 +1031,22 @@ function ScheduleSection({
     );
   }
 
+  function setTimeOfDay(day: string, t: string) {
+    setDays((rows) =>
+      rows.map((r) =>
+        r.dayOfWeek === day ? { ...r, timeOfDay: t || undefined } : r,
+      ),
+    );
+  }
+
+  function setStartsOn(day: string, s: string) {
+    setDays((rows) =>
+      rows.map((r) =>
+        r.dayOfWeek === day ? { ...r, startsOn: s || undefined } : r,
+      ),
+    );
+  }
+
   return (
     <div id={anchorId} className="card p-5 space-y-4 scroll-mt-20">
       <div>
@@ -1043,27 +1065,68 @@ function ScheduleSection({
                 DAYS.findIndex((d) => d.v === a.dayOfWeek) -
                 DAYS.findIndex((d) => d.v === b.dayOfWeek),
             )
-            .map((d) => (
-              <div
-                key={d.dayOfWeek}
-                className="grid grid-cols-[100px_1fr] items-center gap-3 text-sm"
-              >
-                <span className="font-medium text-slate-700">
-                  {DAYS.find((x) => x.v === d.dayOfWeek)?.label}
-                </span>
-                <select
-                  className="input max-w-[180px]"
-                  value={d.frequency}
-                  onChange={(e) => setFrequency(d.dayOfWeek, e.target.value)}
+            .map((d) => {
+              const fortnightly = d.frequency === "FORTNIGHTLY";
+              return (
+                <div
+                  key={d.dayOfWeek}
+                  className="grid grid-cols-[80px_repeat(3,minmax(0,1fr))] items-end gap-3 text-sm"
                 >
-                  {FREQUENCIES.map((f) => (
-                    <option key={f.v} value={f.v}>
-                      {f.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+                  <span className="font-medium text-slate-700 self-center">
+                    {DAYS.find((x) => x.v === d.dayOfWeek)?.label}
+                  </span>
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                      Frequency
+                    </label>
+                    <select
+                      className="input"
+                      value={d.frequency}
+                      onChange={(e) => setFrequency(d.dayOfWeek, e.target.value)}
+                    >
+                      {FREQUENCIES.map((f) => (
+                        <option key={f.v} value={f.v}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                      Time (UK)
+                    </label>
+                    <input
+                      type="time"
+                      className="input"
+                      value={d.timeOfDay ?? ""}
+                      onChange={(e) =>
+                        setTimeOfDay(d.dayOfWeek, e.target.value)
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label
+                      className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5"
+                      title={
+                        fortnightly
+                          ? "Anchors fortnightly parity. Leave blank to use today."
+                          : "Skip occurrences before this date."
+                      }
+                    >
+                      {fortnightly ? "Starts on" : "Start date"}
+                    </label>
+                    <input
+                      type="date"
+                      className="input"
+                      value={d.startsOn ?? ""}
+                      onChange={(e) =>
+                        setStartsOn(d.dayOfWeek, e.target.value)
+                      }
+                    />
+                  </div>
+                </div>
+              );
+            })}
         </div>
       )}
     </div>
