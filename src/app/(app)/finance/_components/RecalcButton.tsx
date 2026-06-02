@@ -4,23 +4,40 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { RecalcResult } from "../_actions";
 
+/**
+ * Scopes the recompute to the date window currently displayed on the
+ * finance page (passed in via `from` / `to`). Stops a single click from
+ * rebuilding billing on years of history as the row count grows.
+ */
 export function RecalcButton({
   recalc,
+  from,
+  to,
 }: {
-  recalc: (scope: "all" | "missing") => Promise<RecalcResult>;
+  recalc: (
+    scope: "all" | "missing",
+    window?: { from?: string; to?: string },
+  ) => Promise<RecalcResult>;
+  from?: string;
+  to?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [last, setLast] = useState<RecalcResult | null>(null);
 
+  const rangeLabel =
+    from && to
+      ? `${from.slice(0, 10)} → ${to.slice(0, 10)}`
+      : "all time";
+
   function run(scope: "all" | "missing") {
     const confirmText =
       scope === "all"
-        ? "Recompute billing for EVERY completed visit and job (overwrites existing snapshots)?"
-        : "Bill all visits and jobs that don't yet have a snapshot?";
+        ? `Recompute billing for every completed visit + job in ${rangeLabel} (overwrites existing snapshots)?`
+        : `Bill visits + jobs in ${rangeLabel} that don't yet have a snapshot?`;
     if (!window.confirm(confirmText)) return;
     startTransition(async () => {
-      const r = await recalc(scope);
+      const r = await recalc(scope, { from, to });
       setLast(r);
       router.refresh();
     });
@@ -34,6 +51,7 @@ export function RecalcButton({
           onClick={() => run("missing")}
           disabled={pending}
           className="btn-secondary text-sm"
+          title={`Bill missing snapshots in ${rangeLabel}`}
         >
           {pending ? "Working…" : "Bill missing"}
         </button>
@@ -42,10 +60,14 @@ export function RecalcButton({
           onClick={() => run("all")}
           disabled={pending}
           className="btn-ghost text-sm"
+          title={`Re-snapshot every visit + job in ${rangeLabel}`}
         >
-          Recompute all
+          Recompute
         </button>
       </div>
+      <p className="text-[11px] text-slate-400">
+        Scope: {rangeLabel}
+      </p>
       {last && (
         <p className="text-xs text-slate-500">
           {last.visitsBilled}/{last.visitsScanned} visits ·{" "}

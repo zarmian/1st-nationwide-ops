@@ -24,31 +24,45 @@ export type RecalcResult = {
 };
 
 /**
- * Bulk-billing recalculation for historical rows.
+ * Bulk-billing recalculation for rows in a date window.
  *
- * Pass `{ scope: "all" }` to recompute every COMPLETED visit and every Job
- * with a known type+site. Pass `{ scope: "missing" }` to only touch rows
- * that don't yet have a billedAmount.
+ * - scope="all"      → re-snapshot every COMPLETED visit + every non-cancelled
+ *                       Job in the window (overwrites existing snapshots).
+ * - scope="missing"  → only touch rows where billedAmount is currently null.
  *
- * Useful right after a rate import — every previously-unbilled row gets a
- * snapshot. Idempotent.
+ * Cancelled jobs are always excluded — Restore is the only path that puts
+ * billing back on a cancelled job, never a bulk recompute.
+ *
+ * The date window scopes by the natural "completion" timestamp:
+ *   - PatrolVisit.departedAt
+ *   - Job.completedAt
+ * If `from` / `to` are omitted the window covers everything (legacy
+ * behaviour). Idempotent.
  */
 export async function recalculateBilling(
   scope: "all" | "missing" = "missing",
+  window?: { from?: Date | string; to?: Date | string },
 ): Promise<RecalcResult> {
   await requireAdmin();
+
+  const from = window?.from ? new Date(window.from) : undefined;
+  const to = window?.to ? new Date(window.to) : undefined;
 
   let visitsBilled = 0;
   let jobsBilled = 0;
 
-  const visitWhere =
-    scope === "all"
-      ? { status: "COMPLETED" as const, departedAt: { not: null } }
-      : {
-          status: "COMPLETED" as const,
-          departedAt: { not: null },
-          billedAmount: null,
-        };
+  const visitWhere: any = {
+    status: "COMPLETED" as const,
+    departedAt:
+      from || to
+        ? {
+            ...(from ? { gte: from } : {}),
+            ...(to ? { lte: to } : {}),
+          }
+        : { not: null },
+  };
+  if (scope === "missing") visitWhere.billedAmount = null;
+
   const visits = await prisma.patrolVisit.findMany({
     where: visitWhere,
     select: {
@@ -79,10 +93,18 @@ export async function recalculateBilling(
     }
   }
 
-  const jobWhere =
-    scope === "all"
-      ? { siteId: { not: null } }
-      : { siteId: { not: null }, billedAmount: null };
+  const jobWhere: any = {
+    siteId: { not: null },
+    status: { not: "CANCELLED" },
+  };
+  if (from || to) {
+    jobWhere.completedAt = {
+      ...(from ? { gte: from } : {}),
+      ...(to ? { lte: to } : {}),
+    };
+  }
+  if (scope === "missing") jobWhere.billedAmount = null;
+
   const jobs = await prisma.job.findMany({
     where: jobWhere,
     select: {

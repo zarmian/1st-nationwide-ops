@@ -194,6 +194,7 @@ export default async function FinancePage({
         _sum: { billedAmount: true },
         where: {
           completedAt: { gte: from, lte: to },
+          status: { not: "CANCELLED" },
         },
       }),
     ]);
@@ -246,6 +247,7 @@ export default async function FinancePage({
       SELECT date_trunc('day', "completedAt") AS day, "billedAmount" AS amount
       FROM "Job"
       WHERE "completedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+        AND "status" <> 'CANCELLED'
         AND "billedAmount" IS NOT NULL
     ) s
     GROUP BY day
@@ -325,6 +327,7 @@ export default async function FinancePage({
     prisma.job.findMany({
       where: {
         completedAt: { gte: fromDate, lte: toDate },
+        status: { not: "CANCELLED" },
       },
       select: {
         billedAmount: true,
@@ -386,7 +389,11 @@ export default async function FinancePage({
           <Link href="/finance/payroll" className="btn-secondary text-sm">
             Payroll →
           </Link>
-          <RecalcButton recalc={recalculateBilling} />
+          <RecalcButton
+            recalc={recalculateBilling}
+            from={fromDate.toISOString()}
+            to={toDate.toISOString()}
+          />
         </div>
       </div>
 
