@@ -93,6 +93,8 @@ export function ActivitiesFilters({
             className="input"
           >
             <option value="completed">Completed (by date done)</option>
+            <option value="billed">Billed (by date billed)</option>
+            <option value="paid">Paid (by date paid)</option>
           </select>
         </div>
         <div>

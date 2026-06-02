@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { getSessionUser } from "@/lib/authz";
 import { SiteHeader } from "./_components/SiteHeader";
 import { Tabs, type TabKey } from "./_components/Tabs";
 import { ActivityFeed } from "./_components/ActivityFeed";
@@ -26,7 +27,12 @@ export default async function SiteDetailPage({
   params: { id: string };
   searchParams: { tab?: string };
 }) {
-  const tab = (searchParams.tab ?? "overview") as TabKey;
+  const me = await getSessionUser();
+  const isAdmin = me?.role === "ADMIN";
+  let tab = (searchParams.tab ?? "overview") as TabKey;
+  // Finance tab is admin-only — silently fall back to overview for staff
+  // who land on a /sites/[id]?tab=finance link (e.g. an old bookmark).
+  if (tab === "finance" && !isAdmin) tab = "overview";
 
   const site = await prisma.site.findUnique({
     where: { id: params.id },
@@ -90,12 +96,12 @@ export default async function SiteDetailPage({
         chips={chips}
       />
 
-      <Tabs siteId={site.id} active={tab} counts={counts} />
+      <Tabs siteId={site.id} active={tab} counts={counts} isAdmin={isAdmin} />
 
       {tab === "overview" && <OverviewTab site={site} />}
       {tab === "schedule" && <ScheduleTab site={site} />}
       {tab === "keys" && <KeysTab keys={site.keys} />}
-      {tab === "finance" && <FinanceTab site={site} />}
+      {tab === "finance" && isAdmin && <FinanceTab site={site} />}
       {tab === "activity" && <ActivityTab siteId={site.id} />}
       {tab === "documents" && <DocumentsTab />}
       {tab === "settings" && <SettingsTab siteId={site.id} active={site.active} />}

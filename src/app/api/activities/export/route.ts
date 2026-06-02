@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/authz";
+import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,9 @@ function csvCell(v: string | number | null | undefined): string {
 }
 
 export async function GET(req: Request) {
-  await requireStaff();
+  // Admin-only — the CSV contains billed/paid columns. Dispatchers run
+  // the live board but don't see financials.
+  await requireAdmin();
 
   const url = new URL(req.url);
   const now = new Date();

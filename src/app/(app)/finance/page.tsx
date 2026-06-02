@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdmin } from "@/lib/authz";
 import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
 import { Sparkline } from "@/components/Sparkline";
@@ -97,6 +98,11 @@ export default async function FinancePage({
 }: {
   searchParams: { from?: string; to?: string };
 }) {
+  // Admin-only. Middleware enforces the redirect; this is the backstop
+  // in case middleware is bypassed (server actions imported directly,
+  // etc.) so the page won't render the totals to a non-admin session.
+  await requireAdmin();
+
   // Pull every site that has at least one rate row, plus its rates and the
   // partner/customer it belongs to. Stays in JS for the aggregations because
   // the per-row work is small (handful of customers/partners).
@@ -386,6 +392,9 @@ export default async function FinancePage({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/finance/activities" className="btn-secondary text-sm">
+            Activities log →
+          </Link>
           <Link href="/finance/payroll" className="btn-secondary text-sm">
             Payroll →
           </Link>
@@ -554,7 +563,7 @@ export default async function FinancePage({
             {pnlRows.map((r) => {
               const profit = r.billed - r.paid;
               const margin = r.billed > 0 ? (profit / r.billed) * 100 : 0;
-              const activitiesHref = `/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`;
+              const activitiesHref = `/finance/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`;
               return (
                 <tr key={r.key}>
                   <td className="px-4 py-2 font-medium text-brand-navy">
@@ -724,7 +733,7 @@ export default async function FinancePage({
                       ? `customer:${g.sites[0].customerId}`
                       : null;
                 const activitiesHref = owner
-                  ? `/activities?accountId=${encodeURIComponent(owner)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`
+                  ? `/finance/activities?accountId=${encodeURIComponent(owner)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`
                   : null;
                 return (
                 <tr key={g.label}>

@@ -58,6 +58,20 @@ export default withAuth(
         return NextResponse.redirect(url);
       }
     }
+
+    // ── Finance section ──────────────────────────────────────────────
+    // Admin-only: P&L, payroll, per-officer pay, per-partner splits.
+    // Dispatchers don't need to see what we billed or paid; their job is
+    // running the live ops board. Server actions backstop this with
+    // requireAdmin() but the redirect keeps them from a blank page.
+    if (pathname === "/finance" || pathname.startsWith("/finance/")) {
+      if (role !== "ADMIN") {
+        const url = req.nextUrl.clone();
+        url.pathname = homeFor(role);
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+    }
   },
   {
     pages: { signIn: "/login" },
