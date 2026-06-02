@@ -78,9 +78,11 @@ export default async function OfficerTodayPage() {
     prisma.job.findMany({
       where: {
         assignedToUserId: userId,
-        status: {
-          in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REVIEW_PENDING"],
-        },
+        // Once the officer has submitted the form, the job moves to
+        // SUBMITTED → REVIEW_PENDING → APPROVED via admin review. From the
+        // officer's perspective the work is done — admin owns whatever
+        // happens next, so it disappears from their board.
+        status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
         // Show jobs scheduled within the next 2 days, plus undated ones
         // (dispatch may have assigned them without a fixed time).
         OR: [
