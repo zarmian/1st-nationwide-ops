@@ -23,7 +23,19 @@ export default withAuth(
       | "DISPATCHER"
       | "OFFICER"
       | undefined;
-    if (!role) return; // unauthenticated — withAuth's signIn redirect handles it
+
+    // Forward the pathname as a request header so the (app) layout can
+    // do server-side path-aware role gating without re-parsing the URL.
+    // Defence-in-depth: even if a route somehow bypasses the redirects
+    // below (stale matcher cache, edge runtime hiccup, etc.), the
+    // layout will still gate access.
+    const requestHeaders = new Headers(req.headers);
+    requestHeaders.set("x-pathname", pathname);
+    const passThrough = NextResponse.next({
+      request: { headers: requestHeaders },
+    });
+
+    if (!role) return passThrough; // unauthenticated — withAuth's signIn redirect handles it
 
     const homeFor = (r: typeof role) =>
       r === "OFFICER" ? "/m/today" : "/dispatch";
@@ -42,7 +54,7 @@ export default withAuth(
         url.search = "";
         return NextResponse.redirect(url);
       }
-      return;
+      return passThrough;
     }
 
     // ── Admin section ────────────────────────────────────────────────
@@ -72,6 +84,8 @@ export default withAuth(
         return NextResponse.redirect(url);
       }
     }
+
+    return passThrough;
   },
   {
     pages: { signIn: "/login" },
