@@ -15,15 +15,18 @@ export default async function AppShell({
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  // Defence-in-depth role gate. Middleware already redirects, but we
-  // re-check here in case a request somehow bypasses it (stale matcher
-  // cache, edge runtime quirk, link click from a stale tab, etc.).
-  // Middleware forwards the request pathname as x-pathname so this
-  // layout can see what page is actually being rendered.
-  const pathname = headers().get("x-pathname") ?? "";
+  // Defence-in-depth role gate. Middleware is the primary enforcement;
+  // this layout re-checks server-side so a request that somehow slips
+  // past the matcher still can't render. We only redirect when we can
+  // positively identify the pathname AND see it's outside the role's
+  // allowed set — if x-pathname is missing (e.g. middleware was
+  // bypassed entirely, or hasn't rolled out yet) we trust middleware
+  // and skip the gate. Failing open here avoids an infinite loop on
+  // /m/today if x-pathname ever fails to forward.
+  const pathname = headers().get("x-pathname");
   const role = session.user.role;
 
-  if (role === "OFFICER") {
+  if (pathname && role === "OFFICER") {
     const officerOk =
       pathname === "/m" ||
       pathname.startsWith("/m/") ||
@@ -31,7 +34,7 @@ export default async function AppShell({
       pathname.startsWith("/submit/");
     if (!officerOk) redirect("/m/today");
   }
-  if (role === "DISPATCHER") {
+  if (pathname && role === "DISPATCHER") {
     const onFinance =
       pathname === "/finance" || pathname.startsWith("/finance/");
     const onAdmin =
