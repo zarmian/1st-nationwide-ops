@@ -322,8 +322,12 @@ export default async function FinancePage({
         paidAmount: true,
         officerId: true,
         officer: { select: { name: true } },
+        siteId: true,
         site: {
           select: {
+            id: true,
+            name: true,
+            code: true,
             customerId: true,
             customer: { select: { name: true } },
             partnerId: true,
@@ -340,6 +344,10 @@ export default async function FinancePage({
       select: {
         billedAmount: true,
         paidAmount: true,
+        siteId: true,
+        site: {
+          select: { name: true, code: true },
+        },
         customerId: true,
         customer: { select: { name: true } },
         partnerId: true,
@@ -479,6 +487,64 @@ export default async function FinancePage({
       b.asSubcontractor.billed -
       (a.asCustomer.billed + a.asSubcontractor.billed),
   );
+
+  // Per-site P&L for the "Top sites" leaderboard. We bucket visits and
+  // jobs by siteId, then sort by billed desc and take the top 10. Margin
+  // is billed - paid (whole-officer pay across the site for the range);
+  // it's directional, not a true unit-economics figure since fixed costs
+  // (retainer, kit) don't fold in here.
+  type SiteBucket = {
+    id: string;
+    label: string;
+    activities: number;
+    billed: number;
+    paid: number;
+  };
+  const siteByKey = new Map<string, SiteBucket>();
+  function siteBucket(
+    id: string | null | undefined,
+    label: string | null | undefined,
+  ): SiteBucket | null {
+    if (!id) return null;
+    const existing = siteByKey.get(id);
+    if (existing) return existing;
+    const fresh: SiteBucket = {
+      id,
+      label: label ?? "Unknown site",
+      activities: 0,
+      billed: 0,
+      paid: 0,
+    };
+    siteByKey.set(id, fresh);
+    return fresh;
+  }
+  for (const v of rangeVisits) {
+    const name = v.site?.code
+      ? `${v.site.code} · ${v.site.name}`
+      : v.site?.name;
+    const s = siteBucket(v.siteId, name);
+    if (!s) continue;
+    s.activities++;
+    s.billed += Number(v.billedAmount ?? 0);
+    s.paid += Number(v.paidAmount ?? 0);
+  }
+  for (const j of rangeJobs) {
+    const name = j.site?.code
+      ? `${j.site.code} · ${j.site.name}`
+      : j.site?.name;
+    const s = siteBucket(j.siteId, name);
+    if (!s) continue;
+    s.activities++;
+    s.billed += Number(j.billedAmount ?? 0);
+    s.paid += Number(j.paidAmount ?? 0);
+  }
+  const topSitesByRevenue = Array.from(siteByKey.values())
+    .sort((a, b) => b.billed - a.billed)
+    .slice(0, 10);
+  const topSitesByActivity = Array.from(siteByKey.values())
+    .sort((a, b) => b.activities - a.activities)
+    .slice(0, 10);
+
   const pnlTotals = pnlRows.reduce(
     (acc, r) => ({
       billed: acc.billed + r.billed,
@@ -765,6 +831,13 @@ export default async function FinancePage({
         </table>
       </div>
 
+      <TopSitesTables
+        byRevenue={topSitesByRevenue}
+        byActivity={topSitesByActivity}
+        from={fromDate}
+        to={toDate}
+      />
+
       <PartnerPnlTable rows={partnerRows} from={fromDate} to={toDate} />
 
       <OfficerPnlTable rows={officerRows} from={fromDate} to={toDate} />
@@ -963,6 +1036,163 @@ export default async function FinancePage({
 }
 
 // ── P&L sub-tables ─────────────────────────────────────────────────────
+
+function TopSitesTables({
+  byRevenue,
+  byActivity,
+  from,
+  to,
+}: {
+  byRevenue: {
+    id: string;
+    label: string;
+    activities: number;
+    billed: number;
+    paid: number;
+  }[];
+  byActivity: {
+    id: string;
+    label: string;
+    activities: number;
+    billed: number;
+    paid: number;
+  }[];
+  from: Date;
+  to: Date;
+}) {
+  return (
+    <div className="grid lg:grid-cols-2 gap-4">
+      <TopSitesCard
+        title="Top sites by revenue"
+        blurb="Highest billed sites in the selected range."
+        rows={byRevenue}
+        metricLabel="Billed"
+        metricFor={(r) => fmtMoney2(r.billed)}
+        marginFor={(r) => r.billed - r.paid}
+        from={from}
+        to={to}
+      />
+      <TopSitesCard
+        title="Top sites by activity"
+        blurb="Sites with the most jobs + visits in the range."
+        rows={byActivity}
+        metricLabel="Activities"
+        metricFor={(r) => r.activities.toLocaleString("en-GB")}
+        from={from}
+        to={to}
+      />
+    </div>
+  );
+}
+
+function TopSitesCard({
+  title,
+  blurb,
+  rows,
+  metricLabel,
+  metricFor,
+  marginFor,
+  from,
+  to,
+}: {
+  title: string;
+  blurb: string;
+  rows: {
+    id: string;
+    label: string;
+    activities: number;
+    billed: number;
+    paid: number;
+  }[];
+  metricLabel: string;
+  metricFor: (r: {
+    id: string;
+    label: string;
+    activities: number;
+    billed: number;
+    paid: number;
+  }) => string;
+  marginFor?: (r: {
+    id: string;
+    label: string;
+    activities: number;
+    billed: number;
+    paid: number;
+  }) => number;
+  from: Date;
+  to: Date;
+}) {
+  return (
+    <div className="card overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-100">
+        <h2 className="font-semibold text-brand-navy">{title}</h2>
+        <p className="text-xs text-slate-500">{blurb}</p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-slate-500 text-center">
+          No site activity in this range.
+        </p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-slate-600">
+            <tr>
+              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs w-8">
+                #
+              </th>
+              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                Site
+              </th>
+              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                {metricLabel}
+              </th>
+              {marginFor && (
+                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  Margin
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((r, i) => {
+              const margin = marginFor?.(r);
+              const accountHref = `/sites/${r.id}`;
+              return (
+                <tr key={r.id}>
+                  <td className="px-4 py-2 text-slate-400 tabular-nums">
+                    {i + 1}
+                  </td>
+                  <td className="px-4 py-2">
+                    <Link
+                      href={accountHref}
+                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    >
+                      {r.label}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {metricFor(r)}
+                  </td>
+                  {marginFor && (
+                    <td
+                      className={
+                        "px-4 py-2 text-right tabular-nums font-medium " +
+                        ((margin ?? 0) >= 0
+                          ? "text-brand-navy"
+                          : "text-red-600")
+                      }
+                    >
+                      {fmtMoney2(margin ?? 0)}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
 
 function OfficerPnlTable({
   rows,
