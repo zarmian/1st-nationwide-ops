@@ -172,7 +172,7 @@ export function OfficerForm({
             type="checkbox"
             name="active"
             defaultChecked={initial.active}
-            className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            className="checkbox"
           />
           <span>Active — inactive accounts can't sign in.</span>
         </label>

@@ -542,7 +542,7 @@ function FinanceTab({ site }: { site: SiteWithRelations }) {
   );
 
   return (
-    <div className="space-y-5">
+    <div className="section">
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4">
           <div className="text-xs uppercase tracking-wider text-slate-500">

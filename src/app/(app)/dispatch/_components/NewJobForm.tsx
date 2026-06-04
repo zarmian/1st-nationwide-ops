@@ -288,7 +288,7 @@ export function NewJobForm({
           <input
             type="checkbox"
             name="reportedViaPartnerApp"
-            className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            className="checkbox"
           />
           <span>
             Reported via partner app (Nexus / Keyholding Co) — officer fills

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -89,14 +90,11 @@ export default async function OperationsHubPage() {
   ];
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Operations</h1>
-        <p className="text-sm text-slate-500">
-          Day-to-day running of the business — schedules, shifts, keys, the
-          activities log.
-        </p>
-      </div>
+    <div className="section">
+      <PageHeader
+        title="Operations"
+        subtitle="Day-to-day running of the business — schedules, shifts, keys, the activities log."
+      />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {cards.map((c) => (

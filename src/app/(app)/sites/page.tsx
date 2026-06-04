@@ -181,7 +181,7 @@ export default async function SitesPage({
   if (type) exportQs.set("type", type);
 
   return (
-    <div className="space-y-5">
+    <div className="section">
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-brand-navy">Sites</h1>

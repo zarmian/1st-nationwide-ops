@@ -113,7 +113,7 @@ export function SignaturePad({
 
   if (value) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+      <div className="card p-3 space-y-2">
         <img
           src={value}
           alt="Signature"
@@ -133,7 +133,7 @@ export function SignaturePad({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+    <div className="card p-3 space-y-2">
       <canvas
         ref={canvasRef}
         onPointerDown={start}

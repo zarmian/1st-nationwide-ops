@@ -502,7 +502,7 @@ function FieldInput({
               type="checkbox"
               checked={Boolean(value)}
               onChange={(e) => onChange(e.target.checked)}
-              className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+              className="checkbox"
             />
             <span>
               {field.label}

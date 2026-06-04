@@ -118,7 +118,7 @@ export default async function OfficerTodayPage() {
   const totalVisits = myVisits.length;
 
   return (
-    <div className="space-y-5">
+    <div className="section">
       <AutoRefresh />
       <div>
         <h1 className="text-2xl font-semibold text-brand-navy">Your work</h1>
