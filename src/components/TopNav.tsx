@@ -135,10 +135,10 @@ export function TopNav({
                   key={item.href}
                   href={item.href}
                   className={
-                    "px-3 py-1.5 rounded-lg text-sm font-medium " +
+                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
                     (active
-                      ? "bg-brand-mint-light text-brand-mint-dark"
-                      : "text-slate-600 hover:bg-slate-100")
+                      ? "bg-brand-mint-100 text-brand-mint-800"
+                      : "text-slate-600 hover:bg-brand-mint-50 hover:text-brand-mint-700")
                   }
                 >
                   {item.label}
@@ -156,14 +156,21 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   return (
     <Link
       href={item.href}
+      aria-current={active ? "page" : undefined}
       className={
-        "px-3 py-1.5 rounded-lg text-sm font-medium " +
+        "relative px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
         (active
-          ? "bg-brand-mint-light text-brand-mint-dark"
-          : "text-slate-600 hover:bg-slate-100")
+          ? "text-brand-navy"
+          : "text-slate-600 hover:bg-brand-mint-50 hover:text-brand-mint-700")
       }
     >
       {item.label}
+      {active && (
+        <span
+          aria-hidden
+          className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-brand-mint"
+        />
+      )}
     </Link>
   );
 }
