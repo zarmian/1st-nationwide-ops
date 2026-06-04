@@ -101,7 +101,7 @@ export default async function OperationsHubPage() {
           <Link
             key={c.href}
             href={c.href}
-            className="card p-5 hover:shadow-md transition-shadow"
+            className="card-hover p-5"
           >
             <div className="flex items-baseline justify-between">
               <h2 className="font-semibold text-brand-navy">{c.title}</h2>

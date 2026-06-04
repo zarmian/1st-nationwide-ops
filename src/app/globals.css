@@ -15,50 +15,79 @@ body {
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased font-sans;
-  /* Numeric figures use tabular widths app-wide so prices, durations,
-     and IDs in tables stop dancing as values change. */
+  /* Ambient backdrop instead of flat slate-50 — soft mint dust at the
+     top of the viewport fading into the slate. Subtle, dashboard-grade,
+     not a hero gradient. */
+  @apply bg-ambient text-slate-900 antialiased font-sans;
   font-feature-settings: "cv11", "tnum";
 }
 
-/* Reusable bits */
 @layer components {
   /* ── Surfaces ──────────────────────────────────────────────────── */
   .card {
     @apply rounded-2xl bg-white shadow-card border border-slate-200/70;
   }
-  /* Subtle/inset surface — use inside cards for nested panels so the
-     visual hierarchy stays legible without stacking shadows. */
+  /* Card with a left-edge mint accent — use for the "headline" card on
+     a dashboard (Earned today, Pending alerts, etc.) to draw the eye. */
+  .card-accent {
+    @apply rounded-2xl bg-white shadow-card border border-slate-200/70
+           border-l-4 border-l-brand-mint;
+  }
   .card-subtle {
     @apply rounded-xl bg-slate-50 border border-slate-200/70;
   }
-  /* Section wrapper — standardised vertical rhythm so every page reads
-     the same. Use at the top level of (app)/* pages. */
+  /* Card that scales subtly on hover — for clickable cards like the
+     /operations + /admin tiles. */
+  .card-hover {
+    @apply card transition-all duration-200 hover:shadow-md hover:-translate-y-0.5;
+  }
   .section {
     @apply space-y-4;
+  }
+
+  /* ── KPI cards ─────────────────────────────────────────────────── */
+  /* Headline metric: bigger number, eyebrow label, optional trend chip.
+     Used on every dashboard so the visual rhythm is identical. */
+  .kpi {
+    @apply card p-5 flex flex-col gap-1.5;
+  }
+  .kpi-label {
+    @apply text-[11px] uppercase tracking-wider text-slate-500 font-medium;
+  }
+  .kpi-value {
+    @apply text-3xl font-semibold text-brand-navy tabular-nums tracking-tight;
+  }
+  .kpi-hint {
+    @apply text-xs text-slate-500;
   }
 
   /* ── Buttons ───────────────────────────────────────────────────── */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
-           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint/40
            focus-visible:ring-offset-2 focus-visible:ring-offset-white;
   }
+  /* Primary — brand gradient + inner highlight + lift-on-hover. The
+     gradient lives in Tailwind config so dark-mode swaps are one tweak. */
   .btn-primary {
-    @apply btn bg-brand-mint text-white hover:bg-brand-mint-dark;
+    @apply btn text-white bg-btn-primary-grad shadow-inner-highlight
+           hover:bg-btn-primary-grad-hover hover:shadow-lift;
   }
   .btn-secondary {
-    @apply btn bg-white text-slate-900 border border-slate-300 hover:bg-slate-50;
+    @apply btn bg-white text-brand-navy border border-slate-300
+           hover:bg-brand-mint-50 hover:border-brand-mint-300 hover:text-brand-mint-700;
   }
   .btn-ghost {
-    @apply btn text-slate-700 hover:bg-slate-100;
+    @apply btn text-slate-700 hover:bg-brand-mint-50 hover:text-brand-mint-700;
   }
-  /* Destructive — for "delete", "cancel job", "remove" etc. so red
-     intent is one token, not five hand-rolled variants. */
   .btn-danger {
     @apply btn bg-white text-red-700 border border-red-200 hover:bg-red-50
            focus-visible:ring-red-500/40;
+  }
+  /* New: bold dark variant for hero CTAs ("Sign out", "Download CSV"). */
+  .btn-dark {
+    @apply btn bg-brand-navy text-white hover:bg-brand-navy-700;
   }
 
   /* ── Form ──────────────────────────────────────────────────────── */
@@ -72,8 +101,6 @@ body {
   .label {
     @apply block text-sm font-medium text-slate-700 mb-1;
   }
-  /* Single-line styling for native check/radio so they pick up the
-     same focus ring as text inputs without inline overrides. */
   .checkbox,
   .radio {
     @apply h-4 w-4 rounded border-slate-300 text-brand-mint
@@ -83,42 +110,70 @@ body {
     @apply rounded-full;
   }
 
+  /* ── Filter pills ──────────────────────────────────────────────── */
+  /* For one-tap filter UIs — Status, Range, Source. Sit in a row, the
+     active one fills with mint, others stay neutral with mint hover. */
+  .pill {
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium
+           border transition-colors cursor-pointer select-none;
+  }
+  .pill-idle {
+    @apply pill bg-white text-slate-600 border-slate-200
+           hover:border-brand-mint-300 hover:text-brand-mint-700 hover:bg-brand-mint-50;
+  }
+  .pill-active {
+    @apply pill bg-brand-mint-100 text-brand-mint-800 border-brand-mint-300
+           shadow-inner-highlight;
+  }
+
   /* ── Chips ─────────────────────────────────────────────────────── */
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
-  .chip-mint {
-    @apply chip bg-brand-mint-light text-brand-mint-dark;
+  .chip-mint  { @apply chip bg-brand-mint-light text-brand-mint-dark; }
+  .chip-slate { @apply chip bg-slate-100 text-slate-700; }
+  .chip-amber { @apply chip bg-amber-100 text-amber-800; }
+  .chip-red   { @apply chip bg-red-100 text-red-800; }
+  .chip-info  { @apply chip bg-blue-50 text-blue-700; }
+
+  /* ── Tables ────────────────────────────────────────────────────── */
+  /* Standardised table styling so every list in the app shares the
+     same skeleton. Wrap the <table> in a .card and apply .table-default
+     to the table itself. The header is sticky inside its scroll
+     container so long lists keep their column headings visible. */
+  .table-default {
+    @apply w-full text-sm border-collapse;
   }
-  .chip-slate {
-    @apply chip bg-slate-100 text-slate-700;
+  .table-default thead th {
+    @apply text-left px-4 py-2.5 font-medium uppercase tracking-wider text-[11px]
+           text-slate-500 bg-slate-50 border-b border-slate-200
+           sticky top-0 z-10;
   }
-  .chip-amber {
-    @apply chip bg-amber-100 text-amber-800;
+  .table-default tbody td {
+    @apply px-4 py-2.5 border-b border-slate-100;
   }
-  .chip-red {
-    @apply chip bg-red-100 text-red-800;
+  .table-default tbody tr {
+    @apply transition-colors duration-100;
   }
-  /* New: info chip for neutral status/badges ("Scheduled", "Draft"). */
-  .chip-info {
-    @apply chip bg-blue-50 text-blue-700;
+  .table-default tbody tr:hover {
+    @apply bg-brand-mint-50/60;
+  }
+  .table-default tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  /* Numeric column right-aligned with tabular figures — apply directly
+     to <td> or <th>. */
+  .col-num {
+    @apply text-right tabular-nums;
   }
 
   /* ── Empty + Loading ───────────────────────────────────────────── */
-  /* Unified empty state — apply to a wrapper around the icon/copy/CTA
-     so every "no data" panel looks the same and respects the card surface. */
   .empty-state {
     @apply rounded-2xl border border-dashed border-slate-300 bg-white/60
            px-6 py-10 text-center;
   }
-  .empty-title {
-    @apply text-sm font-medium text-slate-700;
-  }
-  .empty-blurb {
-    @apply mt-1 text-xs text-slate-500;
-  }
-  /* Skeleton row — shimmering placeholder for async loads. Use inside
-     a .card or .empty-state until real data arrives. */
+  .empty-title { @apply text-sm font-medium text-slate-700; }
+  .empty-blurb { @apply mt-1 text-xs text-slate-500; }
   .skeleton {
     background: linear-gradient(
       90deg,
@@ -131,9 +186,6 @@ body {
   }
 }
 
-/* Global a11y baseline: every interactive element gets a visible focus
-   ring even if it lacks the .btn class. Reduced-motion users get static
-   transitions. */
 @layer base {
   :where(a, button, [role="button"], [tabindex]):not(:disabled):focus-visible {
     @apply outline-none ring-2 ring-brand-mint/40 ring-offset-2 ring-offset-white rounded-md;
