@@ -182,7 +182,7 @@ export function BlueprintForm({
             type="checkbox"
             name="active"
             defaultChecked={initial.active}
-            className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            className="checkbox"
           />
           <span>Active — only active blueprints show in the picker on /admin/forms/new.</span>
         </label>

@@ -90,7 +90,7 @@ export function SitesTable({
                     if (el) el.indeterminate = someSelected;
                   }}
                   onChange={toggleAll}
-                  className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+                  className="checkbox"
                 />
               </th>
               <Th>Code</Th>
@@ -115,7 +115,7 @@ export function SitesTable({
                       aria-label={`Select ${r.name}`}
                       checked={isSel}
                       onChange={() => toggle(r.id)}
-                      className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+                      className="checkbox"
                     />
                   </td>
                   <td className="px-4 py-2.5 text-xs uppercase tracking-wider text-slate-500">

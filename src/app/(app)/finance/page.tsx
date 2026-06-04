@@ -489,7 +489,7 @@ export default async function FinancePage({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="section">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-brand-navy">Finance</h1>

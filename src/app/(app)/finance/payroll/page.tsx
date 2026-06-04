@@ -49,7 +49,7 @@ export default async function PayrollPage({
   const exportHref = `/api/payroll/export?from=${ymd(fromDate)}&to=${ymd(toDate)}`;
 
   return (
-    <div className="space-y-5">
+    <div className="section">
       <div className="flex items-end justify-between gap-4">
         <div>
           <Link

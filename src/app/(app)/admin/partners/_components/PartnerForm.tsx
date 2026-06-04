@@ -147,7 +147,7 @@ export function PartnerForm({
             type="checkbox"
             name="active"
             defaultChecked={initial.active}
-            className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            className="checkbox"
           />
           <span>Active</span>
         </label>

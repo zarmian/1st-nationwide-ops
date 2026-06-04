@@ -181,7 +181,7 @@ export function FieldEditor({
             type="checkbox"
             checked={field.required}
             onChange={(e) => onChange({ required: e.target.checked })}
-            className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            className="checkbox"
           />
           <span>Required</span>
         </label>

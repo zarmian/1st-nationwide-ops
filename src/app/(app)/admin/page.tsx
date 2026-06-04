@@ -101,7 +101,7 @@ export default async function AdminHubPage() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="section">
       <div>
         <h1 className="text-2xl font-semibold text-brand-navy">Admin</h1>
         <p className="text-sm text-slate-500">

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
+import { PageHeader } from "@/components/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -171,21 +173,15 @@ export default async function OfficerFinancePage({
   const totalPaid = rows.reduce((acc, r) => acc + r.paid, 0);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <Link
-          href="/finance"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
-        >
-          ← Finance
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          {officer.name}
-        </h1>
-        <p className="text-sm text-slate-500">
-          Officer · {officer.email} · {fmtDate(fromDate)} → {fmtDate(toDate)}
-        </p>
-      </div>
+    <div className="section">
+      <PageHeader
+        backHref="/finance"
+        backLabel="Finance"
+        title={officer.name}
+        subtitle={
+          <>Officer · {officer.email} · {fmtDate(fromDate)} → {fmtDate(toDate)}</>
+        }
+      />
 
       <RangeBar from={fromDate} to={toDate} basePath={`/finance/officers/${officer.id}`} />
 
@@ -216,9 +212,11 @@ export default async function OfficerFinancePage({
           </p>
         </div>
         {rows.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-slate-500 text-center">
-            No activities in this range.
-          </p>
+          <EmptyState
+            variant="inline"
+            title="No activities in this range"
+            blurb="Try widening the date filter or jump to This month."
+          />
         ) : (
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">

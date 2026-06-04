@@ -49,7 +49,7 @@ export default async function OfficerRatesPage() {
   ]);
 
   return (
-    <div className="space-y-5">
+    <div className="section">
       <div>
         <Link
           href="/admin"

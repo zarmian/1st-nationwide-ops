@@ -314,7 +314,7 @@ export default async function PatrolsPage({
       </FilterPanel>
 
       <div className="grid xl:grid-cols-[1fr_420px] gap-5">
-        <div className="space-y-5">
+        <div className="section">
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-brand-navy">
@@ -476,7 +476,7 @@ export default async function PatrolsPage({
         </div>
         </div>
 
-        <div className="space-y-5">
+        <div className="section">
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-brand-navy">Upcoming visits</h2>

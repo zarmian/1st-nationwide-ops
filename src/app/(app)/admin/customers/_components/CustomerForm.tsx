@@ -161,7 +161,7 @@ export function CustomerForm({
             type="checkbox"
             name="active"
             defaultChecked={initial.active}
-            className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+            className="checkbox"
           />
           <span>Active — customer is live and can be assigned to sites</span>
         </label>

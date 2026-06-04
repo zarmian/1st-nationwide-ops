@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
+import { PageHeader } from "@/components/PageHeader";
+import { EmptyState } from "@/components/EmptyState";
 
 export const dynamic = "force-dynamic";
 
@@ -217,25 +219,21 @@ export default async function PartnerFinancePage({
   const theyDidTotal = theyDidRows.reduce((acc, r) => acc + r.billed, 0);
 
   return (
-    <div className="space-y-4">
-      <div>
-        <Link
-          href="/finance"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
-        >
-          ← Finance
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          {partner.name}
-        </h1>
-        <p className="text-sm text-slate-500">
-          Partner · role:{" "}
-          <span className="font-medium text-brand-navy">
-            {partner.role.toLowerCase()}
-          </span>{" "}
-          · {fmtDate(fromDate)} → {fmtDate(toDate)}
-        </p>
-      </div>
+    <div className="section">
+      <PageHeader
+        backHref="/finance"
+        backLabel="Finance"
+        title={partner.name}
+        subtitle={
+          <>
+            Partner · role:{" "}
+            <span className="font-medium text-brand-navy">
+              {partner.role.toLowerCase()}
+            </span>{" "}
+            · {fmtDate(fromDate)} → {fmtDate(toDate)}
+          </>
+        }
+      />
 
       <RangeBar from={fromDate} to={toDate} basePath={`/finance/partners/${partner.id}`} />
 
@@ -269,9 +267,11 @@ export default async function PartnerFinancePage({
             </p>
           </div>
           {weDidRows.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-slate-500 text-center">
-              No activities for {partner.name} as customer in this range.
-            </p>
+            <EmptyState
+              variant="inline"
+              title={`No activities for ${partner.name} as customer in this range`}
+              blurb="Sites and jobs they pay us for will appear here."
+            />
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
@@ -355,9 +355,11 @@ export default async function PartnerFinancePage({
             </p>
           </div>
           {theyDidRows.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-slate-500 text-center">
-              No subcontract jobs in this range.
-            </p>
+            <EmptyState
+              variant="inline"
+              title="No subcontract jobs in this range"
+              blurb="Jobs they handled on our behalf will appear here."
+            />
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">

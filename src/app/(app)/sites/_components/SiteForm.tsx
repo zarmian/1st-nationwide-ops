@@ -470,7 +470,7 @@ export function SiteForm({
               type="checkbox"
               name="dne"
               defaultChecked={initial.dne}
-              className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+              className="checkbox"
             />
             <span>DNE — Do not engage</span>
           </label>
@@ -479,7 +479,7 @@ export function SiteForm({
               type="checkbox"
               name="hsMarkers"
               defaultChecked={initial.hsMarkers}
-              className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+              className="checkbox"
             />
             <span>HS markers — Health & safety hazards on site</span>
           </label>
@@ -504,7 +504,7 @@ export function SiteForm({
                   value={s.v}
                   checked={services.includes(s.v)}
                   onChange={(e) => toggleService(s.v, e.target.checked)}
-                  className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+                  className="checkbox"
                 />
                 <span>{s.label}</span>
               </label>
@@ -536,7 +536,7 @@ export function SiteForm({
                 type="checkbox"
                 name="active"
                 defaultChecked={initial.active}
-                className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+                className="checkbox"
               />
               <span>Active — site is live and can have jobs</span>
             </label>
@@ -801,7 +801,7 @@ function KeysSection({
                 {set.keys.map((k, kIdx) => (
                   <div
                     key={kIdx}
-                    className="grid md:grid-cols-[1fr_120px_130px_120px_auto] gap-2 items-end bg-white rounded-lg p-2 border border-slate-200"
+                    className="grid md:grid-cols-[1fr_120px_130px_120px_auto] gap-2 items-end card-subtle p-2"
                   >
                     <div>
                       <label className="label">
@@ -858,7 +858,7 @@ function KeysSection({
                             duplicable: e.target.checked,
                           })
                         }
-                        className="rounded border-slate-300 text-brand-mint focus:ring-brand-mint/30"
+                        className="checkbox"
                       />
                       <span>Duplicable</span>
                     </label>

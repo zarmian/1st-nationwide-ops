@@ -63,7 +63,7 @@ export function PhotoGrid({
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-3">
+    <div className="card p-3 space-y-3">
       {value.length > 0 && (
         <div className="grid grid-cols-3 gap-2">
           {value.map((p, i) => (
