@@ -68,24 +68,6 @@ export function SiteHeader({
           <Link href={`/sites/${site.id}/edit`} className="btn-secondary text-sm">
             Edit
           </Link>
-          <Link
-            href={`/dispatch/new?siteId=${site.id}`}
-            className="btn-secondary text-sm"
-          >
-            + New job
-          </Link>
-          <Link
-            href={`/dispatch/callouts/new?siteId=${site.id}`}
-            className="btn-secondary text-sm"
-          >
-            + Record callout
-          </Link>
-          <Link
-            href={`/submit?siteId=${site.id}`}
-            className="btn inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium bg-brand-navy text-white hover:bg-slate-800"
-          >
-            Log activity
-          </Link>
         </div>
       </div>
 

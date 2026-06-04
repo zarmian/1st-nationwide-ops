@@ -444,20 +444,29 @@ function KeySetSummary({
 
   return (
     <ul className="space-y-1.5">
-      {items.slice(0, 4).map((it) => (
-        <li
-          key={it.id}
-          className="card p-3 flex items-center justify-between gap-2"
-        >
-          <div className="min-w-0">
-            <div className="font-semibold text-brand-navy">{it.ref}</div>
-            <div className="text-xs text-slate-500 truncate">{it.line}</div>
-          </div>
-          <span className={it.tone}>
-            {it.tone === "chip-mint" ? "With us" : "Mixed"}
-          </span>
-        </li>
-      ))}
+      {items.slice(0, 4).map((it) => {
+        // Sets link to /key-sets/<id> where handovers + photo are managed;
+        // the orphan-keys aggregate row links to the keys list filtered to
+        // this site.
+        const href =
+          it.id === "orphans" ? `/keys` : `/key-sets/${it.id}`;
+        return (
+          <li key={it.id}>
+            <Link
+              href={href}
+              className="card p-3 flex items-center justify-between gap-2 hover:shadow-md transition-shadow"
+            >
+              <div className="min-w-0">
+                <div className="font-semibold text-brand-navy">{it.ref}</div>
+                <div className="text-xs text-slate-500 truncate">{it.line}</div>
+              </div>
+              <span className={it.tone}>
+                {it.tone === "chip-mint" ? "With us" : "Mixed"}
+              </span>
+            </Link>
+          </li>
+        );
+      })}
       {items.length > 4 && (
         <li className="text-xs text-slate-500 px-1">
           + {items.length - 4} more
