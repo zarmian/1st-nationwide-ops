@@ -65,6 +65,12 @@ export default async function JobDetailPage({
           postcodeFormatted: true,
           addressLine: true,
           city: true,
+          // Pull the site's customer/partner so the "Who it's for"
+          // card falls back to them when the job itself doesn't have
+          // a direct customer/partner set — common for cron-created
+          // jobs that only carry siteId.
+          customer: { select: { id: true, name: true } },
+          partner: { select: { id: true, name: true } },
         },
       },
       customer: { select: { id: true, name: true } },
@@ -202,28 +208,36 @@ export default async function JobDetailPage({
           </h2>
           <dl className="text-sm space-y-1">
             <Row label="Customer">
-              {job.customer ? (
-                <Link
-                  href={`/admin/customers/${job.customer.id}`}
-                  className="text-brand-navy hover:text-brand-blue-dark"
-                >
-                  {job.customer.name}
-                </Link>
-              ) : (
-                <span className="text-slate-400">—</span>
-              )}
+              {(() => {
+                // Direct job.customer wins; fall back to the site's
+                // customer for cron-created site-scoped jobs.
+                const c = job.customer ?? job.site?.customer ?? null;
+                return c ? (
+                  <Link
+                    href={`/admin/customers/${c.id}`}
+                    className="text-brand-navy hover:text-brand-blue-dark"
+                  >
+                    {c.name}
+                  </Link>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                );
+              })()}
             </Row>
             <Row label="Partner">
-              {job.partner ? (
-                <Link
-                  href={`/admin/partners/${job.partner.id}`}
-                  className="text-brand-navy hover:text-brand-blue-dark"
-                >
-                  {job.partner.name}
-                </Link>
-              ) : (
-                <span className="text-slate-400">—</span>
-              )}
+              {(() => {
+                const p = job.partner ?? job.site?.partner ?? null;
+                return p ? (
+                  <Link
+                    href={`/admin/partners/${p.id}`}
+                    className="text-brand-navy hover:text-brand-blue-dark"
+                  >
+                    {p.name}
+                  </Link>
+                ) : (
+                  <span className="text-slate-400">—</span>
+                );
+              })()}
             </Row>
           </dl>
         </div>
