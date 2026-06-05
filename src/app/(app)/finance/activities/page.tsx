@@ -612,8 +612,8 @@ export default async function ActivitiesPage({
               Counts and totals per {groupBy}.
             </p>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
+          <table className="table-default">
+            <thead>
               <tr>
                 <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
                   {groupBy === "month" ? "Month" : groupBy === "week" ? "Week" : "Day"}
@@ -632,7 +632,7 @@ export default async function ActivitiesPage({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {pivot.map((p) => (
                 <tr key={p.key}>
                   <td className="px-4 py-2 text-brand-navy font-medium">
@@ -678,8 +678,8 @@ export default async function ActivitiesPage({
             </p>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
+            <table className="table-default">
+              <thead>
                 <tr>
                   <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
                     When
@@ -707,7 +707,7 @@ export default async function ActivitiesPage({
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {pageRows.map((r) => (
                   <tr key={r.id}>
                     <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
