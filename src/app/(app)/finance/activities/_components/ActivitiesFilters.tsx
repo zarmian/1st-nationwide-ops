@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
+import { FilterPills } from "@/components/FilterPills";
 
 type Opt = { v: string; label: string };
 
@@ -85,31 +86,29 @@ export function ActivitiesFilters({
           />
         </div>
         <div>
-          <label className="label" htmlFor="status">Status</label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={initial.status}
-            className="input"
-          >
-            <option value="completed">Completed (by date done)</option>
-            <option value="billed">Billed (by date billed)</option>
-            <option value="paid">Paid (by date paid)</option>
-          </select>
+          <label className="label">Status</label>
+          <FilterPills
+            paramKey="status"
+            defaultValue="completed"
+            options={[
+              { value: "completed", label: "Completed" },
+              { value: "billed", label: "Billed" },
+              { value: "paid", label: "Paid" },
+            ]}
+          />
         </div>
         <div>
-          <label className="label" htmlFor="groupBy">Group by</label>
-          <select
-            id="groupBy"
-            name="groupBy"
-            defaultValue={initial.groupBy}
-            className="input"
-          >
-            <option value="none">No grouping (list)</option>
-            <option value="day">Day</option>
-            <option value="week">Week</option>
-            <option value="month">Month</option>
-          </select>
+          <label className="label">Group by</label>
+          <FilterPills
+            paramKey="groupBy"
+            defaultValue="none"
+            options={[
+              { value: "none", label: "List" },
+              { value: "day", label: "Day" },
+              { value: "week", label: "Week" },
+              { value: "month", label: "Month" },
+            ]}
+          />
         </div>
       </div>
 

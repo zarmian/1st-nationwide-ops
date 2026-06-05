@@ -4,6 +4,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
+import { ActivityStatus } from "@/components/ActivityStatus";
 import { RestoreJobButton } from "../dispatch/_components/RestoreJobButton";
 
 export const dynamic = "force-dynamic";
@@ -655,7 +656,7 @@ export default async function ActivitiesPage({
                     </td>
                     <td className="px-4 py-2 text-slate-600 text-xs">
                       <div className="flex items-center gap-2">
-                        <span>{r.status.toLowerCase().replace(/_/g, " ")}</span>
+                        <ActivityStatus status={r.status} />
                         {isAdmin &&
                           r.source === "JOB" &&
                           r.status === "CANCELLED" && (
