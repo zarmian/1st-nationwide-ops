@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/Confirm";
+import { useToast } from "@/components/Toast";
 import type { RecalcResult } from "../_actions";
 
 /**
@@ -22,6 +24,8 @@ export function RecalcButton({
   to?: string;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [last, setLast] = useState<RecalcResult | null>(null);
 
@@ -30,15 +34,24 @@ export function RecalcButton({
       ? `${from.slice(0, 10)} → ${to.slice(0, 10)}`
       : "all time";
 
-  function run(scope: "all" | "missing") {
-    const confirmText =
-      scope === "all"
-        ? `Recompute billing for every completed visit + job in ${rangeLabel} (overwrites existing snapshots)?`
-        : `Bill visits + jobs in ${rangeLabel} that don't yet have a snapshot?`;
-    if (!window.confirm(confirmText)) return;
+  async function run(scope: "all" | "missing") {
+    const ok = await confirm({
+      title: scope === "all" ? "Recompute every snapshot?" : "Bill missing snapshots?",
+      body:
+        scope === "all"
+          ? `This re-snapshots billing on every completed visit + job in ${rangeLabel}, overwriting existing values.`
+          : `This bills visits + jobs in ${rangeLabel} that don't yet have a snapshot.`,
+      confirmLabel: scope === "all" ? "Recompute" : "Bill missing",
+      tone: scope === "all" ? "danger" : "default",
+    });
+    if (!ok) return;
     startTransition(async () => {
       const r = await recalc(scope, { from, to });
       setLast(r);
+      toast.show({
+        tone: "success",
+        message: `${r.visitsBilled} visits · ${r.jobsBilled} jobs billed.`,
+      });
       router.refresh();
     });
   }
