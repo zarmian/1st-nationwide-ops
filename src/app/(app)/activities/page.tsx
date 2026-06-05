@@ -198,13 +198,24 @@ export default async function ActivitiesPage({
   const visitWhere: any = {};
   const jobWhere: any = {};
 
-  // /activities is the ops log. Finance-scoped filters (billed/paid date)
-  // moved to /finance/activities. Here we just gate on the completion
-  // timestamp falling in the chosen window — every status mode behaves
-  // the same way.
-  visitWhere.status = "COMPLETED";
-  visitWhere.departedAt = { gte: fromDate, lte: toDate };
-  jobWhere.completedAt = { gte: fromDate, lte: toDate };
+  // /activities is the ops log — anything happening or having happened in
+  // the chosen window, regardless of completion state. Anchor on either
+  // the completion timestamp OR the scheduled timestamp so:
+  //   - A patrol scheduled for tomorrow that's still PENDING shows up.
+  //   - A missed VPI shows up.
+  //   - A job created from an alarm but never dispatched shows up.
+  //   - A completed visit still shows up.
+  // Finance-scoped filters (billed/paid date) live on /finance/activities;
+  // status filtering happens in JS once rows are merged.
+  const dateInRange = { gte: fromDate, lte: toDate };
+  visitWhere.OR = [
+    { departedAt: dateInRange },
+    { scheduledAt: dateInRange },
+  ];
+  jobWhere.OR = [
+    { completedAt: dateInRange },
+    { scheduledFor: dateInRange },
+  ];
 
   if (officerId) {
     visitWhere.officerId = officerId;
