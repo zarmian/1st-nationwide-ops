@@ -20,6 +20,12 @@ const TYPE_LABEL: Record<string, string> = {
 
 function fmt(d: Date | null): string {
   if (!d) return "—";
+  // Explicit 24h + short timezone name so the KPI card shows e.g.
+  // "Sat, 02 Jun, 18:00 BST" instead of just "Sat, 02 Jun, 18:00".
+  // Operator reported the cards looked off — most likely because
+  // it was ambiguous whether the displayed time was UK wall-clock or
+  // UTC. Showing the BST/GMT suffix removes that doubt without
+  // changing the underlying value.
   return d.toLocaleString("en-GB", {
     timeZone: "Europe/London",
     weekday: "short",
@@ -27,6 +33,8 @@ function fmt(d: Date | null): string {
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
   });
 }
 
