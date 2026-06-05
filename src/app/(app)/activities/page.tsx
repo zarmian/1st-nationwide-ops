@@ -228,25 +228,52 @@ export default async function ActivitiesPage({
     jobWhere.site = { ...(jobWhere.site ?? {}), regionId: rid };
   }
 
-  // Kind filter routes between the two tables. If the user picks one of
+  // Kind filter routes between the three tables. If the user picks one of
   // the JobType kinds we still load visits only if no kind set (so the
   // merged list isn't accidentally empty).
   let loadVisits = true;
   let loadJobs = true;
+  let loadShifts = true;
   if (kind === "VISIT_PATROL") {
     loadJobs = false;
+    loadShifts = false;
     visitWhere.patrolSchedule = { kind: "PATROL" };
   } else if (kind === "VISIT_VPI") {
     loadJobs = false;
+    loadShifts = false;
     visitWhere.patrolSchedule = { kind: "VPI" };
-  } else if (kind) {
-    // It's a JobType — restrict jobs and drop visits.
+  } else if (kind === "STATIC_GUARDING_SHIFT") {
     loadVisits = false;
+    loadJobs = false;
+  } else if (kind === "DOG_HANDLER_SHIFT") {
+    loadVisits = false;
+    loadJobs = false;
+  } else if (kind) {
+    // It's a JobType — restrict jobs and drop visits + shifts.
+    loadVisits = false;
+    loadShifts = false;
     jobWhere.type = kind;
   }
 
+  // Shift where clause — anchor on the scheduled start so a shift
+  // running from 22:00 → 06:00 lands in the day it started, same as
+  // jobs/visits use their completion timestamp. Cancelled shifts are
+  // not a status today so no filter needed there.
+  const shiftWhere: any = {
+    scheduledStartsAt: { gte: fromDate, lte: toDate },
+  };
+  if (officerId) shiftWhere.officerId = officerId;
+  if (siteId) shiftWhere.siteId = siteId;
+  if (customerId) shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId };
+  if (partnerId) shiftWhere.site = { ...(shiftWhere.site ?? {}), partnerId };
+  if (regionId && Number.isFinite(Number(regionId))) {
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), regionId: Number(regionId) };
+  }
+  if (kind === "STATIC_GUARDING_SHIFT") shiftWhere.type = "STATIC_GUARDING";
+  else if (kind === "DOG_HANDLER_SHIFT") shiftWhere.type = "DOG_HANDLER";
+
   // ── 3. Load rows + the small filter-lookup data ────────────────────────
-  const [visits, jobs, regions, customers, partners, officers] =
+  const [visits, jobs, shifts, regions, customers, partners, officers] =
     await Promise.all([
       loadVisits
         ? prisma.patrolVisit.findMany({
@@ -290,6 +317,26 @@ export default async function ActivitiesPage({
             take: 1000,
           })
         : Promise.resolve([] as any[]),
+      loadShifts
+        ? prisma.shift.findMany({
+            where: shiftWhere,
+            include: {
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  region: { select: { name: true } },
+                  customer: { select: { id: true, name: true } },
+                  partner: { select: { id: true, name: true } },
+                },
+              },
+              officer: { select: { id: true, name: true } },
+            },
+            orderBy: [{ scheduledStartsAt: "desc" }],
+            take: 1000,
+          })
+        : Promise.resolve([] as any[]),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.customer.findMany({
         where: { active: true },
@@ -312,7 +359,7 @@ export default async function ActivitiesPage({
   type Row = {
     id: string;
     href: string;
-    source: "JOB" | "VISIT";
+    source: "JOB" | "VISIT" | "SHIFT";
     kind: string;
     kindLabel: string;
     at: Date;
@@ -385,6 +432,31 @@ export default async function ActivitiesPage({
       officerName: j.handledByPartner
         ? `${j.handledByPartner.name} (partner)`
         : j.assignedTo?.name ?? null,
+    });
+  }
+
+  for (const s of shifts) {
+    const kind =
+      s.type === "DOG_HANDLER" ? "DOG_HANDLER_SHIFT" : "STATIC_GUARDING_SHIFT";
+    rows.push({
+      id: `s:${s.id}`,
+      href: `/shifts/${s.id}`,
+      source: "SHIFT",
+      kind,
+      kindLabel: KIND_LABEL[kind] ?? kind,
+      // Sort by the scheduled start — shift detail + list use the same.
+      at: s.actualStartedAt ?? s.scheduledStartsAt,
+      status: s.status,
+      siteId: s.site?.id ?? null,
+      siteCode: s.site?.code ?? null,
+      siteName: s.site?.name ?? null,
+      regionName: s.site?.region?.name ?? null,
+      customerId: s.site?.customer?.id ?? null,
+      customerName: s.site?.customer?.name ?? null,
+      partnerId: s.site?.partner?.id ?? null,
+      partnerName: s.site?.partner?.name ?? null,
+      officerId: s.officer?.id ?? null,
+      officerName: s.officer?.name ?? null,
     });
   }
 
@@ -529,6 +601,10 @@ export default async function ActivitiesPage({
             v: `VISIT_${k}`,
             label: KIND_LABEL[`VISIT_${k}`] ?? k,
           }))}
+          shiftKinds={[
+            { v: "STATIC_GUARDING_SHIFT", label: "Static-guarding shift" },
+            { v: "DOG_HANDLER_SHIFT", label: "Dog-handler shift" },
+          ]}
         />
       </FilterPanel>
 
