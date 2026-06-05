@@ -715,37 +715,25 @@ export default async function FinancePage({
             count until it's done.
           </p>
         </div>
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+        <table className="table-default">
+          <thead>
             <tr>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Account
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Activities
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Billed
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Officer pay
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Profit
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Margin
-              </th>
+              <th>Account</th>
+              <th className="col-num">Activities</th>
+              <th className="col-num">Billed</th>
+              <th className="col-num">Officer pay</th>
+              <th className="col-num">Profit</th>
+              <th className="col-num">Margin</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {pnlRows.map((r) => {
               const profit = r.billed - r.paid;
               const margin = r.billed > 0 ? (profit / r.billed) * 100 : 0;
               const activitiesHref = `/finance/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`;
               return (
                 <tr key={r.key}>
-                  <td className="px-4 py-2 font-medium text-brand-navy">
+                  <td className="font-medium text-brand-navy">
                     {r.key === "unassigned" ? (
                       r.label
                     ) : (
@@ -757,7 +745,7 @@ export default async function FinancePage({
                       </Link>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="col-num">
                     {r.key === "unassigned" ? (
                       r.activities
                     ) : (
@@ -769,15 +757,11 @@ export default async function FinancePage({
                       </Link>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {fmtMoney2(r.billed)}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-slate-600">
-                    {fmtMoney2(r.paid)}
-                  </td>
+                  <td className="col-num">{fmtMoney2(r.billed)}</td>
+                  <td className="col-num text-slate-600">{fmtMoney2(r.paid)}</td>
                   <td
                     className={
-                      "px-4 py-2 text-right tabular-nums font-medium " +
+                      "col-num font-medium " +
                       (profit >= 0 ? "text-brand-navy" : "text-red-600")
                     }
                   >
@@ -785,7 +769,7 @@ export default async function FinancePage({
                   </td>
                   <td
                     className={
-                      "px-4 py-2 text-right tabular-nums text-xs " +
+                      "col-num text-xs " +
                       (margin >= 0 ? "text-slate-600" : "text-red-600")
                     }
                   >
@@ -804,19 +788,15 @@ export default async function FinancePage({
             )}
             {pnlRows.length > 0 && (
               <tr className="bg-slate-50 font-medium">
-                <td className="px-4 py-2 text-brand-navy">Total</td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {pnlTotals.activities}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {fmtMoney2(pnlTotals.billed)}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                <td className="text-brand-navy">Total</td>
+                <td className="col-num">{pnlTotals.activities}</td>
+                <td className="col-num">{fmtMoney2(pnlTotals.billed)}</td>
+                <td className="col-num text-slate-700">
                   {fmtMoney2(pnlTotals.paid)}
                 </td>
                 <td
                   className={
-                    "px-4 py-2 text-right tabular-nums " +
+                    "col-num " +
                     (pnlTotals.billed - pnlTotals.paid >= 0
                       ? "text-brand-navy"
                       : "text-red-600")
@@ -824,7 +804,7 @@ export default async function FinancePage({
                 >
                   {fmtMoney2(pnlTotals.billed - pnlTotals.paid)}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-xs text-slate-600">
+                <td className="col-num text-xs text-slate-600">
                   {pnlTotals.billed > 0
                     ? `${(((pnlTotals.billed - pnlTotals.paid) / pnlTotals.billed) * 100).toFixed(0)}%`
                     : "—"}

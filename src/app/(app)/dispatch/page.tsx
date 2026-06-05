@@ -3,6 +3,7 @@ import type { Prisma, JobStatus } from "@prisma/client";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { StatusDot } from "@/components/StatusDot";
 import { DataTable } from "@/components/DataTable";
 import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
@@ -835,7 +836,30 @@ export default async function DispatchPage({
           },
           {
             header: "Status",
-            cell: (j) => <span className="chip-mint">{j.status}</span>,
+            // Visible distinction: in-progress + late jobs pulse so the
+            // eye lands on what's actively happening right now. Pending
+            // jobs stay neutral; everything else uses tone chips.
+            cell: (j) => {
+              const live =
+                j.status === "IN_PROGRESS" || j.status === "LATE";
+              return (
+                <span className="inline-flex items-center gap-1.5">
+                  <StatusDot
+                    tone={
+                      j.status === "LATE"
+                        ? "warn"
+                        : j.status === "IN_PROGRESS"
+                          ? "live"
+                          : "muted"
+                    }
+                    pulse={live}
+                  />
+                  <span className="text-xs text-slate-700">
+                    {j.status.toLowerCase().replace(/_/g, " ")}
+                  </span>
+                </span>
+              );
+            },
           },
           {
             header: "Priority",
