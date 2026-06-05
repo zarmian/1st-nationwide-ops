@@ -113,7 +113,7 @@ export function SitesMap({
             <button
               type="button"
               onClick={() => setHidden(new Set())}
-              className="text-xs text-brand-mint-dark hover:underline ml-1"
+              className="text-xs text-brand-blue-dark hover:underline ml-1"
             >
               Show all
             </button>

@@ -571,7 +571,7 @@ export default async function DispatchPage({
           const ring = isActive
             ? isMissed
               ? "ring-2 ring-red-300"
-              : "ring-2 ring-brand-mint/40"
+              : "ring-2 ring-brand-blue/40"
             : "";
           return (
             <Link
@@ -602,7 +602,7 @@ export default async function DispatchPage({
             {bucketLabels[bucket]}
           </span>
           {" · "}
-          <Link href="/dispatch" className="text-brand-mint-dark hover:underline">
+          <Link href="/dispatch" className="text-brand-blue-dark hover:underline">
             clear
           </Link>
         </div>
@@ -666,7 +666,7 @@ export default async function DispatchPage({
                   <div>
                     <Link
                       href={`/officers/${o.id}/edit`}
-                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {o.name}
                     </Link>
@@ -713,7 +713,7 @@ export default async function DispatchPage({
                     ? `/patrols/visits/${j.__visitId}`
                     : `/dispatch/${j.id}`
                 }
-                className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                className="font-medium text-brand-navy hover:text-brand-blue-dark"
               >
                 {jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")}
               </Link>
@@ -764,7 +764,7 @@ export default async function DispatchPage({
                 <div>
                   <Link
                     href={`/sites/${j.site.id}/edit${anchor}`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    className="font-medium text-brand-navy hover:text-brand-blue-dark"
                   >
                     {j.site.name}
                   </Link>
@@ -861,7 +861,7 @@ export default async function DispatchPage({
                   {canEdit && (
                     <Link
                       href={editHref}
-                      className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+                      className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
                     >
                       edit
                     </Link>

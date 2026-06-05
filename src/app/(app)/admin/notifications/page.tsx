@@ -73,7 +73,7 @@ export default async function NotificationsPage({
         <div>
           <Link
             href="/admin"
-            className="text-sm text-slate-500 hover:text-brand-mint-dark"
+            className="text-sm text-slate-500 hover:text-brand-blue-dark"
           >
             ← Admin
           </Link>
@@ -85,7 +85,7 @@ export default async function NotificationsPage({
             minute. Officers / dispatchers receive notifications based on{" "}
             <Link
               href="/officers"
-              className="text-brand-mint-dark hover:underline"
+              className="text-brand-blue-dark hover:underline"
             >
               their WhatsApp number
             </Link>{" "}
@@ -119,7 +119,7 @@ export default async function NotificationsPage({
             key={s}
             href={`/admin/notifications?status=${s}`}
             className={`card p-3 hover:shadow-md transition-shadow ${
-              statusFilter === s ? "ring-2 ring-brand-mint/40" : ""
+              statusFilter === s ? "ring-2 ring-brand-blue/40" : ""
             }`}
           >
             <div className="text-xs uppercase tracking-wider text-slate-500">

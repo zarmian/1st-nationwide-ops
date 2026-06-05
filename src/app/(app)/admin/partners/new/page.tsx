@@ -10,7 +10,7 @@ export default function NewPartnerPage() {
       <div>
         <Link
           href="/admin/partners"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Partners
         </Link>

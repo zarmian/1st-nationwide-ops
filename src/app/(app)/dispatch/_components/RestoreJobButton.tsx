@@ -38,7 +38,7 @@ export function RestoreJobButton({
 
   const className =
     size === "small"
-      ? "text-xs text-brand-mint-dark hover:text-brand-navy underline disabled:opacity-50"
+      ? "text-xs text-brand-blue-dark hover:text-brand-navy underline disabled:opacity-50"
       : "btn-secondary text-sm";
 
   return (

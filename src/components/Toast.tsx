@@ -117,7 +117,7 @@ function ToastItem({
 }) {
   const tone =
     toast.tone === "success"
-      ? "border-brand-mint/40 bg-brand-mint-light/50"
+      ? "border-brand-blue/40 bg-brand-blue-light/50"
       : toast.tone === "error"
         ? "border-red-200 bg-red-50"
         : "border-slate-200 bg-white";
@@ -137,7 +137,7 @@ function ToastItem({
               dismiss(toast.id);
             }
           }}
-          className="text-sm font-medium text-brand-mint-dark hover:underline"
+          className="text-sm font-medium text-brand-blue-dark hover:underline"
         >
           {toast.action.label}
         </button>

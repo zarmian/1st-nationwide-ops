@@ -60,7 +60,7 @@ export default async function OnboardingDetailPage({
       <div>
         <Link
           href="/onboarding"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Onboarding
         </Link>

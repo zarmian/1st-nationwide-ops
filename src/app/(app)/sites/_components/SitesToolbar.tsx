@@ -146,7 +146,7 @@ export function SitesToolbar({
           <button
             type="button"
             onClick={clearFilters}
-            className="text-xs text-slate-500 hover:text-brand-mint-dark underline underline-offset-2"
+            className="text-xs text-slate-500 hover:text-brand-blue-dark underline underline-offset-2"
           >
             Clear filters
           </button>
@@ -179,9 +179,9 @@ function FilterSelect({
       onChange={(e) => onChange(e.target.value)}
       className={`rounded-xl border px-3 py-1.5 text-sm bg-white ${
         value
-          ? "border-brand-mint text-brand-navy"
+          ? "border-brand-blue text-brand-navy"
           : "border-slate-300 text-slate-600"
-      } focus:border-brand-mint focus:outline-none focus:ring-2 focus:ring-brand-mint/30`}
+      } focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30`}
     >
       <option value="">{allLabel}</option>
       {options.map((o) => (

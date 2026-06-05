@@ -22,7 +22,7 @@ export function HandoverForm({
         </div>
       )}
       {state.ok && (
-        <div className="rounded-xl border border-brand-mint/40 bg-brand-mint-light px-3 py-2 text-sm text-brand-mint-dark">
+        <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light px-3 py-2 text-sm text-brand-blue-dark">
           Handover recorded.
         </div>
       )}

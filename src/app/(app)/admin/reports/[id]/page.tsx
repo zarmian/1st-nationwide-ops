@@ -81,7 +81,7 @@ export default async function ReviewDetailPage({
       <div>
         <Link
           href="/admin/reports"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to review queue
         </Link>
@@ -312,7 +312,7 @@ function FragmentRow({ label, value }: { label: string; value: unknown }) {
             href={mapsUrl}
             target="_blank"
             rel="noreferrer"
-            className="text-brand-mint-dark hover:underline font-mono text-xs"
+            className="text-brand-blue-dark hover:underline font-mono text-xs"
           >
             {loc.lat.toFixed(6)}, {loc.lng.toFixed(6)}
           </a>

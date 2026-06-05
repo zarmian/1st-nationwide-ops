@@ -18,7 +18,7 @@ export default async function NexusImportPage() {
       <div>
         <Link
           href="/admin"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Admin
         </Link>

@@ -631,7 +631,7 @@ export default async function ActivitiesPage({
                       {r.siteId ? (
                         <Link
                           href={`/sites/${r.siteId}`}
-                          className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                          className="font-medium text-brand-navy hover:text-brand-blue-dark"
                         >
                           {r.siteCode ? `${r.siteCode} · ` : ""}
                           {r.siteName}
@@ -668,7 +668,7 @@ export default async function ActivitiesPage({
                         {isAdmin && r.status !== "CANCELLED" && (
                           <Link
                             href={`${r.href}/edit`}
-                            className="text-brand-mint-dark hover:text-brand-navy underline"
+                            className="text-brand-blue-dark hover:text-brand-navy underline"
                           >
                             edit
                           </Link>

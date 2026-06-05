@@ -17,7 +17,7 @@ export default function OfflinePage() {
         </p>
         <p className="text-sm text-slate-500">
           When the signal comes back, head to{" "}
-          <Link href="/m/today" className="text-brand-mint-dark hover:underline">
+          <Link href="/m/today" className="text-brand-blue-dark hover:underline">
             Today
           </Link>{" "}
           and pick up where you left off.

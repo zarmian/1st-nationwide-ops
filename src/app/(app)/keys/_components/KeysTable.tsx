@@ -122,7 +122,7 @@ function SetRowView({ row }: { row: SetRow }) {
         <td className="px-3 py-3">
           <Link
             href={`/key-sets/${row.setId}`}
-            className="font-medium text-brand-navy hover:text-brand-mint-dark"
+            className="font-medium text-brand-navy hover:text-brand-blue-dark"
           >
             {row.setLabel}
           </Link>
@@ -145,7 +145,7 @@ function SetRowView({ row }: { row: SetRow }) {
         <td className="px-3 py-3 text-right whitespace-nowrap">
           <Link
             href={`/key-sets/${row.setId}`}
-            className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+            className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
           >
             Open set
           </Link>
@@ -164,7 +164,7 @@ function SetRowView({ row }: { row: SetRow }) {
             <td className="px-3 py-2">
               <Link
                 href={`/keys/${k.id}`}
-                className="text-brand-navy hover:text-brand-mint-dark"
+                className="text-brand-navy hover:text-brand-blue-dark"
               >
                 {k.label}
               </Link>
@@ -184,13 +184,13 @@ function SetRowView({ row }: { row: SetRow }) {
             <td className="px-3 py-2 text-right whitespace-nowrap">
               <Link
                 href={`/keys/${k.id}`}
-                className="text-xs text-brand-mint-dark hover:text-brand-navy underline mr-3"
+                className="text-xs text-brand-blue-dark hover:text-brand-navy underline mr-3"
               >
                 Hand over
               </Link>
               <Link
                 href={`/keys/${k.id}/edit`}
-                className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+                className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
               >
                 Edit
               </Link>
@@ -212,7 +212,7 @@ function LooseRowView({ row }: { row: LooseRow }) {
       <td className="px-3 py-3">
         <Link
           href={`/keys/${k.id}`}
-          className="font-medium text-brand-navy hover:text-brand-mint-dark"
+          className="font-medium text-brand-navy hover:text-brand-blue-dark"
         >
           {k.label}
         </Link>
@@ -230,13 +230,13 @@ function LooseRowView({ row }: { row: LooseRow }) {
       <td className="px-3 py-3 text-right whitespace-nowrap">
         <Link
           href={`/keys/${k.id}`}
-          className="text-xs text-brand-mint-dark hover:text-brand-navy underline mr-3"
+          className="text-xs text-brand-blue-dark hover:text-brand-navy underline mr-3"
         >
           Hand over
         </Link>
         <Link
           href={`/keys/${k.id}/edit`}
-          className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+          className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
         >
           Edit
         </Link>

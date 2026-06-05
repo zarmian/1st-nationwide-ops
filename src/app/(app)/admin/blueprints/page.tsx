@@ -18,7 +18,7 @@ export default async function BlueprintsAdminPage() {
         <div>
           <Link
             href="/admin"
-            className="text-sm text-slate-500 hover:text-brand-mint-dark"
+            className="text-sm text-slate-500 hover:text-brand-blue-dark"
           >
             ← Admin
           </Link>
@@ -70,7 +70,7 @@ export default async function BlueprintsAdminPage() {
                     <div className="flex items-center gap-2">
                       <Link
                         href={`/admin/blueprints/${bp.id}/edit`}
-                        className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                        className="font-medium text-brand-navy hover:text-brand-blue-dark"
                       >
                         {bp.name}
                       </Link>

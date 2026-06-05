@@ -82,7 +82,7 @@ export default async function EditSitePage({
       <div>
         <Link
           href={`/sites/${site.id}`}
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to site
         </Link>

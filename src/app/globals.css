@@ -5,7 +5,7 @@
 @import 'leaflet/dist/leaflet.css';
 
 :root {
-  --brand-mint: #2FCB80;
+  --brand-blue: #3B82F6;
   --brand-navy: #0F1929;
 }
 
@@ -31,7 +31,7 @@ body {
      a dashboard (Earned today, Pending alerts, etc.) to draw the eye. */
   .card-accent {
     @apply rounded-2xl bg-white shadow-card border border-slate-200/70
-           border-l-4 border-l-brand-mint;
+           border-l-4 border-l-brand-blue;
   }
   .card-subtle {
     @apply rounded-xl bg-slate-50 border border-slate-200/70;
@@ -65,7 +65,7 @@ body {
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
            transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
-           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-mint/40
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40
            focus-visible:ring-offset-2 focus-visible:ring-offset-white;
   }
   /* Primary — brand gradient + inner highlight + lift-on-hover. The
@@ -76,10 +76,10 @@ body {
   }
   .btn-secondary {
     @apply btn bg-white text-brand-navy border border-slate-300
-           hover:bg-brand-mint-50 hover:border-brand-mint-300 hover:text-brand-mint-700;
+           hover:bg-brand-blue-50 hover:border-brand-blue-300 hover:text-brand-blue-700;
   }
   .btn-ghost {
-    @apply btn text-slate-700 hover:bg-brand-mint-50 hover:text-brand-mint-700;
+    @apply btn text-slate-700 hover:bg-brand-blue-50 hover:text-brand-blue-700;
   }
   .btn-danger {
     @apply btn bg-white text-red-700 border border-red-200 hover:bg-red-50
@@ -94,8 +94,8 @@ body {
   .input {
     @apply block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
            placeholder:text-slate-400 transition-colors duration-150
-           focus:border-brand-mint focus:outline-none
-           focus:ring-2 focus:ring-brand-mint/30
+           focus:border-brand-blue focus:outline-none
+           focus:ring-2 focus:ring-brand-blue/30
            disabled:bg-slate-50 disabled:text-slate-500 disabled:cursor-not-allowed;
   }
   .label {
@@ -103,8 +103,8 @@ body {
   }
   .checkbox,
   .radio {
-    @apply h-4 w-4 rounded border-slate-300 text-brand-mint
-           focus:ring-2 focus:ring-brand-mint/30 focus:ring-offset-0;
+    @apply h-4 w-4 rounded border-slate-300 text-brand-blue
+           focus:ring-2 focus:ring-brand-blue/30 focus:ring-offset-0;
   }
   .radio {
     @apply rounded-full;
@@ -119,10 +119,10 @@ body {
   }
   .pill-idle {
     @apply pill bg-white text-slate-600 border-slate-200
-           hover:border-brand-mint-300 hover:text-brand-mint-700 hover:bg-brand-mint-50;
+           hover:border-brand-blue-300 hover:text-brand-blue-700 hover:bg-brand-blue-50;
   }
   .pill-active {
-    @apply pill bg-brand-mint-100 text-brand-mint-800 border-brand-mint-300
+    @apply pill bg-brand-blue-100 text-brand-blue-800 border-brand-blue-300
            shadow-inner-highlight;
   }
 
@@ -130,7 +130,7 @@ body {
   .chip {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium;
   }
-  .chip-mint  { @apply chip bg-brand-mint-light text-brand-mint-dark; }
+  .chip-mint  { @apply chip bg-brand-blue-light text-brand-blue-dark; }
   .chip-slate { @apply chip bg-slate-100 text-slate-700; }
   .chip-amber { @apply chip bg-amber-100 text-amber-800; }
   .chip-red   { @apply chip bg-red-100 text-red-800; }
@@ -156,7 +156,7 @@ body {
     @apply transition-colors duration-100;
   }
   .table-default tbody tr:hover {
-    @apply bg-brand-mint-50/60;
+    @apply bg-brand-blue-50/60;
   }
   .table-default tbody tr:last-child td {
     @apply border-b-0;
@@ -188,7 +188,7 @@ body {
 
 @layer base {
   :where(a, button, [role="button"], [tabindex]):not(:disabled):focus-visible {
-    @apply outline-none ring-2 ring-brand-mint/40 ring-offset-2 ring-offset-white rounded-md;
+    @apply outline-none ring-2 ring-brand-blue/40 ring-offset-2 ring-offset-white rounded-md;
   }
 
   @media (prefers-reduced-motion: reduce) {

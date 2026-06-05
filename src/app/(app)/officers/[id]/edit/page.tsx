@@ -64,7 +64,7 @@ export default async function EditOfficerPage({
         <div>
           <Link
             href="/officers"
-            className="text-sm text-slate-500 hover:text-brand-mint-dark"
+            className="text-sm text-slate-500 hover:text-brand-blue-dark"
           >
             ← Officers
           </Link>
@@ -124,7 +124,7 @@ export default async function EditOfficerPage({
                   <li key={k.id}>
                     <Link
                       href={`/keys/${k.id}`}
-                      className="text-brand-navy hover:text-brand-mint-dark"
+                      className="text-brand-navy hover:text-brand-blue-dark"
                     >
                       {k.internalNo ? `${k.internalNo} · ` : ""}
                       {k.label}

@@ -75,7 +75,7 @@ export default async function ShiftsPage({
             key={s}
             href={`/shifts?status=${s}`}
             className={`card p-3 hover:shadow-md transition-shadow ${
-              statusFilter === s ? "ring-2 ring-brand-mint/40" : ""
+              statusFilter === s ? "ring-2 ring-brand-blue/40" : ""
             }`}
           >
             <div className="text-xs uppercase tracking-wider text-slate-500">

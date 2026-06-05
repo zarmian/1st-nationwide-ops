@@ -90,7 +90,7 @@ export default async function LockUnlockScheduleDetailPage({
       <div>
         <Link
           href="/patrols"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Patrols
         </Link>
@@ -134,7 +134,7 @@ export default async function LockUnlockScheduleDetailPage({
           </h2>
           <Link
             href={`/sites/${schedule.site.id}/edit`}
-            className="font-medium text-brand-navy hover:text-brand-mint-dark text-base"
+            className="font-medium text-brand-navy hover:text-brand-blue-dark text-base"
           >
             {schedule.site.name} →
           </Link>
@@ -156,7 +156,7 @@ export default async function LockUnlockScheduleDetailPage({
           {schedule.assignedOfficer ? (
             <Link
               href={`/officers/${schedule.assignedOfficer.id}/edit`}
-              className="font-medium text-brand-navy hover:text-brand-mint-dark"
+              className="font-medium text-brand-navy hover:text-brand-blue-dark"
             >
               {schedule.assignedOfficer.name} →
             </Link>
@@ -200,7 +200,7 @@ export default async function LockUnlockScheduleDetailPage({
               >
                 <Link
                   href={`/dispatch/${j.id}`}
-                  className="text-sm text-brand-navy hover:text-brand-mint-dark"
+                  className="text-sm text-brand-navy hover:text-brand-blue-dark"
                 >
                   {j.type === "LOCK" ? "Lock-up" : "Unlock"} ·{" "}
                   {fmtFull(j.scheduledFor)}

@@ -94,7 +94,7 @@ export default async function PatrolVisitDetailPage({
       <div>
         <Link
           href="/patrols"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Patrols
         </Link>
@@ -136,7 +136,7 @@ export default async function PatrolVisitDetailPage({
           </h2>
           <Link
             href={`/sites/${visit.site.id}/edit`}
-            className="font-medium text-brand-navy hover:text-brand-mint-dark text-base"
+            className="font-medium text-brand-navy hover:text-brand-blue-dark text-base"
           >
             {visit.site.name} →
           </Link>
@@ -156,7 +156,7 @@ export default async function PatrolVisitDetailPage({
           {visit.officer ? (
             <Link
               href={`/officers/${visit.officer.id}/edit`}
-              className="font-medium text-brand-navy hover:text-brand-mint-dark"
+              className="font-medium text-brand-navy hover:text-brand-blue-dark"
             >
               {visit.officer.name} →
             </Link>
@@ -187,7 +187,7 @@ export default async function PatrolVisitDetailPage({
                   href={`https://www.google.com/maps?q=${visit.gpsLat},${visit.gpsLng}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-brand-mint-dark hover:underline"
+                  className="text-brand-blue-dark hover:underline"
                 >
                   {visit.gpsLat.toFixed(5)}, {visit.gpsLng.toFixed(5)} ↗
                 </a>
@@ -215,7 +215,7 @@ export default async function PatrolVisitDetailPage({
                 <span className="text-slate-500">Schedule:</span>{" "}
                 <Link
                   href={`/patrols/schedules/${visit.patrolSchedule.id}`}
-                  className="text-brand-mint-dark hover:underline"
+                  className="text-brand-blue-dark hover:underline"
                 >
                   {visit.patrolSchedule.kind === "VPI" ? "VPI" : "Patrol"} ·{" "}
                   {visit.patrolSchedule.frequency.toLowerCase()} →
@@ -227,7 +227,7 @@ export default async function PatrolVisitDetailPage({
                 <span className="text-slate-500">Job:</span>{" "}
                 <Link
                   href={`/dispatch/${visit.job.id}`}
-                  className="text-brand-mint-dark hover:underline"
+                  className="text-brand-blue-dark hover:underline"
                 >
                   {visit.job.type.replace(/_/g, " ")} · {visit.job.status}{" "}
                   →
@@ -240,7 +240,7 @@ export default async function PatrolVisitDetailPage({
                 {s.review?.id ? (
                   <Link
                     href={`/admin/reports/${s.review.id}`}
-                    className="text-brand-mint-dark hover:underline"
+                    className="text-brand-blue-dark hover:underline"
                   >
                     {s.form.replace(/_/g, " ")} · {fmtFull(s.submittedAt)} →
                   </Link>

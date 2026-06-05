@@ -73,7 +73,7 @@ export default async function KeySetPage({
       <div>
         <Link
           href="/keys"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← All keys
         </Link>
@@ -87,7 +87,7 @@ export default async function KeySetPage({
               {" · "}
               <Link
                 href={`/sites/${set.site.id}`}
-                className="hover:text-brand-mint-dark"
+                className="hover:text-brand-blue-dark"
               >
                 {set.site.name}
               </Link>
@@ -147,7 +147,7 @@ export default async function KeySetPage({
                       <td className="px-3 py-2">
                         <Link
                           href={`/keys/${k.id}`}
-                          className="text-brand-navy hover:text-brand-mint-dark"
+                          className="text-brand-navy hover:text-brand-blue-dark"
                         >
                           {k.label}
                         </Link>
@@ -168,13 +168,13 @@ export default async function KeySetPage({
                       <td className="px-3 py-2 text-right">
                         <Link
                           href={`/keys/${k.id}`}
-                          className="text-xs text-brand-mint-dark hover:text-brand-navy underline mr-3"
+                          className="text-xs text-brand-blue-dark hover:text-brand-navy underline mr-3"
                         >
                           Hand over
                         </Link>
                         <Link
                           href={`/keys/${k.id}/edit`}
-                          className="text-xs text-brand-mint-dark hover:text-brand-navy underline"
+                          className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
                         >
                           Edit
                         </Link>

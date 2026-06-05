@@ -98,7 +98,7 @@ export function StageAdvancer({
                   active
                     ? "bg-brand-navy text-white border-brand-navy"
                     : done
-                      ? "bg-brand-mint-light text-brand-mint-dark border-brand-mint-light hover:bg-brand-mint hover:text-white"
+                      ? "bg-brand-blue-light text-brand-blue-dark border-brand-blue-light hover:bg-brand-blue hover:text-white"
                       : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
                 }`}
               >

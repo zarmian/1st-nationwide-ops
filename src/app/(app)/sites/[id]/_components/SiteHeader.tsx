@@ -31,7 +31,7 @@ export function SiteHeader({
   return (
     <div className="space-y-3">
       <div className="text-sm">
-        <Link href="/sites" className="text-brand-mint-dark hover:underline">
+        <Link href="/sites" className="text-brand-blue-dark hover:underline">
           Sites
         </Link>
         <span className="text-slate-400 mx-1">›</span>

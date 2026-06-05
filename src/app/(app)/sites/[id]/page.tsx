@@ -130,7 +130,7 @@ async function OverviewTab({ site }: { site: SiteWithRelations }) {
           {total > events.length && (
             <Link
               href={`/sites/${site.id}?tab=activity`}
-              className="inline-block mt-3 text-sm text-brand-mint-dark hover:underline"
+              className="inline-block mt-3 text-sm text-brand-blue-dark hover:underline"
             >
               See all {total} events →
             </Link>
@@ -252,7 +252,7 @@ function ScheduleSummary({
         No schedule configured. Add it on the{" "}
         <Link
           href={`/sites/${site.id}/edit`}
-          className="text-brand-mint-dark hover:underline"
+          className="text-brand-blue-dark hover:underline"
         >
           edit page
         </Link>

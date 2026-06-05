@@ -76,7 +76,7 @@ export function ShiftCard({
         (overdue
           ? "border-red-200 bg-red-50/50"
           : inProgress
-            ? "border-brand-mint/40 bg-brand-mint-light/30"
+            ? "border-brand-blue/40 bg-brand-blue-light/30"
             : "border-slate-200")
       }
     >
@@ -87,7 +87,7 @@ export function ShiftCard({
           </div>
           <Link
             href={`/sites/${shift.siteId}`}
-            className="font-medium text-brand-navy hover:text-brand-mint-dark"
+            className="font-medium text-brand-navy hover:text-brand-blue-dark"
           >
             {shift.siteName}
           </Link>

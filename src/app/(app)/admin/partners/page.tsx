@@ -23,7 +23,7 @@ export default async function PartnersAdminPage() {
         <div>
           <Link
             href="/admin"
-            className="text-sm text-slate-500 hover:text-brand-mint-dark"
+            className="text-sm text-slate-500 hover:text-brand-blue-dark"
           >
             ← Admin
           </Link>
@@ -67,7 +67,7 @@ export default async function PartnersAdminPage() {
                 <td className="px-4 py-2.5">
                   <Link
                     href={`/admin/partners/${p.id}/edit`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    className="font-medium text-brand-navy hover:text-brand-blue-dark"
                   >
                     {p.name}
                   </Link>

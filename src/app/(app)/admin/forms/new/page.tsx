@@ -70,7 +70,7 @@ export default async function NewFormTemplatePage({
       <div>
         <Link
           href="/admin/forms/new"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to picker
         </Link>
@@ -125,7 +125,7 @@ function BlueprintPicker({
       <div>
         <Link
           href="/admin/forms"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Form templates
         </Link>
@@ -197,7 +197,7 @@ function BlueprintPicker({
       {blueprints.length === 0 && (
         <p className="text-sm text-slate-500">
           No active blueprints yet. Manage them at{" "}
-          <Link href="/admin/blueprints" className="text-brand-mint-dark">
+          <Link href="/admin/blueprints" className="text-brand-blue-dark">
             /admin/blueprints
           </Link>
           .

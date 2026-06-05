@@ -57,7 +57,7 @@ export default async function PublicJobsListPage() {
               <li key={j.id}>
                 <Link
                   href={`/jobs/${j.id}`}
-                  className="card p-4 block hover:border-brand-mint transition"
+                  className="card p-4 block hover:border-brand-blue transition"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -77,7 +77,7 @@ export default async function PublicJobsListPage() {
                     )}
                   </div>
                   <div className="mt-2 flex items-center justify-between text-xs">
-                    <span className="rounded-full bg-brand-mint-light text-brand-mint-dark px-2 py-0.5 font-medium">
+                    <span className="rounded-full bg-brand-blue-light text-brand-blue-dark px-2 py-0.5 font-medium">
                       {jobTypeLabels[j.type] ?? j.type}
                     </span>
                     <span className="text-slate-500">

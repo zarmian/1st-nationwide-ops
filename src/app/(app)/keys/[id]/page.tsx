@@ -74,7 +74,7 @@ export default async function KeyDetailPage({
       <div>
         <Link
           href="/keys"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← All keys
         </Link>
@@ -100,7 +100,7 @@ export default async function KeyDetailPage({
               {" · "}
               <Link
                 href={`/sites/${key.site.id}`}
-                className="hover:text-brand-mint-dark"
+                className="hover:text-brand-blue-dark"
               >
                 {key.site.name}
               </Link>
@@ -111,7 +111,7 @@ export default async function KeyDetailPage({
               {" · Set: "}
               <Link
                 href={`/key-sets/${key.keySet.id}`}
-                className="hover:text-brand-mint-dark"
+                className="hover:text-brand-blue-dark"
               >
                 {key.keySet.label}
               </Link>
@@ -186,7 +186,7 @@ export default async function KeyDetailPage({
             {key.currentHolder ? (
               <Link
                 href={`/officers/${key.currentHolder.id}/edit`}
-                className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                className="font-medium text-brand-navy hover:text-brand-blue-dark"
               >
                 {key.currentHolder.name}
               </Link>
@@ -216,7 +216,7 @@ export default async function KeyDetailPage({
                   Copy of{" "}
                   <Link
                     href={`/keys/${key.copyOf.id}`}
-                    className="text-brand-navy hover:text-brand-mint-dark"
+                    className="text-brand-navy hover:text-brand-blue-dark"
                   >
                     {key.copyOf.internalNo ?? key.copyOf.label}
                   </Link>
@@ -232,7 +232,7 @@ export default async function KeyDetailPage({
                       <li key={c.id}>
                         <Link
                           href={`/keys/${c.id}`}
-                          className="text-brand-navy hover:text-brand-mint-dark"
+                          className="text-brand-navy hover:text-brand-blue-dark"
                         >
                           {c.internalNo ?? c.label}
                         </Link>

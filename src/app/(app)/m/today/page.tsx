@@ -231,7 +231,7 @@ export default async function OfficerTodayPage() {
           Nothing on your list right now. Tap{" "}
           <Link
             href="/submit"
-            className="text-brand-mint-dark hover:underline"
+            className="text-brand-blue-dark hover:underline"
           >
             Submit a report
           </Link>{" "}

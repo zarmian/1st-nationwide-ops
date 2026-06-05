@@ -83,7 +83,7 @@ export default async function OnboardingPage({
         </div>
         <Link
           href={showAll ? "/onboarding" : "/onboarding?show=all"}
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           {showAll ? "Hide finished" : "Show all (incl. live, cancelled)"}
         </Link>
@@ -188,7 +188,7 @@ function StageSection({
               <td className="px-4 py-2">
                 <Link
                   href={`/onboarding/${r.id}`}
-                  className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                  className="font-medium text-brand-navy hover:text-brand-blue-dark"
                 >
                   {r.site.name}
                 </Link>

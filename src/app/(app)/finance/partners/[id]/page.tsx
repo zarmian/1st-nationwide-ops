@@ -311,7 +311,7 @@ export default async function PartnerFinancePage({
                       {r.siteId ? (
                         <Link
                           href={`/sites/${r.siteId}`}
-                          className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                          className="font-medium text-brand-navy hover:text-brand-blue-dark"
                         >
                           {r.siteCode ? `${r.siteCode} · ` : ""}
                           {r.siteName}
@@ -402,7 +402,7 @@ export default async function PartnerFinancePage({
                       {r.siteId ? (
                         <Link
                           href={`/sites/${r.siteId}`}
-                          className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                          className="font-medium text-brand-navy hover:text-brand-blue-dark"
                         >
                           {r.siteCode ? `${r.siteCode} · ` : ""}
                           {r.siteName}
@@ -458,7 +458,7 @@ function SplitCard({
     <div
       className={
         "card p-4 " +
-        (subdued ? "bg-slate-50/60" : "bg-brand-mint-light/30")
+        (subdued ? "bg-slate-50/60" : "bg-brand-blue-light/30")
       }
     >
       <h2 className="font-semibold text-brand-navy">{title}</h2>

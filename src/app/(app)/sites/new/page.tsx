@@ -30,7 +30,7 @@ export default async function NewSitePage() {
       <div>
         <Link
           href="/sites"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to sites
         </Link>

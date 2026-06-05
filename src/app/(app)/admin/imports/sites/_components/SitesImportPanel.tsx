@@ -293,8 +293,8 @@ function CommitBlock({
   result: Extract<SitesCommitActionResult, { ok: true }>;
 }) {
   return (
-    <div className="rounded-xl border border-brand-mint/40 bg-brand-mint-light p-4 space-y-2">
-      <div className="text-xs uppercase tracking-wider text-brand-mint-dark">
+    <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light p-4 space-y-2">
+      <div className="text-xs uppercase tracking-wider text-brand-blue-dark">
         Import complete
       </div>
       <div className="grid sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -339,7 +339,7 @@ function Stat({
       <div
         className={
           tone === "mint"
-            ? "text-2xl font-semibold text-brand-mint-dark tabular-nums"
+            ? "text-2xl font-semibold text-brand-blue-dark tabular-nums"
             : "text-2xl font-semibold text-brand-navy tabular-nums"
         }
       >
