@@ -2,6 +2,8 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/Confirm";
+import { useToast } from "@/components/Toast";
 
 export function DeleteRateButton({
   id,
@@ -11,12 +13,22 @@ export function DeleteRateButton({
   remove: (id: string) => Promise<{ ok: boolean }>;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
-  function onClick() {
-    if (!window.confirm("Delete this rate?")) return;
+  async function onClick() {
+    const ok = await confirm({
+      title: "Delete this rate?",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     startTransition(async () => {
-      await remove(id);
-      router.refresh();
+      const res = await remove(id);
+      if (res.ok) {
+        toast.show({ tone: "success", message: "Rate deleted." });
+        router.refresh();
+      }
     });
   }
   return (

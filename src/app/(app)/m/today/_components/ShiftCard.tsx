@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/Confirm";
 
 type Shift = {
   id: string;
@@ -28,6 +29,7 @@ export function ShiftCard({
   endShift: (id: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const [pending, startTransition] = useTransition();
   const [tick, setTick] = useState(0);
 
@@ -61,8 +63,13 @@ export function ShiftCard({
       router.refresh();
     });
   }
-  function onEnd() {
-    if (!window.confirm("End shift now?")) return;
+  async function onEnd() {
+    const ok = await confirm({
+      title: "End shift now?",
+      body: "You'll be marked off duty and location tracking stops.",
+      confirmLabel: "End shift",
+    });
+    if (!ok) return;
     startTransition(async () => {
       await endShift(shift.id);
       router.refresh();

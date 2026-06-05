@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { StatusDot } from "@/components/StatusDot";
 
 const LOCATION_INTERVAL_MS = 2 * 60 * 1000; // 2 min
 const LOCATION_TIMEOUT_MS = 15 * 1000;
@@ -139,12 +140,7 @@ export function OnDutyBanner({
     >
       <div>
         <div className="flex items-center gap-2">
-          <span
-            className={
-              "w-2.5 h-2.5 rounded-full " +
-              (onDuty ? "bg-brand-blue animate-pulse" : "bg-slate-400")
-            }
-          />
+          <StatusDot tone={onDuty ? "live" : "muted"} pulse={onDuty} />
           <span className="font-medium text-brand-navy">
             {onDuty ? "On duty" : "Off duty"}
           </span>
