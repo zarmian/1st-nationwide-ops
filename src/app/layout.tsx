@@ -22,11 +22,12 @@ export const metadata: Metadata = {
   },
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: [
-      { url: "/logo.jpg", type: "image/jpeg" },
-      { url: "/icon.svg", type: "image/svg+xml" },
-    ],
-    apple: [{ url: "/logo.jpg", type: "image/jpeg" }],
+    // Favicon + Apple touch icon both render the in-brand SVG. The
+    // /logo.jpg bitmap still exists in public/ for legacy share
+    // previews but isn't referenced here — it carries the old mint
+    // brand colour.
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon-maskable.svg", type: "image/svg+xml" }],
   },
   formatDetection: {
     telephone: false,
