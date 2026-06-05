@@ -2,7 +2,6 @@ import Link from "next/link";
 import { Sun, Calendar, History, TrendingUp, TrendingDown } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
-import { CountUp } from "@/components/CountUp";
 import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
 import { Sparkline } from "@/components/Sparkline";
@@ -650,9 +649,7 @@ export default async function FinancePage({
           <div className="kpi-label inline-flex items-center gap-1.5">
             <Sun size={13} className="text-brand-blue" /> Earned today
           </div>
-          <div className="kpi-value">
-            <CountUp value={earnedToday} format={fmtMoney2} />
-          </div>
+          <div className="kpi-value">{fmtMoney2(earnedToday)}</div>
           <div className="kpi-hint">since midnight</div>
         </div>
         <div className="kpi">
@@ -661,9 +658,7 @@ export default async function FinancePage({
               <div className="kpi-label inline-flex items-center gap-1.5">
                 <Calendar size={13} className="text-slate-400" /> Earned in range
               </div>
-              <div className="kpi-value">
-                <CountUp value={earnedRange} format={fmtMoney2} />
-              </div>
+              <div className="kpi-value">{fmtMoney2(earnedRange)}</div>
             </div>
             <Sparkline
               values={dailyBilled}
@@ -680,9 +675,7 @@ export default async function FinancePage({
           <div className="kpi-label inline-flex items-center gap-1.5">
             <History size={13} className="text-slate-400" /> Previous period
           </div>
-          <div className="kpi-value">
-            <CountUp value={earnedPrev} format={fmtMoney2} />
-          </div>
+          <div className="kpi-value">{fmtMoney2(earnedPrev)}</div>
           <div
             className={
               "text-xs inline-flex items-center gap-1 " +
