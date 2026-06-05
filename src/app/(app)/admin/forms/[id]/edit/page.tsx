@@ -59,7 +59,7 @@ export default async function EditFormTemplatePage({
       <div>
         <Link
           href="/admin/forms"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Form templates
         </Link>

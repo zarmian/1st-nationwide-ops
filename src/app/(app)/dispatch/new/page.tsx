@@ -52,7 +52,7 @@ export default async function NewJobPage({
       <div>
         <Link
           href="/dispatch"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Dispatch
         </Link>

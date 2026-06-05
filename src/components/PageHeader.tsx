@@ -30,7 +30,7 @@ export function PageHeader({
         {backHref && (
           <Link
             href={backHref}
-            className="inline-flex items-center text-sm text-slate-500 hover:text-brand-mint-dark transition-colors"
+            className="inline-flex items-center text-sm text-slate-500 hover:text-brand-blue-dark transition-colors"
           >
             ← {backLabel}
           </Link>

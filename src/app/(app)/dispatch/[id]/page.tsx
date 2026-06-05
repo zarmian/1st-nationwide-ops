@@ -119,7 +119,7 @@ export default async function JobDetailPage({
       <div>
         <Link
           href="/dispatch"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Dispatch
         </Link>
@@ -179,7 +179,7 @@ export default async function JobDetailPage({
             <div className="space-y-1">
               <Link
                 href={`/sites/${job.site.id}/edit`}
-                className="font-medium text-brand-navy hover:text-brand-mint-dark text-base"
+                className="font-medium text-brand-navy hover:text-brand-blue-dark text-base"
               >
                 {job.site.name} →
               </Link>
@@ -205,7 +205,7 @@ export default async function JobDetailPage({
               {job.customer ? (
                 <Link
                   href={`/admin/customers/${job.customer.id}`}
-                  className="text-brand-navy hover:text-brand-mint-dark"
+                  className="text-brand-navy hover:text-brand-blue-dark"
                 >
                   {job.customer.name}
                 </Link>
@@ -217,7 +217,7 @@ export default async function JobDetailPage({
               {job.partner ? (
                 <Link
                   href={`/admin/partners/${job.partner.id}`}
-                  className="text-brand-navy hover:text-brand-mint-dark"
+                  className="text-brand-navy hover:text-brand-blue-dark"
                 >
                   {job.partner.name}
                 </Link>
@@ -265,7 +265,7 @@ export default async function JobDetailPage({
               {job.assignedTo ? (
                 <Link
                   href={`/officers/${job.assignedTo.id}/edit`}
-                  className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                  className="font-medium text-brand-navy hover:text-brand-blue-dark"
                 >
                   {job.assignedTo.name}
                 </Link>
@@ -348,7 +348,7 @@ export default async function JobDetailPage({
                 <span className="text-slate-500">Onboarding:</span>{" "}
                 <Link
                   href={`/onboarding/${job.onboardingPipeline.id}`}
-                  className="text-brand-mint-dark hover:underline"
+                  className="text-brand-blue-dark hover:underline"
                 >
                   open pipeline →
                 </Link>
@@ -360,7 +360,7 @@ export default async function JobDetailPage({
                 {fs.review ? (
                   <Link
                     href={`/admin/reports/${fs.review.id}`}
-                    className="text-brand-mint-dark hover:underline"
+                    className="text-brand-blue-dark hover:underline"
                   >
                     {fs.form.replace(/_/g, " ")} ·{" "}
                     {relativeTime(fs.submittedAt)} →

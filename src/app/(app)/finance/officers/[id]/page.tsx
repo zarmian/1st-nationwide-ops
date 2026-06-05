@@ -256,7 +256,7 @@ export default async function OfficerFinancePage({
                     {r.siteId ? (
                       <Link
                         href={`/sites/${r.siteId}`}
-                        className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                        className="font-medium text-brand-navy hover:text-brand-blue-dark"
                       >
                         {r.siteCode ? `${r.siteCode} · ` : ""}
                         {r.siteName}

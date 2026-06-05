@@ -107,7 +107,7 @@ export function SitesTable({
               return (
                 <tr
                   key={r.id}
-                  className={isSel ? "bg-brand-mint-light/30" : "hover:bg-slate-50"}
+                  className={isSel ? "bg-brand-blue-light/30" : "hover:bg-slate-50"}
                 >
                   <td className="px-4 py-2.5">
                     <input
@@ -125,7 +125,7 @@ export function SitesTable({
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
                         href={`/sites/${r.id}`}
-                        className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                        className="font-medium text-brand-navy hover:text-brand-blue-dark"
                       >
                         {r.name}
                       </Link>
@@ -279,7 +279,7 @@ function BulkActionBar({
           <select
             value={customerChoice}
             onChange={(e) => setCustomerChoice(e.target.value)}
-            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-mint focus:outline-none focus:ring-2 focus:ring-brand-mint/30"
+            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
             disabled={pending}
           >
             <option value="">— don't change —</option>
@@ -299,7 +299,7 @@ function BulkActionBar({
           <select
             value={partnerChoice}
             onChange={(e) => setPartnerChoice(e.target.value)}
-            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-mint focus:outline-none focus:ring-2 focus:ring-brand-mint/30"
+            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
             disabled={pending}
           >
             <option value="">— don't change —</option>
@@ -319,7 +319,7 @@ function BulkActionBar({
           <select
             value={regionChoice}
             onChange={(e) => setRegionChoice(e.target.value)}
-            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-mint focus:outline-none focus:ring-2 focus:ring-brand-mint/30"
+            className="rounded-xl border border-slate-300 bg-white px-3 py-1.5 text-sm focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
             disabled={pending}
           >
             <option value="">— don't change —</option>

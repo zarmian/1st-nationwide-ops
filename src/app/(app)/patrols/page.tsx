@@ -351,7 +351,7 @@ export default async function PatrolsPage({
                   <td className="px-4 py-2">
                     <Link
                       href={`/patrols/schedules/${s.id}`}
-                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {s.site.name}
                     </Link>
@@ -432,7 +432,7 @@ export default async function PatrolsPage({
                   <td className="px-4 py-2">
                     <Link
                       href={`/patrols/lockup-schedules/${s.id}`}
-                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {s.site.name}
                     </Link>
@@ -495,7 +495,7 @@ export default async function PatrolsPage({
                   <div className="flex items-baseline justify-between gap-2">
                     <Link
                       href={`/patrols/visits/${v.id}`}
-                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {v.site.name}
                     </Link>
@@ -542,7 +542,7 @@ export default async function PatrolsPage({
                   <div className="flex items-baseline justify-between gap-2">
                     <Link
                       href={`/dispatch/${j.id}`}
-                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {j.site?.name ?? "—"}
                     </Link>

@@ -34,7 +34,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2FCB80",
+  themeColor: "#3B82F6",
   width: "device-width",
   initialScale: 1,
   // Avoid the iOS keyboard scaling the page out from under the user.

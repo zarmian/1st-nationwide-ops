@@ -24,7 +24,7 @@ export function KeySetHandoverForm({
         </div>
       )}
       {state.ok && (
-        <div className="rounded-xl border border-brand-mint/40 bg-brand-mint-light px-3 py-2 text-sm text-brand-mint-dark">
+        <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light px-3 py-2 text-sm text-brand-blue-dark">
           All {keyCount} key{keyCount === 1 ? "" : "s"} handed over.
         </div>
       )}

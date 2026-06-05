@@ -63,7 +63,7 @@ export default async function EditShiftPage({
       <div>
         <Link
           href={`/shifts/${shift.id}`}
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to shift
         </Link>

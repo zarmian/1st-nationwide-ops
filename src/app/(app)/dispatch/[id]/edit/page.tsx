@@ -80,7 +80,7 @@ export default async function EditJobPage({
       <div>
         <Link
           href={`/dispatch/${job.id}`}
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to job
         </Link>

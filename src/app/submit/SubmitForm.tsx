@@ -138,7 +138,7 @@ export function SubmitForm({
   if (submitted) {
     return (
       <div className="card p-6 text-center">
-        <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-brand-mint-light text-brand-mint-dark grid place-items-center text-2xl">
+        <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-brand-blue-light text-brand-blue-dark grid place-items-center text-2xl">
           ✓
         </div>
         <h2 className="text-lg font-semibold text-brand-navy">
@@ -174,8 +174,8 @@ export function SubmitForm({
   return (
     <form className="card p-6 space-y-4" onSubmit={onSubmit}>
       {lockedFromJob ? (
-        <div className="rounded-xl border border-brand-mint/40 bg-brand-mint-light/40 p-3 text-sm">
-          <div className="text-xs uppercase tracking-wider text-brand-mint-dark mb-1">
+        <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light/40 p-3 text-sm">
+          <div className="text-xs uppercase tracking-wider text-brand-blue-dark mb-1">
             Claimed job
           </div>
           <div className="font-medium text-brand-navy">
@@ -388,7 +388,7 @@ function FieldInput({
     case "section":
       return (
         <div className="pt-3 pb-1 border-b border-slate-200">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-brand-mint-dark">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-brand-blue-dark">
             {field.label}
           </h3>
         </div>
@@ -412,7 +412,7 @@ function FieldInput({
                   className={
                     "rounded-xl border px-3 py-2 text-sm font-medium transition " +
                     (selected
-                      ? "border-brand-mint bg-brand-mint-light text-brand-mint-dark"
+                      ? "border-brand-blue bg-brand-blue-light text-brand-blue-dark"
                       : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")
                   }
                 >

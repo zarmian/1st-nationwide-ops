@@ -51,13 +51,13 @@ export function MapLayerToggles({ active }: { active: Set<LayerKey> }) {
             className={
               "rounded-full px-3 py-1 text-xs font-medium border transition-colors " +
               (on
-                ? "bg-brand-mint-light text-brand-mint-dark border-brand-mint/40"
+                ? "bg-brand-blue-light text-brand-blue-dark border-brand-blue/40"
                 : "bg-white text-slate-600 border-slate-300 hover:bg-slate-50")
             }
             aria-pressed={on}
           >
             <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle"
-              style={{ background: on ? "#2FCB80" : "#cbd5e1" }}
+              style={{ background: on ? "#3B82F6" : "#cbd5e1" }}
             />
             {LABELS[key]}
           </button>

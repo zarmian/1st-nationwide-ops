@@ -133,7 +133,7 @@ export function OnDutyBanner({
       className={
         "card p-4 flex items-center justify-between gap-3 " +
         (onDuty
-          ? "border-brand-mint/50 bg-brand-mint-light/40"
+          ? "border-brand-blue/50 bg-brand-blue-light/40"
           : "border-slate-200 bg-slate-50")
       }
     >
@@ -142,7 +142,7 @@ export function OnDutyBanner({
           <span
             className={
               "w-2.5 h-2.5 rounded-full " +
-              (onDuty ? "bg-brand-mint animate-pulse" : "bg-slate-400")
+              (onDuty ? "bg-brand-blue animate-pulse" : "bg-slate-400")
             }
           />
           <span className="font-medium text-brand-navy">

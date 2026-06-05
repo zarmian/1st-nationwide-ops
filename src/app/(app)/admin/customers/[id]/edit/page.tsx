@@ -24,7 +24,7 @@ export default async function EditCustomerPage({
       <div>
         <Link
           href="/admin/customers"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Customers
         </Link>

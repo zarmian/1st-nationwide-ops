@@ -54,7 +54,7 @@ export default async function PayrollPage({
         <div>
           <Link
             href="/finance"
-            className="text-sm text-slate-500 hover:text-brand-mint-dark"
+            className="text-sm text-slate-500 hover:text-brand-blue-dark"
           >
             ← Finance
           </Link>
@@ -127,8 +127,8 @@ export default async function PayrollPage({
             from paid snapshots on visits + jobs
           </div>
         </div>
-        <div className="card p-4 bg-brand-mint-light/50">
-          <div className="text-xs uppercase tracking-wider text-brand-mint-dark">
+        <div className="card p-4 bg-brand-blue-light/50">
+          <div className="text-xs uppercase tracking-wider text-brand-blue-dark">
             Grand total
           </div>
           <div className="text-2xl font-semibold text-brand-navy mt-1">
@@ -170,7 +170,7 @@ export default async function PayrollPage({
                 <td className="px-4 py-2">
                   <Link
                     href={`/officers/${r.officerId}/edit`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    className="font-medium text-brand-navy hover:text-brand-blue-dark"
                   >
                     {r.name}
                   </Link>
@@ -199,7 +199,7 @@ export default async function PayrollPage({
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
                   No active officers — add one at{" "}
-                  <Link href="/officers" className="text-brand-mint-dark hover:underline">
+                  <Link href="/officers" className="text-brand-blue-dark hover:underline">
                     /officers
                   </Link>
                   .

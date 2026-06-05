@@ -216,7 +216,7 @@ export default async function SitesPage({
           {" · "}
           <Link
             href={`/api/sites/export${exportQs.toString() ? `?${exportQs}` : ""}`}
-            className="text-brand-mint-dark hover:underline"
+            className="text-brand-blue-dark hover:underline"
           >
             Export CSV
           </Link>
@@ -321,7 +321,7 @@ function KpiStrip({
           key={it.label}
           href={it.href}
           className={`card p-4 hover:shadow-md transition-shadow ${
-            it.active ? "ring-2 ring-brand-mint/40" : ""
+            it.active ? "ring-2 ring-brand-blue/40" : ""
           }`}
         >
           <div className="text-xs uppercase tracking-wider text-slate-500">

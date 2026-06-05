@@ -76,7 +76,7 @@ export function FieldEditor({
 
   if (field.type === "section") {
     return (
-      <div className="rounded-xl border-2 border-dashed border-brand-mint/40 bg-brand-mint-light/30 p-3">
+      <div className="rounded-xl border-2 border-dashed border-brand-blue/40 bg-brand-blue-light/30 p-3">
         <div className="grid md:grid-cols-[auto_1fr_auto_auto] gap-2 items-center">
           <span className="chip-mint text-[10px]">SECTION</span>
           <input

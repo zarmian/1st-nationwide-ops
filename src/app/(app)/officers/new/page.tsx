@@ -13,7 +13,7 @@ export default async function NewOfficerPage() {
       <div>
         <Link
           href="/officers"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Officers
         </Link>

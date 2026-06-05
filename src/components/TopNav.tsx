@@ -137,8 +137,8 @@ export function TopNav({
                   className={
                     "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
                     (active
-                      ? "bg-brand-mint-100 text-brand-mint-800"
-                      : "text-slate-600 hover:bg-brand-mint-50 hover:text-brand-mint-700")
+                      ? "bg-brand-blue-100 text-brand-blue-800"
+                      : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-blue-700")
                   }
                 >
                   {item.label}
@@ -161,14 +161,14 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
         "relative px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
         (active
           ? "text-brand-navy"
-          : "text-slate-600 hover:bg-brand-mint-50 hover:text-brand-mint-700")
+          : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-blue-700")
       }
     >
       {item.label}
       {active && (
         <span
           aria-hidden
-          className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-brand-mint"
+          className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-brand-blue"
         />
       )}
     </Link>

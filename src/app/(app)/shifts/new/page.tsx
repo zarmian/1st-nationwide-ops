@@ -24,7 +24,7 @@ export default async function NewShiftPage() {
       <div>
         <Link
           href="/shifts"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Shifts
         </Link>

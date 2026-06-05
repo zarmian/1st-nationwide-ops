@@ -247,7 +247,7 @@ export function CommandPalette({ role }: { role?: string } = {}) {
                       className={
                         "w-full text-left px-3 py-2 flex items-center justify-between gap-3 text-sm " +
                         (isActive
-                          ? "bg-brand-mint-light text-brand-navy"
+                          ? "bg-brand-blue-light text-brand-navy"
                           : "hover:bg-slate-50 text-slate-700")
                       }
                       onClick={() => go(item.href)}

@@ -1327,7 +1327,7 @@ function DayPicker({
             onClick={() => onToggle(d.v, !on)}
             className={`px-3 py-1.5 rounded-xl border text-sm font-medium transition-colors ${
               on
-                ? "bg-brand-mint text-white border-brand-mint"
+                ? "bg-brand-blue text-white border-brand-blue"
                 : "bg-white text-slate-700 border-slate-300 hover:bg-slate-50"
             }`}
           >

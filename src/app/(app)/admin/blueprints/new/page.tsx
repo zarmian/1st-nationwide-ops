@@ -10,7 +10,7 @@ export default function NewBlueprintPage() {
       <div>
         <Link
           href="/admin/blueprints"
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Form blueprints
         </Link>

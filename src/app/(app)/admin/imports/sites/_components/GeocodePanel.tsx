@@ -57,7 +57,7 @@ export function GeocodePanel({
             href="https://postcodes.io"
             target="_blank"
             rel="noreferrer"
-            className="text-brand-mint-dark hover:underline"
+            className="text-brand-blue-dark hover:underline"
           >
             postcodes.io
           </a>{" "}
@@ -106,8 +106,8 @@ export function GeocodePanel({
       )}
 
       {result?.ok && (
-        <div className="rounded-xl border border-brand-mint/40 bg-brand-mint-light p-3 text-sm space-y-1">
-          <div className="text-brand-mint-dark font-medium">
+        <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light p-3 text-sm space-y-1">
+          <div className="text-brand-blue-dark font-medium">
             Geocoded {result.geocoded.toLocaleString("en-GB")} of{" "}
             {result.scanned.toLocaleString("en-GB")}.
           </div>

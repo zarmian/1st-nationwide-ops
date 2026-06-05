@@ -55,7 +55,7 @@ export function RouteProgress() {
       }
       aria-hidden
     >
-      <div className="h-full bg-brand-mint animate-pulse" />
+      <div className="h-full bg-brand-blue animate-pulse" />
     </div>
   );
 }

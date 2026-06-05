@@ -59,7 +59,7 @@ const UK_CENTER: [number, number] = [54.0, -2.5];
 const UK_ZOOM = 6;
 
 const FRESHNESS_COLOR: Record<Freshness, string> = {
-  fresh: "#2FCB80", // mint
+  fresh: "#3B82F6", // mint
   stale: "#f59e0b", // amber-500
   old: "#94a3b8", // slate-400
 };
@@ -157,7 +157,7 @@ export default function DispatchMapInner({
         // Owner colour wins when set; otherwise fall back to the original
         // job-vs-neutral palette (mint for live-job sites, slate for the rest).
         const ownerColored = !!s.colorHex;
-        const fill = s.colorHex ?? (s.liveJobCount ? "#2FCB80" : "#cbd5e1");
+        const fill = s.colorHex ?? (s.liveJobCount ? "#3B82F6" : "#cbd5e1");
         const stroke = s.liveJobCount || ownerColored ? "#0F1929" : "#64748b";
         const radius = s.liveJobCount ? 9 : ownerColored ? 7 : 5;
         const weight = s.liveJobCount ? 2 : ownerColored ? 1.5 : 1;
@@ -206,7 +206,7 @@ export default function DispatchMapInner({
               <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
                 <a
                   href={`/sites/${s.id}/edit`}
-                  style={{ fontSize: 12, color: "#2FCB80" }}
+                  style={{ fontSize: 12, color: "#3B82F6" }}
                 >
                   Open site →
                 </a>
@@ -258,7 +258,7 @@ export default function DispatchMapInner({
               href={`https://www.google.com/maps?q=${o.lat},${o.lng}`}
               target="_blank"
               rel="noreferrer"
-              style={{ fontSize: 12, color: "#2FCB80" }}
+              style={{ fontSize: 12, color: "#3B82F6" }}
             >
               Open in Google Maps ↗
             </a>

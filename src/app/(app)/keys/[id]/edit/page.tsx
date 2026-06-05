@@ -34,7 +34,7 @@ export default async function KeyEditPage({
       <div>
         <Link
           href={`/keys/${key.id}`}
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to key
         </Link>

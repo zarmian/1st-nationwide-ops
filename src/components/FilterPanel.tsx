@@ -50,7 +50,7 @@ export function FilterPanel({
           <FilterIcon />
           <span>{open ? "Hide filters" : "Filters"}</span>
           {hasActive && (
-            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-brand-mint text-white text-[10px] font-semibold tabular-nums">
+            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-brand-blue text-white text-[10px] font-semibold tabular-nums">
               {activeFilters.length}
             </span>
           )}

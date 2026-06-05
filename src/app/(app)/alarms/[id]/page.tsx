@@ -78,7 +78,7 @@ export default async function AlarmEventDetailPage({
       <div>
         <Link
           href={`/sites/${alarm.site.id}/edit`}
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← {alarm.site.name}
         </Link>
@@ -108,7 +108,7 @@ export default async function AlarmEventDetailPage({
           </h2>
           <Link
             href={`/sites/${alarm.site.id}/edit`}
-            className="font-medium text-brand-navy hover:text-brand-mint-dark text-base"
+            className="font-medium text-brand-navy hover:text-brand-blue-dark text-base"
           >
             {alarm.site.name} →
           </Link>
@@ -139,7 +139,7 @@ export default async function AlarmEventDetailPage({
           {alarm.assignedTo ? (
             <Link
               href={`/officers/${alarm.assignedTo.id}/edit`}
-              className="font-medium text-brand-navy hover:text-brand-mint-dark"
+              className="font-medium text-brand-navy hover:text-brand-blue-dark"
             >
               {alarm.assignedTo.name} →
             </Link>
@@ -155,7 +155,7 @@ export default async function AlarmEventDetailPage({
             </h2>
             <Link
               href={`/dispatch/${alarm.job.id}`}
-              className="font-medium text-brand-navy hover:text-brand-mint-dark"
+              className="font-medium text-brand-navy hover:text-brand-blue-dark"
             >
               {alarm.job.type.replace(/_/g, " ")} →
             </Link>

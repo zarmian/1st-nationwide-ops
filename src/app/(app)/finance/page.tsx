@@ -658,7 +658,7 @@ export default async function FinancePage({
             <Sparkline
               values={dailyBilled}
               ariaLabel="Daily billed for the last 14 days"
-              fill="#2FCB80"
+              fill="#3B82F6"
             />
           </div>
           <div className="kpi-hint">
@@ -675,7 +675,7 @@ export default async function FinancePage({
               (rangeDelta == null
                 ? "text-slate-500"
                 : rangeDelta >= 0
-                  ? "text-brand-mint-dark"
+                  ? "text-brand-blue-dark"
                   : "text-red-600")
             }
           >
@@ -735,7 +735,7 @@ export default async function FinancePage({
                     ) : (
                       <Link
                         href={activitiesHref}
-                        className="hover:text-brand-mint-dark hover:underline"
+                        className="hover:text-brand-blue-dark hover:underline"
                       >
                         {r.label}
                       </Link>
@@ -747,7 +747,7 @@ export default async function FinancePage({
                     ) : (
                       <Link
                         href={activitiesHref}
-                        className="text-brand-navy hover:text-brand-mint-dark hover:underline"
+                        className="text-brand-navy hover:text-brand-blue-dark hover:underline"
                       >
                         {r.activities}
                       </Link>
@@ -915,7 +915,7 @@ export default async function FinancePage({
                     {activitiesHref ? (
                       <Link
                         href={activitiesHref}
-                        className="hover:text-brand-mint-dark hover:underline"
+                        className="hover:text-brand-blue-dark hover:underline"
                       >
                         {g.label}
                       </Link>
@@ -976,7 +976,7 @@ export default async function FinancePage({
                     <td className="px-4 py-2">
                       <Link
                         href={`/sites/${row.site.id}?tab=finance`}
-                        className="text-brand-navy hover:text-brand-mint-dark font-medium"
+                        className="text-brand-navy hover:text-brand-blue-dark font-medium"
                       >
                         {row.site.name}
                       </Link>
@@ -1152,7 +1152,7 @@ function TopSitesCard({
                   <td className="px-4 py-2">
                     <Link
                       href={accountHref}
-                      className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {r.label}
                     </Link>
@@ -1234,7 +1234,7 @@ function OfficerPnlTable({
                 <td className="px-4 py-2">
                   <Link
                     href={`/finance/officers/${r.id}?from=${ymd(from)}&to=${ymd(to)}`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    className="font-medium text-brand-navy hover:text-brand-blue-dark"
                   >
                     {r.name}
                   </Link>
@@ -1336,7 +1336,7 @@ function PartnerPnlTable({
                 <td className="px-4 py-2">
                   <Link
                     href={`/finance/partners/${r.id}?from=${ymd(from)}&to=${ymd(to)}`}
-                    className="font-medium text-brand-navy hover:text-brand-mint-dark"
+                    className="font-medium text-brand-navy hover:text-brand-blue-dark"
                   >
                     {r.name}
                   </Link>

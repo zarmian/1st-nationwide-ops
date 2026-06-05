@@ -71,7 +71,7 @@ export function InstallHint() {
   }
 
   return (
-    <div className="card border-brand-mint/40 bg-brand-mint-light/30 p-3 flex items-start gap-3">
+    <div className="card border-brand-blue/40 bg-brand-blue-light/30 p-3 flex items-start gap-3">
       <div className="flex-1 text-sm">
         <div className="font-medium text-brand-navy">Install as an app</div>
         {platform === "ios" ? (

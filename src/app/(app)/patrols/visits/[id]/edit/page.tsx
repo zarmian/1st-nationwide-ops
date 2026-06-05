@@ -59,7 +59,7 @@ export default async function EditVisitPage({
       <div>
         <Link
           href={`/patrols/visits/${visit.id}`}
-          className="text-sm text-slate-500 hover:text-brand-mint-dark"
+          className="text-sm text-slate-500 hover:text-brand-blue-dark"
         >
           ← Back to visit
         </Link>

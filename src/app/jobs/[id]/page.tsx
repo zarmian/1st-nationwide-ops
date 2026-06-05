@@ -60,7 +60,7 @@ export default async function PublicJobDetailPage({
             {job.site?.name ?? "Site TBC"}
           </h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-full bg-brand-mint-light text-brand-mint-dark px-2 py-0.5 font-medium">
+            <span className="rounded-full bg-brand-blue-light text-brand-blue-dark px-2 py-0.5 font-medium">
               {jobTypeLabels[job.type] ?? job.type}
             </span>
             {job.priority === "HIGH" && (
@@ -108,7 +108,7 @@ export default async function PublicJobDetailPage({
         ) : (
           <div className="card p-6 text-center text-sm text-slate-500">
             This job is no longer open.{" "}
-            <Link href="/jobs" className="text-brand-mint-dark underline">
+            <Link href="/jobs" className="text-brand-blue-dark underline">
               See other open jobs
             </Link>
             .

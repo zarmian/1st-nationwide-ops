@@ -121,7 +121,7 @@ export default async function KeysPage({
             key={k}
             href={`/keys?status=${k}`}
             className={`card p-3 hover:shadow-md transition-shadow ${
-              statusFilter === k ? "ring-2 ring-brand-mint/40" : ""
+              statusFilter === k ? "ring-2 ring-brand-blue/40" : ""
             }`}
           >
             <div className="text-xs uppercase tracking-wider text-slate-500">
