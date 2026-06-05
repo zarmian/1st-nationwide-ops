@@ -2,6 +2,8 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useConfirm } from "@/components/Confirm";
+import { useToast } from "@/components/Toast";
 import { restoreJob } from "../_actions";
 
 /**
@@ -18,21 +20,36 @@ export function RestoreJobButton({
   size?: "default" | "small";
 }) {
   const router = useRouter();
+  const confirm = useConfirm();
+  const toast = useToast();
   const [pending, startTransition] = useTransition();
 
-  function onClick() {
-    if (
-      !window.confirm(
-        `Restore "${jobLabel}"? It returns to its previous status and ` +
-          `billing + officer pay are re-snapshotted from the current rates.`,
-      )
-    ) {
-      return;
-    }
+  async function onClick() {
+    const ok = await confirm({
+      title: `Restore "${jobLabel}"?`,
+      body: (
+        <>
+          It returns to its previous status and billing + officer pay are
+          re-snapshotted from the current rates.
+        </>
+      ),
+      confirmLabel: "Restore",
+    });
+    if (!ok) return;
     startTransition(async () => {
       const res = await restoreJob(jobId);
-      if (res.ok) router.refresh();
-      else window.alert(res.error ?? "Couldn't restore.");
+      if (res.ok) {
+        toast.show({
+          tone: "success",
+          message: `"${jobLabel}" restored. Billing re-applied.`,
+        });
+        router.refresh();
+      } else {
+        toast.show({
+          tone: "error",
+          message: res.error ?? "Couldn't restore.",
+        });
+      }
     });
   }
 

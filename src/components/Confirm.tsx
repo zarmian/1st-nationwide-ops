@@ -1,0 +1,152 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
+export type ConfirmOpts = {
+  title: string;
+  body?: React.ReactNode;
+  /** Default: "Confirm". For destructive use "Delete" / "Cancel job" etc. */
+  confirmLabel?: string;
+  /** Default: "Cancel". */
+  cancelLabel?: string;
+  /** "default" (mint primary) or "danger" (red primary). */
+  tone?: "default" | "danger";
+};
+
+type ConfirmContextValue = (opts: ConfirmOpts) => Promise<boolean>;
+
+const ConfirmContext = createContext<ConfirmContextValue | null>(null);
+
+/**
+ * Promise-based modal confirm. Replaces window.confirm() so destructive
+ * actions render on-brand and run keyboard navigation (Esc to cancel,
+ * Enter to confirm), not the OS dialog.
+ *
+ * Usage:
+ *   const confirm = useConfirm();
+ *   if (await confirm({ title: "Cancel job?", tone: "danger" })) ...
+ *
+ * The provider must wrap the (app) tree (added in Providers.tsx). Each
+ * call shows a single modal — concurrent calls queue.
+ */
+export function ConfirmProvider({ children }: { children: React.ReactNode }) {
+  type PendingState = {
+    opts: ConfirmOpts;
+    resolve: (v: boolean) => void;
+  } | null;
+  const [pending, setPending] = useState<PendingState>(null);
+  const queue = useRef<{ opts: ConfirmOpts; resolve: (v: boolean) => void }[]>(
+    [],
+  );
+
+  const ask = useCallback(
+    (opts: ConfirmOpts) =>
+      new Promise<boolean>((resolve) => {
+        if (pending) {
+          queue.current.push({ opts, resolve });
+        } else {
+          setPending({ opts, resolve });
+        }
+      }),
+    [pending],
+  );
+
+  const close = useCallback(
+    (value: boolean) => {
+      if (!pending) return;
+      pending.resolve(value);
+      const next = queue.current.shift();
+      setPending(next ?? null);
+    },
+    [pending],
+  );
+
+  return (
+    <ConfirmContext.Provider value={ask}>
+      {children}
+      {pending && (
+        <ConfirmDialog opts={pending.opts} onClose={close} />
+      )}
+    </ConfirmContext.Provider>
+  );
+}
+
+export function useConfirm() {
+  const ctx = useContext(ConfirmContext);
+  if (!ctx)
+    throw new Error("useConfirm must be used inside <ConfirmProvider>");
+  return ctx;
+}
+
+function ConfirmDialog({
+  opts,
+  onClose,
+}: {
+  opts: ConfirmOpts;
+  onClose: (v: boolean) => void;
+}) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    confirmRef.current?.focus();
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose(false);
+      if (e.key === "Enter" && document.activeElement === confirmRef.current)
+        onClose(true);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const isDanger = opts.tone === "danger";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-title"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4
+                 bg-brand-navy/50 backdrop-blur-sm animate-pop-in"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose(false);
+      }}
+    >
+      <div
+        className="card shadow-lg w-full max-w-md p-5 space-y-3 animate-pop-in"
+      >
+        <h2 id="confirm-title" className="text-lg font-semibold text-brand-navy">
+          {opts.title}
+        </h2>
+        {opts.body && (
+          <div className="text-sm text-slate-600 leading-relaxed">
+            {opts.body}
+          </div>
+        )}
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => onClose(false)}
+            className="btn-ghost text-sm"
+          >
+            {opts.cancelLabel ?? "Cancel"}
+          </button>
+          <button
+            ref={confirmRef}
+            type="button"
+            onClick={() => onClose(true)}
+            className={isDanger ? "btn-danger text-sm" : "btn-primary text-sm"}
+          >
+            {opts.confirmLabel ?? "Confirm"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

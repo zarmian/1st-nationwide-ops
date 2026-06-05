@@ -3,30 +3,47 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
+import {
+  CalendarDays,
+  LayoutDashboard,
+  MapPin,
+  Wallet,
+  Wrench,
+  Shield,
+  FileEdit,
+  Search,
+  LogOut,
+} from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
 
-type NavItem = { href: string; label: string };
+// Lucide's PropTypes-based signatures don't line up with our minimal
+// React.ComponentType prop subset on this version of lucide-react, so
+// we lean on the icon module's own typing via React.ComponentType<any>.
+// The runtime contract is just "renders an icon at the given size".
+type NavItem = {
+  href: string;
+  label: string;
+  icon: React.ComponentType<any>;
+};
 
 const OFFICER_LINKS: NavItem[] = [
-  { href: "/m/today", label: "Today" },
-  { href: "/submit", label: "Log activity" },
+  { href: "/m/today", label: "Today", icon: CalendarDays },
+  { href: "/submit", label: "Log activity", icon: FileEdit },
 ];
 
 const STAFF_TOP: NavItem[] = [
-  { href: "/m/today", label: "Today" },
-  { href: "/dispatch", label: "Dispatch" },
-  { href: "/sites", label: "Sites" },
-  { href: "/finance", label: "Finance" },
+  { href: "/m/today", label: "Today", icon: CalendarDays },
+  { href: "/dispatch", label: "Dispatch", icon: LayoutDashboard },
+  { href: "/sites", label: "Sites", icon: MapPin },
+  { href: "/finance", label: "Finance", icon: Wallet },
 ];
 
-// Operations / Admin are now single buttons rather than dropdowns. Each
-// takes you to a hub page (`/operations`, `/admin`) that links out to
-// every sub-area — keeps the top bar uncluttered and avoids the "what's
-// in this menu again?" lookup.
 const STAFF_HUBS: NavItem[] = [
-  { href: "/operations", label: "Operations" },
+  { href: "/operations", label: "Operations", icon: Wrench },
 ];
-const ADMIN_HUBS: NavItem[] = [{ href: "/admin", label: "Admin" }];
+const ADMIN_HUBS: NavItem[] = [
+  { href: "/admin", label: "Admin", icon: Shield },
+];
 
 function isItemActive(pathname: string, href: string): boolean {
   if (href === "/admin") return pathname === "/admin";
@@ -89,9 +106,10 @@ export function TopNav({
               document.dispatchEvent(new CustomEvent("palette:open"))
             }
             aria-label="Search (⌘K)"
-            className="hidden md:flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            className="hidden md:flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-brand-blue-50 hover:border-brand-blue-300 hover:text-brand-blue-700 transition-colors duration-150"
             title="Search — ⌘K"
           >
+            <Search size={14} />
             <span>Search…</span>
             <kbd className="text-[10px] bg-slate-100 px-1 rounded font-mono">
               ⌘K
@@ -103,23 +121,28 @@ export function TopNav({
               document.dispatchEvent(new CustomEvent("palette:open"))
             }
             aria-label="Search"
-            className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-slate-100"
+            className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-brand-blue-50 hover:text-brand-blue-700 transition-colors"
           >
-            <SearchIcon />
+            <Search size={18} />
           </button>
-          <div className="hidden sm:block text-right leading-tight">
-            <div className="text-sm font-medium text-slate-800 truncate max-w-[140px]">
-              {userName ?? "User"}
-            </div>
-            <div className="text-[11px] uppercase tracking-wider text-slate-500">
-              {role ?? "—"}
+          <div className="hidden sm:flex items-center gap-2">
+            <Avatar name={userName ?? ""} role={role} />
+            <div className="text-right leading-tight">
+              <div className="text-sm font-medium text-brand-navy truncate max-w-[140px]">
+                {userName ?? "User"}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">
+                {role ?? "—"}
+              </div>
             </div>
           </div>
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
             className="btn-ghost text-sm"
+            aria-label="Sign out"
           >
-            Sign out
+            <LogOut size={14} />
+            <span className="hidden lg:inline">Sign out</span>
           </button>
         </div>
       </div>
@@ -130,17 +153,19 @@ export function TopNav({
           {(isStaff ? [...STAFF_TOP, ...hubs] : OFFICER_LINKS).map(
             (item) => {
               const active = isItemActive(pathname, item.href);
+              const Icon = item.icon;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={
-                    "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
+                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
                     (active
                       ? "bg-brand-blue-100 text-brand-blue-800"
                       : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-blue-700")
                   }
                 >
+                  <Icon size={15} />
                   {item.label}
                 </Link>
               );
@@ -153,17 +178,22 @@ export function TopNav({
 }
 
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon;
   return (
     <Link
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={
-        "relative px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
+        "relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
         (active
           ? "text-brand-navy"
           : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-blue-700")
       }
     >
+      <Icon
+        size={15}
+        className={active ? "text-brand-blue" : "text-slate-400"}
+      />
       {item.label}
       {active && (
         <span
@@ -175,11 +205,30 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-function SearchIcon() {
+/**
+ * Avatar with initials + role-tinted background. Officer → amber,
+ * Dispatcher → blue, Admin → mint-tinted (uses brand-blue-100 fallback).
+ * Gives the top bar a face without needing real user photos in the DB.
+ */
+function Avatar({ name, role }: { name: string; role?: string }) {
+  const initials = name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p[0]!.toUpperCase())
+    .join("") || "?";
+  const tone =
+    role === "OFFICER"
+      ? "bg-amber-100 text-amber-800 ring-amber-200"
+      : role === "ADMIN"
+        ? "bg-brand-navy text-white ring-brand-navy-700"
+        : "bg-brand-blue-100 text-brand-blue-800 ring-brand-blue-200";
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <circle cx="11" cy="11" r="7" />
-      <line x1="21" y1="21" x2="16.65" y2="16.65" />
-    </svg>
+    <div
+      aria-hidden
+      className={`h-8 w-8 rounded-full grid place-items-center text-xs font-semibold ring-1 ${tone}`}
+    >
+      {initials}
+    </div>
   );
 }
