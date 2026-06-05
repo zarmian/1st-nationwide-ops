@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Sun, Calendar, History, TrendingUp, TrendingDown } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { recalculateBilling } from "./_actions";
@@ -645,14 +646,18 @@ export default async function FinancePage({
         {/* Today gets the brand accent stripe — it's the live, always-now
             number admins glance at first. */}
         <div className="card-accent p-5 flex flex-col gap-1.5">
-          <div className="kpi-label">Earned today</div>
+          <div className="kpi-label inline-flex items-center gap-1.5">
+            <Sun size={13} className="text-brand-blue" /> Earned today
+          </div>
           <div className="kpi-value">{fmtMoney2(earnedToday)}</div>
           <div className="kpi-hint">since midnight</div>
         </div>
         <div className="kpi">
           <div className="flex items-start justify-between gap-2">
             <div>
-              <div className="kpi-label">Earned in range</div>
+              <div className="kpi-label inline-flex items-center gap-1.5">
+                <Calendar size={13} className="text-slate-400" /> Earned in range
+              </div>
               <div className="kpi-value">{fmtMoney2(earnedRange)}</div>
             </div>
             <Sparkline
@@ -667,21 +672,32 @@ export default async function FinancePage({
           </div>
         </div>
         <div className="kpi">
-          <div className="kpi-label">Previous period</div>
+          <div className="kpi-label inline-flex items-center gap-1.5">
+            <History size={13} className="text-slate-400" /> Previous period
+          </div>
           <div className="kpi-value">{fmtMoney2(earnedPrev)}</div>
           <div
             className={
-              "text-xs " +
+              "text-xs inline-flex items-center gap-1 " +
               (rangeDelta == null
                 ? "text-slate-500"
                 : rangeDelta >= 0
-                  ? "text-brand-blue-dark"
+                  ? "text-success"
                   : "text-red-600")
             }
           >
-            {rangeDelta == null
-              ? "No prior data to compare"
-              : `${rangeDelta >= 0 ? "↑" : "↓"} ${Math.abs(rangeDelta).toFixed(0)}% vs same-length window before`}
+            {rangeDelta == null ? (
+              "No prior data to compare"
+            ) : (
+              <>
+                {rangeDelta >= 0 ? (
+                  <TrendingUp size={12} />
+                ) : (
+                  <TrendingDown size={12} />
+                )}
+                {Math.abs(rangeDelta).toFixed(0)}% vs same-length window before
+              </>
+            )}
           </div>
         </div>
       </div>
