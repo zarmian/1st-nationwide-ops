@@ -218,8 +218,8 @@ export default async function OfficerFinancePage({
             blurb="Try widening the date filter or jump to This month."
           />
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
+          <table className="table-default">
+            <thead>
               <tr>
                 <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
                   When
@@ -238,7 +238,7 @@ export default async function OfficerFinancePage({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="px-4 py-2 text-slate-700 whitespace-nowrap">

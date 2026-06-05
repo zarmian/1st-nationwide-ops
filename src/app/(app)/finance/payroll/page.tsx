@@ -141,8 +141,8 @@ export default async function PayrollPage({
       </div>
 
       <div className="card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+        <table className="table-default">
+          <thead>
             <tr>
               <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
                 Officer
@@ -164,7 +164,7 @@ export default async function PayrollPage({
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {report.rows.map((r) => (
               <tr key={r.officerId}>
                 <td className="px-4 py-2">

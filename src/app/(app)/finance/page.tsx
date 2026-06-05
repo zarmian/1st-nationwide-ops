@@ -1117,35 +1117,23 @@ function TopSitesCard({
           No site activity in this range.
         </p>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+        <table className="table-default">
+          <thead>
             <tr>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs w-8">
-                #
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Site
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                {metricLabel}
-              </th>
-              {marginFor && (
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Margin
-                </th>
-              )}
+              <th className="w-8">#</th>
+              <th>Site</th>
+              <th className="col-num">{metricLabel}</th>
+              {marginFor && <th className="col-num">Margin</th>}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {rows.map((r, i) => {
               const margin = marginFor?.(r);
               const accountHref = `/sites/${r.id}`;
               return (
                 <tr key={r.id}>
-                  <td className="px-4 py-2 text-slate-400 tabular-nums">
-                    {i + 1}
-                  </td>
-                  <td className="px-4 py-2">
+                  <td className="text-slate-400 tabular-nums">{i + 1}</td>
+                  <td>
                     <Link
                       href={accountHref}
                       className="font-medium text-brand-navy hover:text-brand-blue-dark"
@@ -1153,13 +1141,11 @@ function TopSitesCard({
                       {r.label}
                     </Link>
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {metricFor(r)}
-                  </td>
+                  <td className="col-num">{metricFor(r)}</td>
                   {marginFor && (
                     <td
                       className={
-                        "px-4 py-2 text-right tabular-nums font-medium " +
+                        "col-num font-medium " +
                         ((margin ?? 0) >= 0
                           ? "text-brand-navy"
                           : "text-red-600")
@@ -1210,24 +1196,18 @@ function OfficerPnlTable({
           No officer activity in this range.
         </p>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+        <table className="table-default">
+          <thead>
             <tr>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Officer
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Activities
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Pay
-              </th>
+              <th>Officer</th>
+              <th className="col-num">Activities</th>
+              <th className="col-num">Pay</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td className="px-4 py-2">
+                <td>
                   <Link
                     href={`/finance/officers/${r.id}?from=${ymd(from)}&to=${ymd(to)}`}
                     className="font-medium text-brand-navy hover:text-brand-blue-dark"
@@ -1235,22 +1215,14 @@ function OfficerPnlTable({
                     {r.name}
                   </Link>
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {r.activities}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {fmtMoney2(r.paid)}
-                </td>
+                <td className="col-num">{r.activities}</td>
+                <td className="col-num">{fmtMoney2(r.paid)}</td>
               </tr>
             ))}
-            <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
-              <td className="px-4 py-2 text-slate-600">Total</td>
-              <td className="px-4 py-2 text-right tabular-nums">
-                {total.activities}
-              </td>
-              <td className="px-4 py-2 text-right tabular-nums">
-                {fmtMoney2(total.paid)}
-              </td>
+            <tr className="bg-slate-50 font-medium">
+              <td className="text-slate-600">Total</td>
+              <td className="col-num">{total.activities}</td>
+              <td className="col-num">{fmtMoney2(total.paid)}</td>
             </tr>
           </tbody>
         </table>
@@ -1297,39 +1269,37 @@ function PartnerPnlTable({
           No partner activity in this range.
         </p>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+        <table className="table-default">
+          <thead>
             <tr>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Partner
-              </th>
-              <th
-                className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs"
-                colSpan={2}
-              >
+              <th>Partner</th>
+              <th className="col-num" colSpan={2}>
                 We did for them
               </th>
-              <th
-                className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs"
-                colSpan={2}
-              >
+              <th className="col-num" colSpan={2}>
                 They did for us
               </th>
             </tr>
             <tr className="text-[10px] uppercase tracking-wider text-slate-400 bg-slate-50">
               <th></th>
-              <th className="text-right px-4 py-1 font-normal">Activities</th>
-              <th className="text-right px-4 py-1 font-normal">Billed to them</th>
-              <th className="text-right px-4 py-1 font-normal">Activities</th>
-              <th className="text-right px-4 py-1 font-normal">
+              <th className="text-right px-4 py-1 font-normal normal-case">
+                Activities
+              </th>
+              <th className="text-right px-4 py-1 font-normal normal-case">
+                Billed to them
+              </th>
+              <th className="text-right px-4 py-1 font-normal normal-case">
+                Activities
+              </th>
+              <th className="text-right px-4 py-1 font-normal normal-case">
                 Billed to our customer
               </th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
-                <td className="px-4 py-2">
+                <td>
                   <Link
                     href={`/finance/partners/${r.id}?from=${ymd(from)}&to=${ymd(to)}`}
                     className="font-medium text-brand-navy hover:text-brand-blue-dark"
@@ -1337,30 +1307,20 @@ function PartnerPnlTable({
                     {r.name}
                   </Link>
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {r.asCustomer.activities}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {fmtMoney2(r.asCustomer.billed)}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {r.asSubcontractor.activities}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums">
+                <td className="col-num">{r.asCustomer.activities}</td>
+                <td className="col-num">{fmtMoney2(r.asCustomer.billed)}</td>
+                <td className="col-num">{r.asSubcontractor.activities}</td>
+                <td className="col-num">
                   {fmtMoney2(r.asSubcontractor.billed)}
                 </td>
               </tr>
             ))}
-            <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
-              <td className="px-4 py-2 text-slate-600">Total</td>
-              <td className="px-4 py-2 text-right tabular-nums">{total.cActs}</td>
-              <td className="px-4 py-2 text-right tabular-nums">
-                {fmtMoney2(total.cBilled)}
-              </td>
-              <td className="px-4 py-2 text-right tabular-nums">{total.sActs}</td>
-              <td className="px-4 py-2 text-right tabular-nums">
-                {fmtMoney2(total.sBilled)}
-              </td>
+            <tr className="bg-slate-50 font-medium">
+              <td className="text-slate-600">Total</td>
+              <td className="col-num">{total.cActs}</td>
+              <td className="col-num">{fmtMoney2(total.cBilled)}</td>
+              <td className="col-num">{total.sActs}</td>
+              <td className="col-num">{fmtMoney2(total.sBilled)}</td>
             </tr>
           </tbody>
         </table>

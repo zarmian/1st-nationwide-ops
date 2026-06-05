@@ -124,8 +124,8 @@ export default async function KeySetPage({
                 No keys in this set yet. Add keys from the site page.
               </p>
             ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider">
+              <table className="table-default">
+                <thead>
                   <tr>
                     <th className="px-3 py-2 text-left">Code</th>
                     <th className="px-3 py-2 text-left">Label</th>
