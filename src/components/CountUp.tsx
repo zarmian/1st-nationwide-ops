@@ -3,14 +3,18 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * Animated number tween for KPI values. Starts at 0 on mount and tweens
- * to `value` over `duration` ms with ease-out cubic. Honours
- * prefers-reduced-motion: that's set globally to 0.01ms but we also
- * short-circuit here so the static value renders on first paint for SSR
- * matching.
+ * Animated number tween for KPI values. On first mount it tweens 0 →
+ * `value` over `duration`ms with cubic ease-out; on subsequent `value`
+ * changes it tweens from whatever's on screen to the new target.
  *
- * Pass a `format` fn to render currency / locale strings without
- * stripping the tween's fractional precision.
+ * Implementation note: an earlier version captured `display` in the
+ * effect closure, which read the stale SSR-initial value (`= value`)
+ * and short-circuited the tween — the KPI would flash 0 forever and the
+ * page looked broken. We now keep the latest display in a ref so the
+ * effect always reads the live value, and we tween from an explicit
+ * `from` calculated up-front.
+ *
+ * Honours prefers-reduced-motion (snaps to value, no tween).
  */
 export function CountUp({
   value,
@@ -25,44 +29,44 @@ export function CountUp({
 }) {
   const [display, setDisplay] = useState<number>(value);
   const rafRef = useRef<number | null>(null);
-  const startedRef = useRef(false);
+  const hasMountedRef = useRef(false);
+  const displayRef = useRef(value);
+  // Mirror state → ref so the effect can read the latest display
+  // without listing it as a dep (which would cause infinite re-runs).
+  displayRef.current = display;
 
   useEffect(() => {
-    // SSR-rendered text starts at `value`; on hydrate we reset to 0
-    // exactly once and tween up. Re-renders with a new value tween from
-    // the previous display, not from 0 again.
-    if (!startedRef.current) {
-      startedRef.current = true;
-      const reduce = window.matchMedia(
-        "(prefers-reduced-motion: reduce)",
-      ).matches;
-      if (reduce) {
-        setDisplay(value);
-        return;
-      }
-      setDisplay(0);
+    if (typeof window === "undefined") return;
+    const reduce = window.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+
+    // First mount tweens 0 → value. Subsequent value changes tween from
+    // the current display.
+    const from = hasMountedRef.current ? displayRef.current : 0;
+    hasMountedRef.current = true;
+
+    if (reduce || from === value) {
+      setDisplay(value);
+      return;
     }
 
-    const from = display;
-    const to = value;
-    if (from === to) return;
+    // Snap display to the from-point so the next paint is the tween
+    // start, not the previous value.
+    setDisplay(from);
     const start = performance.now();
 
     function tick(now: number) {
       const t = Math.min(1, (now - start) / duration);
-      // ease-out cubic
       const eased = 1 - Math.pow(1 - t, 3);
-      const next = from + (to - from) * eased;
-      setDisplay(next);
+      setDisplay(from + (value - from) * eased);
       if (t < 1) rafRef.current = requestAnimationFrame(tick);
     }
     rafRef.current = requestAnimationFrame(tick);
+
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
     };
-    // We intentionally only re-tween when `value` changes, not when the
-    // display state itself changes — that would cause an infinite loop.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, duration]);
 
   return (
