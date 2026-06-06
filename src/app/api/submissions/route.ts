@@ -146,15 +146,23 @@ export async function POST(req: Request) {
   // The officer has finished the report — move the Job out of the "live"
   // dispatch view. For auto-approved forms we skip SUBMITTED entirely
   // and go straight to APPROVED so dispatch + review queue stay clean.
+  //
+  // completedAt must be set on the auto-approve path too — the admin
+  // approve flow sets it manually, and finance / activities filters
+  // anchor on completedAt to scope work to a date range. Without it,
+  // auto-approved patrols, VPIs, lock-ups and unlock-ups never
+  // appeared in /finance/activities and never got billing snapshots.
   if (data.jobId) {
+    const completedAt =
+      data.departedAt ? new Date(data.departedAt) : new Date();
     await prisma.job.updateMany({
       where: {
         id: data.jobId,
         status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
       },
-      data: {
-        status: autoApprove ? "APPROVED" : "SUBMITTED",
-      },
+      data: autoApprove
+        ? { status: "APPROVED", completedAt }
+        : { status: "SUBMITTED" },
     });
   }
 
