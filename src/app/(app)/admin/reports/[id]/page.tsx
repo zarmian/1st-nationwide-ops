@@ -29,7 +29,17 @@ export default async function ReviewDetailPage({
       submission: {
         include: {
           submittedBy: { select: { name: true, email: true } },
-          site: true,
+          // Include the site's customer/partner so cron-created site-only
+          // jobs (no job.customerId/partnerId) still resolve the account
+          // for display + the email contact field.
+          site: {
+            include: {
+              customer: {
+                select: { id: true, name: true, contactEmail: true },
+              },
+              partner: { select: { id: true, name: true } },
+            },
+          },
           job: {
             include: {
               customer: { select: { id: true, name: true, contactEmail: true } },
@@ -56,11 +66,13 @@ export default async function ReviewDetailPage({
 
   const sub = review.submission;
   const job = sub.job;
+  // Reportable when there's a customer email to send to. Falls back to
+  // the site's customer if the job itself is site-scoped only.
+  const reportCustomer = job?.customer ?? sub.site?.customer ?? null;
   const reportable = Boolean(
     job &&
       !job.reportedViaPartnerApp &&
-      job.customer &&
-      job.customer.contactEmail,
+      reportCustomer?.contactEmail,
   );
 
   const approve = approveReview.bind(null, review.id);
@@ -113,17 +125,26 @@ export default async function ReviewDetailPage({
           </div>
         </div>
         <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">
-            {job?.partner ? "Operated for partner" : "Customer"}
-          </div>
-          <div className="font-medium text-brand-navy">
-            {job?.customer?.name ?? job?.partner?.name ?? "—"}
-          </div>
-          {job?.customer?.contactEmail && (
-            <div className="text-xs text-slate-500">
-              {job.customer.contactEmail}
-            </div>
-          )}
+          {(() => {
+            // Cron-created jobs only carry siteId — fall back to the
+            // site's customer/partner relations so the card isn't blank.
+            const customer = job?.customer ?? sub.site?.customer ?? null;
+            const partner = job?.partner ?? sub.site?.partner ?? null;
+            const isPartner = !customer && !!partner;
+            const display = customer?.name ?? partner?.name ?? "—";
+            const email = customer?.contactEmail ?? null;
+            return (
+              <>
+                <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">
+                  {isPartner ? "Operated for partner" : "Customer"}
+                </div>
+                <div className="font-medium text-brand-navy">{display}</div>
+                {email && (
+                  <div className="text-xs text-slate-500">{email}</div>
+                )}
+              </>
+            );
+          })()}
         </div>
         <div className="card p-4">
           <div className="text-xs uppercase tracking-wider text-slate-500 mb-1">
@@ -201,7 +222,11 @@ export default async function ReviewDetailPage({
               initialArrivedAt={toDateTimeLocal(sub.arrivedAt)}
               initialDepartedAt={toDateTimeLocal(sub.departedAt)}
               reportable={reportable}
-              toAddress={job?.customer?.contactEmail ?? null}
+              toAddress={
+                job?.customer?.contactEmail ??
+                sub.site?.customer?.contactEmail ??
+                null
+              }
             />
           </div>
 
