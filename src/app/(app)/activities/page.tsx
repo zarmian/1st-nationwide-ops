@@ -245,24 +245,35 @@ export default async function ActivitiesPage({
   let loadVisits = true;
   let loadJobs = true;
   let loadShifts = true;
+  // Orphan submissions = FormSubmission rows with neither a Job nor a
+  // Visit link — officer hit /submit, picked a site, picked PATROL,
+  // submitted. Without this load they're invisible to /activities even
+  // though they're real recorded work. Skipped when a non-orphan kind
+  // is selected (e.g. "ALARM_RESPONSE") so the filter narrows cleanly.
+  let loadOrphanSubmissions = true;
   if (kind === "VISIT_PATROL") {
     loadJobs = false;
     loadShifts = false;
+    loadOrphanSubmissions = false;
     visitWhere.patrolSchedule = { kind: "PATROL" };
   } else if (kind === "VISIT_VPI") {
     loadJobs = false;
     loadShifts = false;
+    loadOrphanSubmissions = false;
     visitWhere.patrolSchedule = { kind: "VPI" };
   } else if (kind === "STATIC_GUARDING_SHIFT") {
     loadVisits = false;
     loadJobs = false;
+    loadOrphanSubmissions = false;
   } else if (kind === "DOG_HANDLER_SHIFT") {
     loadVisits = false;
     loadJobs = false;
+    loadOrphanSubmissions = false;
   } else if (kind) {
     // It's a JobType — restrict jobs and drop visits + shifts.
     loadVisits = false;
     loadShifts = false;
+    loadOrphanSubmissions = false;
     jobWhere.type = kind;
   }
 
@@ -283,8 +294,29 @@ export default async function ActivitiesPage({
   if (kind === "STATIC_GUARDING_SHIFT") shiftWhere.type = "STATIC_GUARDING";
   else if (kind === "DOG_HANDLER_SHIFT") shiftWhere.type = "DOG_HANDLER";
 
+  // Orphan-submission where: a FormSubmission with no Job and no Visit
+  // link — officer logged ad-hoc from /submit. Anchored on submittedAt
+  // since that's the only completion timestamp these have.
+  const submissionWhere: any = {
+    jobId: null,
+    patrolVisitId: null,
+    submittedAt: { gte: fromDate, lte: toDate },
+  };
+  if (officerId) submissionWhere.submittedByUserId = officerId;
+  if (siteId) submissionWhere.siteId = siteId;
+  if (customerId)
+    submissionWhere.site = { ...(submissionWhere.site ?? {}), customerId };
+  if (partnerId)
+    submissionWhere.site = { ...(submissionWhere.site ?? {}), partnerId };
+  if (regionId && Number.isFinite(Number(regionId))) {
+    submissionWhere.site = {
+      ...(submissionWhere.site ?? {}),
+      regionId: Number(regionId),
+    };
+  }
+
   // ── 3. Load rows + the small filter-lookup data ────────────────────────
-  const [visits, jobs, shifts, regions, customers, partners, officers] =
+  const [visits, jobs, shifts, orphanSubmissions, regions, customers, partners, officers] =
     await Promise.all([
       loadVisits
         ? prisma.patrolVisit.findMany({
@@ -345,6 +377,27 @@ export default async function ActivitiesPage({
               officer: { select: { id: true, name: true } },
             },
             orderBy: [{ scheduledStartsAt: "desc" }],
+            take: 1000,
+          })
+        : Promise.resolve([] as any[]),
+      loadOrphanSubmissions
+        ? prisma.formSubmission.findMany({
+            where: submissionWhere,
+            include: {
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  region: { select: { name: true } },
+                  customer: { select: { id: true, name: true } },
+                  partner: { select: { id: true, name: true } },
+                },
+              },
+              submittedBy: { select: { id: true, name: true } },
+              review: { select: { status: true } },
+            },
+            orderBy: [{ submittedAt: "desc" }],
             take: 1000,
           })
         : Promise.resolve([] as any[]),
@@ -468,6 +521,34 @@ export default async function ActivitiesPage({
       partnerName: s.site?.partner?.name ?? null,
       officerId: s.officer?.id ?? null,
       officerName: s.officer?.name ?? null,
+    });
+  }
+
+  // Orphan FormSubmissions — officer logged via /submit without a
+  // scheduled job/visit. The site's customer/partner relations carry
+  // through so per-account filters still work.
+  for (const sub of orphanSubmissions) {
+    rows.push({
+      id: `f:${sub.id}`,
+      href: `/sites/${sub.siteId}?tab=activity`,
+      source: "JOB",
+      kind: sub.form,
+      kindLabel: KIND_LABEL[sub.form] ?? sub.form,
+      at: sub.submittedAt,
+      // FormSubmissions are auto-approved for PATROL/VPI/LOCK/UNLOCK,
+      // otherwise sit in PENDING review. Map the review status into
+      // the unified status enum the ActivityStatus chip understands.
+      status: sub.review?.status ?? "SUBMITTED",
+      siteId: sub.site?.id ?? null,
+      siteCode: sub.site?.code ?? null,
+      siteName: sub.site?.name ?? null,
+      regionName: sub.site?.region?.name ?? null,
+      customerId: sub.site?.customer?.id ?? null,
+      customerName: sub.site?.customer?.name ?? null,
+      partnerId: sub.site?.partner?.id ?? null,
+      partnerName: sub.site?.partner?.name ?? null,
+      officerId: sub.submittedBy?.id ?? null,
+      officerName: sub.submittedBy?.name ?? sub.officerNameRaw ?? null,
     });
   }
 
