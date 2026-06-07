@@ -305,7 +305,7 @@ export default async function ActivitiesPage({
               assignedTo: { select: { id: true, name: true } },
               handledByPartner: { select: { id: true, name: true } },
             },
-            orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+            orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
             take: 1000,
           })
         : Promise.resolve([] as any[]),
@@ -361,9 +361,9 @@ export default async function ActivitiesPage({
       kind: `VISIT_${vkind}`,
       kindLabel: KIND_LABEL[`VISIT_${vkind}`] ?? "Visit",
       at:
-        v.departedAt ??
-        v.arrivedAt ??
+        // Chronology by schedule, not completion. Matches /activities.
         v.scheduledAt ??
+        v.arrivedAt ??
         v.createdAt ??
         new Date(),
       status: v.status,
@@ -390,7 +390,6 @@ export default async function ActivitiesPage({
       kind: j.type,
       kindLabel: KIND_LABEL[j.type] ?? j.type,
       at:
-        j.completedAt ??
         j.scheduledFor ??
         j.startedAt ??
         j.createdAt ??
