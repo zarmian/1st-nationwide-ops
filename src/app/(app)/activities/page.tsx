@@ -356,7 +356,7 @@ export default async function ActivitiesPage({
               assignedTo: { select: { id: true, name: true } },
               handledByPartner: { select: { id: true, name: true } },
             },
-            orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+            orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
             take: 1000,
           })
         : Promise.resolve([] as any[]),
@@ -451,9 +451,11 @@ export default async function ActivitiesPage({
       kind: `VISIT_${vkind}`,
       kindLabel: KIND_LABEL[`VISIT_${vkind}`] ?? "Visit",
       at:
-        v.departedAt ??
-        v.arrivedAt ??
+        // Sort by when work was scheduled / officer arrived, never by
+        // completion — operator wants the chronology to follow the
+        // shift schedule, not when the paperwork closed.
         v.scheduledAt ??
+        v.arrivedAt ??
         v.createdAt ??
         new Date(),
       status: v.status,
@@ -478,7 +480,8 @@ export default async function ActivitiesPage({
       kind: j.type,
       kindLabel: KIND_LABEL[j.type] ?? j.type,
       at:
-        j.completedAt ??
+        // Same anchor as visits — scheduled / started / created, not
+        // completedAt.
         j.scheduledFor ??
         j.startedAt ??
         j.createdAt ??
@@ -509,7 +512,7 @@ export default async function ActivitiesPage({
       kind,
       kindLabel: KIND_LABEL[kind] ?? kind,
       // Sort by the scheduled start — shift detail + list use the same.
-      at: s.actualStartedAt ?? s.scheduledStartsAt,
+      at: s.scheduledStartsAt ?? s.actualStartedAt,
       status: s.status,
       siteId: s.site?.id ?? null,
       siteCode: s.site?.code ?? null,

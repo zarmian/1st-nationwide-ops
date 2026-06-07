@@ -59,7 +59,7 @@ export async function loadActivity(
     }),
     prisma.job.findMany({
       where: { siteId },
-      orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
       take: fanout,
       include: {
         assignedTo: { select: { name: true } },
@@ -155,7 +155,9 @@ export async function loadActivity(
                 j.status === "APPROVED"
               ? "ok"
               : "info",
-        at: j.completedAt ?? j.handedOffAt ?? j.scheduledFor ?? j.createdAt,
+        // Schedule-first ordering — completedAt only as last resort.
+        // Matches /activities + /finance/activities.
+        at: j.scheduledFor ?? j.handedOffAt ?? j.completedAt ?? j.createdAt,
         title: `${prettyJobType(j.type)} · ${j.status
           .replace(/_/g, " ")
           .toLowerCase()}${handlerName ? ` · ${handlerName}` : ""}`,
