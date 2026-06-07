@@ -91,7 +91,7 @@ export default async function OfficerFinancePage({
         status: "COMPLETED",
         departedAt: { gte: fromDate, lte: toDate },
       },
-      orderBy: { departedAt: "desc" },
+      orderBy: { scheduledAt: "desc" },
       select: {
         id: true,
         scheduledAt: true,
@@ -109,7 +109,7 @@ export default async function OfficerFinancePage({
         status: { in: ["APPROVED", "CLOSED", "SENT_TO_CLIENT", "SUBMITTED"] },
         completedAt: { gte: fromDate, lte: toDate },
       },
-      orderBy: { completedAt: "desc" },
+      orderBy: { scheduledFor: "desc" },
       select: {
         id: true,
         type: true,
@@ -146,7 +146,7 @@ export default async function OfficerFinancePage({
     rows.push({
       id: `v:${v.id}`,
       href: `/patrols/visits/${v.id}`,
-      when: v.departedAt ?? v.arrivedAt ?? v.scheduledAt,
+      when: v.scheduledAt ?? v.arrivedAt ?? v.departedAt,
       kindLabel: KIND_LABEL[kind] ?? "Visit",
       siteName: v.site?.name ?? null,
       siteCode: v.site?.code ?? null,
@@ -159,7 +159,7 @@ export default async function OfficerFinancePage({
     rows.push({
       id: `j:${j.id}`,
       href: `/dispatch/${j.id}`,
-      when: j.completedAt ?? j.startedAt ?? j.scheduledFor,
+      when: j.scheduledFor ?? j.startedAt ?? j.completedAt,
       kindLabel: KIND_LABEL[j.type] ?? j.type,
       siteName: j.site?.name ?? null,
       siteCode: j.site?.code ?? null,
