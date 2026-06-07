@@ -196,15 +196,18 @@ export default async function DispatchPage({
 
   const jobsWhere = bucketWhere(bucket, now);
   const visitsWhere = visitBucketWhere(bucket, now);
+  // Every bucket sorts by scheduled time first. The dispatcher's
+  // mental model is the day's schedule (07:00 unlock → 09:00 VPI →
+  // 22:00 lock-up), not the order paperwork closed in. For the
+  // completed / cancelled buckets we still want most-recent-first,
+  // but anchored on when the work was meant to happen.
   const jobsOrderBy: Prisma.JobOrderByWithRelationInput[] =
-    bucket === "completed"
-      ? [{ completedAt: "desc" }]
-      : bucket === "cancelled"
-        ? [{ cancelledAt: "desc" }]
-        : [{ priority: "asc" }, { scheduledFor: "asc" }, { createdAt: "desc" }];
+    bucket === "completed" || bucket === "cancelled"
+      ? [{ scheduledFor: "desc" }, { createdAt: "desc" }]
+      : [{ priority: "asc" }, { scheduledFor: "asc" }, { createdAt: "desc" }];
   const visitsOrderBy: Prisma.PatrolVisitOrderByWithRelationInput[] =
     bucket === "completed"
-      ? [{ departedAt: "desc" }]
+      ? [{ scheduledAt: "desc" }]
       : [{ scheduledAt: "asc" }];
 
   const [
