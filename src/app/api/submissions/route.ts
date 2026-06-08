@@ -147,12 +147,13 @@ export async function POST(req: Request) {
   // dispatch view. For auto-approved forms we skip SUBMITTED entirely
   // and go straight to APPROVED so dispatch + review queue stay clean.
   //
-  // completedAt must be set on the auto-approve path too — the admin
-  // approve flow sets it manually, and finance / activities filters
-  // anchor on completedAt to scope work to a date range. Without it,
-  // auto-approved patrols, VPIs, lock-ups and unlock-ups never
-  // appeared in /finance/activities and never got billing snapshots.
+  // Map the form's arrivedAt → job.startedAt and departedAt →
+  // job.completedAt. The /submit form captures both as the officer's
+  // on-site / off-site times; persisting them on the Job means the
+  // dispatch detail "Start" + "Completed" fields render the real
+  // window the officer worked, not the bare "approved at" timestamp.
   if (data.jobId) {
+    const startedAt = data.arrivedAt ? new Date(data.arrivedAt) : null;
     const completedAt =
       data.departedAt ? new Date(data.departedAt) : new Date();
     await prisma.job.updateMany({
@@ -161,8 +162,17 @@ export async function POST(req: Request) {
         status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
       },
       data: autoApprove
-        ? { status: "APPROVED", completedAt }
-        : { status: "SUBMITTED" },
+        ? {
+            status: "APPROVED",
+            completedAt,
+            // Only overwrite startedAt if the officer actually entered
+            // one — preserves a cron-set value if the form left it blank.
+            ...(startedAt ? { startedAt } : {}),
+          }
+        : {
+            status: "SUBMITTED",
+            ...(startedAt ? { startedAt } : {}),
+          },
     });
   }
 
