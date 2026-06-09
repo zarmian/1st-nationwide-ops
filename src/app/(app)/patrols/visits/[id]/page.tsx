@@ -118,7 +118,7 @@ export default async function PatrolVisitDetailPage({
               )}
             </div>
           </div>
-          {me.role === "ADMIN" && (
+          {(me.role === "ADMIN" || me.role === "DISPATCHER") && (
             <Link
               href={`/patrols/visits/${visit.id}/edit`}
               className="btn-secondary text-sm"

@@ -438,7 +438,10 @@ export async function updateJob(
   _prev: EditJobState,
   formData: FormData,
 ): Promise<EditJobState> {
-  await requireAdmin();
+  // Dispatcher + admin. The edit form doesn't expose finance fields
+  // (billed/paid live on the model but not in the form), so opening
+  // this up to dispatcher doesn't leak money. Restore stays admin-only.
+  await requireStaff();
   const existing = await prisma.job.findUnique({
     where: { id: jobId },
     select: { id: true, status: true, siteId: true, alarmEventId: true },

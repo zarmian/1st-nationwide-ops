@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/authz";
+import { requireStaff } from "@/lib/authz";
 import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
 import { updateJob } from "../../_actions";
 import { EditJobForm } from "../../_components/EditJobForm";
@@ -15,7 +15,7 @@ export default async function EditJobPage({
 }: {
   params: { id: string };
 }) {
-  await requireAdmin();
+  await requireStaff();
 
   const [job, allJobTypes, allJobSources, officers, partners] =
     await Promise.all([
