@@ -161,11 +161,18 @@ export default async function JobDetailPage({
                 jobLabel={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
               />
             )}
-            {me.role === "ADMIN" && job.status !== "CANCELLED" && (
-              <Link href={`/dispatch/${job.id}/edit`} className="btn-secondary text-sm">
-                Edit
-              </Link>
-            )}
+            {/* Edit allowed for dispatcher + admin — the form doesn't
+                touch billed/paid; finance stays admin-only.
+                Restore stays admin-only above. */}
+            {(me.role === "ADMIN" || me.role === "DISPATCHER") &&
+              job.status !== "CANCELLED" && (
+                <Link
+                  href={`/dispatch/${job.id}/edit`}
+                  className="btn-secondary text-sm"
+                >
+                  Edit
+                </Link>
+              )}
             {!isClosed && (
               <CancelJobButton
                 jobId={job.id}

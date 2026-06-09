@@ -148,7 +148,12 @@ export default async function ActivitiesPage({
   };
 }) {
   const session = await getServerSession(authOptions);
-  const isAdmin = session?.user?.role === "ADMIN";
+  const role = session?.user?.role;
+  const isAdmin = role === "ADMIN";
+  // Dispatcher gets the inline Edit link too — they can correct
+  // scheduling / officer / notes; Restore stays admin-only because
+  // it re-snapshots billing.
+  const isStaff = isAdmin || role === "DISPATCHER";
 
   // ── 1. Resolve params ───────────────────────────────────────────────────
   const now = new Date();
@@ -837,14 +842,16 @@ export default async function ActivitiesPage({
                               size="small"
                             />
                           )}
-                        {isAdmin && r.status !== "CANCELLED" && (
-                          <Link
-                            href={`${r.href}/edit`}
-                            className="text-brand-blue-dark hover:text-brand-navy underline"
-                          >
-                            edit
-                          </Link>
-                        )}
+                        {isStaff &&
+                          r.status !== "CANCELLED" &&
+                          r.source !== "SHIFT" && (
+                            <Link
+                              href={`${r.href}/edit`}
+                              className="text-brand-blue-dark hover:text-brand-navy underline"
+                            >
+                              edit
+                            </Link>
+                          )}
                       </div>
                     </td>
                   </tr>

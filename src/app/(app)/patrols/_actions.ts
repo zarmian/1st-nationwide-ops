@@ -159,7 +159,9 @@ export async function updatePatrolVisit(
   _prev: EditVisitState,
   formData: FormData,
 ): Promise<EditVisitState> {
-  await requireAdmin();
+  // Dispatcher + admin. EditVisitForm exposes scheduling / officer /
+  // notes, no finance fields. Aligns with the dispatch job edit.
+  await requireStaff();
   const parsed = EditVisitInput.safeParse({
     officerId: formData.get("officerId")?.toString() || null,
     scheduledAt: formData.get("scheduledAt")?.toString() ?? "",

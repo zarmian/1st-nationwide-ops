@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/authz";
+import { requireStaff } from "@/lib/authz";
 import { updatePatrolVisit } from "../../../_actions";
 import { EditVisitForm } from "../../../_components/EditVisitForm";
 
@@ -12,7 +12,7 @@ export default async function EditVisitPage({
 }: {
   params: { id: string };
 }) {
-  await requireAdmin();
+  await requireStaff();
 
   const [visit, officers] = await Promise.all([
     prisma.patrolVisit.findUnique({
