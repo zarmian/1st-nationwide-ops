@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Prisma, JobStatus } from "@prisma/client";
+import { CalendarPlus, History } from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -19,7 +20,7 @@ import type {
   Freshness,
 } from "@/components/map/MapInner";
 import { siteOwner } from "@/lib/entityColor";
-import { daysFromTodayUk } from "@/lib/dates";
+import { daysFromTodayUk, ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
 import { getJobSourceLabels, getJobTypeLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -196,6 +197,18 @@ export default async function DispatchPage({
 
   const jobsWhere = bucketWhere(bucket, now);
   const visitsWhere = visitBucketWhere(bucket, now);
+
+  // Recent-activity feed cutoff: midnight UK two days ago so the table
+  // shows today + the previous two calendar days of completed work.
+  const recentCutoffUk = ukDayPlus(now, -2);
+  const recentSince = ukWallClockToUtc(
+    recentCutoffUk.year,
+    recentCutoffUk.month,
+    recentCutoffUk.day,
+    0,
+    0,
+    0,
+  );
   // Every bucket sorts by scheduled time first. The dispatcher's
   // mental model is the day's schedule (07:00 unlock → 09:00 VPI →
   // 22:00 lock-up), not the order paperwork closed in. For the
@@ -228,6 +241,8 @@ export default async function DispatchPage({
     allActiveSites,
     jobTypeLabels,
     jobSourceLabels,
+    recentJobs,
+    recentVisits,
   ] = await Promise.all([
     prisma.job.findMany({
       where: jobsWhere,
@@ -368,6 +383,26 @@ export default async function DispatchPage({
         ),
     getJobTypeLabels(),
     getJobSourceLabels(),
+    prisma.job.findMany({
+      where: { completedAt: { gte: recentSince, lte: now } },
+      include: {
+        site: { select: { id: true, name: true } },
+        assignedTo: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+      },
+      orderBy: { completedAt: "desc" },
+      take: 100,
+    }),
+    prisma.patrolVisit.findMany({
+      where: { departedAt: { gte: recentSince, lte: now } },
+      include: {
+        site: { select: { id: true, name: true } },
+        officer: { select: { name: true } },
+        patrolSchedule: { select: { kind: true } },
+      },
+      orderBy: { departedAt: "desc" },
+      take: 100,
+    }),
   ]);
 
   const bucketCounts: Record<Bucket, number> = {
@@ -455,6 +490,67 @@ export default async function DispatchPage({
     completed: "Completed",
     cancelled: "Cancelled",
   };
+
+  // --- Recent activity feed (last ~2 days of completed work) ----------------
+  type RecentRow = {
+    id: string;
+    href: string;
+    at: Date;
+    typeLabel: string;
+    siteId: string | null;
+    siteName: string | null;
+    officerName: string | null;
+  };
+  const recentRows: RecentRow[] = [];
+  for (const j of recentJobs) {
+    if (!j.completedAt) continue;
+    recentRows.push({
+      id: `j:${j.id}`,
+      href: `/dispatch/${j.id}`,
+      at: j.completedAt,
+      typeLabel: jobTypeLabels[j.type] ?? j.type.replace(/_/g, " "),
+      siteId: j.site?.id ?? null,
+      siteName: j.site?.name ?? null,
+      officerName: j.handledByPartner
+        ? `${j.handledByPartner.name} (partner)`
+        : (j.assignedTo?.name ?? null),
+    });
+  }
+  for (const v of recentVisits) {
+    if (!v.departedAt) continue;
+    recentRows.push({
+      id: `v:${v.id}`,
+      href: `/patrols/visits/${v.id}`,
+      at: v.departedAt,
+      typeLabel: v.patrolSchedule?.kind === "VPI" ? "VPI visit" : "Patrol visit",
+      siteId: v.site?.id ?? null,
+      siteName: v.site?.name ?? null,
+      officerName: v.officer?.name ?? null,
+    });
+  }
+  recentRows.sort((a, b) => b.at.getTime() - a.at.getTime());
+  const recentLimited = recentRows.slice(0, 50);
+
+  function fmtRecent(d: Date): { day: string; time: string } {
+    const diff = daysFromTodayUk(d, now);
+    const day =
+      diff === 0
+        ? "Today"
+        : diff === -1
+          ? "Yesterday"
+          : d.toLocaleDateString("en-GB", {
+              timeZone: "Europe/London",
+              weekday: "short",
+              day: "2-digit",
+              month: "short",
+            });
+    const time = d.toLocaleTimeString("en-GB", {
+      timeZone: "Europe/London",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return { day, time };
+  }
 
   // --- Map data derivation ---------------------------------------------------
 
@@ -551,13 +647,37 @@ export default async function DispatchPage({
           <h1 className="text-2xl font-semibold text-brand-navy">Dispatch</h1>
           <p className="text-sm text-slate-500">Live jobs across all sites</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <SyncSchedulesButton />
-          <Link href="/dispatch/callouts/new" className="btn-ghost">
-            + Record callout
+          <Link
+            href="/dispatch/callouts/new"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:border-brand-navy hover:text-brand-navy transition text-left"
+            title="Log a callout that's already been handled"
+          >
+            <History size={16} className="text-slate-500 shrink-0" />
+            <span className="leading-tight">
+              <span className="block text-sm font-medium text-brand-navy">
+                Record callout
+              </span>
+              <span className="block text-[10px] text-slate-500">
+                Log a past activity
+              </span>
+            </span>
           </Link>
-          <Link href="/dispatch/new" className="btn-primary">
-            + New job
+          <Link
+            href="/dispatch/new"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-brand-blue text-white hover:bg-brand-blue-dark transition text-left shadow-card"
+            title="Schedule a new job for the future"
+          >
+            <CalendarPlus size={16} className="text-white shrink-0" />
+            <span className="leading-tight">
+              <span className="block text-sm font-medium">
+                New job
+              </span>
+              <span className="block text-[10px] text-white/80">
+                Schedule for the future
+              </span>
+            </span>
           </Link>
         </div>
       </div>
@@ -907,6 +1027,68 @@ export default async function DispatchPage({
           },
         ]}
       />
+
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="font-semibold text-brand-navy">Recent activity</h2>
+            <p className="text-xs text-slate-500">
+              Completed jobs and visits from today and the previous two days.
+            </p>
+          </div>
+          <Link
+            href="/activities"
+            className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
+          >
+            Full log →
+          </Link>
+        </div>
+        {recentLimited.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-slate-500">
+            Nothing completed in the last two days.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            <li className="hidden md:grid grid-cols-[140px_1.2fr_1.5fr_1fr] gap-3 px-4 py-2 text-xs uppercase tracking-wider text-slate-500 font-medium bg-slate-50">
+              <span>When</span>
+              <span>Activity</span>
+              <span>Site</span>
+              <span>Officer</span>
+            </li>
+            {recentLimited.map((r) => {
+              const { day, time } = fmtRecent(r.at);
+              return (
+                <li key={r.id}>
+                  <Link
+                    href={r.href}
+                    className="grid md:grid-cols-[140px_1.2fr_1.5fr_1fr] gap-1 md:gap-3 px-4 py-2.5 hover:bg-brand-blue-50/40 transition"
+                  >
+                    <span className="text-sm text-slate-700 tabular-nums leading-tight">
+                      <span className="font-medium text-brand-navy">
+                        {day}
+                      </span>{" "}
+                      <span className="text-slate-500">{time}</span>
+                    </span>
+                    <span className="text-sm text-brand-navy font-medium">
+                      {r.typeLabel}
+                    </span>
+                    <span className="text-sm text-slate-700">
+                      {r.siteName ?? (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </span>
+                    <span className="text-sm text-slate-700">
+                      {r.officerName ?? (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
