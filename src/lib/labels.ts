@@ -127,13 +127,23 @@ function buildLabelMap(
   defaults: Record<string, string>,
 ): Record<string, string> {
   const map: Record<string, string> = { ...defaults };
-  // Active options ordered by sortOrder. First wins per code so admin
-  // ordering is meaningful when there are aliases.
-  const seen = new Set<string>();
+  // Group active options by code. If exactly one option exists for a code
+  // we treat it as an admin rename and use its label as the display
+  // label. If multiple options exist (e.g. "Alarm response" plus
+  // sub-types like "Customer unable to exit"), those are picker-only
+  // aliases — don't let them hijack the display label across activity
+  // lists, dispatch board, public job pages, etc. Fall back to the
+  // canonical default in that case.
+  const byCode = new Map<string, OptionRow[]>();
   for (const o of opts) {
-    if (seen.has(o.code)) continue;
-    map[o.code] = o.label;
-    seen.add(o.code);
+    const list = byCode.get(o.code);
+    if (list) list.push(o);
+    else byCode.set(o.code, [o]);
+  }
+  for (const [code, rows] of byCode) {
+    if (rows.length === 1) {
+      map[code] = rows[0]!.label;
+    }
   }
   return map;
 }
