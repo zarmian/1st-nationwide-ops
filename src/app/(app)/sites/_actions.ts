@@ -56,6 +56,15 @@ const KeySetRow = z.object({
   internalNo: z.string().trim().max(40).optional().nullable(),
   label: z.string().trim().min(1).max(120),
   notes: z.string().trim().max(500).optional().nullable(),
+  // Reference photo of the physical bunch — Vercel Blob URL. Mirrors
+  // the field already on /key-sets/[id]; bringing it into the site
+  // form means a new set can ship with a photo on day one.
+  photoUrl: z
+    .string()
+    .url()
+    .or(z.literal(""))
+    .optional()
+    .nullable(),
   keys: z.array(KeyRow).max(50).default([]),
   remove: z.boolean().optional(),
 });
@@ -275,6 +284,7 @@ async function syncRelations(siteId: string, d: ParsedSite) {
               internalNo: set.internalNo || null,
               label: set.label,
               notes: set.notes || null,
+              photoUrl: set.photoUrl || null,
               active: true,
             },
           });
@@ -285,6 +295,7 @@ async function syncRelations(siteId: string, d: ParsedSite) {
               internalNo: set.internalNo || null,
               label: set.label,
               notes: set.notes || null,
+              photoUrl: set.photoUrl || null,
             },
             select: { id: true },
           });
