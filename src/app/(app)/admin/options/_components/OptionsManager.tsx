@@ -74,14 +74,14 @@ export function OptionsManager({
           kind="type"
           options={jobTypes}
           codes={jobTypeCodes}
-          intro="Categories you can pick from when creating a callout or new job. The first active option for a category sets the display label everywhere."
+          intro="Categories you can pick from when creating a callout or new job. Add a single label per category to rename it everywhere; add multiple labels under one category to create picker-only sub-types (the canonical category name is used on activity lists and the dispatch board)."
         />
       ) : (
         <OptionList
           kind="source"
           options={jobSources}
           codes={jobSourceCodes}
-          intro="Where a job came from. Shown on the dispatch board and report templates."
+          intro="Where a job came from. Shown on the dispatch board and report templates. Same convention as job types — multiple labels under one source act as picker-only aliases."
         />
       )}
     </div>

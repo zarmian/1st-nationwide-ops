@@ -128,6 +128,7 @@ export default async function EditSitePage({
               internalNo: s.internalNo,
               label: s.label,
               notes: s.notes,
+              photoUrl: s.photoUrl,
               keys: s.keys.map((k) => ({
                 id: k.id,
                 internalNo: k.internalNo,
@@ -146,6 +147,7 @@ export default async function EditSitePage({
                     internalNo: null,
                     label: "Site keys",
                     notes: null,
+                    photoUrl: null,
                     keys: site.keys.map((k) => ({
                       id: k.id,
                       internalNo: k.internalNo,

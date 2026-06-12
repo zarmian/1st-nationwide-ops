@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
+import { upload } from "@vercel/blob/client";
 import type { SiteFormState } from "../_actions";
 import { FormError } from "@/components/FormError";
 
@@ -81,6 +82,8 @@ export type KeySetRow = {
   internalNo: string | null;
   label: string;
   notes: string | null;
+  // Reference photo of the physical key bunch. Vercel Blob URL or null.
+  photoUrl?: string | null;
   keys: KeyRow[];
 };
 
@@ -560,7 +563,11 @@ export function SiteForm({
 
       {/* Conditional sections */}
       {wantsKeys && (
-        <KeysSection keySets={keySets} setKeySets={setKeySets} />
+        <KeysSection
+          keySets={keySets}
+          setKeySets={setKeySets}
+          siteId={initial.id ?? null}
+        />
       )}
 
       {wantsLockUnlock && (
@@ -632,9 +639,11 @@ export function SiteForm({
 function KeysSection({
   keySets,
   setKeySets,
+  siteId,
 }: {
   keySets: KeySetRow[];
   setKeySets: React.Dispatch<React.SetStateAction<KeySetRow[]>>;
+  siteId: string | null;
 }) {
   function addSet() {
     setKeySets((sets) => [
@@ -787,6 +796,12 @@ function KeysSection({
                   updateSet(sIdx, { notes: e.target.value || null })
                 }
                 placeholder="Set notes (optional)"
+              />
+
+              <SetPhotoField
+                value={set.photoUrl ?? null}
+                onChange={(url) => updateSet(sIdx, { photoUrl: url })}
+                siteId={siteId}
               />
 
               <div className="space-y-2">
@@ -1432,4 +1447,106 @@ function SubmitButton({ label }: { label: string }) {
 function FieldError({ messages }: { messages?: string[] }) {
   if (!messages?.length) return null;
   return <p className="mt-1 text-xs text-red-600">{messages.join(", ")}</p>;
+}
+
+/**
+ * Reference-photo uploader per key set. Uses the same Vercel Blob client
+ * + /api/blob/upload-token route as KeySetForm + PhotoGrid, so the
+ * server-side validation (allowed content types, size cap, siteId
+ * check) doesn't need touching.
+ *
+ * siteId can be null when the site is being CREATED (no UUID yet). In
+ * that case we disable upload — the operator can save the site first
+ * then add photos via /key-sets/[id]. Same trade-off the photo flow
+ * has had since PR #15; uploading before the parent row exists would
+ * orphan blobs in storage if the form fails server-side validation.
+ */
+function SetPhotoField({
+  value,
+  onChange,
+  siteId,
+}: {
+  value: string | null;
+  onChange: (url: string | null) => void;
+  siteId: string | null;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !siteId) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const result = await upload(`uploads/key-sets/${file.name}`, file, {
+        access: "public",
+        handleUploadUrl: "/api/blob/upload-token",
+        clientPayload: JSON.stringify({ siteId }),
+      });
+      onChange(result.url);
+    } catch (err: any) {
+      setError(err?.message ?? "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div>
+      <label className="label">Reference photo</label>
+      <p className="text-xs text-slate-500 mb-2">
+        One photo of the physical bunch — helps officers recognise the set
+        on arrival.
+      </p>
+      {value ? (
+        <div className="flex items-start gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={value}
+            alt="Key set"
+            className="rounded-xl border border-slate-200 max-h-32"
+          />
+          <div className="flex flex-col gap-1.5">
+            <label className="btn-secondary text-xs cursor-pointer inline-block">
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={onFile}
+                disabled={!siteId || uploading}
+                className="hidden"
+              />
+              {uploading ? "Uploading…" : "Replace"}
+            </label>
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="btn-ghost text-xs text-red-600"
+            >
+              Remove
+            </button>
+          </div>
+        </div>
+      ) : siteId ? (
+        <label className="btn-secondary text-sm cursor-pointer inline-block">
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={onFile}
+            disabled={uploading}
+            className="hidden"
+          />
+          {uploading ? "Uploading…" : "Upload photo"}
+        </label>
+      ) : (
+        <p className="text-xs text-slate-500 italic">
+          Save the site first to upload a reference photo for this set.
+        </p>
+      )}
+      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+    </div>
+  );
 }
