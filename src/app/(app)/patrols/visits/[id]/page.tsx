@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
+import { CloseActivityButton } from "../../../dispatch/_components/CloseActivityButton";
 
 export const dynamic = "force-dynamic";
 
@@ -118,14 +119,25 @@ export default async function PatrolVisitDetailPage({
               )}
             </div>
           </div>
-          {(me.role === "ADMIN" || me.role === "DISPATCHER") && (
-            <Link
-              href={`/patrols/visits/${visit.id}/edit`}
-              className="btn-secondary text-sm"
-            >
-              Edit
-            </Link>
-          )}
+          <div className="flex items-center gap-2">
+            {(me.role === "ADMIN" || me.role === "DISPATCHER") && (
+              <Link
+                href={`/patrols/visits/${visit.id}/edit`}
+                className="btn-secondary text-sm"
+              >
+                Edit
+              </Link>
+            )}
+            {(me.role === "ADMIN" || me.role === "DISPATCHER") &&
+              visit.status !== "COMPLETED" && (
+                <CloseActivityButton
+                  kind="visit"
+                  id={visit.id}
+                  label={`${visit.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol"} visit @ ${visit.site?.name ?? "site"}`}
+                  size="default"
+                />
+              )}
+          </div>
         </div>
       </div>
 

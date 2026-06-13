@@ -6,6 +6,14 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireAdmin, requireStaff } from "@/lib/authz";
 import { parseUkDateTimeLocal } from "@/lib/dates";
+import {
+  applyBillingToVisit,
+  applyPayToVisit,
+  billForSite,
+  durationMinutes,
+  jobTypeToRateService,
+  payForOfficer,
+} from "@/lib/billing";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),
@@ -201,4 +209,80 @@ export async function updatePatrolVisit(
   revalidatePath("/activities");
   if (existing.siteId) revalidatePath(`/sites/${existing.siteId}`);
   redirect(`/patrols/visits/${visitId}`);
+}
+
+/**
+ * Dispatcher-side "close" for a PatrolVisit. Mirrors closeJob's intent —
+ * officer didn't tick the visit complete in the app but told dispatch by
+ * radio/phone. Flips status to COMPLETED, stamps arrivedAt + departedAt
+ * with the given time (or now), and snapshots billing + officer pay so
+ * the visit shows up in finance the same way an officer-completed visit
+ * would. Idempotent: re-running on an already-completed visit is a no-op.
+ */
+export async function closePatrolVisit(
+  visitId: string,
+  opts?: { closedAt?: Date | null; notes?: string | null },
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await requireStaff();
+  const visit = await prisma.patrolVisit.findUnique({
+    where: { id: visitId },
+    select: {
+      id: true,
+      status: true,
+      siteId: true,
+      officerId: true,
+      arrivedAt: true,
+      departedAt: true,
+      notes: true,
+      billedAmount: true,
+      paidAmount: true,
+      patrolSchedule: { select: { kind: true } },
+    },
+  });
+  if (!visit) return { ok: false, error: "Visit not found." };
+  if (visit.status === "COMPLETED") {
+    return { ok: true };
+  }
+
+  const closedAt = opts?.closedAt ?? new Date();
+  const arrived = visit.arrivedAt ?? closedAt;
+  const departed = visit.departedAt ?? closedAt;
+  const closerName = me.name || me.email || me.id;
+  const extraNote = `Closed by dispatch (${closerName}) on behalf of officer at ${closedAt.toISOString()}${opts?.notes ? ` — ${opts.notes}` : ""}`;
+  const mergedNotes = visit.notes ? `${visit.notes}\n${extraNote}` : extraNote;
+
+  await prisma.patrolVisit.update({
+    where: { id: visitId },
+    data: {
+      status: "COMPLETED" as any,
+      arrivedAt: arrived,
+      departedAt: departed,
+      notes: mergedNotes,
+    },
+  });
+
+  // Snapshot billing + officer pay — mirror the /api/submissions path so
+  // finance treats this the same as an officer-completed visit.
+  if (visit.siteId && visit.billedAmount == null) {
+    const rateService = jobTypeToRateService(
+      visit.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
+    );
+    if (rateService) {
+      const dur = durationMinutes(arrived, departed);
+      const bill = await billForSite(visit.siteId, rateService, dur);
+      await applyBillingToVisit(visitId, bill);
+      if (visit.officerId && visit.paidAmount == null) {
+        const pay = await payForOfficer(visit.officerId, rateService, dur);
+        await applyPayToVisit(visitId, pay);
+      }
+    }
+  }
+
+  revalidatePath("/dispatch");
+  revalidatePath("/patrols");
+  revalidatePath(`/patrols/visits/${visitId}`);
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  if (visit.siteId) revalidatePath(`/sites/${visit.siteId}`);
+  return { ok: true };
 }

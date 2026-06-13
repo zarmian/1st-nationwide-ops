@@ -45,6 +45,8 @@ type Action = {
 
 const QUICK_NAV: Action[] = [
   { id: "nav-today", group: "Navigation", label: "Today", hint: "/m/today", href: "/m/today" },
+  { id: "nav-my-rota", group: "Navigation", label: "My rota (officer)", hint: "/m/rota", href: "/m/rota" },
+  { id: "nav-rota", group: "Navigation", label: "Rota board", hint: "/rota", href: "/rota" },
   { id: "nav-dispatch", group: "Navigation", label: "Dispatch", hint: "/dispatch", href: "/dispatch" },
   { id: "nav-sites", group: "Navigation", label: "Sites", hint: "/sites", href: "/sites" },
   { id: "nav-officers", group: "Navigation", label: "Officers", hint: "/officers", href: "/officers" },

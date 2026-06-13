@@ -246,6 +246,91 @@ export async function createJob(
 }
 
 /**
+ * Dispatcher-side "close" — for activities the officer didn't close in
+ * the app but informed dispatch about by phone/radio. Marks the Job as
+ * APPROVED (the same terminal state used by recordDispatcherCallout and
+ * the auto-approve flow), stamps startedAt + completedAt with the given
+ * time (or now), and triggers the billing + officer-pay snapshot so
+ * finance reflects it. No /submit form is created — the audit trail is
+ * the JobAudit-equivalent fields (recordedByUserId-style) plus the
+ * notes. Dispatcher + admin can use this; restore stays admin-only.
+ */
+export async function closeJob(
+  jobId: string,
+  opts?: { closedAt?: Date | null; notes?: string | null },
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await requireStaff();
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: {
+      id: true,
+      status: true,
+      siteId: true,
+      type: true,
+      startedAt: true,
+      completedAt: true,
+      assignedToUserId: true,
+      handledByPartnerId: true,
+      billedAmount: true,
+      paidAmount: true,
+      notes: true,
+    },
+  });
+  if (!job) return { ok: false, error: "Job not found." };
+  if (job.status === "CANCELLED") {
+    return { ok: false, error: "Cancelled jobs can't be closed — restore first." };
+  }
+  if (
+    job.status === "APPROVED" ||
+    job.status === "SENT_TO_CLIENT" ||
+    job.status === "CLOSED"
+  ) {
+    return { ok: true };
+  }
+
+  const closedAt = opts?.closedAt ?? new Date();
+  // Note appended so the audit trail captures "closed by dispatcher
+  // because officer informed by phone" without a separate column.
+  const closerName = me.name || me.email || me.id;
+  const extraNote = `Closed by dispatch (${closerName}) on behalf of officer at ${closedAt.toISOString()}${opts?.notes ? ` — ${opts.notes}` : ""}`;
+  const mergedNotes = job.notes ? `${job.notes}\n${extraNote}` : extraNote;
+
+  await prisma.job.update({
+    where: { id: jobId },
+    data: {
+      status: "APPROVED" as any,
+      startedAt: job.startedAt ?? closedAt,
+      completedAt: job.completedAt ?? closedAt,
+      notes: mergedNotes,
+    },
+  });
+
+  // Run billing + officer pay snapshot if we haven't already. Matches
+  // the recordDispatcherCallout and restoreJob behaviour.
+  if (job.siteId && job.billedAmount == null) {
+    const rateService = jobTypeToRateService(job.type);
+    if (rateService) {
+      const bill = await billForSite(job.siteId, rateService);
+      if (bill.ok) await applyBillingToJob(jobId, bill);
+    }
+  }
+  if (job.assignedToUserId && !job.handledByPartnerId && job.paidAmount == null) {
+    const rateService = jobTypeToRateService(job.type);
+    if (rateService) {
+      const pay = await payForOfficer(job.assignedToUserId, rateService);
+      if (pay.ok) await applyPayToJob(jobId, pay);
+    }
+  }
+
+  revalidatePath("/dispatch");
+  revalidatePath(`/dispatch/${jobId}`);
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  if (job.siteId) revalidatePath(`/sites/${job.siteId}`);
+  return { ok: true };
+}
+
+/**
  * Cancel a job — removes it from /dispatch's live view by flipping the
  * status to CANCELLED. Records who cancelled and when for audit. We don't
  * hard-delete because FormSubmission.jobId is now ON DELETE SetNull but

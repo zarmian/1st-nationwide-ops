@@ -6,6 +6,7 @@ import { reassignJob } from "../../patrols/_actions";
 import { QuickReassignJob } from "../../patrols/_components/QuickReassign";
 import { CancelJobButton } from "../_components/CancelJobButton";
 import { RestoreJobButton } from "../_components/RestoreJobButton";
+import { CloseActivityButton } from "../_components/CloseActivityButton";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +117,11 @@ export default async function JobDetailPage({
     job.status === "CLOSED" ||
     job.status === "SENT_TO_CLIENT" ||
     job.status === "CANCELLED";
+  // "Close" exposes the dispatch-side complete-on-behalf-of-officer
+  // shortcut. Hidden once the job already has a terminal status or is
+  // post-review (APPROVED+).
+  const canClose =
+    !isClosed && job.status !== "APPROVED";
 
   const billed = moneyOrNull(job.billedAmount, job.billedCurrency);
   const paid = moneyOrNull(job.paidAmount, job.paidCurrency);
@@ -173,6 +179,14 @@ export default async function JobDetailPage({
                   Edit
                 </Link>
               )}
+            {canClose && (
+              <CloseActivityButton
+                kind="job"
+                id={job.id}
+                label={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+                size="default"
+              />
+            )}
             {!isClosed && (
               <CancelJobButton
                 jobId={job.id}

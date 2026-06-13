@@ -6,6 +6,7 @@ import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
 import { RestoreJobButton } from "../dispatch/_components/RestoreJobButton";
+import { CloseActivityButton } from "../dispatch/_components/CloseActivityButton";
 
 export const dynamic = "force-dynamic";
 
@@ -831,7 +832,7 @@ export default async function ActivitiesPage({
                       )}
                     </td>
                     <td className="px-4 py-2 text-slate-600 text-xs">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <ActivityStatus status={r.status} />
                         {isAdmin &&
                           r.source === "JOB" &&
@@ -851,6 +852,18 @@ export default async function ActivitiesPage({
                             >
                               edit
                             </Link>
+                          )}
+                        {isStaff &&
+                          (r.source === "JOB" || r.source === "VISIT") &&
+                          !["APPROVED", "SENT_TO_CLIENT", "CLOSED", "CANCELLED", "COMPLETED"].includes(
+                            r.status,
+                          ) && (
+                            <CloseActivityButton
+                              kind={r.source === "VISIT" ? "visit" : "job"}
+                              id={r.id.replace(/^[jv]:/, "")}
+                              label={`${r.kindLabel} @ ${r.siteName ?? "site"}`}
+                              size="small"
+                            />
                           )}
                       </div>
                     </td>
