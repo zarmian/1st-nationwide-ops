@@ -9,6 +9,7 @@ import { DataTable } from "@/components/DataTable";
 import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 import { CancelJobButton } from "./_components/CancelJobButton";
+import { CloseActivityButton } from "./_components/CloseActivityButton";
 import { DispatchMap } from "./_components/DispatchMap";
 import { SyncSchedulesButton } from "./_components/SyncSchedulesButton";
 import { MapLayerToggles } from "./_components/MapLayerToggles";
@@ -1003,6 +1004,18 @@ export default async function DispatchPage({
                 : `/dispatch/${j.id}/edit`;
               const canEdit =
                 isAdmin && j.status !== "CANCELLED";
+              // "Close" lets dispatch tick an activity complete when the
+              // officer reported in by phone/radio but didn't update the
+              // app. Hidden once the activity is already in a terminal
+              // state.
+              const isClosed =
+                j.status === "APPROVED" ||
+                j.status === "SENT_TO_CLIENT" ||
+                j.status === "CLOSED" ||
+                j.status === "CANCELLED" ||
+                j.status === "COMPLETED";
+              const canClose = !isClosed;
+              const activityLabel = `${jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`;
               return (
                 <div className="flex items-center justify-end gap-2">
                   {canEdit && (
@@ -1013,12 +1026,19 @@ export default async function DispatchPage({
                       edit
                     </Link>
                   )}
+                  {canClose && (
+                    <CloseActivityButton
+                      kind={isVisit ? "visit" : "job"}
+                      id={isVisit ? j.__visitId! : j.id}
+                      label={activityLabel}
+                    />
+                  )}
                   {/* Visits don't cancel through the dispatch board — they
                       have their own status machine on the visit detail. */}
                   {!isVisit && (
                     <CancelJobButton
                       jobId={j.id}
-                      jobLabel={`${jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`}
+                      jobLabel={activityLabel}
                     />
                   )}
                 </div>
