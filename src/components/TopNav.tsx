@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   CalendarDays,
+  CalendarRange,
   LayoutDashboard,
   MapPin,
   Wallet,
@@ -28,12 +29,14 @@ type NavItem = {
 
 const OFFICER_LINKS: NavItem[] = [
   { href: "/m/today", label: "Today", icon: CalendarDays },
+  { href: "/m/rota", label: "My rota", icon: CalendarRange },
   { href: "/submit", label: "Log activity", icon: FileEdit },
 ];
 
 const STAFF_TOP: NavItem[] = [
   { href: "/m/today", label: "Today", icon: CalendarDays },
   { href: "/dispatch", label: "Dispatch", icon: LayoutDashboard },
+  { href: "/rota", label: "Rota", icon: CalendarRange },
   { href: "/sites", label: "Sites", icon: MapPin },
   { href: "/finance", label: "Finance", icon: Wallet },
 ];

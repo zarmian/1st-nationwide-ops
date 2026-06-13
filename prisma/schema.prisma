@@ -100,6 +100,15 @@ enum VisitStatus {
   MISSED
 }
 
+/// Rota half-day. DAY = 06:00-18:00 UK, NIGHT = 18:00-06:00 UK (next
+/// calendar day). The "date" anchor on rota rows is the calendar date
+/// the shift STARTS on, so a NIGHT entry for 2026-06-13 covers
+/// 18:00 on Sat 13 Jun through 06:00 on Sun 14 Jun.
+enum RotaShift {
+  DAY
+  NIGHT
+}
+
 enum OnboardingStage {
   PROPOSED
   SURVEY
@@ -299,8 +308,47 @@ model Region {
   leadUser    User?    @relation("RegionLead", fields: [leadUserId], references: [id])
   notes       String?
 
-  sites       Site[]
-  officers    User[]   @relation("OfficerRegion")
+  sites           Site[]
+  officers        User[]            @relation("OfficerRegion")
+  rotaAssignments RotaAssignment[]
+}
+
+/// Officer-set availability for a given UK calendar date + half-day
+/// shift. One row per (officer, date, shift). Existence = available;
+/// absence = not available. Toggled from /m/rota.
+model OfficerAvailability {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  officerId String    @db.Uuid
+  officer   User      @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  date      DateTime  @db.Date
+  shift     RotaShift
+  notes     String?
+  createdAt DateTime  @default(now())
+
+  @@unique([officerId, date, shift])
+  @@index([date, shift])
+}
+
+/// Dispatcher-set rota assignment — officer X is on for region R on
+/// date D, shift S. Multiple officers can be assigned per region+shift
+/// (the unique key includes officer). Officers see their own
+/// assignments on /m/rota; dispatch manages all of them on /rota.
+model RotaAssignment {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  date            DateTime  @db.Date
+  shift           RotaShift
+  regionId        Int
+  region          Region    @relation(fields: [regionId], references: [id])
+  officerId       String    @db.Uuid
+  officer         User      @relation("RotaAssignmentOfficer", fields: [officerId], references: [id], onDelete: Cascade)
+  notes           String?
+  createdByUserId String?   @db.Uuid
+  createdBy       User?     @relation("RotaAssignmentCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime  @default(now())
+
+  @@unique([date, shift, regionId, officerId])
+  @@index([officerId, date])
+  @@index([regionId, date, shift])
 }
 
 model User {
@@ -343,6 +391,9 @@ model User {
   notifications            Notification[]      @relation("NotificationRecipient")
   officerRates             OfficerRate[]
   shifts                   Shift[]             @relation("ShiftOfficer")
+  rotaAvailability         OfficerAvailability[]
+  rotaAssignments          RotaAssignment[]    @relation("RotaAssignmentOfficer")
+  rotaAssignmentsCreated   RotaAssignment[]    @relation("RotaAssignmentCreatedBy")
 
   @@index([regionId, role])
 }
