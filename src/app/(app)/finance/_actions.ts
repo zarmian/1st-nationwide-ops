@@ -1,17 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
+import type { RateService } from "@prisma/client";
 import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import {
-  applyBillingToJob,
-  applyBillingToVisit,
-  applyPayToJob,
-  applyPayToVisit,
-  billForSite,
+  calculateBilling,
+  calculatePay,
   durationMinutes,
   jobTypeToRateService,
-  payForOfficer,
 } from "@/lib/billing";
 
 export type RecalcResult = {
@@ -20,24 +18,32 @@ export type RecalcResult = {
   visitsBilled: number;
   jobsScanned: number;
   jobsBilled: number;
+  jobsAccountBackfilled: number;
   error?: string;
 };
 
 /**
  * Bulk-billing recalculation for rows in a date window.
  *
- * - scope="all"      → re-snapshot every COMPLETED visit + every non-cancelled
- *                       Job in the window (overwrites existing snapshots).
+ * - scope="all"      → re-snapshot every COMPLETED visit + every
+ *                       non-cancelled Job in the window.
  * - scope="missing"  → only touch rows where billedAmount is currently null.
  *
- * Cancelled jobs are always excluded — Restore is the only path that puts
- * billing back on a cancelled job, never a bulk recompute.
+ * Performance: pre-fetches SiteRate and OfficerRate in two queries
+ * total (filtered to the unique site/officer ids actually in use),
+ * then drives the per-row math in memory and writes in parallel
+ * chunks. The previous implementation did 4 sequential queries per
+ * row, which timed out at ~250 rows on Vercel's 60s limit; the
+ * batched version comfortably handles a month's worth in seconds.
  *
- * The date window scopes by the natural "completion" timestamp:
- *   - PatrolVisit.departedAt
- *   - Job.completedAt
- * If `from` / `to` are omitted the window covers everything (legacy
- * behaviour). Idempotent.
+ * Self-heal: while we have each Job's site in hand, if the Job's own
+ * customerId / partnerId is NULL but the Site has one set (admin
+ * assigned account *after* the Job was created), patch the Job in
+ * the same update. Stops "Unassigned" from sticking on finance once
+ * the site has been corrected.
+ *
+ * Cancelled jobs are always excluded — Restore is the only path that
+ * puts billing back on a cancelled job.
  */
 export async function recalculateBilling(
   scope: "all" | "missing" = "missing",
@@ -48,11 +54,8 @@ export async function recalculateBilling(
   const from = window?.from ? new Date(window.from) : undefined;
   const to = window?.to ? new Date(window.to) : undefined;
 
-  let visitsBilled = 0;
-  let jobsBilled = 0;
-
-  const visitWhere: any = {
-    status: "COMPLETED" as const,
+  const visitWhere: Prisma.PatrolVisitWhereInput = {
+    status: "COMPLETED",
     departedAt:
       from || to
         ? {
@@ -77,23 +80,10 @@ export async function recalculateBilling(
         take: 1,
       },
     },
-    take: 1000,
+    take: 5000,
   });
-  for (const v of visits) {
-    const form = v.formSubmissions[0]?.form ?? "PATROL";
-    const rateService = jobTypeToRateService(form);
-    if (!rateService) continue;
-    const duration = durationMinutes(v.arrivedAt, v.departedAt);
-    const bill = await billForSite(v.siteId, rateService, duration);
-    await applyBillingToVisit(v.id, bill);
-    if (bill.ok) visitsBilled++;
-    if (v.officerId) {
-      const pay = await payForOfficer(v.officerId, rateService, duration);
-      await applyPayToVisit(v.id, pay);
-    }
-  }
 
-  const jobWhere: any = {
+  const jobWhere: Prisma.JobWhereInput = {
     siteId: { not: null },
     status: { not: "CANCELLED" },
   };
@@ -114,30 +104,253 @@ export async function recalculateBilling(
       assignedToUserId: true,
       startedAt: true,
       completedAt: true,
+      customerId: true,
+      partnerId: true,
     },
-    take: 1000,
+    take: 5000,
   });
+
+  // ── Pre-fetch all the rates in two queries instead of N+1 ──────────
+  const siteIds = Array.from(
+    new Set<string>([
+      ...visits.map((v) => v.siteId).filter(Boolean),
+      ...jobs.map((j) => j.siteId).filter((id): id is string => Boolean(id)),
+    ]),
+  );
+  const officerIds = Array.from(
+    new Set<string>([
+      ...visits.map((v) => v.officerId).filter((id): id is string => Boolean(id)),
+      ...jobs
+        .map((j) => j.assignedToUserId)
+        .filter((id): id is string => Boolean(id)),
+    ]),
+  );
+
+  const [siteRates, officerRates, siteOwners] = await Promise.all([
+    siteIds.length > 0
+      ? prisma.siteRate.findMany({
+          where: { siteId: { in: siteIds } },
+          select: {
+            id: true,
+            siteId: true,
+            service: true,
+            amount: true,
+            currency: true,
+            unit: true,
+            includedMinutes: true,
+            excessRatePerMin: true,
+          },
+        })
+      : Promise.resolve([] as any[]),
+    officerIds.length > 0
+      ? prisma.officerRate.findMany({
+          where: { OR: [{ officerId: { in: officerIds } }, { officerId: null }] },
+          select: {
+            id: true,
+            officerId: true,
+            service: true,
+            amount: true,
+            currency: true,
+            unit: true,
+            includedMinutes: true,
+            excessRatePerMin: true,
+          },
+        })
+      : Promise.resolve([] as any[]),
+    // Pulled once and reused for the self-heal step on jobs. Only the
+    // ids we'll touch are loaded.
+    siteIds.length > 0
+      ? prisma.site.findMany({
+          where: { id: { in: siteIds } },
+          select: { id: true, customerId: true, partnerId: true },
+        })
+      : Promise.resolve([] as any[]),
+  ]);
+
+  const siteRatesByKey = new Map<string, typeof siteRates>();
+  for (const r of siteRates) {
+    const list = siteRatesByKey.get(r.siteId) ?? [];
+    list.push(r);
+    siteRatesByKey.set(r.siteId, list);
+  }
+  const officerRatesByKey = new Map<string, typeof officerRates>();
+  const companyRates: typeof officerRates = [];
+  for (const r of officerRates) {
+    if (r.officerId == null) {
+      companyRates.push(r);
+      continue;
+    }
+    const list = officerRatesByKey.get(r.officerId) ?? [];
+    list.push(r);
+    officerRatesByKey.set(r.officerId, list);
+  }
+  const siteOwnerById = new Map(
+    siteOwners.map((s) => [s.id, { customerId: s.customerId, partnerId: s.partnerId }]),
+  );
+
+  // ── Build per-row update payloads (sync) ───────────────────────────
+  type VisitUpdate = {
+    id: string;
+    bill: ReturnType<typeof calculateBilling>;
+    pay: ReturnType<typeof calculatePay> | null;
+  };
+  const visitUpdates: VisitUpdate[] = [];
+  for (const v of visits) {
+    const form = v.formSubmissions[0]?.form ?? "PATROL";
+    const rateService = jobTypeToRateService(form) as RateService | null;
+    if (!rateService) continue;
+    const duration = durationMinutes(v.arrivedAt, v.departedAt);
+    const rates = siteRatesByKey.get(v.siteId) ?? [];
+    const bill = calculateBilling(rates, rateService, duration);
+    let pay = null;
+    if (v.officerId) {
+      const officerSpecific = officerRatesByKey.get(v.officerId) ?? [];
+      const merged = [...officerSpecific, ...companyRates];
+      pay = calculatePay(merged, v.officerId, rateService, duration);
+    }
+    visitUpdates.push({ id: v.id, bill, pay });
+  }
+
+  type JobUpdate = {
+    id: string;
+    bill: ReturnType<typeof calculateBilling>;
+    pay: ReturnType<typeof calculatePay> | null;
+    backfillCustomerId: string | null;
+    backfillPartnerId: string | null;
+  };
+  const jobUpdates: JobUpdate[] = [];
+  let jobsAccountBackfilled = 0;
   for (const j of jobs) {
     if (!j.siteId) continue;
-    const rateService = jobTypeToRateService(j.type);
+    const rateService = jobTypeToRateService(j.type) as RateService | null;
     if (!rateService) continue;
     const duration = durationMinutes(j.startedAt, j.completedAt);
-    const bill = await billForSite(j.siteId, rateService, duration);
-    await applyBillingToJob(j.id, bill);
-    if (bill.ok) jobsBilled++;
+    const rates = siteRatesByKey.get(j.siteId) ?? [];
+    const bill = calculateBilling(rates, rateService, duration);
+    let pay = null;
     if (j.assignedToUserId) {
-      const pay = await payForOfficer(j.assignedToUserId, rateService, duration);
-      await applyPayToJob(j.id, pay);
+      const officerSpecific = officerRatesByKey.get(j.assignedToUserId) ?? [];
+      const merged = [...officerSpecific, ...companyRates];
+      pay = calculatePay(merged, j.assignedToUserId, rateService, duration);
     }
+    const owner = siteOwnerById.get(j.siteId);
+    const backfillCustomerId =
+      j.customerId == null && owner?.customerId ? owner.customerId : null;
+    const backfillPartnerId =
+      j.partnerId == null && owner?.partnerId ? owner.partnerId : null;
+    if (backfillCustomerId || backfillPartnerId) jobsAccountBackfilled++;
+    jobUpdates.push({
+      id: j.id,
+      bill,
+      pay,
+      backfillCustomerId,
+      backfillPartnerId,
+    });
+  }
+
+  // ── Write in parallel chunks ──────────────────────────────────────
+  const CHUNK = 25;
+  let visitsBilled = 0;
+  for (let i = 0; i < visitUpdates.length; i += CHUNK) {
+    await Promise.all(
+      visitUpdates.slice(i, i + CHUNK).map(async (u) => {
+        await prisma.patrolVisit.update({
+          where: { id: u.id },
+          data: visitDataFor(u.bill, u.pay),
+        });
+        if (u.bill.ok) visitsBilled++;
+      }),
+    );
+  }
+
+  let jobsBilled = 0;
+  for (let i = 0; i < jobUpdates.length; i += CHUNK) {
+    await Promise.all(
+      jobUpdates.slice(i, i + CHUNK).map(async (u) => {
+        await prisma.job.update({
+          where: { id: u.id },
+          data: {
+            ...jobDataFor(u.bill, u.pay),
+            ...(u.backfillCustomerId ? { customerId: u.backfillCustomerId } : {}),
+            ...(u.backfillPartnerId ? { partnerId: u.backfillPartnerId } : {}),
+          },
+        });
+        if (u.bill.ok) jobsBilled++;
+      }),
+    );
   }
 
   revalidatePath("/finance");
   revalidatePath("/dispatch");
+  revalidatePath("/activities");
   return {
     ok: true,
     visitsScanned: visits.length,
     visitsBilled,
     jobsScanned: jobs.length,
     jobsBilled,
+    jobsAccountBackfilled,
   };
+}
+
+function visitDataFor(
+  bill: ReturnType<typeof calculateBilling>,
+  pay: ReturnType<typeof calculatePay> | null,
+): Prisma.PatrolVisitUpdateInput {
+  const data: Prisma.PatrolVisitUpdateInput = bill.ok
+    ? {
+        billedAmount: new Prisma.Decimal(bill.amount),
+        billedCurrency: bill.currency,
+        billedAt: new Date(),
+        payRateUnit: bill.unit,
+      }
+    : {
+        billedAmount: null,
+        billedCurrency: null,
+        billedAt: null,
+        payRateUnit: null,
+      };
+  if (pay == null) {
+    // Officer not set — leave pay columns alone.
+  } else if (pay.ok) {
+    data.paidAmount = new Prisma.Decimal(pay.amount);
+    data.paidCurrency = pay.currency;
+    data.paidAt = new Date();
+  } else {
+    data.paidAmount = null;
+    data.paidCurrency = null;
+    data.paidAt = null;
+  }
+  return data;
+}
+
+function jobDataFor(
+  bill: ReturnType<typeof calculateBilling>,
+  pay: ReturnType<typeof calculatePay> | null,
+): Prisma.JobUncheckedUpdateInput {
+  const data: Prisma.JobUncheckedUpdateInput = bill.ok
+    ? {
+        billedAmount: new Prisma.Decimal(bill.amount),
+        billedCurrency: bill.currency,
+        billedAt: new Date(),
+        payRateUnit: bill.unit,
+      }
+    : {
+        billedAmount: null,
+        billedCurrency: null,
+        billedAt: null,
+        payRateUnit: null,
+      };
+  if (pay == null) {
+    // Officer not assigned — leave pay columns alone.
+  } else if (pay.ok) {
+    data.paidAmount = new Prisma.Decimal(pay.amount);
+    data.paidCurrency = pay.currency;
+    data.paidAt = new Date();
+  } else {
+    data.paidAmount = null;
+    data.paidCurrency = null;
+    data.paidAt = null;
+  }
+  return data;
 }
