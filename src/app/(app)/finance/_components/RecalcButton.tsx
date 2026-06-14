@@ -48,9 +48,13 @@ export function RecalcButton({
     startTransition(async () => {
       const r = await recalc(scope, { from, to });
       setLast(r);
+      const healedTail =
+        r.jobsAccountBackfilled > 0
+          ? ` · ${r.jobsAccountBackfilled} jobs reassigned to site owner`
+          : "";
       toast.show({
         tone: "success",
-        message: `${r.visitsBilled} visits · ${r.jobsBilled} jobs billed.`,
+        message: `${r.visitsBilled} visits · ${r.jobsBilled} jobs billed${healedTail}.`,
       });
       router.refresh();
     });

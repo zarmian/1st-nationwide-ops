@@ -347,7 +347,18 @@ export default async function FinancePage({
         paidAmount: true,
         siteId: true,
         site: {
-          select: { name: true, code: true },
+          select: {
+            name: true,
+            code: true,
+            // Pull the site's owner so jobs created before admin
+            // assigned a customer/partner to the site still bucket
+            // correctly — falls back to these when j.customerId /
+            // j.partnerId are null.
+            customerId: true,
+            customer: { select: { name: true } },
+            partnerId: true,
+            partner: { select: { name: true } },
+          },
         },
         customerId: true,
         customer: { select: { name: true } },
@@ -372,12 +383,16 @@ export default async function FinancePage({
     b.activities++;
   }
   for (const j of rangeJobs) {
-    const b = bucketFor(
-      j.customerId,
-      j.customer?.name ?? null,
-      j.partnerId,
-      j.partner?.name ?? null,
-    );
+    // Fall back to the site's owner when the Job's own column is null
+    // — happens for Jobs created before admin assigned the site's
+    // customer/partner. Recompute now self-heals these too, but we
+    // still want the read path to be correct without requiring it.
+    const customerId = j.customerId ?? j.site?.customerId ?? null;
+    const customerName =
+      j.customer?.name ?? j.site?.customer?.name ?? null;
+    const partnerId = j.partnerId ?? j.site?.partnerId ?? null;
+    const partnerName = j.partner?.name ?? j.site?.partner?.name ?? null;
+    const b = bucketFor(customerId, customerName, partnerId, partnerName);
     b.billed += Number(j.billedAmount ?? 0);
     b.paid += Number(j.paidAmount ?? 0);
     b.activities++;
@@ -468,7 +483,12 @@ export default async function FinancePage({
     }
   }
   for (const j of rangeJobs) {
-    const asCust = partnerBucket(j.partnerId, j.partner?.name);
+    // Same fallback as the P&L bucketing above — site's partner wins
+    // when the Job hasn't had its column backfilled yet.
+    const partnerIdForJob = j.partnerId ?? j.site?.partnerId ?? null;
+    const partnerNameForJob =
+      j.partner?.name ?? j.site?.partner?.name ?? null;
+    const asCust = partnerBucket(partnerIdForJob, partnerNameForJob);
     if (asCust) {
       asCust.asCustomer.activities++;
       asCust.asCustomer.billed += Number(j.billedAmount ?? 0);

@@ -298,6 +298,10 @@ export default async function ActivitiesPage({
                   name: true,
                   code: true,
                   region: { select: { name: true } },
+                  // Fallbacks for stale Jobs whose customerId/partnerId
+                  // hadn't been backfilled when the site got assigned.
+                  customer: { select: { id: true, name: true } },
+                  partner: { select: { id: true, name: true } },
                 },
               },
               customer: { select: { id: true, name: true } },
@@ -399,10 +403,10 @@ export default async function ActivitiesPage({
       siteCode: j.site?.code ?? null,
       siteName: j.site?.name ?? null,
       regionName: j.site?.region?.name ?? null,
-      customerId: j.customer?.id ?? null,
-      customerName: j.customer?.name ?? null,
-      partnerId: j.partner?.id ?? null,
-      partnerName: j.partner?.name ?? null,
+      customerId: j.customer?.id ?? j.site?.customer?.id ?? null,
+      customerName: j.customer?.name ?? j.site?.customer?.name ?? null,
+      partnerId: j.partner?.id ?? j.site?.partner?.id ?? null,
+      partnerName: j.partner?.name ?? j.site?.partner?.name ?? null,
       officerId: j.assignedTo?.id ?? null,
       officerName: j.handledByPartner
         ? `${j.handledByPartner.name} (partner)`
