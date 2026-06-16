@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   getResetCounts,
   resetData,
@@ -7,6 +6,7 @@ import {
 } from "./_actions";
 import { ResetPanel } from "./_components/ResetPanel";
 import { ImportPanel } from "./_components/ImportPanel";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -14,22 +14,13 @@ export default async function NexusImportPage() {
   const counts = await getResetCounts();
 
   return (
-    <div className="space-y-5 max-w-5xl">
-      <div>
-        <Link
-          href="/admin"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Admin
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Nexus CSV import
-        </h1>
-        <p className="text-sm text-slate-500 max-w-2xl">
-          Reset existing data, then upload the latest Nexus export. Always
-          safe to preview first — no DB writes happen until you click Import.
-        </p>
-      </div>
+    <div className="space-y-4 max-w-5xl">
+      <PageHeader
+        title="Nexus CSV import"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle="Reset existing data, then upload the latest Nexus export. Always safe to preview first — no DB writes happen until you click Import."
+      />
 
       <ResetPanel counts={counts} reset={resetData} />
       <ImportPanel preview={previewImport} commit={commitImport} />

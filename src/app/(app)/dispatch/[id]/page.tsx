@@ -7,6 +7,7 @@ import { QuickReassignJob } from "../../patrols/_components/QuickReassign";
 import { CancelJobButton } from "../_components/CancelJobButton";
 import { RestoreJobButton } from "../_components/RestoreJobButton";
 import { CloseActivityButton } from "../_components/CloseActivityButton";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -128,39 +129,30 @@ export default async function JobDetailPage({
 
   return (
     <div className="space-y-4 max-w-4xl">
-      <div>
-        <Link
-          href="/dispatch"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Dispatch
-        </Link>
-        <div className="flex items-center justify-between mt-1 flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-brand-navy">
-              {job.type.replace(/_/g, " ")}
-              {job.site ? ` @ ${job.site.name}` : ""}
-            </h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className={STATUS_TONE(job.status)}>
-                {job.status.replace(/_/g, " ")}
-              </span>
-              <span
-                className={
-                  job.priority === "HIGH" ? "chip-red" : "chip-slate"
-                }
-              >
-                {job.priority}
-              </span>
-              <span className="chip-slate">
-                {job.source.replace(/_/g, " ")}
-              </span>
-              {job.reportedViaPartnerApp && (
-                <span className="chip-amber">VIA PARTNER APP</span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+      <PageHeader
+        title={`${job.type.replace(/_/g, " ")}${job.site ? ` @ ${job.site.name}` : ""}`}
+        backHref="/dispatch"
+        backLabel="Dispatch"
+        subtitle={
+          <span className="flex items-center gap-2 flex-wrap">
+            <span className={STATUS_TONE(job.status)}>
+              {job.status.replace(/_/g, " ")}
+            </span>
+            <span
+              className={job.priority === "HIGH" ? "chip-red" : "chip-slate"}
+            >
+              {job.priority}
+            </span>
+            <span className="chip-slate">
+              {job.source.replace(/_/g, " ")}
+            </span>
+            {job.reportedViaPartnerApp && (
+              <span className="chip-amber">VIA PARTNER APP</span>
+            )}
+          </span>
+        }
+        actions={
+          <>
             {me.role === "ADMIN" && job.status === "CANCELLED" && (
               <RestoreJobButton
                 jobId={job.id}
@@ -193,9 +185,9 @@ export default async function JobDetailPage({
                 jobLabel={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
               />
             )}
-          </div>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card p-4 space-y-2">

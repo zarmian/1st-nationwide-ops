@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { FormTemplateForm, type FieldRow } from "../_components/FormTemplateForm";
 import { createTemplate } from "../_actions";
 import { parseFields, SUBMISSION_FORM_LABEL } from "@/lib/formTemplates";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -67,24 +68,22 @@ export default async function NewFormTemplatePage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/admin/forms/new"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Back to picker
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          New form template
-        </h1>
-        {blueprint && (
-          <p className="text-sm text-slate-500 mt-0.5">
-            Pre-filled from blueprint{" "}
-            <span className="font-medium text-slate-700">{blueprint.name}</span>
-            . Edit anything before saving — it's just a copy.
-          </p>
-        )}
-      </div>
+      <PageHeader
+        title="New form template"
+        backHref="/admin/forms/new"
+        backLabel="Back to picker"
+        subtitle={
+          blueprint ? (
+            <>
+              Pre-filled from blueprint{" "}
+              <span className="font-medium text-slate-700">
+                {blueprint.name}
+              </span>
+              . Edit anything before saving — it's just a copy.
+            </>
+          ) : undefined
+        }
+      />
       <FormTemplateForm
         action={createTemplate}
         submitLabel="Create template"
@@ -122,22 +121,12 @@ function BlueprintPicker({
 }) {
   return (
     <div className="space-y-5 max-w-4xl">
-      <div>
-        <Link
-          href="/admin/forms"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Form templates
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Choose a starting point
-        </h1>
-        <p className="text-sm text-slate-500 max-w-2xl">
-          Pick a blueprint to pre-fill the fields, or start blank. After
-          creating, you'll be able to change anything — the blueprint is just a
-          copy.
-        </p>
-      </div>
+      <PageHeader
+        title="Choose a starting point"
+        backHref="/admin/forms"
+        backLabel="Form templates"
+        subtitle="Pick a blueprint to pre-fill the fields, or start blank. After creating, you'll be able to change anything — the blueprint is just a copy."
+      />
 
       <div className="grid sm:grid-cols-2 gap-3">
         <Link

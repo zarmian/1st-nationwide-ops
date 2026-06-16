@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { handoverKeySet, updateKeySet } from "../../keys/_actions";
 import { KeySetForm } from "./_components/KeySetForm";
 import { KeySetHandoverForm } from "./_components/KeySetHandoverForm";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -70,32 +71,28 @@ export default async function KeySetPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/keys"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← All keys
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          {set.label}
-        </h1>
-        <p className="text-sm text-slate-500">
-          Set · {set.keys.length} key{set.keys.length === 1 ? "" : "s"}
-          {set.site && (
-            <>
-              {" · "}
-              <Link
-                href={`/sites/${set.site.id}`}
-                className="hover:text-brand-blue-dark"
-              >
-                {set.site.name}
-              </Link>
-            </>
-          )}
-          {set.internalNo && ` · ${set.internalNo}`}
-        </p>
-      </div>
+      <PageHeader
+        title={set.label}
+        backHref="/keys"
+        backLabel="All keys"
+        subtitle={
+          <>
+            Set · {set.keys.length} key{set.keys.length === 1 ? "" : "s"}
+            {set.site && (
+              <>
+                {" · "}
+                <Link
+                  href={`/sites/${set.site.id}`}
+                  className="hover:text-brand-blue-dark"
+                >
+                  {set.site.name}
+                </Link>
+              </>
+            )}
+            {set.internalNo && ` · ${set.internalNo}`}
+          </>
+        }
+      />
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-5">
         <div className="space-y-4">

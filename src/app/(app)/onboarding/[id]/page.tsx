@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { StageAdvancer } from "./_components/StageAdvancer";
 import { SetupJobs } from "./_components/SetupJobs";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -56,34 +57,29 @@ export default async function OnboardingDetailPage({
   if (!pipeline) notFound();
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <Link
-          href="/onboarding"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Onboarding
-        </Link>
-        <div className="flex items-start justify-between gap-4 mt-1">
-          <div>
-            <h1 className="text-2xl font-semibold text-brand-navy">
-              {pipeline.site.name}
-            </h1>
-            <p className="text-sm text-slate-600">
-              {pipeline.site.addressLine} · {pipeline.site.postcodeFormatted}
-              {pipeline.site.region && ` · ${pipeline.site.region.name}`}
-            </p>
-            <p className="text-xs text-slate-500 mt-1">
+    <div className="space-y-4 max-w-4xl">
+      <PageHeader
+        title={pipeline.site.name}
+        backHref="/onboarding"
+        backLabel="Onboarding"
+        subtitle={
+          <>
+            {pipeline.site.addressLine} · {pipeline.site.postcodeFormatted}
+            {pipeline.site.region && ` · ${pipeline.site.region.name}`}
+            <br />
+            <span className="text-xs">
               {pipeline.site.customer?.name ??
                 pipeline.site.partner?.name ??
                 "No customer/partner assigned yet"}
-            </p>
-          </div>
+            </span>
+          </>
+        }
+        actions={
           <span className={STAGE_TONE[pipeline.stage]}>
             {STAGE_LABEL[pipeline.stage]}
           </span>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid md:grid-cols-3 gap-4">
         <div className="card p-4">

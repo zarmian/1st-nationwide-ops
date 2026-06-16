@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { BlueprintForm } from "../../_components/BlueprintForm";
@@ -6,6 +5,7 @@ import { updateBlueprint, deleteBlueprint } from "../../_actions";
 import { parseFields } from "@/lib/formTemplates";
 import type { FieldRow } from "../../../forms/_components/FieldEditor";
 import { DeleteBlueprintButton } from "./_components/DeleteBlueprintButton";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -34,17 +34,11 @@ export default async function EditBlueprintPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/admin/blueprints"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Form blueprints
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Edit {bp.name}
-        </h1>
-      </div>
+      <PageHeader
+        title={`Edit ${bp.name}`}
+        backHref="/admin/blueprints"
+        backLabel="Form blueprints"
+      />
 
       <BlueprintForm
         action={action}

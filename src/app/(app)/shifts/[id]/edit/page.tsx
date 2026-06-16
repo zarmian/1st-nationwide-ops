@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 import { updateShift } from "../../_actions";
 import { NewShiftForm } from "../../_components/NewShiftForm";
 
@@ -60,17 +60,11 @@ export default async function EditShiftPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href={`/shifts/${shift.id}`}
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Back to shift
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Edit shift
-        </h1>
-      </div>
+      <PageHeader
+        title="Edit shift"
+        backHref={`/shifts/${shift.id}`}
+        backLabel="Back to shift"
+      />
 
       <NewShiftForm
         action={action}

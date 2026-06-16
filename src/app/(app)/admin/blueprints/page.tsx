@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { SUBMISSION_FORM_LABEL, parseFields } from "@/lib/formTemplates";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -14,28 +15,24 @@ export default async function BlueprintsAdminPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <Link
-            href="/admin"
-            className="text-sm text-slate-500 hover:text-brand-blue-dark"
-          >
-            ← Admin
-          </Link>
-          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-            Form blueprints
-          </h1>
-          <p className="text-sm text-slate-500 max-w-2xl">
+      <PageHeader
+        title="Form blueprints"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle={
+          <>
             Reusable starting points for form templates. When you create a
             template at <span className="font-medium">/admin/forms/new</span>{" "}
             you can pick a blueprint to pre-fill the fields, then tweak per
             customer.
-          </p>
-        </div>
-        <Link href="/admin/blueprints/new" className="btn-primary">
-          + New blueprint
-        </Link>
-      </div>
+          </>
+        }
+        actions={
+          <Link href="/admin/blueprints/new" className="btn-primary">
+            + New blueprint
+          </Link>
+        }
+      />
 
       <div className="card overflow-hidden">
         <table className="w-full text-sm">

@@ -1,23 +1,17 @@
-import Link from "next/link";
 import { CustomerForm } from "../_components/CustomerForm";
 import { createCustomer } from "../_actions";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
 export default function NewCustomerPage() {
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/admin/customers"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Customers
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          New customer
-        </h1>
-      </div>
+      <PageHeader
+        title="New customer"
+        backHref="/admin/customers"
+        backLabel="Customers"
+      />
       <CustomerForm
         action={createCustomer}
         submitLabel="Create customer"

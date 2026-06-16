@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 import { requireStaff } from "@/lib/authz";
 import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
 import { updateJob } from "../../_actions";
@@ -77,23 +77,12 @@ export default async function EditJobPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href={`/dispatch/${job.id}`}
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Back to job
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Edit job
-        </h1>
-        <p className="text-sm text-slate-500 max-w-2xl">
-          Admin override for any Job's content. Status / cancellation
-          flow through their own buttons elsewhere — they're not free-text
-          editable here. Saved changes appear immediately in dispatch and
-          the activities log.
-        </p>
-      </div>
+      <PageHeader
+        title="Edit job"
+        backHref={`/dispatch/${job.id}`}
+        backLabel="Back to job"
+        subtitle="Admin override for any Job's content. Status / cancellation flow through their own buttons elsewhere — they're not free-text editable here. Saved changes appear immediately in dispatch and the activities log."
+      />
 
       <EditJobForm
         job={editableJob}

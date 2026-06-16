@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { handoverKey } from "../_actions";
 import { HandoverForm } from "./_components/HandoverForm";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -71,54 +72,52 @@ export default async function KeyDetailPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/keys"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← All keys
-        </Link>
-        <div className="flex items-baseline gap-3 mt-1">
-          <h1 className="text-2xl font-semibold text-brand-navy">
-            {key.label}
-          </h1>
-          <span className={STATUS_TONE[key.status] ?? "chip-slate"}>
-            {STATUS_LABEL[key.status] ?? key.status}
+      <PageHeader
+        title={key.label}
+        backHref="/keys"
+        backLabel="All keys"
+        subtitle={
+          <span className="flex items-center gap-2 flex-wrap">
+            <span className={STATUS_TONE[key.status] ?? "chip-slate"}>
+              {STATUS_LABEL[key.status] ?? key.status}
+            </span>
+            <span>
+              {key.internalNo ? `${key.internalNo} · ` : ""}
+              {key.type.charAt(0) + key.type.slice(1).toLowerCase()}
+              {key.site && (
+                <>
+                  {" · "}
+                  <Link
+                    href={`/sites/${key.site.id}`}
+                    className="hover:text-brand-blue-dark"
+                  >
+                    {key.site.name}
+                  </Link>
+                </>
+          )}
+              {key.keySet && (
+                <>
+                  {" · Set: "}
+                  <Link
+                    href={`/key-sets/${key.keySet.id}`}
+                    className="hover:text-brand-blue-dark"
+                  >
+                    {key.keySet.label}
+                  </Link>
+                </>
+              )}
+            </span>
           </span>
+        }
+        actions={
           <Link
             href={`/keys/${key.id}/edit`}
-            className="btn-secondary text-xs ml-auto"
+            className="btn-secondary text-sm"
           >
             Edit
           </Link>
-        </div>
-        <p className="text-sm text-slate-500">
-          {key.internalNo ? `${key.internalNo} · ` : ""}
-          {key.type.charAt(0) + key.type.slice(1).toLowerCase()}
-          {key.site && (
-            <>
-              {" · "}
-              <Link
-                href={`/sites/${key.site.id}`}
-                className="hover:text-brand-blue-dark"
-              >
-                {key.site.name}
-              </Link>
-            </>
-          )}
-          {key.keySet && (
-            <>
-              {" · Set: "}
-              <Link
-                href={`/key-sets/${key.keySet.id}`}
-                className="hover:text-brand-blue-dark"
-              >
-                {key.keySet.label}
-              </Link>
-            </>
-          )}
-        </p>
-      </div>
+        }
+      />
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-5">
         <div className="card overflow-hidden">

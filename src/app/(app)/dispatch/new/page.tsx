@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { createJob } from "../_actions";
+import { PageHeader } from "@/components/PageHeader";
 import { NewJobForm } from "../_components/NewJobForm";
 import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
 
@@ -49,22 +49,12 @@ export default async function NewJobPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/dispatch"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Dispatch
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          New job
-        </h1>
-        <p className="text-sm text-slate-500 max-w-2xl">
-          Create a one-off job — alarm response, ad-hoc, lock/unlock, key
-          movement, VPI, or one-off patrol. Static guarding / dog handler
-          shifts use a different flow (coming soon).
-        </p>
-      </div>
+      <PageHeader
+        title="New job"
+        backHref="/dispatch"
+        backLabel="Dispatch"
+        subtitle="Create a one-off job — alarm response, ad-hoc, lock/unlock, key movement, VPI, or one-off patrol. Static guarding / dog handler shifts use a different flow (coming soon)."
+      />
 
       <NewJobForm
         action={createJob}

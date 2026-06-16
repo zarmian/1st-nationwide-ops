@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { FilterPanel } from "@/components/FilterPanel";
 import { retryNotification, flushQueueNow } from "./_actions";
+import { PageHeader } from "@/components/PageHeader";
 import { RetryButton, FlushButton } from "./_components/RetryButton";
 
 export const dynamic = "force-dynamic";
@@ -69,18 +70,12 @@ export default async function NotificationsPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <Link
-            href="/admin"
-            className="text-sm text-slate-500 hover:text-brand-blue-dark"
-          >
-            ← Admin
-          </Link>
-          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-            WhatsApp notifications
-          </h1>
-          <p className="text-sm text-slate-500 max-w-2xl">
+      <PageHeader
+        title="WhatsApp notifications"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle={
+          <>
             Outbound queue. The /api/cron/whatsapp-queue cron drains every
             minute. Officers / dispatchers receive notifications based on{" "}
             <Link
@@ -90,10 +85,10 @@ export default async function NotificationsPage({
               their WhatsApp number
             </Link>{" "}
             being set.
-          </p>
-        </div>
-        <FlushButton flush={flushQueueNow} />
-      </div>
+          </>
+        }
+        actions={<FlushButton flush={flushQueueNow} />}
+      />
 
       {!configured && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">

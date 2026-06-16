@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -75,31 +76,23 @@ export default async function AlarmEventDetailPage({
 
   return (
     <div className="space-y-4 max-w-4xl">
-      <div>
-        <Link
-          href={`/sites/${alarm.site.id}/edit`}
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← {alarm.site.name}
-        </Link>
-        <div className="flex items-center justify-between mt-1 flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-brand-navy">
-              Alarm event
-            </h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="chip-slate">
-                {alarm.source.replace(/_/g, " ").toLowerCase()}
-              </span>
-              <PriorityChip p={alarm.priority} />
-              <OutcomeChip o={alarm.outcome} />
-              {responseMins != null && (
-                <span className="chip-mint">{responseMins} min response</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Alarm event"
+        backHref={`/sites/${alarm.site.id}/edit`}
+        backLabel={alarm.site.name}
+        subtitle={
+          <span className="flex items-center gap-2 flex-wrap">
+            <span className="chip-slate">
+              {alarm.source.replace(/_/g, " ").toLowerCase()}
+            </span>
+            <PriorityChip p={alarm.priority} />
+            <OutcomeChip o={alarm.outcome} />
+            {responseMins != null && (
+              <span className="chip-mint">{responseMins} min response</span>
+            )}
+          </span>
+        }
+      />
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card p-4 space-y-2">

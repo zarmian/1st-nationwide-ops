@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { OfficerForm } from "../_components/OfficerForm";
 import { createOfficer } from "../_actions";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -10,17 +10,7 @@ export default async function NewOfficerPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/officers"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Officers
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          New officer
-        </h1>
-      </div>
+      <PageHeader title="New officer" backHref="/officers" backLabel="Officers" />
       <OfficerForm
         action={createOfficer}
         submitLabel="Create officer"

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { DeleteShiftButton } from "../_components/DeleteShiftButton";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -81,36 +82,31 @@ export default async function ShiftDetailPage({
 
   return (
     <div className="space-y-5 max-w-4xl">
-      <div>
-        <Link
-          href="/shifts"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Shifts
-        </Link>
-        <div className="flex items-baseline justify-between gap-3 mt-1">
-          <div className="flex items-baseline gap-3">
-            <h1 className="text-2xl font-semibold text-brand-navy">
-              {shift.site.code ? `${shift.site.code} · ` : ""}
-              {shift.site.name}
-            </h1>
+      <PageHeader
+        title={`${shift.site.code ? `${shift.site.code} · ` : ""}${shift.site.name}`}
+        backHref="/shifts"
+        backLabel="Shifts"
+        subtitle={
+          <span className="flex items-center gap-2 flex-wrap">
             <span className={STATUS_TONE[shift.status] ?? "chip-slate"}>
               {shift.status.toLowerCase().replace("_", " ")}
             </span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
+            <span>
+              {TYPE_LABEL[shift.type] ?? shift.type} ·{" "}
+              {shift.officer?.name ?? "unassigned"} · every{" "}
+              {shift.checkIntervalMin} min (+{shift.graceMinutes} grace)
+            </span>
+          </span>
+        }
+        actions={
+          <>
             <Link href={`/shifts/${shift.id}/edit`} className="btn-secondary">
               Edit
             </Link>
             <DeleteShiftButton shiftId={shift.id} />
-          </div>
-        </div>
-        <p className="text-sm text-slate-500 mt-1">
-          {TYPE_LABEL[shift.type] ?? shift.type} ·{" "}
-          {shift.officer?.name ?? "unassigned"} · every{" "}
-          {shift.checkIntervalMin} min (+{shift.graceMinutes} grace)
-        </p>
-      </div>
+          </>
+        }
+      />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="card p-4">

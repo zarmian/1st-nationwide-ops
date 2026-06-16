@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { createShift } from "../_actions";
 import { NewShiftForm } from "../_components/NewShiftForm";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -21,20 +21,12 @@ export default async function NewShiftPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/shifts"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Shifts
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          New shift
-        </h1>
-        <p className="text-sm text-slate-500">
-          Static guarding or dog-handler shift with periodic hourly check-ins.
-        </p>
-      </div>
+      <PageHeader
+        title="New shift"
+        backHref="/shifts"
+        backLabel="Shifts"
+        subtitle="Static guarding or dog-handler shift with periodic hourly check-ins."
+      />
 
       <NewShiftForm action={createShift} sites={sites} officers={officers} />
     </div>

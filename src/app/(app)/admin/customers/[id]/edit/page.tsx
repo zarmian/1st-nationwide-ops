@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { CustomerForm } from "../../_components/CustomerForm";
 import { updateCustomer } from "../../_actions";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -21,17 +21,11 @@ export default async function EditCustomerPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/admin/customers"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Customers
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Edit {customer.name}
-        </h1>
-      </div>
+      <PageHeader
+        title={`Edit ${customer.name}`}
+        backHref="/admin/customers"
+        backLabel="Customers"
+      />
       <CustomerForm
         action={action}
         submitLabel="Save changes"

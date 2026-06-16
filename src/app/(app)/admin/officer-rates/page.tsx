@@ -1,8 +1,8 @@
-import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { upsertOfficerRate, deleteOfficerRate } from "./_actions";
 import { RateForm } from "./_components/RateForm";
 import { DeleteRateButton } from "./_components/DeleteButton";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -50,23 +50,19 @@ export default async function OfficerRatesPage() {
 
   return (
     <div className="section">
-      <div>
-        <Link
-          href="/admin"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Admin
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Officer pay rates
-        </h1>
-        <p className="text-sm text-slate-500 max-w-2xl">
-          Company defaults apply to all officers unless a per-officer override
-          exists for the same service. Monthly retainer = the standing charge
-          paid regardless of activity (use service "Monthly retainer", unit
-          "per month").
-        </p>
-      </div>
+      <PageHeader
+        title="Officer pay rates"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle={
+          <>
+            Company defaults apply to all officers unless a per-officer
+            override exists for the same service. Monthly retainer = the
+            standing charge paid regardless of activity (use service
+            "Monthly retainer", unit "per month").
+          </>
+        }
+      />
 
       <RateForm action={upsertOfficerRate} officers={officers} />
 
