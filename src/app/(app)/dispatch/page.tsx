@@ -6,6 +6,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { StatusDot } from "@/components/StatusDot";
 import { DataTable } from "@/components/DataTable";
+import { PageHeader } from "@/components/PageHeader";
 import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 import { CancelJobButton } from "./_components/CancelJobButton";
@@ -643,45 +644,41 @@ export default async function DispatchPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Dispatch</h1>
-          <p className="text-sm text-slate-500">Live jobs across all sites</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <SyncSchedulesButton />
-          <Link
-            href="/dispatch/callouts/new"
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:border-brand-navy hover:text-brand-navy transition text-left"
-            title="Log a callout that's already been handled"
-          >
-            <History size={16} className="text-slate-500 shrink-0" />
-            <span className="leading-tight">
-              <span className="block text-sm font-medium text-brand-navy">
-                Record callout
+      <PageHeader
+        title="Dispatch"
+        subtitle="Live jobs across all sites"
+        actions={
+          <>
+            <SyncSchedulesButton />
+            <Link
+              href="/dispatch/callouts/new"
+              className="btn-secondary text-left"
+              title="Log a callout that's already been handled"
+            >
+              <History size={16} className="shrink-0" />
+              <span className="leading-tight">
+                <span className="block">Record callout</span>
+                <span className="block text-[10px] font-normal opacity-70">
+                  Log a past activity
+                </span>
               </span>
-              <span className="block text-[10px] text-slate-500">
-                Log a past activity
+            </Link>
+            <Link
+              href="/dispatch/new"
+              className="btn-primary text-left"
+              title="Schedule a new job for the future"
+            >
+              <CalendarPlus size={16} className="shrink-0" />
+              <span className="leading-tight">
+                <span className="block">New job</span>
+                <span className="block text-[10px] font-normal opacity-80">
+                  Schedule for the future
+                </span>
               </span>
-            </span>
-          </Link>
-          <Link
-            href="/dispatch/new"
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-brand-blue text-white hover:bg-brand-blue-dark transition text-left shadow-card"
-            title="Schedule a new job for the future"
-          >
-            <CalendarPlus size={16} className="text-white shrink-0" />
-            <span className="leading-tight">
-              <span className="block text-sm font-medium">
-                New job
-              </span>
-              <span className="block text-[10px] text-white/80">
-                Schedule for the future
-              </span>
-            </span>
-          </Link>
-        </div>
-      </div>
+            </Link>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {BUCKETS.map((b) => {
@@ -822,8 +819,8 @@ export default async function DispatchPage({
         rows={rows}
         emptyState={
           <div className="space-y-3">
-            <p>No live activities.</p>
-            <Link href="/dispatch/new" className="btn-primary text-sm inline-block">
+            <p className="empty-title">No live activities.</p>
+            <Link href="/dispatch/new" className="btn-primary text-sm inline-flex">
               + Create a job
             </Link>
           </div>
@@ -1068,45 +1065,52 @@ export default async function DispatchPage({
             Nothing completed in the last two days.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
-            <li className="hidden md:grid grid-cols-[140px_1.2fr_1.5fr_1fr] gap-3 px-4 py-2 text-xs uppercase tracking-wider text-slate-500 font-medium bg-slate-50">
-              <span>When</span>
-              <span>Activity</span>
-              <span>Site</span>
-              <span>Officer</span>
-            </li>
-            {recentLimited.map((r) => {
-              const { day, time } = fmtRecent(r.at);
-              return (
-                <li key={r.id}>
-                  <Link
-                    href={r.href}
-                    className="grid md:grid-cols-[140px_1.2fr_1.5fr_1fr] gap-1 md:gap-3 px-4 py-2.5 hover:bg-brand-blue-50/40 transition"
-                  >
-                    <span className="text-sm text-slate-700 tabular-nums leading-tight">
-                      <span className="font-medium text-brand-navy">
-                        {day}
-                      </span>{" "}
-                      <span className="text-slate-500">{time}</span>
-                    </span>
-                    <span className="text-sm text-brand-navy font-medium">
-                      {r.typeLabel}
-                    </span>
-                    <span className="text-sm text-slate-700">
-                      {r.siteName ?? (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </span>
-                    <span className="text-sm text-slate-700">
-                      {r.officerName ?? (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="overflow-x-auto">
+            <table className="table-default">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>Activity</th>
+                  <th>Site</th>
+                  <th>Officer</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentLimited.map((r) => {
+                  const { day, time } = fmtRecent(r.at);
+                  return (
+                    <tr key={r.id}>
+                      <td className="whitespace-nowrap tabular-nums">
+                        <Link
+                          href={r.href}
+                          className="text-brand-navy hover:text-brand-blue-dark"
+                        >
+                          <span className="font-medium">{day}</span>{" "}
+                          <span className="text-slate-500">{time}</span>
+                        </Link>
+                      </td>
+                      <td>
+                        <Link
+                          href={r.href}
+                          className="font-medium text-brand-navy hover:text-brand-blue-dark"
+                        >
+                          {r.typeLabel}
+                        </Link>
+                      </td>
+                      <td className="text-slate-700">
+                        {r.siteName ?? <span className="text-slate-400">—</span>}
+                      </td>
+                      <td className="text-slate-700">
+                        {r.officerName ?? (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -58,17 +59,15 @@ export default async function ShiftsPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Shifts</h1>
-          <p className="text-sm text-slate-500">
-            Static guarding and dog-handler shifts with hourly check-ins.
-          </p>
-        </div>
-        <Link href="/shifts/new" className="btn-primary">
-          + New shift
-        </Link>
-      </div>
+      <PageHeader
+        title="Shifts"
+        subtitle="Static guarding and dog-handler shifts with hourly check-ins."
+        actions={
+          <Link href="/shifts/new" className="btn-primary">
+            + New shift
+          </Link>
+        }
+      />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
         {(["PENDING", "IN_PROGRESS", "COMPLETED", "MISSED", "ABANDONED"] as const).map((s) => (

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { SitesToolbar } from "./_components/SitesToolbar";
+import { PageHeader } from "@/components/PageHeader";
 import { SitesTable, type SiteRow } from "./_components/SitesTable";
 import { SitesMap, type OwnerLegend } from "./_components/SitesMap";
 import { siteOwner } from "@/lib/entityColor";
@@ -182,17 +183,15 @@ export default async function SitesPage({
 
   return (
     <div className="section">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Sites</h1>
-          <p className="text-sm text-slate-500">
-            Single source of truth for every site we cover.
-          </p>
-        </div>
-        <Link href="/sites/new" className="btn-primary">
-          + New site
-        </Link>
-      </div>
+      <PageHeader
+        title="Sites"
+        subtitle="Single source of truth for every site we cover."
+        actions={
+          <Link href="/sites/new" className="btn-primary">
+            + New site
+          </Link>
+        }
+      />
 
       <SitesToolbar
         regions={regions.map((r) => ({ name: r.name }))}

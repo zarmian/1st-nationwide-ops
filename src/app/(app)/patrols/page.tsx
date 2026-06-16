@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { FilterPanel } from "@/components/FilterPanel";
+import { PageHeader } from "@/components/PageHeader";
 import {
   reassignJob,
   reassignLockUnlockSchedule,
@@ -188,13 +189,10 @@ export default async function PatrolsPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Schedules</h1>
-        <p className="text-sm text-slate-500">
-          Recurring work across all sites — patrols, VPI, lock-ups, unlocks
-          — plus what's coming up over the next 14 days.
-        </p>
-      </div>
+      <PageHeader
+        title="Schedules"
+        subtitle="Recurring work across all sites — patrols, VPI, lock-ups, unlocks — plus what's coming up over the next 14 days."
+      />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
         {[

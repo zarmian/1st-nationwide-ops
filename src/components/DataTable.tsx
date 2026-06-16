@@ -58,21 +58,22 @@ export function DataTable<T extends { id?: string | number }>(props: {
 
   return (
     <div className="card overflow-hidden">
-      {/* Desktop: real table */}
-      <table className="w-full text-sm hidden md:table">
+      {/* Desktop: real table. Uses the shared .table-default skeleton so
+          every list in the app (dispatch, sites, officers …) matches the
+          raw .table-default tables on /activities + /finance. */}
+      <table className="table-default hidden md:table">
         {caption && (
           <caption className="px-4 py-3 text-xs text-slate-500 text-left bg-slate-50 border-b border-slate-100">
             {caption}
           </caption>
         )}
-        <thead className="bg-slate-50 text-slate-600">
+        <thead>
           <tr>
             {desktopCols.map((c, i) => (
               <th
                 key={i}
                 className={
-                  "px-4 py-2 font-medium uppercase tracking-wider text-xs " +
-                  (c.align === "right" ? "text-right" : "text-left") +
+                  (c.align === "right" ? "text-right" : "") +
                   (c.className ? " " + c.className : "")
                 }
                 scope="col"
@@ -82,21 +83,19 @@ export function DataTable<T extends { id?: string | number }>(props: {
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody>
           {rows.map((row) => {
             const href = rowHref?.(row) ?? null;
             return (
               <tr
                 key={rowKey(row)}
-                className={
-                  href ? "hover:bg-slate-50 cursor-pointer" : "hover:bg-slate-50"
-                }
+                className={href ? "cursor-pointer" : ""}
               >
                 {desktopCols.map((c, i) => (
                   <td
                     key={i}
                     className={
-                      "px-4 py-2.5 align-top " +
+                      "align-top " +
                       (c.align === "right" ? "text-right" : "text-left") +
                       (c.className ? " " + c.className : "")
                     }

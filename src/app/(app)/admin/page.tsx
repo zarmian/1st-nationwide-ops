@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -102,12 +103,10 @@ export default async function AdminHubPage() {
 
   return (
     <div className="section">
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Admin</h1>
-        <p className="text-sm text-slate-500">
-          Manage the lookup data behind sites and jobs.
-        </p>
-      </div>
+      <PageHeader
+        title="Admin"
+        subtitle="Manage the lookup data behind sites and jobs."
+      />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {cards.map((c) => (

@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 import Link from "next/link";
 import { VisitCard } from "./_components/VisitCard";
 import { OnDutyBanner } from "./_components/OnDutyBanner";
@@ -120,16 +121,18 @@ export default async function OfficerTodayPage() {
   return (
     <div className="section">
       <AutoRefresh />
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Your work</h1>
-        <p className="text-sm text-slate-500">
-          {totalVisits} patrol{totalVisits === 1 ? "" : "s"}
-          {jobs.length > 0
-            ? ` · ${jobs.length} job${jobs.length === 1 ? "" : "s"}`
-            : ""}{" "}
-          assigned to you for the next 2 days.
-        </p>
-      </div>
+      <PageHeader
+        title="Your work"
+        subtitle={
+          <>
+            {totalVisits} patrol{totalVisits === 1 ? "" : "s"}
+            {jobs.length > 0
+              ? ` · ${jobs.length} job${jobs.length === 1 ? "" : "s"}`
+              : ""}{" "}
+            assigned to you for the next 2 days.
+          </>
+        }
+      />
 
       <InstallHint />
       <OnDutyBanner initialOnDuty={me?.onDuty ?? false} setOnDuty={setMyOnDuty} />

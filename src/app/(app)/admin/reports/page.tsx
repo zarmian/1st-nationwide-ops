@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -38,15 +39,15 @@ export default async function AdminReportsPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">
-          Review queue
-        </h1>
-        <p className="text-sm text-slate-500">
-          {queue.length} submission{queue.length === 1 ? "" : "s"} awaiting
-          review before client send
-        </p>
-      </div>
+      <PageHeader
+        title="Review queue"
+        subtitle={
+          <>
+            {queue.length} submission{queue.length === 1 ? "" : "s"} awaiting
+            review before client send
+          </>
+        }
+      />
 
       {/* Desktop: full table. Mobile: stacked card list — the table's
           7 columns plus a Review button can't fit on a phone, the

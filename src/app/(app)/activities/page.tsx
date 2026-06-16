@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { PageHeader } from "@/components/PageHeader";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -609,10 +610,10 @@ export default async function ActivitiesPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Activities</h1>
-          <p className="text-sm text-slate-500">
+      <PageHeader
+        title="Activities"
+        subtitle={
+          <>
             Every completed job and visit, filterable by date, account,
             officer, site, service and region.
             {accountLabel ? (
@@ -621,15 +622,17 @@ export default async function ActivitiesPage({
                 <span className="font-medium text-brand-navy">{accountLabel}</span>.
               </>
             ) : null}
-          </p>
-        </div>
-        <Link
-          href={`/api/activities/export${exportParams.toString() ? `?${exportParams}` : ""}`}
-          className="btn-secondary text-sm"
-        >
-          Export CSV
-        </Link>
-      </div>
+          </>
+        }
+        actions={
+          <Link
+            href={`/api/activities/export${exportParams.toString() ? `?${exportParams}` : ""}`}
+            className="btn-secondary text-sm"
+          >
+            Export CSV
+          </Link>
+        }
+      />
 
       <FilterPanel
         clearAllHref="/activities"
