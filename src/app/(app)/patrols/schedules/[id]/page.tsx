@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -95,41 +96,34 @@ export default async function PatrolScheduleDetailPage({
 
   return (
     <div className="space-y-4 max-w-4xl">
-      <div>
-        <Link
-          href="/patrols"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Patrols
-        </Link>
-        <div className="flex items-center justify-between mt-1 flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-brand-navy">
-              {schedule.kind === "VPI" ? "VPI" : "Patrol"} schedule
-              {schedule.site ? ` @ ${schedule.site.name}` : ""}
-            </h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="chip-slate">
-                {DAY_LABEL[schedule.dayOfWeek] ?? schedule.dayOfWeek}
-              </span>
-              <span className="chip-slate">
-                {FREQ_LABEL[schedule.frequency] ?? schedule.frequency}
-              </span>
-              {schedule.active ? (
-                <span className="chip-mint">Active</span>
-              ) : (
-                <span className="chip-red">Paused</span>
-              )}
-            </div>
-          </div>
+      <PageHeader
+        title={`${schedule.kind === "VPI" ? "VPI" : "Patrol"} schedule${schedule.site ? ` @ ${schedule.site.name}` : ""}`}
+        backHref="/patrols"
+        backLabel="Patrols"
+        subtitle={
+          <span className="flex items-center gap-2 flex-wrap">
+            <span className="chip-slate">
+              {DAY_LABEL[schedule.dayOfWeek] ?? schedule.dayOfWeek}
+            </span>
+            <span className="chip-slate">
+              {FREQ_LABEL[schedule.frequency] ?? schedule.frequency}
+            </span>
+            {schedule.active ? (
+              <span className="chip-mint">Active</span>
+            ) : (
+              <span className="chip-red">Paused</span>
+            )}
+          </span>
+        }
+        actions={
           <Link
             href={`/sites/${schedule.site.id}/edit#${editAnchor}`}
             className="btn-secondary text-sm"
           >
             Edit on site →
           </Link>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card p-4 space-y-2">

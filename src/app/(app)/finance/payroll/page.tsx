@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
 import { buildPayrollReport } from "@/lib/payroll";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -50,27 +51,23 @@ export default async function PayrollPage({
 
   return (
     <div className="section">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <Link
-            href="/finance"
-            className="text-sm text-slate-500 hover:text-brand-blue-dark"
-          >
-            ← Finance
-          </Link>
-          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-            Payroll
-          </h1>
-          <p className="text-sm text-slate-500 max-w-2xl">
+      <PageHeader
+        title="Payroll"
+        backHref="/finance"
+        backLabel="Finance"
+        subtitle={
+          <>
             Monthly retainer (from each officer's <code>per month</code>{" "}
-            OfficerRate row) plus the sum of paid activity snapshots in the
-            period. One row per active officer / dispatcher.
-          </p>
-        </div>
-        <a href={exportHref} className="btn-primary text-sm" download>
-          Download CSV
-        </a>
-      </div>
+            OfficerRate row) plus the sum of paid activity snapshots in
+            the period. One row per active officer / dispatcher.
+          </>
+        }
+        actions={
+          <a href={exportHref} className="btn-primary text-sm" download>
+            Download CSV
+          </a>
+        }
+      />
 
       <form className="card p-3 flex flex-wrap items-end gap-3">
         <div>

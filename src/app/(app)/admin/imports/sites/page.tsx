@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   previewSites,
   commitSites,
@@ -9,6 +8,7 @@ import {
 } from "./_actions";
 import { SitesImportPanel } from "./_components/SitesImportPanel";
 import { GeocodePanel } from "./_components/GeocodePanel";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -18,24 +18,21 @@ export default async function SitesImportPage() {
     countSitesWithPostcode(),
   ]);
   return (
-    <div className="space-y-5 max-w-5xl">
-      <div>
-        <Link
-          href="/admin"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Admin
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Sites CSV import
-        </h1>
-        <p className="text-sm text-slate-500 max-w-2xl mt-1">
-          Upload a list of sites (Shurgard, Aegis, Orbis, or any other CSV) and
-          review what would happen before anything is written. Existing sites
-          are matched by <span className="font-mono text-xs">code</span> when
-          present, otherwise by name + postcode.
-        </p>
-      </div>
+    <div className="space-y-4 max-w-5xl">
+      <PageHeader
+        title="Sites CSV import"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle={
+          <>
+            Upload a list of sites (Shurgard, Aegis, Orbis, or any other
+            CSV) and review what would happen before anything is written.
+            Existing sites are matched by{" "}
+            <span className="font-mono text-xs">code</span> when present,
+            otherwise by name + postcode.
+          </>
+        }
+      />
 
       <div className="card p-4 text-sm text-slate-700 space-y-2">
         <div className="font-medium text-brand-navy">CSV columns</div>

@@ -5,6 +5,7 @@ import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
 import { RestoreJobButton } from "../../dispatch/_components/RestoreJobButton";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -475,18 +476,12 @@ export default async function ActivitiesPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <Link
-            href="/finance"
-            className="text-sm text-slate-500 hover:text-brand-blue-dark"
-          >
-            ← Finance
-          </Link>
-          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-            Finance · Activities
-          </h1>
-          <p className="text-sm text-slate-500">
+      <PageHeader
+        title="Finance · Activities"
+        backHref="/finance"
+        backLabel="Finance"
+        subtitle={
+          <>
             Admin-only ledger with billed + paid columns. Same filters as
             the ops Activities log on /activities.
             {accountLabel ? (
@@ -495,15 +490,17 @@ export default async function ActivitiesPage({
                 <span className="font-medium text-brand-navy">{accountLabel}</span>.
               </>
             ) : null}
-          </p>
-        </div>
-        <Link
-          href={`/api/activities/export${exportParams.toString() ? `?${exportParams}` : ""}`}
-          className="btn-secondary text-sm"
-        >
-          Export CSV
-        </Link>
-      </div>
+          </>
+        }
+        actions={
+          <Link
+            href={`/api/activities/export${exportParams.toString() ? `?${exportParams}` : ""}`}
+            className="btn-secondary text-sm"
+          >
+            Export CSV
+          </Link>
+        }
+      />
 
       <FilterPanel
         clearAllHref="/finance/activities"

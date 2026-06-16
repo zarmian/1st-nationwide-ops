@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -19,25 +20,17 @@ export default async function PartnersAdminPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <Link
-            href="/admin"
-            className="text-sm text-slate-500 hover:text-brand-blue-dark"
-          >
-            ← Admin
+      <PageHeader
+        title="Partners"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle="Companies we sub work to or that sub work to us."
+        actions={
+          <Link href="/admin/partners/new" className="btn-primary">
+            + New partner
           </Link>
-          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-            Partners
-          </h1>
-          <p className="text-sm text-slate-500">
-            Companies we sub work to or that sub work to us.
-          </p>
-        </div>
-        <Link href="/admin/partners/new" className="btn-primary">
-          + New partner
-        </Link>
-      </div>
+        }
+      />
 
       <div className="card overflow-hidden">
         <table className="w-full text-sm">

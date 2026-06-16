@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { SUBMISSION_FORM_LABEL } from "@/lib/formTemplates";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -31,30 +32,26 @@ export default async function FormsAdminPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <Link
-            href="/admin"
-            className="text-sm text-slate-500 hover:text-brand-blue-dark"
-          >
-            ← Admin
-          </Link>
-          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-            Form templates
-          </h1>
-          <p className="text-sm text-slate-500 max-w-2xl">
+      <PageHeader
+        title="Form templates"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle={
+          <>
             Define what officers fill in for each kind of job. Resolution at
             submit time is{" "}
             <span className="font-medium text-slate-700">
               site → customer → partner → global
             </span>{" "}
             — first active match wins.
-          </p>
-        </div>
-        <Link href="/admin/forms/new" className="btn-primary">
-          + New template
-        </Link>
-      </div>
+          </>
+        }
+        actions={
+          <Link href="/admin/forms/new" className="btn-primary">
+            + New template
+          </Link>
+        }
+      />
 
       <div className="card overflow-hidden">
         <table className="w-full text-sm">

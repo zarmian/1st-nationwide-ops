@@ -1,23 +1,17 @@
-import Link from "next/link";
 import { PartnerForm } from "../_components/PartnerForm";
 import { createPartner } from "../_actions";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
 export default function NewPartnerPage() {
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/admin/partners"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Partners
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          New partner
-        </h1>
-      </div>
+      <PageHeader
+        title="New partner"
+        backHref="/admin/partners"
+        backLabel="Partners"
+      />
       <PartnerForm
         action={createPartner}
         submitLabel="Create partner"

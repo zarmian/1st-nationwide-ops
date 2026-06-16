@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
 import { CloseActivityButton } from "../../../dispatch/_components/CloseActivityButton";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -92,44 +93,35 @@ export default async function PatrolVisitDetailPage({
 
   return (
     <div className="space-y-4 max-w-4xl">
-      <div>
-        <Link
-          href="/patrols"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Patrols
-        </Link>
-        <div className="flex items-center justify-between mt-1 flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-brand-navy">
-              {visit.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol"} visit
-              {visit.site ? ` @ ${visit.site.name}` : ""}
-            </h1>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className={STATUS_TONE[visit.status] ?? "chip-slate"}>
-                {visit.status.replace(/_/g, " ").toLowerCase()}
+      <PageHeader
+        title={`${visit.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol"} visit${visit.site ? ` @ ${visit.site.name}` : ""}`}
+        backHref="/patrols"
+        backLabel="Patrols"
+        subtitle={
+          <span className="flex items-center gap-2 flex-wrap">
+            <span className={STATUS_TONE[visit.status] ?? "chip-slate"}>
+              {visit.status.replace(/_/g, " ").toLowerCase()}
+            </span>
+            {visit.patrolSchedule?.frequency && (
+              <span className="chip-slate">
+                {visit.patrolSchedule.frequency.toLowerCase()}
               </span>
-              {visit.patrolSchedule?.frequency && (
-                <span className="chip-slate">
-                  {visit.patrolSchedule.frequency.toLowerCase()}
-                </span>
-              )}
-              {onSiteMins != null && (
-                <span className="chip-mint">{onSiteMins} min on site</span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {(me.role === "ADMIN" || me.role === "DISPATCHER") && (
+            )}
+            {onSiteMins != null && (
+              <span className="chip-mint">{onSiteMins} min on site</span>
+            )}
+          </span>
+        }
+        actions={
+          (me.role === "ADMIN" || me.role === "DISPATCHER") ? (
+            <>
               <Link
                 href={`/patrols/visits/${visit.id}/edit`}
                 className="btn-secondary text-sm"
               >
                 Edit
               </Link>
-            )}
-            {(me.role === "ADMIN" || me.role === "DISPATCHER") &&
-              visit.status !== "COMPLETED" && (
+              {visit.status !== "COMPLETED" && (
                 <CloseActivityButton
                   kind="visit"
                   id={visit.id}
@@ -137,9 +129,10 @@ export default async function PatrolVisitDetailPage({
                   size="default"
                 />
               )}
-          </div>
-        </div>
-      </div>
+            </>
+          ) : undefined
+        }
+      />
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="card p-4 space-y-2">

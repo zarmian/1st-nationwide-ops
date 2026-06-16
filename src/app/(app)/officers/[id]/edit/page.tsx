@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { OfficerForm } from "../../_components/OfficerForm";
 import { updateOfficer } from "../../_actions";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -60,18 +61,12 @@ export default async function EditOfficerPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <Link
-            href="/officers"
-            className="text-sm text-slate-500 hover:text-brand-blue-dark"
-          >
-            ← Officers
-          </Link>
-          <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-            {officer.name}
-          </h1>
-          <p className="text-sm text-slate-500">
+      <PageHeader
+        title={officer.name}
+        backHref="/officers"
+        backLabel="Officers"
+        subtitle={
+          <>
             {officer.email}
             {officer.region ? ` · ${officer.region.name}` : ""}
             {officer.onDuty && officer.active && (
@@ -80,17 +75,17 @@ export default async function EditOfficerPage({
             {!officer.active && (
               <span className="chip-slate text-[10px] ml-2">Inactive</span>
             )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+          </>
+        }
+        actions={
           <Link
             href={`/activities?officerId=${officer.id}`}
             className="btn-secondary text-sm"
           >
             View activities →
           </Link>
-        </div>
-      </div>
+        }
+      />
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-5">
         <OfficerForm

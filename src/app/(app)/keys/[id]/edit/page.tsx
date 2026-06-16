@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 import { updateKey } from "../../_actions";
 import { KeyEditForm } from "./_components/KeyEditForm";
 
@@ -31,25 +31,19 @@ export default async function KeyEditPage({
 
   return (
     <div className="space-y-4 max-w-2xl">
-      <div>
-        <Link
-          href={`/keys/${key.id}`}
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Back to key
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Edit key
-        </h1>
-        <p className="text-sm text-slate-500">
-          {key.site && (
+      <PageHeader
+        title="Edit key"
+        backHref={`/keys/${key.id}`}
+        backLabel="Back to key"
+        subtitle={
+          key.site ? (
             <>
               {key.site.name}
               {key.keySet && ` · Set: ${key.keySet.label}`}
             </>
-          )}
-        </p>
-      </div>
+          ) : undefined
+        }
+      />
 
       <KeyEditForm
         action={action}

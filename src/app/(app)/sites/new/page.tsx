@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { SiteForm } from "../_components/SiteForm";
 import { createSite } from "../_actions";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -27,19 +27,12 @@ export default async function NewSitePage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <Link
-          href="/sites"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Back to sites
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">New site</h1>
-        <p className="text-sm text-slate-500">
-          Tick the services you cover and you'll get extra sections to fill in
-          (keys, lock-up times, patrol schedule, alarm code, etc.).
-        </p>
-      </div>
+      <PageHeader
+        title="New site"
+        backHref="/sites"
+        backLabel="Back to sites"
+        subtitle="Tick the services you cover and you'll get extra sections to fill in (keys, lock-up times, patrol schedule, alarm code, etc.)."
+      />
 
       <SiteForm
         action={createSite}

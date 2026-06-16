@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { approveReview, rejectReview } from "../_actions";
 import { ApproveForm, RejectForm } from "./_components/ReviewActions";
 import { formatUkDateTimeLocal } from "@/lib/dates";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -89,28 +90,19 @@ export default async function ReviewDetailPage({
       : null;
 
   return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <Link
-          href="/admin/reports"
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          ← Back to review queue
-        </Link>
-        <div className="flex items-start justify-between mt-1">
-          <div>
-            <h1 className="text-2xl font-semibold text-brand-navy">
-              {sub.form.replace(/_/g, " ")} —{" "}
-              {sub.site?.name ?? "Unknown site"}
-            </h1>
-            <p className="text-sm text-slate-500">
-              Submitted {fmt(sub.submittedAt)} by{" "}
-              {sub.submittedBy?.name ?? sub.officerNameRaw}
-            </p>
-          </div>
-          <StatusChip status={review.status} />
-        </div>
-      </div>
+    <div className="space-y-4 max-w-4xl">
+      <PageHeader
+        title={`${sub.form.replace(/_/g, " ")} — ${sub.site?.name ?? "Unknown site"}`}
+        backHref="/admin/reports"
+        backLabel="Back to review queue"
+        subtitle={
+          <>
+            Submitted {fmt(sub.submittedAt)} by{" "}
+            {sub.submittedBy?.name ?? sub.officerNameRaw}
+          </>
+        }
+        actions={<StatusChip status={review.status} />}
+      />
 
       <div className="grid md:grid-cols-4 gap-4">
         <div className="card p-4">

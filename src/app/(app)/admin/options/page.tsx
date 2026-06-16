@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
 import {
   JOB_SOURCE_CODES,
@@ -8,6 +7,7 @@ import {
   listJobTypeOptions,
 } from "@/lib/labels";
 import { OptionsManager } from "./_components/OptionsManager";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -25,23 +25,22 @@ export default async function OptionsAdminPage() {
   ]);
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Link href="/admin" className="text-sm text-slate-500 hover:text-brand-blue-dark">
-          ← Admin
-        </Link>
-        <h1 className="text-2xl font-semibold text-brand-navy mt-1">
-          Picker options
-        </h1>
-        <p className="text-sm text-slate-500 max-w-2xl">
-          The labels and order that appear in dropdowns when recording a
-          callout or creating a new job. You can rename labels, hide options
-          you don't use, and add alias labels that map to an existing
-          category (e.g. add "Spot check" under Mobile patrol). The
-          underlying category list is fixed in the schema — to add a brand-
-          new category, ask a developer.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        title="Picker options"
+        backHref="/admin"
+        backLabel="Admin"
+        subtitle={
+          <>
+            The labels and order that appear in dropdowns when recording a
+            callout or creating a new job. You can rename labels, hide
+            options you don't use, and add alias labels that map to an
+            existing category (e.g. add "Spot check" under Mobile patrol).
+            The underlying category list is fixed in the schema — to add a
+            brand-new category, ask a developer.
+          </>
+        }
+      />
 
       <OptionsManager
         jobTypes={jobTypes}
