@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
+import { PageHeader } from "@/components/PageHeader";
 import { RotaCell } from "./_components/RotaCell";
 
 export const dynamic = "force-dynamic";
@@ -139,33 +140,23 @@ export default async function RotaBoardPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Rota</h1>
-          <p className="text-sm text-slate-500">
-            Region-wise day and night cover. Day = 06:00–18:00, Night =
-            18:00–06:00. Assign officers from the list of who marked
-            themselves available on /m/rota.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/rota?week=${prevWeek}`}
-            className="btn-ghost text-sm"
-          >
-            ← Previous week
-          </Link>
-          <Link href="/rota" className="btn-secondary text-sm">
-            This week
-          </Link>
-          <Link
-            href={`/rota?week=${nextWeek}`}
-            className="btn-ghost text-sm"
-          >
-            Next week →
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Rota"
+        subtitle="Region-wise day and night cover. Day = 06:00–18:00, Night = 18:00–06:00. Assign officers from the list of who marked themselves available on /m/rota."
+        actions={
+          <>
+            <Link href={`/rota?week=${prevWeek}`} className="btn-ghost text-sm">
+              ← Previous week
+            </Link>
+            <Link href="/rota" className="btn-secondary text-sm">
+              This week
+            </Link>
+            <Link href={`/rota?week=${nextWeek}`} className="btn-ghost text-sm">
+              Next week →
+            </Link>
+          </>
+        }
+      />
 
       <div className="text-sm text-slate-600">
         Week of{" "}

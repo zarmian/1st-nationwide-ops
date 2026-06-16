@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { PageHeader } from "@/components/PageHeader";
 import { AvailabilityToggle } from "./_components/AvailabilityToggle";
 
 export const dynamic = "force-dynamic";
@@ -87,13 +88,10 @@ export default async function MyRotaPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">My rota</h1>
-        <p className="text-sm text-slate-500">
-          Tick the shifts you can work and dispatch will place you on the
-          rota. Day = 06:00–18:00, Night = 18:00–06:00.
-        </p>
-      </div>
+      <PageHeader
+        title="My rota"
+        subtitle="Tick the shifts you can work and dispatch will place you on the rota. Day = 06:00–18:00, Night = 18:00–06:00."
+      />
 
       {assignments.length > 0 && (
         <div className="card p-4 space-y-2">

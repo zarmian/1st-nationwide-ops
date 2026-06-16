@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { FilterPanel } from "@/components/FilterPanel";
+import { PageHeader } from "@/components/PageHeader";
 import { KeysTable, type KeyTableRow } from "./_components/KeysTable";
 
 export const dynamic = "force-dynamic";
@@ -108,12 +109,10 @@ export default async function KeysPage({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold text-brand-navy">Keys</h1>
-        <p className="text-sm text-slate-500">
-          Every key, fob, padlock, and code we hold across all sites.
-        </p>
-      </div>
+      <PageHeader
+        title="Keys"
+        subtitle="Every key, fob, padlock, and code we hold across all sites."
+      />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
         {Object.entries(STATUS_LABEL).map(([k, label]) => (

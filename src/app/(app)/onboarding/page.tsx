@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { StartOnboardingForm } from "./_components/StartOnboardingForm";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -71,23 +72,19 @@ export default async function OnboardingPage({
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">
-            Onboarding pipeline
-          </h1>
-          <p className="text-sm text-slate-500">
-            Sites moving from proposed to live. Stage advances are manual.
-          </p>
-        </div>
-        <Link
-          href={showAll ? "/onboarding" : "/onboarding?show=all"}
-          className="text-sm text-slate-500 hover:text-brand-blue-dark"
-        >
-          {showAll ? "Hide finished" : "Show all (incl. live, cancelled)"}
-        </Link>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        title="Onboarding pipeline"
+        subtitle="Sites moving from proposed to live. Stage advances are manual."
+        actions={
+          <Link
+            href={showAll ? "/onboarding" : "/onboarding?show=all"}
+            className="btn-ghost text-sm"
+          >
+            {showAll ? "Hide finished" : "Show all (incl. live, cancelled)"}
+          </Link>
+        }
+      />
 
       <StartOnboardingForm sites={eligibleSites} />
 

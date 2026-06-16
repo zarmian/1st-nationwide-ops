@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
+import { PageHeader } from "@/components/PageHeader";
 import { TimeAgo } from "@/components/TimeAgo";
 import { FilterPanel } from "@/components/FilterPanel";
 
@@ -55,18 +56,20 @@ export default async function OfficersPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Officers</h1>
-          <p className="text-sm text-slate-500">
+      <PageHeader
+        title="Officers"
+        subtitle={
+          <>
             Roster of officers and dispatchers — {totals._count} total,{" "}
             {onDutyCount} on duty.
-          </p>
-        </div>
-        <Link href="/officers/new" className="btn-primary">
-          + New officer
-        </Link>
-      </div>
+          </>
+        }
+        actions={
+          <Link href="/officers/new" className="btn-primary">
+            + New officer
+          </Link>
+        }
+      />
 
       <FilterPanel
         clearAllHref="/officers"

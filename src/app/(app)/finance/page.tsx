@@ -5,6 +5,7 @@ import { requireAdmin } from "@/lib/authz";
 import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
 import { Sparkline } from "@/components/Sparkline";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -577,30 +578,32 @@ export default async function FinancePage({
 
   return (
     <div className="section">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-brand-navy">Finance</h1>
-          <p className="text-sm text-slate-500">
+      <PageHeader
+        title="Finance"
+        subtitle={
+          <>
             What we bill across all sites and customers. Per-visit and
             per-job amounts are auto-snapshotted from{" "}
             <code className="text-xs bg-slate-100 px-1 rounded">SiteRate</code>
             . Officer pay rates and excess-time surcharge are next.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/finance/activities" className="btn-secondary text-sm">
-            Activities log →
-          </Link>
-          <Link href="/finance/payroll" className="btn-secondary text-sm">
-            Payroll →
-          </Link>
-          <RecalcButton
-            recalc={recalculateBilling}
-            from={fromDate.toISOString()}
-            to={toDate.toISOString()}
-          />
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            <Link href="/finance/activities" className="btn-secondary text-sm">
+              Activities log →
+            </Link>
+            <Link href="/finance/payroll" className="btn-secondary text-sm">
+              Payroll →
+            </Link>
+            <RecalcButton
+              recalc={recalculateBilling}
+              from={fromDate.toISOString()}
+              to={toDate.toISOString()}
+            />
+          </>
+        }
+      />
 
       <form className="card p-3 flex flex-wrap items-end gap-3">
         <div>
@@ -897,24 +900,16 @@ export default async function FinancePage({
               Annual subscription value rolled up to the company that pays.
             </p>
           </div>
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
+          <table className="table-default">
+            <thead>
               <tr>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Account
-                </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Sites
-                </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Annual
-                </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Setup
-                </th>
+                <th>Account</th>
+                <th className="text-right">Sites</th>
+                <th className="text-right">Annual</th>
+                <th className="text-right">Setup</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody>
               {groups.map((g) => {
                 const owner =
                   g.sites[0]?.partnerId
@@ -927,7 +922,7 @@ export default async function FinancePage({
                   : null;
                 return (
                 <tr key={g.label}>
-                  <td className="px-4 py-2 text-brand-navy font-medium">
+                  <td className="text-brand-navy font-medium">
                     {activitiesHref ? (
                       <Link
                         href={activitiesHref}
@@ -939,13 +934,13 @@ export default async function FinancePage({
                       g.label
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                  <td className="col-num text-slate-700">
                     {g.sites.length}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums font-medium text-brand-navy">
+                  <td className="col-num font-medium text-brand-navy">
                     {fmtMoney(g.annual)}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                  <td className="col-num text-slate-700">
                     {g.setup > 0 ? fmtMoney(g.setup) : "—"}
                   </td>
                 </tr>
@@ -972,24 +967,18 @@ export default async function FinancePage({
               No annual subscriptions set yet.
             </p>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-slate-600">
+            <table className="table-default">
+              <thead>
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                    Site
-                  </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                    Account
-                  </th>
-                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                    Annual
-                  </th>
+                  <th>Site</th>
+                  <th>Account</th>
+                  <th className="text-right">Annual</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody>
                 {topSitesByAnnual.map((row) => (
                   <tr key={row.site.id}>
-                    <td className="px-4 py-2">
+                    <td>
                       <Link
                         href={`/sites/${row.site.id}?tab=finance`}
                         className="text-brand-navy hover:text-brand-blue-dark font-medium"
@@ -1002,12 +991,12 @@ export default async function FinancePage({
                           row.site.postcodeFormatted}
                       </div>
                     </td>
-                    <td className="px-4 py-2 text-slate-600">
+                    <td className="text-slate-600">
                       {row.site.partner?.name ??
                         row.site.customer?.name ??
                         "—"}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums font-medium text-brand-navy">
+                    <td className="col-num font-medium text-brand-navy">
                       {fmtMoney2(row.annual)}
                     </td>
                   </tr>
@@ -1018,7 +1007,7 @@ export default async function FinancePage({
         </div>
       </div>
 
-      <div className="card p-4 bg-slate-50">
+      <div className="card-subtle p-4">
         <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">
           Coming next
         </h3>
