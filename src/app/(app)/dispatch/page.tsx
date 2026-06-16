@@ -4,15 +4,12 @@ import { CalendarPlus, History } from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { StatusDot } from "@/components/StatusDot";
-import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
 import { BarList } from "@/components/BarList";
 import { TrendChart } from "@/components/TrendChart";
-import { reassignJob } from "../patrols/_actions";
-import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 import { CancelJobButton } from "./_components/CancelJobButton";
 import { CloseActivityButton } from "./_components/CloseActivityButton";
+import { ActivityCard } from "./_components/ActivityCard";
 import { DispatchMap } from "./_components/DispatchMap";
 import { SyncSchedulesButton } from "./_components/SyncSchedulesButton";
 import { MapLayerToggles } from "./_components/MapLayerToggles";
@@ -820,7 +817,7 @@ export default async function DispatchPage({
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="flex flex-wrap gap-2">
         {BUCKETS.map((b) => {
           const isActive = bucket === b;
           const layersQs = activeLayers.size
@@ -830,29 +827,24 @@ export default async function DispatchPage({
             ? `/dispatch${activeLayers.size ? `?layers=${Array.from(activeLayers).join(",")}` : ""}`
             : `/dispatch?bucket=${b}${layersQs}`;
           const isMissed = b === "missed";
-          const ring = isActive
-            ? isMissed
-              ? "ring-2 ring-red-300"
-              : "ring-2 ring-brand-blue/40"
-            : "";
+          const count = bucketCounts[b];
+          const isAlert = isMissed && count > 0;
+          // Filter-chip pattern from globals.css (.pill-idle / .pill-active)
+          // with an extra red tone for the "missed" bucket when it has rows
+          // — same dispatcher-attention treatment as before, just compact.
+          const cls = isActive
+            ? isAlert
+              ? "pill bg-red-100 text-red-800 border-red-300"
+              : "pill-active"
+            : isAlert
+              ? "pill bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+              : "pill-idle";
           return (
-            <Link
-              key={b}
-              href={href}
-              className={`card p-3 hover:shadow-md transition-shadow ${ring}`}
-            >
-              <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                {bucketLabels[b]}
-              </div>
-              <div
-                className={`text-2xl font-semibold tabular-nums ${
-                  isMissed && bucketCounts[b] > 0
-                    ? "text-red-600"
-                    : "text-brand-navy"
-                }`}
-              >
-                {bucketCounts[b].toLocaleString("en-GB")}
-              </div>
+            <Link key={b} href={href} className={cls}>
+              <span>{bucketLabels[b]}</span>
+              <span className="tabular-nums text-[11px] opacity-80">
+                {count.toLocaleString("en-GB")}
+              </span>
             </Link>
           );
         })}
@@ -900,6 +892,255 @@ export default async function DispatchPage({
         </div>
       </div>
 
+      <AutoRefresh intervalMs={60_000} />
+
+      {/* ── 3-column workspace ────────────────────────────────────────────
+          LEFT  · upcoming work (filtered by bucket if chosen)
+          MID   · live map + on-duty officers
+          RIGHT · recently completed
+          Below `lg` (1024px) the columns stack so phones / tablets see the
+          same content in a single scroll. Each side column is height-
+          capped + scrollable so the map dictates workspace height. */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)_minmax(0,300px)] items-start">
+        {/* LEFT — Upcoming / bucket-filtered live work */}
+        <div className="card overflow-hidden flex flex-col lg:max-h-[calc(100vh-220px)]">
+          <div className="px-3 py-2.5 border-b border-slate-100 flex items-baseline justify-between gap-2">
+            <h2 className="font-semibold text-brand-navy text-sm">
+              {bucket ? bucketLabels[bucket] : "Upcoming"}
+            </h2>
+            <span className="text-[11px] text-slate-500 tabular-nums">
+              {rows.length.toLocaleString("en-GB")}
+            </span>
+          </div>
+          {rows.length === 0 ? (
+            <div className="p-6 text-center space-y-2">
+              <p className="empty-title text-sm">No live activities.</p>
+              <Link
+                href="/dispatch/new"
+                className="btn-primary text-sm inline-flex"
+              >
+                + Create a job
+              </Link>
+            </div>
+          ) : (
+            <ul className="divide-y divide-slate-100 overflow-y-auto">
+              {rows.map((j) => {
+                const isVisit = j.__visitId != null;
+                const detailHref = isVisit
+                  ? `/patrols/visits/${j.__visitId}`
+                  : `/dispatch/${j.id}`;
+                const editHref = isVisit
+                  ? `/patrols/visits/${j.__visitId}/edit`
+                  : `/dispatch/${j.id}/edit`;
+                const canEdit = isAdmin && j.status !== "CANCELLED";
+                const isClosed =
+                  j.status === "APPROVED" ||
+                  j.status === "SENT_TO_CLIENT" ||
+                  j.status === "CLOSED" ||
+                  j.status === "CANCELLED" ||
+                  j.status === "COMPLETED";
+                const canClose = !isClosed;
+                const typeLabel =
+                  jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ");
+                const activityLabel = `${typeLabel} @ ${j.site?.name ?? "site"}`;
+                const f = formatScheduled(j.scheduledFor);
+                const overdue =
+                  j.scheduledFor != null &&
+                  j.scheduledFor < now &&
+                  (j.status === "OPEN" ||
+                    j.status === "ASSIGNED" ||
+                    j.status === "PENDING");
+                const whenLabel = f ? `${f.day} ${f.time}` : null;
+                const officerName = j.handledByPartner
+                  ? `${j.handledByPartner.name} (partner)`
+                  : (j.assignedTo?.name ?? null);
+                // Status dot tone mirrors the DataTable: LATE → warn,
+                // IN_PROGRESS → live, everything else stays muted.
+                const tone =
+                  j.status === "LATE"
+                    ? ("warn" as const)
+                    : j.status === "IN_PROGRESS"
+                      ? ("live" as const)
+                      : ("muted" as const);
+                const pulse =
+                  j.status === "LATE" || j.status === "IN_PROGRESS";
+                return (
+                  <ActivityCard
+                    key={j.id}
+                    href={detailHref}
+                    typeLabel={typeLabel}
+                    whenLabel={whenLabel}
+                    siteId={j.site?.id ?? null}
+                    siteName={j.site?.name ?? null}
+                    officerName={officerName}
+                    statusLabel={j.status.toLowerCase().replace(/_/g, " ")}
+                    statusTone={tone}
+                    statusPulse={pulse}
+                    priority={j.priority as "HIGH" | "MEDIUM" | "LOW"}
+                    overdue={overdue}
+                    actions={
+                      <>
+                        {canEdit && (
+                          <Link
+                            href={editHref}
+                            className="text-brand-blue-dark hover:text-brand-navy underline"
+                          >
+                            edit
+                          </Link>
+                        )}
+                        {canClose && (
+                          <CloseActivityButton
+                            kind={isVisit ? "visit" : "job"}
+                            id={isVisit ? j.__visitId! : j.id}
+                            label={activityLabel}
+                          />
+                        )}
+                        {!isVisit && (
+                          <CancelJobButton
+                            jobId={j.id}
+                            jobLabel={activityLabel}
+                          />
+                        )}
+                      </>
+                    }
+                  />
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* MIDDLE — Live map + on-duty officers (compact, single col) */}
+        <div className="space-y-3 min-w-0">
+          <div className="card p-4 space-y-3">
+            <div className="flex items-baseline justify-between flex-wrap gap-1">
+              <h2 className="font-semibold text-brand-navy">Live map</h2>
+              <p className="text-xs text-slate-500">
+                {officerPins.length} officer{officerPins.length === 1 ? "" : "s"}
+                {onDutyOfficers.length - officerPins.length > 0
+                  ? ` (${onDutyOfficers.length - officerPins.length} without GPS)`
+                  : ""}
+                {" · "}
+                {activeLayers.has("sites")
+                  ? `${allSites.length} site${allSites.length === 1 ? "" : "s"}`
+                  : activeLayers.has("jobs")
+                    ? `${jobSites.length} job site${jobSites.length === 1 ? "" : "s"}`
+                    : "no sites layer"}
+              </p>
+            </div>
+            <MapLayerToggles active={activeLayers} />
+            <DispatchMap
+              officers={officerPins}
+              jobSites={jobSites}
+              allSites={allSites}
+              lines={lines}
+              layers={{
+                jobSites: activeLayers.has("jobs"),
+                allSites: activeLayers.has("sites"),
+                lines: activeLayers.has("lines"),
+              }}
+            />
+          </div>
+
+          <div className="card p-3 space-y-2">
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-semibold text-brand-navy text-sm">
+                On duty ({onDutyOfficers.length})
+              </h2>
+              <p className="text-[11px] text-slate-500">
+                from <code className="text-[10px] bg-slate-100 px-1 rounded">/m/today</code>
+              </p>
+            </div>
+            {onDutyOfficers.length === 0 ? (
+              <p className="text-sm text-slate-500 italic">
+                No one is on duty right now.
+              </p>
+            ) : (
+              <ul className="grid sm:grid-cols-2 gap-1.5">
+                {onDutyOfficers.map((o) => {
+                  const hasLoc =
+                    typeof o.lastLat === "number" &&
+                    typeof o.lastLng === "number";
+                  return (
+                    <li
+                      key={o.id}
+                      className="flex items-center justify-between border border-slate-200 rounded-lg px-2.5 py-1.5"
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          href={`/officers/${o.id}/edit`}
+                          className="text-sm font-medium text-brand-navy hover:text-brand-blue-dark truncate block"
+                        >
+                          {o.name}
+                        </Link>
+                        <div className="text-[10px] text-slate-500">
+                          {o.role.toLowerCase()} · {relativeTime(o.lastSeenAt)}
+                        </div>
+                      </div>
+                      {hasLoc ? (
+                        <a
+                          href={`https://www.google.com/maps?q=${o.lastLat},${o.lastLng}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="chip-mint text-[10px] shrink-0"
+                        >
+                          Map
+                        </a>
+                      ) : (
+                        <span className="chip-slate text-[10px] shrink-0">
+                          No GPS
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT — Recently completed */}
+        <div className="card overflow-hidden flex flex-col lg:max-h-[calc(100vh-220px)]">
+          <div className="px-3 py-2.5 border-b border-slate-100 flex items-baseline justify-between gap-2">
+            <div>
+              <h2 className="font-semibold text-brand-navy text-sm">
+                Recently completed
+              </h2>
+              <p className="text-[11px] text-slate-500">last 2 days</p>
+            </div>
+            <Link
+              href="/activities"
+              className="text-[11px] text-brand-blue-dark hover:text-brand-navy underline shrink-0"
+            >
+              Full log →
+            </Link>
+          </div>
+          {recentLimited.length === 0 ? (
+            <p className="p-6 text-center text-sm text-slate-500">
+              Nothing completed in the last two days.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100 overflow-y-auto">
+              {recentLimited.map((r) => {
+                const { day, time } = fmtRecent(r.at);
+                return (
+                  <ActivityCard
+                    key={r.id}
+                    href={r.href}
+                    typeLabel={r.typeLabel}
+                    whenLabel={`${day} ${time}`}
+                    siteId={r.siteId}
+                    siteName={r.siteName}
+                    officerName={r.officerName}
+                  />
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* ── Analytics band (below the workspace) ─────────────────────── */}
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3">
           <div>
@@ -940,8 +1181,12 @@ export default async function DispatchPage({
         </div>
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
-            <h2 className="font-semibold text-brand-navy">Live workload by region</h2>
-            <p className="text-xs text-slate-500">Open + in-progress jobs right now</p>
+            <h2 className="font-semibold text-brand-navy">
+              Live workload by region
+            </h2>
+            <p className="text-xs text-slate-500">
+              Open + in-progress jobs right now
+            </p>
           </div>
           <BarList
             tone="amber"
@@ -951,389 +1196,6 @@ export default async function DispatchPage({
         </div>
       </div>
 
-      <AutoRefresh intervalMs={60_000} />
-
-      <div className="card p-4 space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="font-semibold text-brand-navy">Live map</h2>
-          <p className="text-xs text-slate-500">
-            {officerPins.length} officer{officerPins.length === 1 ? "" : "s"}
-            {onDutyOfficers.length - officerPins.length > 0
-              ? ` (${onDutyOfficers.length - officerPins.length} without GPS)`
-              : ""}
-            {" · "}
-            {activeLayers.has("sites")
-              ? `${allSites.length} site${allSites.length === 1 ? "" : "s"}`
-              : activeLayers.has("jobs")
-                ? `${jobSites.length} job site${jobSites.length === 1 ? "" : "s"}`
-                : "no sites layer"}
-          </p>
-        </div>
-        <MapLayerToggles active={activeLayers} />
-        <DispatchMap
-          officers={officerPins}
-          jobSites={jobSites}
-          allSites={allSites}
-          lines={lines}
-          layers={{
-            jobSites: activeLayers.has("jobs"),
-            allSites: activeLayers.has("sites"),
-            lines: activeLayers.has("lines"),
-          }}
-        />
-      </div>
-
-      <div className="card p-4">
-        <div className="flex items-baseline justify-between mb-3">
-          <h2 className="font-semibold text-brand-navy">
-            On duty ({onDutyOfficers.length})
-          </h2>
-          <p className="text-xs text-slate-500">
-            Latest known position from <code className="text-xs bg-slate-100 px-1 rounded">/m/today</code>.
-          </p>
-        </div>
-        {onDutyOfficers.length === 0 ? (
-          <p className="text-sm text-slate-500 italic">
-            No one is on duty right now.
-          </p>
-        ) : (
-          <ul className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {onDutyOfficers.map((o) => {
-              const hasLoc =
-                typeof o.lastLat === "number" && typeof o.lastLng === "number";
-              return (
-                <li
-                  key={o.id}
-                  className="flex items-center justify-between border border-slate-200 rounded-xl px-3 py-2"
-                >
-                  <div>
-                    <Link
-                      href={`/officers/${o.id}/edit`}
-                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                    >
-                      {o.name}
-                    </Link>
-                    <div className="text-[11px] text-slate-500">
-                      {o.role.toLowerCase()} · seen {relativeTime(o.lastSeenAt)}
-                    </div>
-                  </div>
-                  {hasLoc ? (
-                    <a
-                      href={`https://www.google.com/maps?q=${o.lastLat},${o.lastLng}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="chip-mint text-[10px]"
-                    >
-                      Map
-                    </a>
-                  ) : (
-                    <span className="chip-slate text-[10px]">No GPS</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <DataTable
-        rows={rows}
-        emptyState={
-          <div className="space-y-3">
-            <p className="empty-title">No live activities.</p>
-            <Link href="/dispatch/new" className="btn-primary text-sm inline-flex">
-              + Create a job
-            </Link>
-          </div>
-        }
-        columns={[
-          {
-            header: "Type",
-            cell: (j) => (
-              <Link
-                href={
-                  j.__visitId
-                    ? `/patrols/visits/${j.__visitId}`
-                    : `/dispatch/${j.id}`
-                }
-                className="font-medium text-brand-navy hover:text-brand-blue-dark"
-              >
-                {jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")}
-              </Link>
-            ),
-          },
-          {
-            header: "Scheduled",
-            cell: (j) => {
-              const f = formatScheduled(j.scheduledFor);
-              if (!f) {
-                return <span className="text-slate-400">—</span>;
-              }
-              const overdue =
-                j.scheduledFor != null &&
-                j.scheduledFor < now &&
-                (j.status === "OPEN" ||
-                  j.status === "ASSIGNED" ||
-                  j.status === "PENDING");
-              return (
-                <div className="leading-tight">
-                  <div
-                    className={
-                      overdue
-                        ? "text-sm font-medium text-red-600"
-                        : "text-sm font-medium text-brand-navy"
-                    }
-                  >
-                    {f.day}
-                  </div>
-                  <div className="text-xs text-slate-500 tabular-nums">
-                    {f.time}
-                  </div>
-                </div>
-              );
-            },
-          },
-          {
-            header: "Site",
-            cell: (j) => {
-              if (!j.site) {
-                return <span className="text-slate-400">—</span>;
-              }
-              const anchor =
-                j.type === "LOCK" || j.type === "UNLOCK"
-                  ? "#lockunlock-section"
-                  : "";
-              return (
-                <div>
-                  <Link
-                    href={`/sites/${j.site.id}/edit${anchor}`}
-                    className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                  >
-                    {j.site.name}
-                  </Link>
-                  <div className="text-xs text-slate-500">
-                    {j.site.postcodeFormatted}
-                  </div>
-                </div>
-              );
-            },
-          },
-          {
-            header: "Customer",
-            cell: (j) => (
-              <span>{j.customer?.name ?? j.partner?.name ?? "—"}</span>
-            ),
-          },
-          {
-            header: "Source",
-            cell: (j) => (
-              <span className="chip-slate">
-                {jobSourceLabels[j.source] ?? j.source.replace(/_/g, " ")}
-              </span>
-            ),
-          },
-          {
-            header: "Assigned",
-            cell: (j) => {
-              if (j.handledByPartner) {
-                return (
-                  <span className="text-slate-600 italic">
-                    {j.handledByPartner.name}{" "}
-                    <span className="text-xs text-slate-400">
-                      (partner)
-                    </span>
-                  </span>
-                );
-              }
-              // PatrolVisits use a different reassign action (reassignVisit
-              // lives in patrols/_actions). For now show the officer as
-              // plain text; admin can edit via the visit detail page.
-              if (j.__visitId) {
-                return (
-                  j.assignedTo?.name ?? (
-                    <span className="text-slate-400">—</span>
-                  )
-                );
-              }
-              // Pre-start jobs are inline-reassignable; live ones show the
-              // current officer as plain text so dispatchers don't accidentally
-              // change someone mid-job.
-              const editable = j.status === "OPEN" || j.status === "ASSIGNED";
-              if (editable) {
-                return (
-                  <QuickReassignJob
-                    jobId={j.id}
-                    currentOfficerId={j.assignedTo?.id ?? null}
-                    officers={assignableOfficers}
-                    reassign={reassignJob}
-                  />
-                );
-              }
-              return (
-                j.assignedTo?.name ?? (
-                  <span className="text-slate-400">—</span>
-                )
-              );
-            },
-          },
-          {
-            header: "Status",
-            // Visible distinction: in-progress + late jobs pulse so the
-            // eye lands on what's actively happening right now. Pending
-            // jobs stay neutral; everything else uses tone chips.
-            cell: (j) => {
-              const live =
-                j.status === "IN_PROGRESS" || j.status === "LATE";
-              return (
-                <span className="inline-flex items-center gap-1.5">
-                  <StatusDot
-                    tone={
-                      j.status === "LATE"
-                        ? "warn"
-                        : j.status === "IN_PROGRESS"
-                          ? "live"
-                          : "muted"
-                    }
-                    pulse={live}
-                  />
-                  <span className="text-xs text-slate-700">
-                    {j.status.toLowerCase().replace(/_/g, " ")}
-                  </span>
-                </span>
-              );
-            },
-          },
-          {
-            header: "Priority",
-            cell: (j) =>
-              j.priority === "HIGH" ? (
-                <span className="chip-red">{j.priority}</span>
-              ) : (
-                <span className="chip-slate">{j.priority}</span>
-              ),
-          },
-          {
-            header: "",
-            align: "right",
-            cell: (j) => {
-              const isVisit = j.__visitId != null;
-              const editHref = isVisit
-                ? `/patrols/visits/${j.__visitId}/edit`
-                : `/dispatch/${j.id}/edit`;
-              const canEdit =
-                isAdmin && j.status !== "CANCELLED";
-              // "Close" lets dispatch tick an activity complete when the
-              // officer reported in by phone/radio but didn't update the
-              // app. Hidden once the activity is already in a terminal
-              // state.
-              const isClosed =
-                j.status === "APPROVED" ||
-                j.status === "SENT_TO_CLIENT" ||
-                j.status === "CLOSED" ||
-                j.status === "CANCELLED" ||
-                j.status === "COMPLETED";
-              const canClose = !isClosed;
-              const activityLabel = `${jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ")} @ ${j.site?.name ?? "site"}`;
-              return (
-                <div className="flex items-center justify-end gap-2">
-                  {canEdit && (
-                    <Link
-                      href={editHref}
-                      className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
-                    >
-                      edit
-                    </Link>
-                  )}
-                  {canClose && (
-                    <CloseActivityButton
-                      kind={isVisit ? "visit" : "job"}
-                      id={isVisit ? j.__visitId! : j.id}
-                      label={activityLabel}
-                    />
-                  )}
-                  {/* Visits don't cancel through the dispatch board — they
-                      have their own status machine on the visit detail. */}
-                  {!isVisit && (
-                    <CancelJobButton
-                      jobId={j.id}
-                      jobLabel={activityLabel}
-                    />
-                  )}
-                </div>
-              );
-            },
-          },
-        ]}
-      />
-
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3 flex-wrap">
-          <div>
-            <h2 className="font-semibold text-brand-navy">Recent activity</h2>
-            <p className="text-xs text-slate-500">
-              Completed jobs and visits from today and the previous two days.
-            </p>
-          </div>
-          <Link
-            href="/activities"
-            className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
-          >
-            Full log →
-          </Link>
-        </div>
-        {recentLimited.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-slate-500">
-            Nothing completed in the last two days.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="table-default">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Activity</th>
-                  <th>Site</th>
-                  <th>Officer</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentLimited.map((r) => {
-                  const { day, time } = fmtRecent(r.at);
-                  return (
-                    <tr key={r.id}>
-                      <td className="whitespace-nowrap tabular-nums">
-                        <Link
-                          href={r.href}
-                          className="text-brand-navy hover:text-brand-blue-dark"
-                        >
-                          <span className="font-medium">{day}</span>{" "}
-                          <span className="text-slate-500">{time}</span>
-                        </Link>
-                      </td>
-                      <td>
-                        <Link
-                          href={r.href}
-                          className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                        >
-                          {r.typeLabel}
-                        </Link>
-                      </td>
-                      <td className="text-slate-700">
-                        {r.siteName ?? <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="text-slate-700">
-                        {r.officerName ?? (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
     </div>
   );
 }
