@@ -6,6 +6,8 @@ import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
 import { Sparkline } from "@/components/Sparkline";
 import { PageHeader } from "@/components/PageHeader";
+import { TrendChart } from "@/components/TrendChart";
+import { BarList } from "@/components/BarList";
 
 export const dynamic = "force-dynamic";
 
@@ -325,6 +327,7 @@ export default async function FinancePage({
         officerId: true,
         officer: { select: { name: true } },
         siteId: true,
+        patrolSchedule: { select: { kind: true } },
         site: {
           select: {
             id: true,
@@ -346,6 +349,7 @@ export default async function FinancePage({
       select: {
         billedAmount: true,
         paidAmount: true,
+        type: true,
         siteId: true,
         site: {
           select: {
@@ -576,6 +580,41 @@ export default async function FinancePage({
     { billed: 0, paid: 0, activities: 0 },
   );
 
+  // Revenue by service line — where the money in this range actually came
+  // from. Visits map to Patrol / VPI via their schedule kind; jobs map via
+  // their type using the same RATE_LABEL the rest of the page uses.
+  const serviceByKey = new Map<string, number>();
+  const addService = (label: string, amount: number) => {
+    serviceByKey.set(label, (serviceByKey.get(label) ?? 0) + amount);
+  };
+  for (const v of rangeVisits) {
+    const label = v.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol";
+    addService(label, Number(v.billedAmount ?? 0));
+  }
+  for (const j of rangeJobs) {
+    addService(RATE_LABEL[j.type] ?? j.type.replace(/_/g, " "), Number(j.billedAmount ?? 0));
+  }
+  const revenueByService = Array.from(serviceByKey.entries())
+    .map(([label, value]) => ({ label, value }))
+    .filter((s) => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  // Top accounts by billed revenue in range — the headline of the P&L
+  // table, surfaced as a bar list so the relative scale reads instantly.
+  const topAccountsBilled = pnlRows
+    .filter((r) => r.billed > 0)
+    .slice(0, 6);
+
+  // 14-day axis labels for the trend chart (sparkStart … sparkEnd).
+  const trendLabels: string[] = [];
+  for (let i = 0; i < dailyBilled.length; i++) {
+    const d = new Date(sparkStart);
+    d.setDate(sparkStart.getDate() + i);
+    trendLabels.push(
+      d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+    );
+  }
+
   return (
     <div className="section">
       <PageHeader
@@ -723,6 +762,73 @@ export default async function FinancePage({
             )}
           </div>
         </div>
+      </div>
+
+      {/* ── Revenue analytics ─────────────────────────────────────────── */}
+      <div className="grid lg:grid-cols-3 gap-3">
+        <div className="card overflow-hidden lg:col-span-2">
+          <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3">
+            <div>
+              <h2 className="font-semibold text-brand-navy">Billed — last 14 days</h2>
+              <p className="text-xs text-slate-500">
+                Completed visits + jobs, per day. Peak day labelled.
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-semibold text-brand-navy tabular-nums leading-none">
+                {fmtMoney(dailyBilled.reduce((a, b) => a + b, 0))}
+              </div>
+              <div className="text-[11px] text-slate-500">14-day total</div>
+            </div>
+          </div>
+          <div className="p-4">
+            <TrendChart
+              values={dailyBilled}
+              labels={trendLabels}
+              height={140}
+              ariaLabel="Daily billed revenue over the last 14 days"
+              formatValue={(n) => fmtMoney(n)}
+            />
+          </div>
+        </div>
+
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Revenue by service</h2>
+            <p className="text-xs text-slate-500">In range · billed</p>
+          </div>
+          <BarList
+            items={revenueByService.map((s) => ({
+              label: s.label,
+              value: s.value,
+              display: fmtMoney(s.value),
+            }))}
+            emptyLabel="No completed work in range."
+          />
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100">
+          <h2 className="font-semibold text-brand-navy">Top accounts by billed</h2>
+          <p className="text-xs text-slate-500">
+            In range · click through to the account's activity ledger.
+          </p>
+        </div>
+        <BarList
+          tone="navy"
+          items={topAccountsBilled.map((r) => ({
+            label: r.label,
+            value: r.billed,
+            display: fmtMoney(r.billed),
+            hint: `${r.activities} ${r.activities === 1 ? "activity" : "activities"}`,
+            href:
+              r.key === "unassigned"
+                ? undefined
+                : `/finance/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`,
+          }))}
+          emptyLabel="Nothing billed in range yet."
+        />
       </div>
 
       <div className="card overflow-hidden">

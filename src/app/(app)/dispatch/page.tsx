@@ -7,6 +7,8 @@ import { prisma } from "@/lib/db";
 import { StatusDot } from "@/components/StatusDot";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
+import { BarList } from "@/components/BarList";
+import { TrendChart } from "@/components/TrendChart";
 import { reassignJob } from "../patrols/_actions";
 import { QuickReassignJob } from "../patrols/_components/QuickReassign";
 import { CancelJobButton } from "./_components/CancelJobButton";
@@ -211,6 +213,26 @@ export default async function DispatchPage({
     0,
     0,
   );
+  // Analytics windows: start of today (UK) for the "today" stat strip, and
+  // 7 days back for the activity-mix breakdown.
+  const todayUk = ukDayPlus(now, 0);
+  const startOfTodayUtc = ukWallClockToUtc(
+    todayUk.year,
+    todayUk.month,
+    todayUk.day,
+    0,
+    0,
+    0,
+  );
+  const weekCutoffUk = ukDayPlus(now, -6);
+  const weekSince = ukWallClockToUtc(
+    weekCutoffUk.year,
+    weekCutoffUk.month,
+    weekCutoffUk.day,
+    0,
+    0,
+    0,
+  );
   // Every bucket sorts by scheduled time first. The dispatcher's
   // mental model is the day's schedule (07:00 unlock → 09:00 VPI →
   // 22:00 lock-up), not the order paperwork closed in. For the
@@ -245,6 +267,10 @@ export default async function DispatchPage({
     jobSourceLabels,
     recentJobs,
     recentVisits,
+    weekJobs,
+    weekVisits,
+    liveByRegion,
+    dailyActivityRows,
   ] = await Promise.all([
     prisma.job.findMany({
       where: jobsWhere,
@@ -405,6 +431,39 @@ export default async function DispatchPage({
       orderBy: { departedAt: "desc" },
       take: 100,
     }),
+    // ── Analytics: last-7-day completed jobs (type mix + response time) ──
+    prisma.job.findMany({
+      where: { completedAt: { gte: weekSince, lte: now }, status: { not: "CANCELLED" } },
+      select: { type: true, scheduledFor: true, startedAt: true, completedAt: true },
+      take: 2000,
+    }),
+    // Last-7-day completed visits (type mix).
+    prisma.patrolVisit.findMany({
+      where: { status: "COMPLETED", departedAt: { gte: weekSince, lte: now } },
+      select: { patrolSchedule: { select: { kind: true } } },
+      take: 2000,
+    }),
+    // Live workload (open / assigned / in-progress) by region — what's on
+    // the board right now, grouped to show where the pressure is.
+    prisma.job.findMany({
+      where: { status: { in: LIVE_STATUSES as JobStatus[] } },
+      select: { site: { select: { region: { select: { name: true } } } } },
+      take: 2000,
+    }),
+    // 14-day activity volume (completed jobs + visits per UK day).
+    prisma.$queryRaw<{ day: Date; total: number }[]>`
+      SELECT day, COUNT(*)::float8 AS total
+      FROM (
+        SELECT date_trunc('day', "completedAt") AS day FROM "Job"
+        WHERE "completedAt" >= ${ukWallClockToUtc(ukDayPlus(now, -13).year, ukDayPlus(now, -13).month, ukDayPlus(now, -13).day, 0, 0, 0)}
+          AND "completedAt" <= ${now} AND "status" <> 'CANCELLED'
+        UNION ALL
+        SELECT date_trunc('day', "departedAt") AS day FROM "PatrolVisit"
+        WHERE "departedAt" >= ${ukWallClockToUtc(ukDayPlus(now, -13).year, ukDayPlus(now, -13).month, ukDayPlus(now, -13).day, 0, 0, 0)}
+          AND "departedAt" <= ${now} AND "status" = 'COMPLETED'
+      ) s
+      GROUP BY day ORDER BY day ASC
+    `,
   ]);
 
   const bucketCounts: Record<Bucket, number> = {
@@ -553,6 +612,87 @@ export default async function DispatchPage({
     });
     return { day, time };
   }
+
+  // --- Operations analytics derivation --------------------------------------
+  // Completed today (UK) across jobs + visits.
+  const completedTodayJobs = weekJobs.filter(
+    (j) => j.completedAt && j.completedAt >= startOfTodayUtc,
+  ).length;
+  const completedTodayVisits = recentVisits.filter(
+    (v) => v.departedAt && v.departedAt >= startOfTodayUtc,
+  ).length;
+  const completedTodayTotal = completedTodayJobs + completedTodayVisits;
+
+  // Avg response time today: minutes between scheduledFor and startedAt for
+  // jobs that actually started, where the officer wasn't early. Directional.
+  const responseSamples = weekJobs
+    .filter(
+      (j) =>
+        j.startedAt &&
+        j.scheduledFor &&
+        j.startedAt >= startOfTodayUtc &&
+        j.startedAt.getTime() - j.scheduledFor.getTime() > 0,
+    )
+    .map((j) => (j.startedAt!.getTime() - j.scheduledFor!.getTime()) / 60000);
+  const avgResponseMins =
+    responseSamples.length > 0
+      ? Math.round(
+          responseSamples.reduce((a, b) => a + b, 0) / responseSamples.length,
+        )
+      : null;
+
+  // Completion rate today: completed ÷ (completed + still-overdue) so the
+  // dispatcher sees how much of today's expected work is closed out.
+  const overdueNow = bucketCounts.missed;
+  const completionRate =
+    completedTodayTotal + overdueNow > 0
+      ? Math.round((completedTodayTotal / (completedTodayTotal + overdueNow)) * 100)
+      : null;
+
+  // Activity mix (last 7 days) by service type.
+  const typeCount = new Map<string, number>();
+  for (const j of weekJobs) {
+    const label = jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ");
+    typeCount.set(label, (typeCount.get(label) ?? 0) + 1);
+  }
+  for (const v of weekVisits) {
+    const label = v.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol";
+    typeCount.set(label, (typeCount.get(label) ?? 0) + 1);
+  }
+  const activityByType = Array.from(typeCount.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value);
+
+  // Live workload by region.
+  const regionCount = new Map<string, number>();
+  for (const j of liveByRegion) {
+    const name = j.site?.region?.name ?? "No region";
+    regionCount.set(name, (regionCount.get(name) ?? 0) + 1);
+  }
+  const workloadByRegion = Array.from(regionCount.entries())
+    .map(([label, value]) => ({ label, value }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 8);
+
+  // 14-day activity volume series + labels (densified, gaps → 0).
+  const activityDayMap = new Map<string, number>();
+  for (const r of dailyActivityRows) {
+    const d = new Date(r.day);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    activityDayMap.set(key, Number(r.total) || 0);
+  }
+  const activityVolume: number[] = [];
+  const activityLabels: string[] = [];
+  for (let i = 13; i >= 0; i--) {
+    const dParts = ukDayPlus(now, -i);
+    const d = new Date(dParts.year, dParts.month - 1, dParts.day);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    activityVolume.push(activityDayMap.get(key) ?? 0);
+    activityLabels.push(
+      d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+    );
+  }
+  const activity14dTotal = activityVolume.reduce((a, b) => a + b, 0);
 
   // --- Map data derivation ---------------------------------------------------
 
@@ -729,6 +869,87 @@ export default async function DispatchPage({
           </Link>
         </div>
       )}
+
+      {/* ── Operations analytics ─────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="card-accent p-4 flex flex-col gap-1">
+          <div className="kpi-label">Completed today</div>
+          <div className="kpi-value">{completedTodayTotal.toLocaleString("en-GB")}</div>
+          <div className="kpi-hint">jobs + visits closed</div>
+        </div>
+        <div className="kpi p-4">
+          <div className="kpi-label">Completion rate</div>
+          <div className="kpi-value">
+            {completionRate == null ? "—" : `${completionRate}%`}
+          </div>
+          <div className="kpi-hint">
+            {overdueNow > 0 ? `${overdueNow} overdue now` : "nothing overdue"}
+          </div>
+        </div>
+        <div className="kpi p-4">
+          <div className="kpi-label">Avg response today</div>
+          <div className="kpi-value">
+            {avgResponseMins == null ? "—" : `${avgResponseMins}m`}
+          </div>
+          <div className="kpi-hint">scheduled → on site</div>
+        </div>
+        <div className="kpi p-4">
+          <div className="kpi-label">On duty now</div>
+          <div className="kpi-value">{onDutyOfficers.length.toLocaleString("en-GB")}</div>
+          <div className="kpi-hint">officers signed on</div>
+        </div>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-brand-navy">
+              Activity volume — last 14 days
+            </h2>
+            <p className="text-xs text-slate-500">
+              Completed jobs + visits per day. Peak day labelled.
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-lg font-semibold text-brand-navy tabular-nums leading-none">
+              {activity14dTotal.toLocaleString("en-GB")}
+            </div>
+            <div className="text-[11px] text-slate-500">14-day total</div>
+          </div>
+        </div>
+        <div className="p-4">
+          <TrendChart
+            values={activityVolume}
+            labels={activityLabels}
+            height={130}
+            ariaLabel="Completed activities per day over the last 14 days"
+          />
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-3">
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Activity mix</h2>
+            <p className="text-xs text-slate-500">By service · last 7 days</p>
+          </div>
+          <BarList
+            items={activityByType}
+            emptyLabel="No completed activities in the last 7 days."
+          />
+        </div>
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Live workload by region</h2>
+            <p className="text-xs text-slate-500">Open + in-progress jobs right now</p>
+          </div>
+          <BarList
+            tone="amber"
+            items={workloadByRegion}
+            emptyLabel="No live jobs on the board."
+          />
+        </div>
+      </div>
 
       <AutoRefresh intervalMs={60_000} />
 
