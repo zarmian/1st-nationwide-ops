@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { FilterPanel } from "@/components/FilterPanel";
+import { FinanceAccountFilters } from "../../_components/FinanceAccountFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,18 @@ const KIND_LABEL: Record<string, string> = {
   KEY_DROPOFF: "Key dropoff",
   ADHOC: "Ad-hoc",
 };
+
+const FILTER_JOB_TYPES = [
+  "ALARM_RESPONSE",
+  "PATROL",
+  "LOCK",
+  "UNLOCK",
+  "VPI",
+  "KEY_COLLECTION",
+  "KEY_DROPOFF",
+  "ADHOC",
+] as const;
+const FILTER_VISIT_KINDS = ["PATROL", "VPI"] as const;
 
 function fmtMoney(amount: unknown, currency = "GBP"): string {
   const n = Number(amount ?? 0);
@@ -60,7 +74,13 @@ export default async function PartnerFinancePage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { from?: string; to?: string };
+  searchParams: {
+    from?: string;
+    to?: string;
+    kind?: string;
+    siteId?: string;
+    regionId?: string;
+  };
 }) {
   await requireAdmin();
 
@@ -77,75 +97,131 @@ export default async function PartnerFinancePage({
   );
   const fromDate = parseDate(searchParams.from) ?? monthStart;
   const toDate = parseDate(searchParams.to, true) ?? monthEnd;
+  const kind = (searchParams.kind ?? "").trim();
+  const siteId = (searchParams.siteId ?? "").trim();
+  const regionIdRaw = (searchParams.regionId ?? "").trim();
+  const regionId =
+    regionIdRaw && Number.isFinite(Number(regionIdRaw))
+      ? Number(regionIdRaw)
+      : null;
 
-  const [partner, visitsWeDidForThem, jobsWeDidForThem, jobsTheyDidForUs] =
-    await Promise.all([
-      prisma.partner.findUnique({
-        where: { id: params.id },
-        select: { id: true, name: true, role: true },
-      }),
-      // WE did for THEM via patrol visits: partner-owned sites we attend.
-      prisma.patrolVisit.findMany({
-        where: {
-          status: "COMPLETED",
-          departedAt: { gte: fromDate, lte: toDate },
-          site: { partnerId: params.id },
-        },
-        orderBy: { scheduledAt: "desc" },
-        select: {
-          id: true,
-          departedAt: true,
-          arrivedAt: true,
-          scheduledAt: true,
-          billedAmount: true,
-          site: { select: { id: true, name: true, code: true } },
-          patrolSchedule: { select: { kind: true } },
-          officer: { select: { id: true, name: true } },
-        },
-      }),
-      // WE did for THEM via jobs: partner is the bill-to (Job.partnerId).
-      prisma.job.findMany({
-        where: {
-          partnerId: params.id,
-          status: { not: "CANCELLED" },
-          completedAt: { gte: fromDate, lte: toDate },
-        },
-        orderBy: { scheduledFor: "desc" },
-        select: {
-          id: true,
-          type: true,
-          scheduledFor: true,
-          startedAt: true,
-          completedAt: true,
-          billedAmount: true,
-          site: { select: { id: true, name: true, code: true } },
-          assignedTo: { select: { id: true, name: true } },
-        },
-      }),
-      // THEY did for US: partner attended (Job.handledByPartnerId). The
-      // billedAmount here is what we charged our end customer; the schema
-      // doesn't track what we owe the partner in return yet (separate item).
-      prisma.job.findMany({
-        where: {
-          handledByPartnerId: params.id,
-          status: { not: "CANCELLED" },
-          completedAt: { gte: fromDate, lte: toDate },
-        },
-        orderBy: { scheduledFor: "desc" },
-        select: {
-          id: true,
-          type: true,
-          scheduledFor: true,
-          startedAt: true,
-          completedAt: true,
-          billedAmount: true,
-          partnerReportRef: true,
-          site: { select: { id: true, name: true, code: true } },
-          customer: { select: { name: true } },
-          partner: { select: { name: true } },
-        },
-      }),
-    ]);
+  // Filter routing (same as officer page): visit-kind → visits-only, bare
+  // job-type → jobs-only, empty → both.
+  const visitKindFilter =
+    kind === "VISIT_PATROL"
+      ? ("PATROL" as const)
+      : kind === "VISIT_VPI"
+        ? ("VPI" as const)
+        : null;
+  const jobTypeFilter =
+    kind && !kind.startsWith("VISIT_") ? kind : null;
+  const loadVisits = !jobTypeFilter;
+  const loadJobs = !visitKindFilter;
+
+  // Site filter is composed with the partner-ownership where on
+  // visits/jobs; region narrows via site.regionId on either branch.
+  const visitSiteWhere: any = { partnerId: params.id };
+  if (siteId) visitSiteWhere.id = siteId;
+  if (regionId != null) visitSiteWhere.regionId = regionId;
+
+  const jobSiteWhere: any = {};
+  if (siteId) jobSiteWhere.id = siteId;
+  if (regionId != null) jobSiteWhere.regionId = regionId;
+  const jobHasSiteFilter = Object.keys(jobSiteWhere).length > 0;
+
+  const [
+    partner,
+    visitsWeDidForThem,
+    jobsWeDidForThem,
+    jobsTheyDidForUs,
+    sites,
+    regions,
+  ] = await Promise.all([
+    prisma.partner.findUnique({
+      where: { id: params.id },
+      select: { id: true, name: true, role: true },
+    }),
+    // WE did for THEM via patrol visits: partner-owned sites we attend.
+    loadVisits
+      ? prisma.patrolVisit.findMany({
+          where: {
+            status: "COMPLETED",
+            departedAt: { gte: fromDate, lte: toDate },
+            site: { is: visitSiteWhere },
+            ...(visitKindFilter
+              ? { patrolSchedule: { kind: visitKindFilter } }
+              : {}),
+          },
+          orderBy: { scheduledAt: "desc" },
+          select: {
+            id: true,
+            departedAt: true,
+            arrivedAt: true,
+            scheduledAt: true,
+            billedAmount: true,
+            site: { select: { id: true, name: true, code: true } },
+            patrolSchedule: { select: { kind: true } },
+            officer: { select: { id: true, name: true } },
+          },
+        })
+      : Promise.resolve([] as any[]),
+    // WE did for THEM via jobs: partner is the bill-to (Job.partnerId).
+    loadJobs
+      ? prisma.job.findMany({
+          where: {
+            partnerId: params.id,
+            status: { not: "CANCELLED" },
+            completedAt: { gte: fromDate, lte: toDate },
+            ...(jobTypeFilter ? { type: jobTypeFilter as any } : {}),
+            ...(jobHasSiteFilter ? { site: { is: jobSiteWhere } } : {}),
+          },
+          orderBy: { scheduledFor: "desc" },
+          select: {
+            id: true,
+            type: true,
+            scheduledFor: true,
+            startedAt: true,
+            completedAt: true,
+            billedAmount: true,
+            site: { select: { id: true, name: true, code: true } },
+            assignedTo: { select: { id: true, name: true } },
+          },
+        })
+      : Promise.resolve([] as any[]),
+    // THEY did for US: partner attended (Job.handledByPartnerId). The
+    // billedAmount here is what we charged our end customer; the schema
+    // doesn't track what we owe the partner in return yet (separate item).
+    loadJobs
+      ? prisma.job.findMany({
+          where: {
+            handledByPartnerId: params.id,
+            status: { not: "CANCELLED" },
+            completedAt: { gte: fromDate, lte: toDate },
+            ...(jobTypeFilter ? { type: jobTypeFilter as any } : {}),
+            ...(jobHasSiteFilter ? { site: { is: jobSiteWhere } } : {}),
+          },
+          orderBy: { scheduledFor: "desc" },
+          select: {
+            id: true,
+            type: true,
+            scheduledFor: true,
+            startedAt: true,
+            completedAt: true,
+            billedAmount: true,
+            partnerReportRef: true,
+            site: { select: { id: true, name: true, code: true } },
+            customer: { select: { name: true } },
+            partner: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([] as any[]),
+    prisma.site.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, code: true },
+    }),
+    prisma.region.findMany({ orderBy: { name: "asc" } }),
+  ]);
 
   if (!partner) notFound();
 
@@ -237,7 +313,67 @@ export default async function PartnerFinancePage({
         }
       />
 
-      <RangeBar from={fromDate} to={toDate} basePath={`/finance/partners/${partner.id}`} />
+      <FilterPanel
+        clearAllHref={`/finance/partners/${partner.id}`}
+        activeFilters={(() => {
+          const filters: { label: string; clearHref: string }[] = [];
+          const drop = (k: string): string => {
+            const sp = new URLSearchParams(searchParams as Record<string, string>);
+            sp.delete(k);
+            const qs = sp.toString();
+            return `/finance/partners/${partner.id}${qs ? `?${qs}` : ""}`;
+          };
+          if (kind) {
+            const label =
+              kind === "VISIT_PATROL"
+                ? "Patrol visits"
+                : kind === "VISIT_VPI"
+                  ? "VPI visits"
+                  : (KIND_LABEL[kind] ?? kind);
+            filters.push({ label: `Service: ${label}`, clearHref: drop("kind") });
+          }
+          if (siteId) {
+            const s = sites.find((x) => x.id === siteId);
+            filters.push({
+              label: `Site: ${s ? (s.code ? `${s.code} · ${s.name}` : s.name) : "?"}`,
+              clearHref: drop("siteId"),
+            });
+          }
+          if (regionId != null) {
+            const r = regions.find((x) => x.id === regionId);
+            filters.push({
+              label: `Region: ${r?.name ?? "?"}`,
+              clearHref: drop("regionId"),
+            });
+          }
+          return filters;
+        })()}
+      >
+        <FinanceAccountFilters
+          basePath={`/finance/partners/${partner.id}`}
+          initial={{
+            from: ymd(fromDate),
+            to: ymd(toDate),
+            kind,
+            siteId,
+            regionId: regionIdRaw,
+          }}
+          jobTypes={FILTER_JOB_TYPES.map((t) => ({
+            v: t,
+            label: KIND_LABEL[t] ?? t,
+          }))}
+          visitKinds={FILTER_VISIT_KINDS.map((k) => ({
+            v: `VISIT_${k}`,
+            label: k === "VPI" ? "VPI visit" : "Patrol visit",
+          }))}
+          sites={sites.map((s) => ({
+            id: s.id,
+            name: s.name,
+            code: s.code,
+          }))}
+          regions={regions.map((r) => ({ id: r.id, name: r.name }))}
+        />
+      </FilterPanel>
 
       <div className="grid sm:grid-cols-2 gap-4">
         <SplitCard
@@ -484,68 +620,5 @@ function SplitCard({
         </div>
       </div>
     </div>
-  );
-}
-
-function RangeBar({
-  from,
-  to,
-  basePath,
-}: {
-  from: Date;
-  to: Date;
-  basePath: string;
-}) {
-  const now = new Date();
-  const thisMonth = {
-    from: new Date(now.getFullYear(), now.getMonth(), 1),
-    to: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
-  };
-  const lastMonth = {
-    from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-    to: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999),
-  };
-  return (
-    <form className="card p-3 flex flex-wrap items-end gap-3" method="GET">
-      <div>
-        <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-          From
-        </label>
-        <input
-          type="date"
-          name="from"
-          defaultValue={ymd(from)}
-          className="input"
-        />
-      </div>
-      <div>
-        <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-          To
-        </label>
-        <input
-          type="date"
-          name="to"
-          defaultValue={ymd(to)}
-          className="input"
-        />
-      </div>
-      <button type="submit" className="btn-secondary text-sm">
-        Apply
-      </button>
-      <div className="ml-auto flex gap-2">
-        <Link
-          href={`${basePath}?from=${ymd(thisMonth.from)}&to=${ymd(thisMonth.to)}`}
-          className="btn-ghost text-xs"
-        >
-          This month
-        </Link>
-        <Link
-          href={`${basePath}?from=${ymd(lastMonth.from)}&to=${ymd(lastMonth.to)}`}
-          className="btn-ghost text-xs"
-        >
-          Last month
-        </Link>
-      </div>
-    </form>
   );
 }
