@@ -701,33 +701,33 @@ export default async function FinancePage({
       </div>
 
       {/* ── Revenue analytics ─────────────────────────────────────────── */}
-      <div className="grid lg:grid-cols-3 gap-3">
-        <div className="card overflow-hidden lg:col-span-2">
-          <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3">
-            <div>
-              <h2 className="font-semibold text-brand-navy">Billed — last 14 days</h2>
-              <p className="text-xs text-slate-500">
-                Completed visits + jobs, per day. Peak day labelled.
-              </p>
-            </div>
-            <div className="text-right">
-              <div className="text-lg font-semibold text-brand-navy tabular-nums leading-none">
-                {fmtMoney(dailyBilled.reduce((a, b) => a + b, 0))}
-              </div>
-              <div className="text-[11px] text-slate-500">14-day total</div>
-            </div>
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3">
+          <div>
+            <h2 className="font-semibold text-brand-navy">Billed — last 14 days</h2>
+            <p className="text-xs text-slate-500">
+              Completed visits + jobs, per day. Peak day labelled.
+            </p>
           </div>
-          <div className="p-4">
-            <TrendChart
-              values={dailyBilled}
-              labels={trendLabels}
-              height={140}
-              ariaLabel="Daily billed revenue over the last 14 days"
-              formatValue={(n) => fmtMoney(n)}
-            />
+          <div className="text-right">
+            <div className="text-lg font-semibold text-brand-navy tabular-nums leading-none">
+              {fmtMoney(dailyBilled.reduce((a, b) => a + b, 0))}
+            </div>
+            <div className="text-[11px] text-slate-500">14-day total</div>
           </div>
         </div>
+        <div className="p-4">
+          <TrendChart
+            values={dailyBilled}
+            labels={trendLabels}
+            height={140}
+            ariaLabel="Daily billed revenue over the last 14 days"
+            formatValue={(n) => fmtMoney(n)}
+          />
+        </div>
+      </div>
 
+      <div className="grid lg:grid-cols-2 gap-3">
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-brand-navy">Revenue by service</h2>
@@ -742,29 +742,29 @@ export default async function FinancePage({
             emptyLabel="No completed work in range."
           />
         </div>
-      </div>
 
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100">
-          <h2 className="font-semibold text-brand-navy">Top accounts by billed</h2>
-          <p className="text-xs text-slate-500">
-            In range · click through to the account's activity ledger.
-          </p>
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Top accounts by billed</h2>
+            <p className="text-xs text-slate-500">
+              In range · click through to the account's activity ledger.
+            </p>
+          </div>
+          <BarList
+            tone="navy"
+            items={topAccountsBilled.map((r) => ({
+              label: r.label,
+              value: r.billed,
+              display: fmtMoney(r.billed),
+              hint: `${r.activities} ${r.activities === 1 ? "activity" : "activities"}`,
+              href:
+                r.key === "unassigned"
+                  ? undefined
+                  : `/finance/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`,
+            }))}
+            emptyLabel="Nothing billed in range yet."
+          />
         </div>
-        <BarList
-          tone="navy"
-          items={topAccountsBilled.map((r) => ({
-            label: r.label,
-            value: r.billed,
-            display: fmtMoney(r.billed),
-            hint: `${r.activities} ${r.activities === 1 ? "activity" : "activities"}`,
-            href:
-              r.key === "unassigned"
-                ? undefined
-                : `/finance/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`,
-          }))}
-          emptyLabel="Nothing billed in range yet."
-        />
       </div>
 
       <div className="card overflow-hidden">
@@ -887,9 +887,10 @@ export default async function FinancePage({
         to={toDate}
       />
 
-      <PartnerPnlTable rows={partnerRows} from={fromDate} to={toDate} />
-
-      <OfficerPnlTable rows={officerRows} from={fromDate} to={toDate} />
+      <div className="grid lg:grid-cols-2 gap-4">
+        <PartnerPnlTable rows={partnerRows} from={fromDate} to={toDate} />
+        <OfficerPnlTable rows={officerRows} from={fromDate} to={toDate} />
+      </div>
 
 
       <div className="card-subtle p-4">
