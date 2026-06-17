@@ -4,6 +4,8 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
+import { FilterPanel } from "@/components/FilterPanel";
+import { FinanceAccountFilters } from "../../_components/FinanceAccountFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +19,20 @@ const KIND_LABEL: Record<string, string> = {
   KEY_DROPOFF: "Key dropoff",
   ADHOC: "Ad-hoc",
 };
+
+const FILTER_JOB_TYPES = [
+  "ALARM_RESPONSE",
+  "PATROL",
+  "LOCK",
+  "UNLOCK",
+  "VPI",
+  "KEY_COLLECTION",
+  "KEY_DROPOFF",
+  "ADHOC",
+] as const;
+// Visit-kind filter keys mirror /activities — "VISIT_PATROL" / "VISIT_VPI"
+// route the where-clause to PatrolVisit-only, with the matching schedule kind.
+const FILTER_VISIT_KINDS = ["PATROL", "VPI"] as const;
 
 function fmtMoney(amount: unknown, currency = "GBP"): string {
   const n = Number(amount ?? 0);
@@ -60,7 +76,13 @@ export default async function OfficerFinancePage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { from?: string; to?: string };
+  searchParams: {
+    from?: string;
+    to?: string;
+    kind?: string;
+    siteId?: string;
+    regionId?: string;
+  };
 }) {
   await requireAdmin();
 
@@ -77,53 +99,96 @@ export default async function OfficerFinancePage({
   );
   const fromDate = parseDate(searchParams.from) ?? monthStart;
   const toDate = parseDate(searchParams.to, true) ?? monthEnd;
+  const kind = (searchParams.kind ?? "").trim();
+  const siteId = (searchParams.siteId ?? "").trim();
+  const regionIdRaw = (searchParams.regionId ?? "").trim();
+  const regionId =
+    regionIdRaw && Number.isFinite(Number(regionIdRaw))
+      ? Number(regionIdRaw)
+      : null;
 
-  const [officer, visits, jobs] = await Promise.all([
+  // Translate the unified "kind" param into the right filter slot for
+  // each data source. VISIT_PATROL / VISIT_VPI → visits-only with that
+  // schedule kind; a bare job-type → jobs-only with type=X; empty → both.
+  const visitKindFilter =
+    kind === "VISIT_PATROL"
+      ? ("PATROL" as const)
+      : kind === "VISIT_VPI"
+        ? ("VPI" as const)
+        : null;
+  const jobTypeFilter =
+    kind && !kind.startsWith("VISIT_") ? kind : null;
+  const loadVisits = !jobTypeFilter; // job-type narrows to jobs only
+  const loadJobs = !visitKindFilter; // visit-kind narrows to visits only
+
+  const siteWhereExtras: { id?: string; regionId?: number } = {};
+  if (siteId) siteWhereExtras.id = siteId;
+  if (regionId != null) siteWhereExtras.regionId = regionId;
+  const hasSiteFilter = Object.keys(siteWhereExtras).length > 0;
+
+  const visitWhere: any = {
+    officerId: params.id,
+    status: "COMPLETED",
+    departedAt: { gte: fromDate, lte: toDate },
+    ...(visitKindFilter
+      ? { patrolSchedule: { kind: visitKindFilter } }
+      : {}),
+    ...(hasSiteFilter ? { site: { is: siteWhereExtras } } : {}),
+  };
+  const jobWhere: any = {
+    assignedToUserId: params.id,
+    status: { in: ["APPROVED", "CLOSED", "SENT_TO_CLIENT", "SUBMITTED"] },
+    completedAt: { gte: fromDate, lte: toDate },
+    ...(jobTypeFilter ? { type: jobTypeFilter as any } : {}),
+    ...(hasSiteFilter ? { site: { is: siteWhereExtras } } : {}),
+  };
+
+  const [officer, visits, jobs, sites, regions] = await Promise.all([
     prisma.user.findUnique({
       where: { id: params.id },
       select: { id: true, name: true, email: true, role: true },
     }),
-    // Approved/completed work only: no cancelled, no upcoming. Visits
-    // hit status=COMPLETED; cron auto-completes once the officer submits.
-    prisma.patrolVisit.findMany({
-      where: {
-        officerId: params.id,
-        status: "COMPLETED",
-        departedAt: { gte: fromDate, lte: toDate },
-      },
-      orderBy: { scheduledAt: "desc" },
-      select: {
-        id: true,
-        scheduledAt: true,
-        departedAt: true,
-        arrivedAt: true,
-        billedAmount: true,
-        paidAmount: true,
-        site: { select: { id: true, name: true, code: true } },
-        patrolSchedule: { select: { kind: true } },
-      },
+    loadVisits
+      ? prisma.patrolVisit.findMany({
+          where: visitWhere,
+          orderBy: { scheduledAt: "desc" },
+          select: {
+            id: true,
+            scheduledAt: true,
+            departedAt: true,
+            arrivedAt: true,
+            billedAmount: true,
+            paidAmount: true,
+            site: { select: { id: true, name: true, code: true } },
+            patrolSchedule: { select: { kind: true } },
+          },
+        })
+      : Promise.resolve([] as any[]),
+    loadJobs
+      ? prisma.job.findMany({
+          where: jobWhere,
+          orderBy: { scheduledFor: "desc" },
+          select: {
+            id: true,
+            type: true,
+            scheduledFor: true,
+            startedAt: true,
+            completedAt: true,
+            status: true,
+            billedAmount: true,
+            paidAmount: true,
+            site: { select: { id: true, name: true, code: true } },
+            customer: { select: { name: true } },
+            partner: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([] as any[]),
+    prisma.site.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, code: true },
     }),
-    prisma.job.findMany({
-      where: {
-        assignedToUserId: params.id,
-        status: { in: ["APPROVED", "CLOSED", "SENT_TO_CLIENT", "SUBMITTED"] },
-        completedAt: { gte: fromDate, lte: toDate },
-      },
-      orderBy: { scheduledFor: "desc" },
-      select: {
-        id: true,
-        type: true,
-        scheduledFor: true,
-        startedAt: true,
-        completedAt: true,
-        status: true,
-        billedAmount: true,
-        paidAmount: true,
-        site: { select: { id: true, name: true, code: true } },
-        customer: { select: { name: true } },
-        partner: { select: { name: true } },
-      },
-    }),
+    prisma.region.findMany({ orderBy: { name: "asc" } }),
   ]);
 
   if (!officer) notFound();
@@ -183,7 +248,67 @@ export default async function OfficerFinancePage({
         }
       />
 
-      <RangeBar from={fromDate} to={toDate} basePath={`/finance/officers/${officer.id}`} />
+      <FilterPanel
+        clearAllHref={`/finance/officers/${officer.id}`}
+        activeFilters={(() => {
+          const filters: { label: string; clearHref: string }[] = [];
+          const drop = (k: string): string => {
+            const sp = new URLSearchParams(searchParams as Record<string, string>);
+            sp.delete(k);
+            const qs = sp.toString();
+            return `/finance/officers/${officer.id}${qs ? `?${qs}` : ""}`;
+          };
+          if (kind) {
+            const label =
+              kind === "VISIT_PATROL"
+                ? "Patrol visits"
+                : kind === "VISIT_VPI"
+                  ? "VPI visits"
+                  : (KIND_LABEL[kind] ?? kind);
+            filters.push({ label: `Service: ${label}`, clearHref: drop("kind") });
+          }
+          if (siteId) {
+            const s = sites.find((x) => x.id === siteId);
+            filters.push({
+              label: `Site: ${s ? (s.code ? `${s.code} · ${s.name}` : s.name) : "?"}`,
+              clearHref: drop("siteId"),
+            });
+          }
+          if (regionId != null) {
+            const r = regions.find((x) => x.id === regionId);
+            filters.push({
+              label: `Region: ${r?.name ?? "?"}`,
+              clearHref: drop("regionId"),
+            });
+          }
+          return filters;
+        })()}
+      >
+        <FinanceAccountFilters
+          basePath={`/finance/officers/${officer.id}`}
+          initial={{
+            from: ymd(fromDate),
+            to: ymd(toDate),
+            kind,
+            siteId,
+            regionId: regionIdRaw,
+          }}
+          jobTypes={FILTER_JOB_TYPES.map((t) => ({
+            v: t,
+            label: KIND_LABEL[t] ?? t,
+          }))}
+          visitKinds={FILTER_VISIT_KINDS.map((k) => ({
+            v: `VISIT_${k}`,
+            label: k === "VPI" ? "VPI visit" : "Patrol visit",
+          }))}
+          sites={sites.map((s) => ({
+            id: s.id,
+            name: s.name,
+            code: s.code,
+          }))}
+          regions={regions.map((r) => ({ id: r.id, name: r.name }))}
+        />
+      </FilterPanel>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div className="card p-4">
@@ -286,68 +411,5 @@ export default async function OfficerFinancePage({
         )}
       </div>
     </div>
-  );
-}
-
-function RangeBar({
-  from,
-  to,
-  basePath,
-}: {
-  from: Date;
-  to: Date;
-  basePath: string;
-}) {
-  const now = new Date();
-  const thisMonth = {
-    from: new Date(now.getFullYear(), now.getMonth(), 1),
-    to: new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999),
-  };
-  const lastMonth = {
-    from: new Date(now.getFullYear(), now.getMonth() - 1, 1),
-    to: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999),
-  };
-  return (
-    <form className="card p-3 flex flex-wrap items-end gap-3" method="GET">
-      <div>
-        <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-          From
-        </label>
-        <input
-          type="date"
-          name="from"
-          defaultValue={ymd(from)}
-          className="input"
-        />
-      </div>
-      <div>
-        <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-          To
-        </label>
-        <input
-          type="date"
-          name="to"
-          defaultValue={ymd(to)}
-          className="input"
-        />
-      </div>
-      <button type="submit" className="btn-secondary text-sm">
-        Apply
-      </button>
-      <div className="ml-auto flex gap-2">
-        <Link
-          href={`${basePath}?from=${ymd(thisMonth.from)}&to=${ymd(thisMonth.to)}`}
-          className="btn-ghost text-xs"
-        >
-          This month
-        </Link>
-        <Link
-          href={`${basePath}?from=${ymd(lastMonth.from)}&to=${ymd(lastMonth.to)}`}
-          className="btn-ghost text-xs"
-        >
-          Last month
-        </Link>
-      </div>
-    </form>
   );
 }
