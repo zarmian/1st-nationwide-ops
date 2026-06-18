@@ -34,6 +34,8 @@ export default async function AppShell({
       pathname.startsWith("/submit/");
     if (!officerOk) redirect("/m/today");
   }
+  // Partner-portal seats never see the (app) shell.
+  if (role === "PARTNER") redirect("/partner");
   if (pathname && role === "DISPATCHER") {
     const onFinance =
       pathname === "/finance" || pathname.startsWith("/finance/");
