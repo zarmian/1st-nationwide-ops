@@ -188,9 +188,10 @@ export default async function PartnerFinancePage({
           },
         })
       : Promise.resolve([] as any[]),
-    // THEY did for US: partner attended (Job.handledByPartnerId). The
-    // billedAmount here is what we charged our end customer; the schema
-    // doesn't track what we owe the partner in return yet (separate item).
+    // THEY did for US: partner attended (Job.handledByPartnerId).
+    // `billedAmount` is what we charged our end customer.
+    // `partnerChargeToUsAmount` (Phase 2) is what the partner invoiced
+    // us — surfaced separately in the table so we can reconcile the two.
     loadJobs
       ? prisma.job.findMany({
           where: {
@@ -208,7 +209,9 @@ export default async function PartnerFinancePage({
             startedAt: true,
             completedAt: true,
             billedAmount: true,
+            partnerChargeToUsAmount: true,
             partnerReportRef: true,
+            recordedByPartner: true,
             site: { select: { id: true, name: true, code: true } },
             customer: { select: { name: true } },
             partner: { select: { name: true } },
@@ -278,7 +281,11 @@ export default async function PartnerFinancePage({
     siteCode: string | null;
     customer: string | null;
     billed: number;
+    /// What the partner invoiced us for this row (their portal value),
+    /// null if they haven't logged it themselves yet.
+    partnerCharge: number | null;
     partnerRef: string | null;
+    recordedByPartner: boolean;
   };
   const theyDidRows: TheyDidRow[] = jobsTheyDidForUs.map((j) => ({
     id: j.id,
@@ -290,11 +297,20 @@ export default async function PartnerFinancePage({
     siteCode: j.site?.code ?? null,
     customer: j.customer?.name ?? j.partner?.name ?? null,
     billed: Number(j.billedAmount ?? 0),
+    partnerCharge:
+      j.partnerChargeToUsAmount != null
+        ? Number(j.partnerChargeToUsAmount)
+        : null,
     partnerRef: j.partnerReportRef,
+    recordedByPartner: j.recordedByPartner,
   }));
 
   const weDidTotal = weDidRows.reduce((acc, r) => acc + r.billed, 0);
   const theyDidTotal = theyDidRows.reduce((acc, r) => acc + r.billed, 0);
+  const theyDidPartnerChargeTotal = theyDidRows.reduce(
+    (acc, r) => acc + (r.partnerCharge ?? 0),
+    0,
+  );
 
   return (
     <div className="section">
@@ -518,7 +534,10 @@ export default async function PartnerFinancePage({
                     Their ref
                   </th>
                   <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                    Billed
+                    Billed to customer
+                  </th>
+                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                    They invoiced us
                   </th>
                 </tr>
               </thead>
@@ -558,6 +577,11 @@ export default async function PartnerFinancePage({
                     <td className="px-4 py-2 text-right tabular-nums">
                       {fmtMoney(r.billed)}
                     </td>
+                    <td className="px-4 py-2 text-right tabular-nums">
+                      {r.partnerCharge != null
+                        ? fmtMoney(r.partnerCharge)
+                        : "—"}
+                    </td>
                   </tr>
                 ))}
                 <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
@@ -566,6 +590,9 @@ export default async function PartnerFinancePage({
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums">
                     {fmtMoney(theyDidTotal)}
+                  </td>
+                  <td className="px-4 py-2 text-right tabular-nums">
+                    {fmtMoney(theyDidPartnerChargeTotal)}
                   </td>
                 </tr>
               </tbody>

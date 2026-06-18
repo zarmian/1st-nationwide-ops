@@ -7,6 +7,8 @@ import {
   LayoutDashboard,
   ClipboardList,
   Users,
+  Wallet,
+  Tag,
   LogOut,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
@@ -21,6 +23,8 @@ const PARTNER_LINKS: NavItem[] = [
   { href: "/partner", label: "Home", icon: LayoutDashboard },
   { href: "/partner/activities", label: "Activities", icon: ClipboardList },
   { href: "/partner/officers", label: "Officers", icon: Users },
+  { href: "/partner/rates", label: "Rates", icon: Tag },
+  { href: "/partner/finance", label: "Finance", icon: Wallet },
 ];
 
 function isItemActive(pathname: string, href: string): boolean {
