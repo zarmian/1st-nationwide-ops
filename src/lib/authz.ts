@@ -55,9 +55,9 @@ export async function requireStaff(): Promise<SessionUser> {
 
 /**
  * Partner-portal guard. Used by every server action / page under
- * /partner/*. Returns a guaranteed-non-null `partnerId` that callers
- * MUST use to scope every Prisma where clause — trusting only the
- * session, never the URL.
+ * /partner/* (the admin-side surface). Returns a guaranteed-non-null
+ * `partnerId` that callers MUST use to scope every Prisma where
+ * clause — trusting only the session, never the URL.
  */
 export async function requirePartner(): Promise<
   SessionUser & { partnerId: string }
@@ -72,4 +72,43 @@ export async function requirePartner(): Promise<
     throw new Error("Partner login is not linked to a partner");
   }
   return { ...u, partnerId: u.partnerId };
+}
+
+/**
+ * Partner-officer mobile guard. Used by every server action / page
+ * under /partner/m/*. On top of partnerId, returns the
+ * partnerOfficerId of the roster row this login backs — every query
+ * that filters assignments must scope by it so an officer only sees
+ * THEIR jobs/shifts, not the whole partner's.
+ *
+ * Does one extra DB round-trip per call to look up the officer seat;
+ * we don't put it on the JWT to avoid stale-link risk if the partner
+ * admin re-links or deactivates.
+ */
+export async function requirePartnerOfficer(): Promise<
+  SessionUser & { partnerId: string; partnerOfficerId: string }
+> {
+  const u = await requireUser();
+  if (u.role !== "PARTNER_OFFICER") {
+    throw new Error("Partner-officer access only");
+  }
+  if (!u.partnerId) {
+    throw new Error("Partner-officer login not linked to a partner");
+  }
+  const { prisma } = await import("@/lib/db");
+  const seat = await prisma.partnerOfficer.findUnique({
+    where: { userId: u.id },
+    select: { id: true, partnerId: true, active: true },
+  });
+  if (!seat) {
+    throw new Error("Partner-officer roster row not found");
+  }
+  if (!seat.active) {
+    throw new Error("Partner-officer is deactivated");
+  }
+  if (seat.partnerId !== u.partnerId) {
+    // Defence: roster row was reparented since the JWT was issued.
+    throw new Error("Partner-officer roster row mismatch");
+  }
+  return { ...u, partnerId: u.partnerId, partnerOfficerId: seat.id };
 }

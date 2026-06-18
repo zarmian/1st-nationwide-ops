@@ -23,6 +23,7 @@ export default withAuth(
       | "DISPATCHER"
       | "OFFICER"
       | "PARTNER"
+      | "PARTNER_OFFICER"
       | undefined;
 
     // Forward the pathname as a request header so the (app) layout can
@@ -43,7 +44,9 @@ export default withAuth(
         ? "/m/today"
         : r === "PARTNER"
           ? "/partner"
-          : "/dispatch";
+          : r === "PARTNER_OFFICER"
+            ? "/partner/m/today"
+            : "/dispatch";
 
     // ── Officer hard-lock ────────────────────────────────────────────
     // Officers can only see /m/* and /submit. Anything else → bounce home.
@@ -62,16 +65,34 @@ export default withAuth(
       return passThrough;
     }
 
-    // ── Partner-portal hard-lock ─────────────────────────────────────
-    // Partner-org seats can only see /partner/*. Everything else (our
-    // dispatch board, finance, admin, sites …) is off-limits. Server
-    // actions also call requirePartner() as a backstop.
+    // ── Partner-admin hard-lock ──────────────────────────────────────
+    // PARTNER seats see /partner/* EXCEPT /partner/m/* (which is the
+    // partner-officer mobile surface — different role, different nav).
+    // Everything else (dispatch, finance, admin, sites) is off-limits.
     if (role === "PARTNER") {
+      const onPartnerOfficer =
+        pathname === "/partner/m" || pathname.startsWith("/partner/m/");
       const partnerOk =
-        pathname === "/partner" || pathname.startsWith("/partner/");
+        (pathname === "/partner" || pathname.startsWith("/partner/")) &&
+        !onPartnerOfficer;
       if (!partnerOk) {
         const url = req.nextUrl.clone();
         url.pathname = "/partner";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+      return passThrough;
+    }
+
+    // ── Partner-officer hard-lock ────────────────────────────────────
+    // PARTNER_OFFICER seats can only see /partner/m/*. Everything else
+    // (including the partner-admin pages) is off-limits.
+    if (role === "PARTNER_OFFICER") {
+      const officerOk =
+        pathname === "/partner/m" || pathname.startsWith("/partner/m/");
+      if (!officerOk) {
+        const url = req.nextUrl.clone();
+        url.pathname = "/partner/m/today";
         url.search = "";
         return NextResponse.redirect(url);
       }
