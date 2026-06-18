@@ -21,6 +21,11 @@ enum UserRole {
   ADMIN
   DISPATCHER
   OFFICER
+  /// Partner-organisation seat. role=PARTNER + partnerId set means
+  /// the user logs into the partner portal (/partner/*), with every
+  /// query scoped to that single partner. They never see our own
+  /// staff or other partners' data.
+  PARTNER
 }
 
 enum SiteType {
@@ -367,6 +372,10 @@ model User {
   lastLat       Float?
   lastLng       Float?
   lastSeenAt    DateTime?
+  /// Partner-portal scope. Only set when role = PARTNER (and future
+  /// PARTNER_OFFICER). The portal hard-locks every query to this id.
+  partnerId     String?  @db.Uuid
+  partner       Partner? @relation("PartnerUsers", fields: [partnerId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -396,6 +405,7 @@ model User {
   rotaAssignmentsCreated   RotaAssignment[]    @relation("RotaAssignmentCreatedBy")
 
   @@index([regionId, role])
+  @@index([partnerId])
 }
 
 model Customer {
@@ -754,11 +764,65 @@ model Partner {
   contacts        PartnerContact[]
   jobs            Job[]
   handledJobs     Job[]           @relation("JobHandlerPartner")
+  handledShifts   Shift[]         @relation("ShiftHandlerPartner")
   sites           Site[]          @relation("PartnerSites")
   formTemplates   FormTemplate[]
+  /// Login seats — one per partner today (single shared login, Q1=a)
+  /// but the relation is many-to-one so we can add more seats later
+  /// without a schema change.
+  users           User[]          @relation("PartnerUsers")
+  /// Partner's private officer roster. Invisible to our /officers
+  /// list; only readable from the partner portal scoped to this id.
+  partnerOfficers PartnerOfficer[]
+  /// Partner's rate card — what they charge us + pay their officer
+  /// per service. Used to auto-fill activity-record forms.
+  rates           PartnerRate[]
 
   @@index([role])
   @@index([active])
+}
+
+/// Officers belonging to a partner. Used for the partner's own
+/// activity-record-keeping (Phase 1 read-only roster; Phase 2
+/// assignable to partner-recorded jobs/shifts). NOT in the User
+/// table — they don't log in (yet) and don't appear in our staff
+/// rosters or pickers.
+model PartnerOfficer {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partnerId   String   @db.Uuid
+  partner     Partner  @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String?
+  siaNumber   String?
+  notes       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  handledJobs   Job[]
+  handledShifts Shift[]
+
+  @@index([partnerId, active])
+}
+
+/// Partner's rate card — one row per (partner, service). Auto-fills
+/// the chargeToUs / payToOfficer fields when the partner records a
+/// new activity; partner can still override per-activity.
+model PartnerRate {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  partnerId    String      @db.Uuid
+  partner      Partner     @relation(fields: [partnerId], references: [id], onDelete: Cascade)
+  service      RateService
+  chargeToUs   Decimal     @db.Decimal(10, 2)
+  payToOfficer Decimal     @db.Decimal(10, 2)
+  currency     String      @default("GBP")
+  unit         RateUnit    @default(PER_VISIT)
+  notes        String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([partnerId, service])
+  @@index([partnerId])
 }
 
 model PartnerContact {
@@ -804,6 +868,20 @@ model Job {
   // from `partnerId` above which mirrors Site.partnerId (partner-as-customer).
   handledByPartnerId    String?       @db.Uuid
   handledByPartner      Partner?      @relation("JobHandlerPartner", fields: [handledByPartnerId], references: [id])
+  /// Set on partner-recorded jobs (Phase 2): which officer on their
+  /// own roster actually attended. Invisible to our staff pages.
+  handledByPartnerOfficerId  String?         @db.Uuid
+  handledByPartnerOfficer    PartnerOfficer? @relation(fields: [handledByPartnerOfficerId], references: [id])
+  /// Partner-side rate snapshot — what they're charging us for this
+  /// activity (chargeToUs) and what they pay their officer
+  /// (payToOfficer). Captured at create-time from PartnerRate; the
+  /// partner can override on the form.
+  partnerChargeToUsAmount    Decimal?        @db.Decimal(10, 2)
+  partnerOfficerPayAmount    Decimal?        @db.Decimal(10, 2)
+  /// True iff the job was created from /partner/activities/new — used
+  /// to gate edit/cancel on the partner side and to distinguish from
+  /// jobs our dispatch sent the partner.
+  recordedByPartner          Boolean         @default(false)
   handedOffAt           DateTime?
 
   alarmEventId          String?       @unique @db.Uuid
@@ -1015,6 +1093,15 @@ model Shift {
   site               Site         @relation(fields: [siteId], references: [id])
   officerId          String?      @db.Uuid
   officer            User?        @relation("ShiftOfficer", fields: [officerId], references: [id])
+  /// Partner-recorded shifts (Phase 2): partner who handled the shift
+  /// + their officer on their roster + partner rate snapshot.
+  handledByPartnerId         String?         @db.Uuid
+  handledByPartner           Partner?        @relation("ShiftHandlerPartner", fields: [handledByPartnerId], references: [id])
+  handledByPartnerOfficerId  String?         @db.Uuid
+  handledByPartnerOfficer    PartnerOfficer? @relation(fields: [handledByPartnerOfficerId], references: [id])
+  partnerChargeToUsAmount    Decimal?        @db.Decimal(10, 2)
+  partnerOfficerPayAmount    Decimal?        @db.Decimal(10, 2)
+  recordedByPartner          Boolean         @default(false)
   type               ShiftType
   scheduledStartsAt  DateTime
   scheduledEndsAt    DateTime
@@ -1032,6 +1119,7 @@ model Shift {
 
   @@index([siteId, scheduledStartsAt])
   @@index([officerId, scheduledStartsAt])
+  @@index([handledByPartnerId])
   @@index([status])
 }
 

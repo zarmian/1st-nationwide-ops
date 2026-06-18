@@ -22,6 +22,7 @@ export default withAuth(
       | "ADMIN"
       | "DISPATCHER"
       | "OFFICER"
+      | "PARTNER"
       | undefined;
 
     // Forward the pathname as a request header so the (app) layout can
@@ -38,7 +39,11 @@ export default withAuth(
     if (!role) return passThrough; // unauthenticated — withAuth's signIn redirect handles it
 
     const homeFor = (r: typeof role) =>
-      r === "OFFICER" ? "/m/today" : "/dispatch";
+      r === "OFFICER"
+        ? "/m/today"
+        : r === "PARTNER"
+          ? "/partner"
+          : "/dispatch";
 
     // ── Officer hard-lock ────────────────────────────────────────────
     // Officers can only see /m/* and /submit. Anything else → bounce home.
@@ -55,6 +60,32 @@ export default withAuth(
         return NextResponse.redirect(url);
       }
       return passThrough;
+    }
+
+    // ── Partner-portal hard-lock ─────────────────────────────────────
+    // Partner-org seats can only see /partner/*. Everything else (our
+    // dispatch board, finance, admin, sites …) is off-limits. Server
+    // actions also call requirePartner() as a backstop.
+    if (role === "PARTNER") {
+      const partnerOk =
+        pathname === "/partner" || pathname.startsWith("/partner/");
+      if (!partnerOk) {
+        const url = req.nextUrl.clone();
+        url.pathname = "/partner";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+      return passThrough;
+    }
+
+    // ── Partner portal is partner-only ───────────────────────────────
+    // Our own staff don't have a partnerId, so /partner/* is meaningless
+    // for them. Send them back to their normal home.
+    if (pathname === "/partner" || pathname.startsWith("/partner/")) {
+      const url = req.nextUrl.clone();
+      url.pathname = homeFor(role);
+      url.search = "";
+      return NextResponse.redirect(url);
     }
 
     // ── Admin section ────────────────────────────────────────────────

@@ -14,6 +14,9 @@ export type SessionUser = {
   email: string;
   name: string;
   role: UserRole;
+  /// Set when role = PARTNER (and future PARTNER_OFFICER). Carries
+  /// through from the JWT — see auth.ts callbacks.
+  partnerId: string | null;
 };
 
 export async function getSessionUser(): Promise<SessionUser | null> {
@@ -24,6 +27,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     email: session.user.email ?? "",
     name: session.user.name ?? "",
     role: session.user.role,
+    partnerId: session.user.partnerId ?? null,
   };
 }
 
@@ -47,4 +51,25 @@ export async function requireStaff(): Promise<SessionUser> {
     throw new Error("Not authorised");
   }
   return u;
+}
+
+/**
+ * Partner-portal guard. Used by every server action / page under
+ * /partner/*. Returns a guaranteed-non-null `partnerId` that callers
+ * MUST use to scope every Prisma where clause — trusting only the
+ * session, never the URL.
+ */
+export async function requirePartner(): Promise<
+  SessionUser & { partnerId: string }
+> {
+  const u = await requireUser();
+  if (u.role !== "PARTNER") {
+    throw new Error("Partner-portal access only");
+  }
+  if (!u.partnerId) {
+    // Should be impossible if the admin-side login form requires a
+    // partnerId, but throw rather than silently leaking data scope.
+    throw new Error("Partner login is not linked to a partner");
+  }
+  return { ...u, partnerId: u.partnerId };
 }

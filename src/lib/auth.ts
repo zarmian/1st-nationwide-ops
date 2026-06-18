@@ -29,6 +29,7 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           name: user.name,
           role: user.role,
+          partnerId: user.partnerId,
         } as any;
       },
     }),
@@ -38,6 +39,10 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.id = (user as any).id;
         token.role = (user as any).role;
+        // Sticky partner scope on the JWT — avoids a DB hit on every
+        // /partner/* request just to know which partner the seat
+        // belongs to. Refreshed by the next sign-in.
+        token.partnerId = (user as any).partnerId ?? null;
       }
       return token;
     },
@@ -45,6 +50,7 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).id = token.id;
         (session.user as any).role = token.role;
+        (session.user as any).partnerId = token.partnerId ?? null;
       }
       return session;
     },
