@@ -11,6 +11,7 @@ export default async function PartnerOfficersPage() {
   const officers = await prisma.partnerOfficer.findMany({
     where: { partnerId: me.partnerId },
     orderBy: [{ active: "desc" }, { name: "asc" }],
+    include: { user: { select: { active: true } } },
   });
 
   const activeCount = officers.filter((o) => o.active).length;
@@ -50,6 +51,7 @@ export default async function PartnerOfficersPage() {
                 <th>Phone</th>
                 <th>SIA</th>
                 <th>Status</th>
+                <th>Login</th>
                 <th></th>
               </tr>
             </thead>
@@ -75,6 +77,13 @@ export default async function PartnerOfficersPage() {
                       <span className="chip-mint text-[10px]">Active</span>
                     ) : (
                       <span className="chip-slate text-[10px]">Inactive</span>
+                    )}
+                  </td>
+                  <td>
+                    {o.userId && o.user?.active ? (
+                      <span className="chip-info text-[10px]">Can sign in</span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
                     )}
                   </td>
                   <td className="text-right">

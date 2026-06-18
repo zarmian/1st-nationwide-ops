@@ -26,6 +26,11 @@ enum UserRole {
   /// query scoped to that single partner. They never see our own
   /// staff or other partners' data.
   PARTNER
+  /// Individual officer working for a partner. Logs into the
+  /// /partner/m/* mobile surface. Each PARTNER_OFFICER User is
+  /// linked 1:1 to a PartnerOfficer roster row via that row's
+  /// userId. Hard-locked to /partner/m/* by middleware.
+  PARTNER_OFFICER
 }
 
 enum SiteType {
@@ -403,6 +408,9 @@ model User {
   rotaAvailability         OfficerAvailability[]
   rotaAssignments          RotaAssignment[]    @relation("RotaAssignmentOfficer")
   rotaAssignmentsCreated   RotaAssignment[]    @relation("RotaAssignmentCreatedBy")
+  /// 1:1 back-relation — set when role=PARTNER_OFFICER, points to the
+  /// roster row this login backs.
+  partnerOfficerSeat       PartnerOfficer?     @relation("PartnerOfficerLogin")
 
   @@index([regionId, role])
   @@index([partnerId])
@@ -784,9 +792,10 @@ model Partner {
 
 /// Officers belonging to a partner. Used for the partner's own
 /// activity-record-keeping (Phase 1 read-only roster; Phase 2
-/// assignable to partner-recorded jobs/shifts). NOT in the User
-/// table — they don't log in (yet) and don't appear in our staff
-/// rosters or pickers.
+/// assignable to partner-recorded jobs/shifts; Phase 3 can be linked
+/// to a User row so they can sign in to /partner/m/* on their phone).
+/// NOT in our staff /officers list — they never appear in any 1NW
+/// dispatcher / admin picker.
 model PartnerOfficer {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   partnerId   String   @db.Uuid
@@ -796,6 +805,12 @@ model PartnerOfficer {
   siaNumber   String?
   notes       String?
   active      Boolean  @default(true)
+  /// One-to-one link to a User with role=PARTNER_OFFICER. Optional
+  /// — partners can add roster rows without giving each officer a
+  /// login. SetNull on delete so deactivating the User row doesn't
+  /// cascade and wipe the roster history.
+  userId      String?  @unique @db.Uuid
+  user        User?    @relation("PartnerOfficerLogin", fields: [userId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
