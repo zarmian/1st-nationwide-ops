@@ -273,6 +273,8 @@ export default async function FinancePage({
             customer: { select: { name: true } },
             partnerId: true,
             partner: { select: { name: true } },
+            regionId: true,
+            region: { select: { id: true, name: true } },
           },
         },
       },
@@ -299,6 +301,8 @@ export default async function FinancePage({
             customer: { select: { name: true } },
             partnerId: true,
             partner: { select: { name: true } },
+            regionId: true,
+            region: { select: { id: true, name: true } },
           },
         },
         customerId: true,
@@ -535,6 +539,29 @@ export default async function FinancePage({
     .filter((s) => s.value > 0)
     .sort((a, b) => b.value - a.value);
 
+  // Revenue + activity by region. Same shape as serviceByKey, but
+  // bucket by site.region.name. Sites without a region land in
+  // "No region" so the total still reconciles with revenue-by-service.
+  type RegionBucket = { name: string; activities: number; billed: number };
+  const regionByKey = new Map<string, RegionBucket>();
+  const addRegion = (name: string, amount: number) => {
+    const row =
+      regionByKey.get(name) ??
+      ({ name, activities: 0, billed: 0 } as RegionBucket);
+    row.activities += 1;
+    row.billed += amount;
+    regionByKey.set(name, row);
+  };
+  for (const v of rangeVisits) {
+    addRegion(v.site?.region?.name ?? "No region", Number(v.billedAmount ?? 0));
+  }
+  for (const j of rangeJobs) {
+    addRegion(j.site?.region?.name ?? "No region", Number(j.billedAmount ?? 0));
+  }
+  const revenueByRegion = Array.from(regionByKey.values()).sort(
+    (a, b) => b.billed - a.billed,
+  );
+
   // Top accounts by billed revenue in range — the headline of the P&L
   // table, surfaced as a bar list so the relative scale reads instantly.
   const topAccountsBilled = pnlRows
@@ -727,7 +754,7 @@ export default async function FinancePage({
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-3">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-brand-navy">Revenue by service</h2>
@@ -763,6 +790,25 @@ export default async function FinancePage({
                   : `/finance/activities?accountId=${encodeURIComponent(r.key)}&from=${ymd(fromDate)}&to=${ymd(toDate)}`,
             }))}
             emptyLabel="Nothing billed in range yet."
+          />
+        </div>
+
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Revenue by region</h2>
+            <p className="text-xs text-slate-500">
+              Activities + billed per operating region
+            </p>
+          </div>
+          <BarList
+            tone="amber"
+            items={revenueByRegion.map((r) => ({
+              label: r.name,
+              value: r.billed,
+              display: fmtMoney(r.billed),
+              hint: `${r.activities} ${r.activities === 1 ? "activity" : "activities"}`,
+            }))}
+            emptyLabel="No completed work in range."
           />
         </div>
       </div>
