@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isAuthorisedCron } from "@/lib/cronAuth";
-import { notifyShiftCheckOverdue } from "@/lib/notifications";
+import {
+  notifyShiftCheckOverdue,
+  notifyOfficerNoShow,
+} from "@/lib/notifications";
 
 /**
  * 15-min sweep that does two things:
@@ -33,11 +36,48 @@ export async function GET(req: Request) {
   for (const s of pending) {
     const cutoff = s.scheduledStartsAt.getTime() + s.graceMinutes * 60_000;
     if (now.getTime() < cutoff) continue;
+    // Queue the SMS *before* flipping status so a notification failure
+    // leaves the shift PENDING and the next cron run retries. After
+    // the status flips to MISSED, the shift drops out of this query.
+    // queueSmsOnce dedupes so re-running the cron is safe.
+    await notifyOfficerNoShow({ entity: "Shift", entityId: s.id }).catch((e) =>
+      console.error("notifyOfficerNoShow (shift) failed", e),
+    );
     await prisma.shift.update({
       where: { id: s.id },
       data: { status: "MISSED" },
     });
     markedMissed++;
+  }
+
+  // ── 1b. Late jobs → SMS dispatcher ──────────────────────────────────────
+  // Same idea as the shift no-show: if an APPROVED / SUBMITTED job is
+  // 15+ min past its scheduled start and the officer hasn't clocked
+  // in (`startedAt` null), text dispatch. Notification dedupes so the
+  // alert only goes once even if the situation persists.
+  const lateJobs = await prisma.job.findMany({
+    where: {
+      status: { in: ["APPROVED", "SUBMITTED"] },
+      assignedToUserId: { not: null },
+      startedAt: null,
+      scheduledFor: {
+        not: null,
+        lt: new Date(now.getTime() - 15 * 60_000),
+      },
+    },
+    select: { id: true },
+    take: 100,
+  });
+  let jobNoShowQueued = 0;
+  for (const j of lateJobs) {
+    const n = await notifyOfficerNoShow({
+      entity: "Job",
+      entityId: j.id,
+    }).catch((e) => {
+      console.error("notifyOfficerNoShow (job) failed", e);
+      return 0;
+    });
+    jobNoShowQueued += n;
   }
 
   // ── 2. IN_PROGRESS overdue check-ins ────────────────────────────────────
@@ -93,5 +133,7 @@ export async function GET(req: Request) {
     markedMissed,
     inProgressScanned: shifts.length,
     flagged,
+    lateJobsScanned: lateJobs.length,
+    jobNoShowQueued,
   });
 }

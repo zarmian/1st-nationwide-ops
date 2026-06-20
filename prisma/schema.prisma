@@ -300,6 +300,11 @@ enum NotificationKind {
   ALARM_RECEIVED
   KEY_HANDOVER
   SHIFT_CHECK_OVERDUE
+  SHIFT_REMINDER
+  JOB_REMINDER
+  OFFICER_NO_SHOW
+  ALARM_CUSTOMER_ACK
+  PAY_SUMMARY
 }
 
 enum NotificationStatus {
@@ -428,6 +433,9 @@ model Customer {
   contractStart   DateTime?
   contractEnd     DateTime?
   notes           String?
+  /// Opt-in for alarm-response SMS acknowledgements to contactPhone.
+  /// Default false so we never text a customer who hasn't agreed.
+  smsAlertsOn     Boolean       @default(false)
   active          Boolean       @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -1087,6 +1095,9 @@ model Notification {
   templateName    String
   templateParams  Json                @default("[]")
   bodyPreview     String?
+  /// Plain-text body used by the SMS driver. WhatsApp rows render from
+  /// templateName / templateParams instead; SMS rows render from bodyText.
+  bodyText        String?
   status          NotificationStatus  @default(PENDING)
   attempts        Int                 @default(0)
   error           String?

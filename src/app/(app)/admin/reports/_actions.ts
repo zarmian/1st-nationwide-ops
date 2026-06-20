@@ -7,6 +7,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseUkDateTimeLocal } from "@/lib/dates";
+import { notifyAlarmCustomerAck } from "@/lib/notifications";
 
 const EditsInput = z.object({
   officerNameRaw: z.string().trim().min(1).max(120).optional(),
@@ -81,7 +82,7 @@ export async function approveReview(
         include: {
           job: {
             include: {
-              customer: { select: { id: true, name: true, contactEmail: true } },
+              customer: { select: { id: true, name: true, contactEmail: true, contactPhone: true, smsAlertsOn: true } },
             },
           },
         },
@@ -166,6 +167,19 @@ export async function approveReview(
       });
     }
   });
+
+  // Fire alarm-response ack SMS for alarm-response jobs on opted-in
+  // customers. Outside the tx so a Twilio outage can't roll back the
+  // approval. queueSmsOnce dedupes if the admin re-approves.
+  if (
+    review.submission.job?.type === "ALARM_RESPONSE" &&
+    review.submission.job.customer?.smsAlertsOn &&
+    review.submission.job.customer.contactPhone
+  ) {
+    await notifyAlarmCustomerAck(review.submission.job.id).catch((e) =>
+      console.error("notifyAlarmCustomerAck failed", e),
+    );
+  }
 
   revalidatePath("/admin/reports");
   revalidatePath(`/admin/reports/${reviewId}`);

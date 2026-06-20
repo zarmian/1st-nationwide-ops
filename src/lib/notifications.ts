@@ -259,9 +259,239 @@ export async function notifyKeyHandover(
   });
 }
 
+// ── SMS domain events ────────────────────────────────────────────────────
+//
+// Each helper resolves the recipient, builds a plain-text body, and
+// queues a Notification row with channel=SMS. The cron at
+// /api/cron/sms-queue picks them up and sends via Twilio.
+//
+// All helpers are idempotent at the entity-id level via Notification's
+// eventEntityId index — callers check for an existing row before
+// queueing, or use queueSmsOnce below.
+
+type SmsRecipient = { userId?: string | null; number: string };
+
+async function queueSms(args: {
+  kind: Prisma.NotificationCreateInput["kind"];
+  recipients: SmsRecipient[];
+  body: string;
+  eventEntity: string;
+  eventEntityId: string;
+}): Promise<number> {
+  if (args.recipients.length === 0) return 0;
+  const data = args.recipients.map((r) => ({
+    kind: args.kind,
+    channel: "SMS" as const,
+    recipientUserId: r.userId ?? null,
+    recipientNumber: r.number,
+    templateName: args.kind, // SMS doesn't use templates; store the kind for traceability
+    templateParams: [] as any,
+    bodyText: args.body,
+    bodyPreview: args.body.slice(0, 240),
+    eventEntity: args.eventEntity,
+    eventEntityId: args.eventEntityId,
+  }));
+  const result = await prisma.notification.createMany({ data });
+  return result.count;
+}
+
+/**
+ * De-duped queue. Skips if a Notification of the same kind already
+ * exists for this entity. Use this for cron-driven reminders that
+ * shouldn't re-fire on the next sweep.
+ */
+async function queueSmsOnce(args: {
+  kind: Prisma.NotificationCreateInput["kind"];
+  recipients: SmsRecipient[];
+  body: string;
+  eventEntity: string;
+  eventEntityId: string;
+}): Promise<number> {
+  const existing = await prisma.notification.findFirst({
+    where: {
+      channel: "SMS",
+      kind: args.kind,
+      eventEntity: args.eventEntity,
+      eventEntityId: args.eventEntityId,
+      status: { notIn: ["FAILED"] },
+    },
+    select: { id: true },
+  });
+  if (existing) return 0;
+  return queueSms(args);
+}
+
+async function dispatcherSmsRecipients(): Promise<SmsRecipient[]> {
+  const rows = await prisma.user.findMany({
+    where: {
+      active: true,
+      role: { in: ["ADMIN", "DISPATCHER"] },
+      NOT: { phone: null },
+    },
+    select: { id: true, name: true, phone: true },
+  });
+  return rows
+    .filter((r): r is { id: string; name: string; phone: string } =>
+      typeof r.phone === "string" && r.phone.length > 0,
+    )
+    .map((r) => ({ userId: r.id, number: r.phone }));
+}
+
+export async function notifyShiftReminder(shiftId: string): Promise<number> {
+  const shift = await prisma.shift.findUnique({
+    where: { id: shiftId },
+    include: {
+      officer: { select: { id: true, name: true, phone: true } },
+      site: { select: { name: true, code: true, postcodeFormatted: true } },
+    },
+  });
+  if (!shift?.officer?.phone) return 0;
+  const siteLabel = shift.site
+    ? `${shift.site.code ? shift.site.code + " " : ""}${shift.site.name}`
+    : "site";
+  const postcode = shift.site?.postcodeFormatted ?? "";
+  const startsAt = fmt(shift.scheduledStartsAt);
+  const typeLabel =
+    shift.type === "STATIC_GUARDING" ? "Static guarding" : "Dog handler";
+  const body = `1NW reminder: ${typeLabel} at ${siteLabel}${postcode ? `, ${postcode}` : ""} starts ${startsAt}.`;
+  return queueSmsOnce({
+    kind: "SHIFT_REMINDER",
+    recipients: [{ userId: shift.officer.id, number: shift.officer.phone }],
+    body,
+    eventEntity: "Shift",
+    eventEntityId: shiftId,
+  });
+}
+
+export async function notifyJobReminder(jobId: string): Promise<number> {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      assignedTo: { select: { id: true, name: true, phone: true } },
+      site: { select: { name: true, code: true, postcodeFormatted: true } },
+    },
+  });
+  if (!job?.assignedTo?.phone || !job.scheduledFor) return 0;
+  const siteLabel = job.site
+    ? `${job.site.code ? job.site.code + " " : ""}${job.site.name}`
+    : "site";
+  const postcode = job.site?.postcodeFormatted ?? "";
+  const startsAt = fmt(job.scheduledFor);
+  const typeLabel = job.type.replace(/_/g, " ").toLowerCase();
+  const body = `1NW reminder: ${typeLabel} at ${siteLabel}${postcode ? `, ${postcode}` : ""} scheduled ${startsAt}.`;
+  return queueSmsOnce({
+    kind: "JOB_REMINDER",
+    recipients: [{ userId: job.assignedTo.id, number: job.assignedTo.phone }],
+    body,
+    eventEntity: "Job",
+    eventEntityId: jobId,
+  });
+}
+
+export async function notifyOfficerNoShow(args: {
+  entity: "Shift" | "Job";
+  entityId: string;
+}): Promise<number> {
+  let body = "";
+  if (args.entity === "Shift") {
+    const s = await prisma.shift.findUnique({
+      where: { id: args.entityId },
+      include: {
+        officer: { select: { name: true } },
+        site: { select: { name: true, code: true } },
+      },
+    });
+    if (!s) return 0;
+    const siteLabel = s.site?.code
+      ? `${s.site.code} ${s.site.name}`
+      : s.site?.name ?? "site";
+    body = `1NW alert: ${s.officer?.name ?? "officer"} hasn't started ${
+      s.type === "STATIC_GUARDING" ? "static" : "dog"
+    } shift at ${siteLabel} (scheduled ${fmt(s.scheduledStartsAt)}).`;
+  } else {
+    const j = await prisma.job.findUnique({
+      where: { id: args.entityId },
+      include: {
+        assignedTo: { select: { name: true } },
+        site: { select: { name: true, code: true } },
+      },
+    });
+    if (!j) return 0;
+    const siteLabel = j.site?.code
+      ? `${j.site.code} ${j.site.name}`
+      : j.site?.name ?? "site";
+    body = `1NW alert: ${j.assignedTo?.name ?? "officer"} not on site for ${j.type.replace(/_/g, " ").toLowerCase()} at ${siteLabel} (scheduled ${fmt(j.scheduledFor)}).`;
+  }
+  return queueSmsOnce({
+    kind: "OFFICER_NO_SHOW",
+    recipients: await dispatcherSmsRecipients(),
+    body,
+    eventEntity: args.entity,
+    eventEntityId: args.entityId,
+  });
+}
+
+export async function notifyAlarmCustomerAck(jobId: string): Promise<number> {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      site: { select: { name: true, code: true } },
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          contactPhone: true,
+          smsAlertsOn: true,
+        },
+      },
+    },
+  });
+  if (!job?.customer?.smsAlertsOn) return 0;
+  if (!job.customer.contactPhone) return 0;
+  const siteLabel = job.site?.code
+    ? `${job.site.code} ${job.site.name}`
+    : job.site?.name ?? "site";
+  const arrived = fmt(job.startedAt ?? job.completedAt ?? new Date());
+  const body = `1NW: Alarm response at ${siteLabel}. Officer attended ${arrived}. Site secure.`;
+  return queueSmsOnce({
+    kind: "ALARM_CUSTOMER_ACK",
+    recipients: [{ userId: null, number: job.customer.contactPhone }],
+    body,
+    eventEntity: "Job",
+    eventEntityId: jobId,
+  });
+}
+
+export async function notifyOfficerPaySummary(args: {
+  officerId: string;
+  monthLabel: string;
+  activities: number;
+  totalPay: number;
+}): Promise<number> {
+  const officer = await prisma.user.findUnique({
+    where: { id: args.officerId },
+    select: { phone: true, active: true },
+  });
+  if (!officer?.active || !officer.phone) return 0;
+  const amount = new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    minimumFractionDigits: 2,
+  }).format(args.totalPay);
+  const body = `1NW pay summary for ${args.monthLabel}: ${args.activities} activities, ${amount} due. Statement on dashboard.`;
+  return queueSmsOnce({
+    kind: "PAY_SUMMARY",
+    recipients: [{ userId: args.officerId, number: officer.phone }],
+    body,
+    eventEntity: "User",
+    eventEntityId: `${args.officerId}:${args.monthLabel}`,
+  });
+}
+
 // ── Queue drainer ────────────────────────────────────────────────────────
 
 import { isWhatsAppConfigured, sendTemplate } from "@/lib/whatsapp";
+import { isSmsConfigured, sendSms } from "@/lib/sms";
 
 export type DrainResult = {
   scanned: number;
@@ -270,9 +500,17 @@ export type DrainResult = {
   skipped: number;
 };
 
-export async function drainQueue(maxBatch = 50): Promise<DrainResult> {
+/**
+ * Generic drainer — `channel` decides which provider runs. The two
+ * crons (`/api/cron/whatsapp-queue`, `/api/cron/sms-queue`) each pass
+ * their own channel so retries don't bleed between providers.
+ */
+export async function drainQueue(
+  channel: "WHATSAPP" | "SMS" = "WHATSAPP",
+  maxBatch = 50,
+): Promise<DrainResult> {
   const pending = await prisma.notification.findMany({
-    where: { status: "PENDING", channel: "WHATSAPP" },
+    where: { status: "PENDING", channel },
     orderBy: { createdAt: "asc" },
     take: maxBatch,
   });
@@ -281,16 +519,18 @@ export async function drainQueue(maxBatch = 50): Promise<DrainResult> {
   let failed = 0;
   let skipped = 0;
 
-  if (!isWhatsAppConfigured()) {
-    // Mark all pending as skipped so they don't pile up forever once the
-    // admin sees the queue and decides what to do. Reason is plain so the
-    // UI surfaces it.
+  const configured =
+    channel === "WHATSAPP" ? isWhatsAppConfigured() : isSmsConfigured();
+  if (!configured) {
     if (pending.length > 0) {
       await prisma.notification.updateMany({
         where: { id: { in: pending.map((p) => p.id) } },
         data: {
           status: "SKIPPED",
-          error: "WhatsApp not configured (WHATSAPP_PHONE_ID / WHATSAPP_ACCESS_TOKEN missing)",
+          error:
+            channel === "WHATSAPP"
+              ? "WhatsApp not configured (WHATSAPP_PHONE_ID / WHATSAPP_ACCESS_TOKEN missing)"
+              : "SMS not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM missing)",
           attempts: { increment: 1 },
         },
       });
@@ -312,14 +552,34 @@ export async function drainQueue(maxBatch = 50): Promise<DrainResult> {
       skipped++;
       continue;
     }
-    const params = Array.isArray(n.templateParams)
-      ? (n.templateParams as unknown[]).map(String)
-      : [];
-    const res = await sendTemplate({
-      to: n.recipientNumber,
-      templateName: n.templateName,
-      bodyParams: params,
-    });
+    let res:
+      | { ok: true; messageId: string }
+      | { ok: false; error: string };
+    if (channel === "WHATSAPP") {
+      const params = Array.isArray(n.templateParams)
+        ? (n.templateParams as unknown[]).map(String)
+        : [];
+      res = await sendTemplate({
+        to: n.recipientNumber,
+        templateName: n.templateName,
+        bodyParams: params,
+      });
+    } else {
+      const body = n.bodyText ?? n.bodyPreview ?? "";
+      if (!body) {
+        await prisma.notification.update({
+          where: { id: n.id },
+          data: {
+            status: "SKIPPED",
+            error: "No body text",
+            attempts: { increment: 1 },
+          },
+        });
+        skipped++;
+        continue;
+      }
+      res = await sendSms({ to: n.recipientNumber, body });
+    }
     if (res.ok) {
       await prisma.notification.update({
         where: { id: n.id },
