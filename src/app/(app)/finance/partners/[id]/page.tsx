@@ -18,6 +18,8 @@ const KIND_LABEL: Record<string, string> = {
   KEY_COLLECTION: "Key collection",
   KEY_DROPOFF: "Key dropoff",
   ADHOC: "Ad-hoc",
+  STATIC_GUARDING: "Static guarding",
+  DOG_HANDLER: "Dog handler",
 };
 
 const FILTER_JOB_TYPES = [
@@ -31,6 +33,7 @@ const FILTER_JOB_TYPES = [
   "ADHOC",
 ] as const;
 const FILTER_VISIT_KINDS = ["PATROL", "VPI"] as const;
+const FILTER_SHIFT_TYPES = ["STATIC_GUARDING", "DOG_HANDLER"] as const;
 
 function fmtMoney(amount: unknown, currency = "GBP"): string {
   const n = Number(amount ?? 0);
@@ -105,18 +108,24 @@ export default async function PartnerFinancePage({
       ? Number(regionIdRaw)
       : null;
 
-  // Filter routing (same as officer page): visit-kind → visits-only, bare
-  // job-type → jobs-only, empty → both.
+  // Filter routing (same as officer page): visit-kind → visits-only,
+  // shift-type → shifts-only, bare job-type → jobs-only, empty → all three.
   const visitKindFilter =
     kind === "VISIT_PATROL"
       ? ("PATROL" as const)
       : kind === "VISIT_VPI"
         ? ("VPI" as const)
         : null;
+  const shiftTypeFilter = kind.startsWith("SHIFT_")
+    ? (kind.slice("SHIFT_".length) as "STATIC_GUARDING" | "DOG_HANDLER")
+    : null;
   const jobTypeFilter =
-    kind && !kind.startsWith("VISIT_") ? kind : null;
-  const loadVisits = !jobTypeFilter;
-  const loadJobs = !visitKindFilter;
+    kind && !kind.startsWith("VISIT_") && !kind.startsWith("SHIFT_")
+      ? kind
+      : null;
+  const loadVisits = !jobTypeFilter && !shiftTypeFilter;
+  const loadJobs = !visitKindFilter && !shiftTypeFilter;
+  const loadShifts = !visitKindFilter && !jobTypeFilter;
 
   // Site filter is composed with the partner-ownership where on
   // visits/jobs; region narrows via site.regionId on either branch.
@@ -134,6 +143,8 @@ export default async function PartnerFinancePage({
     visitsWeDidForThem,
     jobsWeDidForThem,
     jobsTheyDidForUs,
+    shiftsWeDidForThem,
+    shiftsTheyDidForUs,
     sites,
     regions,
   ] = await Promise.all([
@@ -218,6 +229,60 @@ export default async function PartnerFinancePage({
           },
         })
       : Promise.resolve([] as any[]),
+    // Shifts WE did for THEM — site owned by this partner.
+    loadShifts
+      ? prisma.shift.findMany({
+          where: {
+            status: "COMPLETED",
+            actualEndedAt: { gte: fromDate, lte: toDate },
+            site: { is: visitSiteWhere },
+            ...(shiftTypeFilter ? { type: shiftTypeFilter } : {}),
+          },
+          orderBy: { scheduledStartsAt: "desc" },
+          select: {
+            id: true,
+            type: true,
+            scheduledStartsAt: true,
+            actualStartedAt: true,
+            actualEndedAt: true,
+            billedAmount: true,
+            site: { select: { id: true, name: true, code: true } },
+            officer: { select: { id: true, name: true } },
+          },
+        })
+      : Promise.resolve([] as any[]),
+    // Shifts THEY did for US — partner attended on our behalf.
+    loadShifts
+      ? prisma.shift.findMany({
+          where: {
+            handledByPartnerId: params.id,
+            status: "COMPLETED",
+            actualEndedAt: { gte: fromDate, lte: toDate },
+            ...(shiftTypeFilter ? { type: shiftTypeFilter } : {}),
+            ...(jobHasSiteFilter ? { site: { is: jobSiteWhere } } : {}),
+          },
+          orderBy: { scheduledStartsAt: "desc" },
+          select: {
+            id: true,
+            type: true,
+            scheduledStartsAt: true,
+            actualStartedAt: true,
+            actualEndedAt: true,
+            billedAmount: true,
+            partnerChargeToUsAmount: true,
+            recordedByPartner: true,
+            site: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                customer: { select: { name: true } },
+                partner: { select: { name: true } },
+              },
+            },
+          },
+        })
+      : Promise.resolve([] as any[]),
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
@@ -267,6 +332,19 @@ export default async function PartnerFinancePage({
       billed: Number(j.billedAmount ?? 0),
     });
   }
+  for (const sh of shiftsWeDidForThem) {
+    weDidRows.push({
+      id: `s:${sh.id}`,
+      href: `/shifts/${sh.id}`,
+      when: sh.scheduledStartsAt ?? sh.actualStartedAt ?? sh.actualEndedAt,
+      kindLabel: KIND_LABEL[sh.type] ?? sh.type,
+      siteId: sh.site?.id ?? null,
+      siteName: sh.site?.name ?? null,
+      siteCode: sh.site?.code ?? null,
+      officer: sh.officer?.name ?? null,
+      billed: Number(sh.billedAmount ?? 0),
+    });
+  }
   weDidRows.sort(
     (a, b) => (b.when?.getTime() ?? 0) - (a.when?.getTime() ?? 0),
   );
@@ -287,23 +365,46 @@ export default async function PartnerFinancePage({
     partnerRef: string | null;
     recordedByPartner: boolean;
   };
-  const theyDidRows: TheyDidRow[] = jobsTheyDidForUs.map((j) => ({
-    id: j.id,
-    href: `/dispatch/${j.id}`,
-    when: j.scheduledFor ?? j.startedAt ?? j.completedAt,
-    kindLabel: KIND_LABEL[j.type] ?? j.type,
-    siteId: j.site?.id ?? null,
-    siteName: j.site?.name ?? null,
-    siteCode: j.site?.code ?? null,
-    customer: j.customer?.name ?? j.partner?.name ?? null,
-    billed: Number(j.billedAmount ?? 0),
-    partnerCharge:
-      j.partnerChargeToUsAmount != null
-        ? Number(j.partnerChargeToUsAmount)
-        : null,
-    partnerRef: j.partnerReportRef,
-    recordedByPartner: j.recordedByPartner,
-  }));
+  const theyDidRows: TheyDidRow[] = [
+    ...jobsTheyDidForUs.map((j) => ({
+      id: `j:${j.id}`,
+      href: `/dispatch/${j.id}`,
+      when: j.scheduledFor ?? j.startedAt ?? j.completedAt,
+      kindLabel: KIND_LABEL[j.type] ?? j.type,
+      siteId: j.site?.id ?? null,
+      siteName: j.site?.name ?? null,
+      siteCode: j.site?.code ?? null,
+      customer: j.customer?.name ?? j.partner?.name ?? null,
+      billed: Number(j.billedAmount ?? 0),
+      partnerCharge:
+        j.partnerChargeToUsAmount != null
+          ? Number(j.partnerChargeToUsAmount)
+          : null,
+      partnerRef: j.partnerReportRef,
+      recordedByPartner: j.recordedByPartner,
+    })),
+    ...shiftsTheyDidForUs.map((sh) => ({
+      id: `s:${sh.id}`,
+      href: `/shifts/${sh.id}`,
+      when: sh.scheduledStartsAt ?? sh.actualStartedAt ?? sh.actualEndedAt,
+      kindLabel: KIND_LABEL[sh.type] ?? sh.type,
+      siteId: sh.site?.id ?? null,
+      siteName: sh.site?.name ?? null,
+      siteCode: sh.site?.code ?? null,
+      customer:
+        sh.site?.customer?.name ?? sh.site?.partner?.name ?? null,
+      billed: Number(sh.billedAmount ?? 0),
+      partnerCharge:
+        sh.partnerChargeToUsAmount != null
+          ? Number(sh.partnerChargeToUsAmount)
+          : null,
+      partnerRef: null as string | null,
+      recordedByPartner: sh.recordedByPartner,
+    })),
+  ];
+  theyDidRows.sort(
+    (a, b) => (b.when?.getTime() ?? 0) - (a.when?.getTime() ?? 0),
+  );
 
   const weDidTotal = weDidRows.reduce((acc, r) => acc + r.billed, 0);
   const theyDidTotal = theyDidRows.reduce((acc, r) => acc + r.billed, 0);
@@ -345,7 +446,9 @@ export default async function PartnerFinancePage({
                 ? "Patrol visits"
                 : kind === "VISIT_VPI"
                   ? "VPI visits"
-                  : (KIND_LABEL[kind] ?? kind);
+                  : kind.startsWith("SHIFT_")
+                    ? `${KIND_LABEL[kind.slice("SHIFT_".length)] ?? kind} shifts`
+                    : (KIND_LABEL[kind] ?? kind);
             filters.push({ label: `Service: ${label}`, clearHref: drop("kind") });
           }
           if (siteId) {
@@ -381,6 +484,10 @@ export default async function PartnerFinancePage({
           visitKinds={FILTER_VISIT_KINDS.map((k) => ({
             v: `VISIT_${k}`,
             label: k === "VPI" ? "VPI visit" : "Patrol visit",
+          }))}
+          shiftTypes={FILTER_SHIFT_TYPES.map((s) => ({
+            v: `SHIFT_${s}`,
+            label: KIND_LABEL[s] ?? s,
           }))}
           sites={sites.map((s) => ({
             id: s.id,

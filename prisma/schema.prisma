@@ -1126,6 +1126,19 @@ model Shift {
   checkIntervalMin   Int          @default(60)
   graceMinutes       Int          @default(15)
   notes              String?
+  /// Finance snapshots. Same shape as Job / PatrolVisit so /finance
+  /// can aggregate shifts the same way. `billedAmount` = what we
+  /// bill our customer (from SiteRate). `paidAmount` = what we pay
+  /// our internal officer when officer-handled (from OfficerRate);
+  /// stays null for partner-handled shifts — their cost is captured
+  /// by `partnerChargeToUsAmount` above instead.
+  billedAmount       Decimal?     @db.Decimal(10, 2)
+  billedCurrency     String?
+  billedAt           DateTime?
+  paidAmount         Decimal?     @db.Decimal(10, 2)
+  paidCurrency       String?
+  paidAt             DateTime?
+  payRateUnit        String?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 

@@ -18,6 +18,7 @@ export function FinanceAccountFilters({
   basePath,
   jobTypes,
   visitKinds,
+  shiftTypes,
   sites,
   regions,
 }: {
@@ -32,6 +33,7 @@ export function FinanceAccountFilters({
   basePath: string;
   jobTypes: Opt[];
   visitKinds: Opt[];
+  shiftTypes?: Opt[];
   sites: { id: string; name: string; code: string | null }[];
   regions: { id: number; name: string }[];
 }) {
@@ -116,6 +118,15 @@ export function FinanceAccountFilters({
                 </option>
               ))}
             </optgroup>
+            {shiftTypes && shiftTypes.length > 0 && (
+              <optgroup label="Shifts">
+                {shiftTypes.map((s) => (
+                  <option key={s.v} value={s.v}>
+                    {s.label}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
         <div>

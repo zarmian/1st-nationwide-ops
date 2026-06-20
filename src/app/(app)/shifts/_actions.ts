@@ -6,6 +6,14 @@ import { z } from "zod";
 import { requireStaff, requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { parseUkDateTimeLocal } from "@/lib/dates";
+import {
+  applyBillingToShift,
+  applyPayToShift,
+  billForSite,
+  durationMinutes,
+  jobTypeToRateService,
+  payForOfficer,
+} from "@/lib/billing";
 
 const SHIFT_TYPES = ["STATIC_GUARDING", "DOG_HANDLER"] as const;
 const HANDLER_KINDS = ["officer", "partner"] as const;
@@ -192,21 +200,45 @@ export async function endShift(
   const me = await requireUser();
   const shift = await prisma.shift.findUnique({
     where: { id: shiftId },
-    select: { id: true, officerId: true, status: true },
+    select: {
+      id: true,
+      siteId: true,
+      officerId: true,
+      type: true,
+      status: true,
+      actualStartedAt: true,
+    },
   });
   if (!shift) return { ok: false, error: "Not found" };
   if (shift.officerId !== me.id && me.role === "OFFICER") {
     return { ok: false, error: "Not your shift" };
   }
+  const endedAt = new Date();
   await prisma.shift.update({
     where: { id: shiftId },
     data: {
       status: "COMPLETED",
-      actualEndedAt: new Date(),
+      actualEndedAt: endedAt,
     },
   });
+
+  // Snapshot finance now that we know how long the shift actually ran
+  // (PER_HOUR rates depend on duration). Officer pay only when an
+  // internal officer attended.
+  const rateService = jobTypeToRateService(shift.type);
+  if (rateService) {
+    const dur = durationMinutes(shift.actualStartedAt, endedAt);
+    const bill = await billForSite(shift.siteId, rateService, dur);
+    await applyBillingToShift(shift.id, bill);
+    if (shift.officerId) {
+      const pay = await payForOfficer(shift.officerId, rateService, dur);
+      await applyPayToShift(shift.id, pay);
+    }
+  }
+
   revalidatePath("/m/today");
   revalidatePath("/shifts");
+  revalidatePath("/finance");
   revalidatePath(`/shifts/${shiftId}`);
   return { ok: true };
 }
@@ -318,7 +350,7 @@ export async function recordCompletedShift(
     }
   }
 
-  await prisma.shift.create({
+  const created = await prisma.shift.create({
     data: {
       siteId: d.siteId,
       type: d.type as any,
@@ -343,8 +375,27 @@ export async function recordCompletedShift(
       notes: d.notes,
       // recordedByPartner stays false — we (1NW staff) recorded this.
     },
+    select: { id: true },
   });
+
+  // Snapshot rates so /finance picks up the shift immediately. Same
+  // pattern as recordDispatcherCallout / submission flows for jobs +
+  // visits. Officer pay only when WE attended (handlerKind=officer);
+  // partner-handled shifts have null paidAmount — the cost is the
+  // partner's chargeToUs which they enter on their portal.
+  const rateService = jobTypeToRateService(d.type);
+  if (rateService) {
+    const dur = durationMinutes(start, end);
+    const bill = await billForSite(d.siteId, rateService, dur);
+    await applyBillingToShift(created.id, bill);
+    if (d.handlerKind === "officer" && d.officerId) {
+      const pay = await payForOfficer(d.officerId, rateService, dur);
+      await applyPayToShift(created.id, pay);
+    }
+  }
+
   revalidatePath("/shifts");
+  revalidatePath("/finance");
   revalidatePath("/dispatch");
   revalidatePath("/partner/activities");
   redirect("/shifts");

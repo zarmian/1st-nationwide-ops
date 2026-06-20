@@ -128,8 +128,10 @@ export function jobTypeToRateService(jobType: string): RateService | null {
     case "ADHOC":
       return "ADHOC";
     case "STATIC_GUARDING_SHIFT":
+    case "STATIC_GUARDING":
       return "STATIC_GUARDING";
     case "DOG_HANDLER_SHIFT":
+    case "DOG_HANDLER":
       return "DOG_HANDLER";
     default:
       return null;
@@ -221,6 +223,34 @@ export async function applyBillingToJob(
   }
   await prisma.job.update({
     where: { id: jobId },
+    data: {
+      billedAmount: new Prisma.Decimal(result.amount),
+      billedCurrency: result.currency,
+      billedAt: new Date(),
+      payRateUnit: result.unit,
+    },
+  });
+}
+
+/** Mirrors applyBillingToJob — writes the billing snapshot onto a Shift row. */
+export async function applyBillingToShift(
+  shiftId: string,
+  result: BillingResult,
+): Promise<void> {
+  if (!result.ok) {
+    await prisma.shift.update({
+      where: { id: shiftId },
+      data: {
+        billedAmount: null,
+        billedCurrency: null,
+        billedAt: null,
+        payRateUnit: null,
+      },
+    });
+    return;
+  }
+  await prisma.shift.update({
+    where: { id: shiftId },
     data: {
       billedAmount: new Prisma.Decimal(result.amount),
       billedCurrency: result.currency,
@@ -350,6 +380,28 @@ export async function applyPayToJob(
   }
   await prisma.job.update({
     where: { id: jobId },
+    data: {
+      paidAmount: new Prisma.Decimal(result.amount),
+      paidCurrency: result.currency,
+      paidAt: new Date(),
+    },
+  });
+}
+
+/** Mirrors applyPayToJob — writes the officer-pay snapshot onto a Shift. */
+export async function applyPayToShift(
+  shiftId: string,
+  result: BillingResult,
+): Promise<void> {
+  if (!result.ok) {
+    await prisma.shift.update({
+      where: { id: shiftId },
+      data: { paidAmount: null, paidCurrency: null, paidAt: null },
+    });
+    return;
+  }
+  await prisma.shift.update({
+    where: { id: shiftId },
     data: {
       paidAmount: new Prisma.Decimal(result.amount),
       paidCurrency: result.currency,

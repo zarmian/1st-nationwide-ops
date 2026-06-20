@@ -300,14 +300,15 @@ export default async function PartnerActivitiesPage({
                         : "—"}
                     </td>
                     <td className="text-right">
-                      {r.source === "we-logged-shift" ? (
+                      {r.source === "we-logged-shift" ||
+                      r.source === "we-sent" ? (
                         <Link
                           href={`/partner/activities/${r.encodedId}/assign`}
                           className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
                         >
                           assign officer
                         </Link>
-                      ) : r.source !== "we-sent" && (
+                      ) : (
                         <Link
                           href={`/partner/activities/${r.encodedId}/edit`}
                           className="text-xs text-brand-blue-dark hover:text-brand-navy underline"

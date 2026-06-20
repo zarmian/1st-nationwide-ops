@@ -18,6 +18,8 @@ const KIND_LABEL: Record<string, string> = {
   KEY_COLLECTION: "Key collection",
   KEY_DROPOFF: "Key dropoff",
   ADHOC: "Ad-hoc",
+  STATIC_GUARDING: "Static guarding",
+  DOG_HANDLER: "Dog handler",
 };
 
 const FILTER_JOB_TYPES = [
@@ -33,6 +35,9 @@ const FILTER_JOB_TYPES = [
 // Visit-kind filter keys mirror /activities — "VISIT_PATROL" / "VISIT_VPI"
 // route the where-clause to PatrolVisit-only, with the matching schedule kind.
 const FILTER_VISIT_KINDS = ["PATROL", "VPI"] as const;
+// Shift-kind keys ride the same `kind` URL param. "SHIFT_<type>" narrows
+// to shifts-only with that ShiftType, mirroring the visit-kind handling.
+const FILTER_SHIFT_TYPES = ["STATIC_GUARDING", "DOG_HANDLER"] as const;
 
 function fmtMoney(amount: unknown, currency = "GBP"): string {
   const n = Number(amount ?? 0);
@@ -109,17 +114,25 @@ export default async function OfficerFinancePage({
 
   // Translate the unified "kind" param into the right filter slot for
   // each data source. VISIT_PATROL / VISIT_VPI → visits-only with that
-  // schedule kind; a bare job-type → jobs-only with type=X; empty → both.
+  // schedule kind; SHIFT_STATIC_GUARDING / SHIFT_DOG_HANDLER → shifts-only
+  // with that ShiftType; a bare job-type → jobs-only with type=X;
+  // empty → all three.
   const visitKindFilter =
     kind === "VISIT_PATROL"
       ? ("PATROL" as const)
       : kind === "VISIT_VPI"
         ? ("VPI" as const)
         : null;
+  const shiftTypeFilter = kind.startsWith("SHIFT_")
+    ? (kind.slice("SHIFT_".length) as "STATIC_GUARDING" | "DOG_HANDLER")
+    : null;
   const jobTypeFilter =
-    kind && !kind.startsWith("VISIT_") ? kind : null;
-  const loadVisits = !jobTypeFilter; // job-type narrows to jobs only
-  const loadJobs = !visitKindFilter; // visit-kind narrows to visits only
+    kind && !kind.startsWith("VISIT_") && !kind.startsWith("SHIFT_")
+      ? kind
+      : null;
+  const loadVisits = !jobTypeFilter && !shiftTypeFilter;
+  const loadJobs = !visitKindFilter && !shiftTypeFilter;
+  const loadShifts = !visitKindFilter && !jobTypeFilter;
 
   const siteWhereExtras: { id?: string; regionId?: number } = {};
   if (siteId) siteWhereExtras.id = siteId;
@@ -142,8 +155,15 @@ export default async function OfficerFinancePage({
     ...(jobTypeFilter ? { type: jobTypeFilter as any } : {}),
     ...(hasSiteFilter ? { site: { is: siteWhereExtras } } : {}),
   };
+  const shiftWhere: any = {
+    officerId: params.id,
+    status: "COMPLETED",
+    actualEndedAt: { gte: fromDate, lte: toDate },
+    ...(shiftTypeFilter ? { type: shiftTypeFilter } : {}),
+    ...(hasSiteFilter ? { site: { is: siteWhereExtras } } : {}),
+  };
 
-  const [officer, visits, jobs, sites, regions] = await Promise.all([
+  const [officer, visits, jobs, shifts, sites, regions] = await Promise.all([
     prisma.user.findUnique({
       where: { id: params.id },
       select: { id: true, name: true, email: true, role: true },
@@ -180,6 +200,31 @@ export default async function OfficerFinancePage({
             site: { select: { id: true, name: true, code: true } },
             customer: { select: { name: true } },
             partner: { select: { name: true } },
+          },
+        })
+      : Promise.resolve([] as any[]),
+    loadShifts
+      ? prisma.shift.findMany({
+          where: shiftWhere,
+          orderBy: { scheduledStartsAt: "desc" },
+          select: {
+            id: true,
+            type: true,
+            scheduledStartsAt: true,
+            actualStartedAt: true,
+            actualEndedAt: true,
+            status: true,
+            billedAmount: true,
+            paidAmount: true,
+            site: {
+              select: {
+                id: true,
+                name: true,
+                code: true,
+                customer: { select: { name: true } },
+                partner: { select: { name: true } },
+              },
+            },
           },
         })
       : Promise.resolve([] as any[]),
@@ -233,6 +278,20 @@ export default async function OfficerFinancePage({
       paid: Number(j.paidAmount ?? 0),
     });
   }
+  for (const sh of shifts) {
+    rows.push({
+      id: `s:${sh.id}`,
+      href: `/shifts/${sh.id}`,
+      when: sh.scheduledStartsAt ?? sh.actualStartedAt ?? sh.actualEndedAt,
+      kindLabel: KIND_LABEL[sh.type] ?? sh.type,
+      siteName: sh.site?.name ?? null,
+      siteCode: sh.site?.code ?? null,
+      siteId: sh.site?.id ?? null,
+      accountName:
+        sh.site?.customer?.name ?? sh.site?.partner?.name ?? null,
+      paid: Number(sh.paidAmount ?? 0),
+    });
+  }
   rows.sort((a, b) => (b.when?.getTime() ?? 0) - (a.when?.getTime() ?? 0));
 
   const totalPaid = rows.reduce((acc, r) => acc + r.paid, 0);
@@ -264,7 +323,9 @@ export default async function OfficerFinancePage({
                 ? "Patrol visits"
                 : kind === "VISIT_VPI"
                   ? "VPI visits"
-                  : (KIND_LABEL[kind] ?? kind);
+                  : kind.startsWith("SHIFT_")
+                    ? `${KIND_LABEL[kind.slice("SHIFT_".length)] ?? kind} shifts`
+                    : (KIND_LABEL[kind] ?? kind);
             filters.push({ label: `Service: ${label}`, clearHref: drop("kind") });
           }
           if (siteId) {
@@ -300,6 +361,10 @@ export default async function OfficerFinancePage({
           visitKinds={FILTER_VISIT_KINDS.map((k) => ({
             v: `VISIT_${k}`,
             label: k === "VPI" ? "VPI visit" : "Patrol visit",
+          }))}
+          shiftTypes={FILTER_SHIFT_TYPES.map((s) => ({
+            v: `SHIFT_${s}`,
+            label: KIND_LABEL[s] ?? s,
           }))}
           sites={sites.map((s) => ({
             id: s.id,

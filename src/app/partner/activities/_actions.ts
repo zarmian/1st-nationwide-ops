@@ -605,3 +605,58 @@ export async function assignAdminShift(
   revalidatePath("/partner/finance");
   return { success: "Saved." };
 }
+
+/**
+ * Job-side mirror of assignAdminShift. When 1NW staff dispatch a job
+ * with handledByPartnerId set (callout sent to partner), the row lands
+ * with handledByPartnerOfficerId null and recordedByPartner=false.
+ * Partner picks which of their officers handled it + sets the finance
+ * breakdown the same way as for shifts.
+ */
+export async function assignAdminJob(
+  jobId: string,
+  _prev: ActivityFormState,
+  formData: FormData,
+): Promise<ActivityFormState> {
+  const me = await requirePartner();
+  const parsed = AssignInput.safeParse({
+    partnerOfficerId: formData.get("partnerOfficerId")?.toString() ?? "",
+    chargeToUs: formData.get("chargeToUs")?.toString() ?? "0",
+    payToOfficer: formData.get("payToOfficer")?.toString() ?? "0",
+    notes: formData.get("notes")?.toString() || null,
+  });
+  if (!parsed.success) {
+    return {
+      error: "Please fix the errors below.",
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+  const d = parsed.data;
+  if (d.partnerOfficerId) {
+    if (!(await verifyOfficerBelongsToPartner(d.partnerOfficerId, me.partnerId))) {
+      return {
+        error: "Officer isn't on your roster.",
+        fieldErrors: { partnerOfficerId: ["Pick one of your officers"] },
+      };
+    }
+  }
+  const r = await prisma.job.updateMany({
+    where: {
+      id: jobId,
+      handledByPartnerId: me.partnerId,
+      recordedByPartner: false,
+    },
+    data: {
+      handledByPartnerOfficerId: d.partnerOfficerId,
+      partnerChargeToUsAmount: d.chargeToUs || 0,
+      partnerOfficerPayAmount: d.payToOfficer || 0,
+      notes: d.notes,
+    },
+  });
+  if (r.count === 0) {
+    return { error: "Job not found." };
+  }
+  revalidatePath("/partner/activities");
+  revalidatePath("/partner/finance");
+  return { success: "Saved." };
+}

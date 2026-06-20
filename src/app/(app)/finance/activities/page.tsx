@@ -27,9 +27,12 @@ const KIND_LABEL: Record<string, string> = {
   DOG_HANDLER_SHIFT: "Dog-handler shift",
   VISIT_PATROL: "Patrol visit",
   VISIT_VPI: "VPI visit",
+  SHIFT_STATIC_GUARDING: "Static-guarding shift",
+  SHIFT_DOG_HANDLER: "Dog-handler shift",
 };
 
 const VISIT_KIND_OPTIONS = ["PATROL", "VPI"] as const;
+const SHIFT_TYPE_OPTIONS = ["STATIC_GUARDING", "DOG_HANDLER"] as const;
 
 const JOB_TYPES = [
   "ALARM_RESPONSE",
@@ -205,6 +208,7 @@ export default async function ActivitiesPage({
   // Job uses completedAt/billedAt/paidAt. We keep them parallel.
   const visitWhere: any = {};
   const jobWhere: any = {};
+  const shiftWhere: any = {};
 
   // Every status mode requires the work to actually be done. Jobs are
   // auto-billed by the cron at creation time, so without these guards a
@@ -214,59 +218,77 @@ export default async function ActivitiesPage({
     visitWhere.billedAt = { gte: fromDate, lte: toDate };
     jobWhere.completedAt = { not: null };
     jobWhere.billedAt = { gte: fromDate, lte: toDate };
+    shiftWhere.status = "COMPLETED";
+    shiftWhere.billedAt = { gte: fromDate, lte: toDate };
   } else if (status === "paid") {
     visitWhere.status = "COMPLETED";
     visitWhere.paidAt = { gte: fromDate, lte: toDate };
     jobWhere.completedAt = { not: null };
     jobWhere.paidAt = { gte: fromDate, lte: toDate };
+    shiftWhere.status = "COMPLETED";
+    shiftWhere.paidAt = { gte: fromDate, lte: toDate };
   } else {
     // default: completed
     visitWhere.status = "COMPLETED";
     visitWhere.departedAt = { gte: fromDate, lte: toDate };
     jobWhere.completedAt = { gte: fromDate, lte: toDate };
+    shiftWhere.status = "COMPLETED";
+    shiftWhere.actualEndedAt = { gte: fromDate, lte: toDate };
   }
 
   if (officerId) {
     visitWhere.officerId = officerId;
     jobWhere.assignedToUserId = officerId;
+    shiftWhere.officerId = officerId;
   }
   if (siteId) {
     visitWhere.siteId = siteId;
     jobWhere.siteId = siteId;
+    shiftWhere.siteId = siteId;
   }
   if (customerId) {
     visitWhere.site = { ...(visitWhere.site ?? {}), customerId };
     jobWhere.customerId = customerId;
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId };
   }
   if (partnerId) {
     visitWhere.site = { ...(visitWhere.site ?? {}), partnerId };
     jobWhere.partnerId = partnerId;
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), partnerId };
   }
   if (regionId && Number.isFinite(Number(regionId))) {
     const rid = Number(regionId);
     visitWhere.site = { ...(visitWhere.site ?? {}), regionId: rid };
     jobWhere.site = { ...(jobWhere.site ?? {}), regionId: rid };
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), regionId: rid };
   }
 
-  // Kind filter routes between the two tables. If the user picks one of
-  // the JobType kinds we still load visits only if no kind set (so the
-  // merged list isn't accidentally empty).
+  // Kind filter routes between the three tables. Empty kind loads all
+  // three; one of the visit / shift / job kinds narrows to just that.
   let loadVisits = true;
   let loadJobs = true;
+  let loadShifts = true;
   if (kind === "VISIT_PATROL") {
     loadJobs = false;
+    loadShifts = false;
     visitWhere.patrolSchedule = { kind: "PATROL" };
   } else if (kind === "VISIT_VPI") {
     loadJobs = false;
+    loadShifts = false;
     visitWhere.patrolSchedule = { kind: "VPI" };
-  } else if (kind) {
-    // It's a JobType — restrict jobs and drop visits.
+  } else if (kind?.startsWith("SHIFT_")) {
     loadVisits = false;
+    loadJobs = false;
+    shiftWhere.type = kind.slice("SHIFT_".length);
+  } else if (kind) {
+    // It's a JobType — restrict jobs and drop visits + shifts.
+    loadVisits = false;
+    loadShifts = false;
     jobWhere.type = kind;
   }
 
   // ── 3. Load rows + the small filter-lookup data ────────────────────────
-  const [visits, jobs, regions, customers, partners, officers] =
+  const [visits, jobs, shifts, regions, customers, partners, officers] =
     await Promise.all([
       loadVisits
         ? prisma.patrolVisit.findMany({
@@ -314,6 +336,27 @@ export default async function ActivitiesPage({
             take: 1000,
           })
         : Promise.resolve([] as any[]),
+      loadShifts
+        ? prisma.shift.findMany({
+            where: shiftWhere,
+            include: {
+              site: {
+                select: {
+                  id: true,
+                  name: true,
+                  code: true,
+                  region: { select: { name: true } },
+                  customer: { select: { id: true, name: true } },
+                  partner: { select: { id: true, name: true } },
+                },
+              },
+              officer: { select: { id: true, name: true } },
+              handledByPartner: { select: { id: true, name: true } },
+            },
+            orderBy: [{ scheduledStartsAt: "desc" }, { createdAt: "desc" }],
+            take: 1000,
+          })
+        : Promise.resolve([] as any[]),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.customer.findMany({
         where: { active: true },
@@ -336,7 +379,7 @@ export default async function ActivitiesPage({
   type Row = {
     id: string;
     href: string;
-    source: "JOB" | "VISIT";
+    source: "JOB" | "VISIT" | "SHIFT";
     kind: string;
     kindLabel: string;
     at: Date;
@@ -414,6 +457,36 @@ export default async function ActivitiesPage({
         : j.assignedTo?.name ?? null,
       billed: j.billedAmount != null ? Number(j.billedAmount) : null,
       paid: j.paidAmount != null ? Number(j.paidAmount) : null,
+    });
+  }
+
+  for (const s of shifts) {
+    rows.push({
+      id: `s:${s.id}`,
+      href: `/shifts/${s.id}`,
+      source: "SHIFT",
+      kind: `SHIFT_${s.type}`,
+      kindLabel: KIND_LABEL[`SHIFT_${s.type}`] ?? s.type,
+      at:
+        s.scheduledStartsAt ??
+        s.actualStartedAt ??
+        s.createdAt ??
+        new Date(),
+      status: s.status,
+      siteId: s.site?.id ?? null,
+      siteCode: s.site?.code ?? null,
+      siteName: s.site?.name ?? null,
+      regionName: s.site?.region?.name ?? null,
+      customerId: s.site?.customer?.id ?? null,
+      customerName: s.site?.customer?.name ?? null,
+      partnerId: s.site?.partner?.id ?? null,
+      partnerName: s.site?.partner?.name ?? null,
+      officerId: s.officer?.id ?? null,
+      officerName: s.handledByPartner
+        ? `${s.handledByPartner.name} (partner)`
+        : s.officer?.name ?? null,
+      billed: s.billedAmount != null ? Number(s.billedAmount) : null,
+      paid: s.paidAmount != null ? Number(s.paidAmount) : null,
     });
   }
 
@@ -572,6 +645,10 @@ export default async function ActivitiesPage({
           visitKinds={VISIT_KIND_OPTIONS.map((k) => ({
             v: `VISIT_${k}`,
             label: KIND_LABEL[`VISIT_${k}`] ?? k,
+          }))}
+          shiftTypes={SHIFT_TYPE_OPTIONS.map((s) => ({
+            v: `SHIFT_${s}`,
+            label: KIND_LABEL[`SHIFT_${s}`] ?? s,
           }))}
         />
       </FilterPanel>
