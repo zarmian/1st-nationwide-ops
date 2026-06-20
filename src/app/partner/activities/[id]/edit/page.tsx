@@ -134,12 +134,23 @@ export default async function EditPartnerActivityPage({
             chargeToUs: Number(shift.partnerChargeToUsAmount ?? 0),
             payToOfficer: Number(shift.partnerOfficerPayAmount ?? 0),
             notes: shift.notes,
-            startedAt:
-              formatUkDateTimeLocal(shift.actualStartedAt ?? shift.scheduledStartsAt) ??
-              null,
-            endedAt:
-              formatUkDateTimeLocal(shift.actualEndedAt ?? shift.scheduledEndsAt) ??
-              null,
+            // If the shift has no actual times yet AND its status is
+            // still PENDING, it's a scheduled future shift — populate
+            // the scheduled inputs. Otherwise it's an already-done
+            // record (today's default).
+            shiftMode:
+              !shift.actualStartedAt && !shift.actualEndedAt &&
+              shift.status === "PENDING"
+                ? "scheduled"
+                : "completed",
+            startedAt: formatUkDateTimeLocal(shift.actualStartedAt) ?? null,
+            endedAt: formatUkDateTimeLocal(shift.actualEndedAt) ?? null,
+            scheduledStartsAt:
+              formatUkDateTimeLocal(shift.scheduledStartsAt) ?? null,
+            scheduledEndsAt:
+              formatUkDateTimeLocal(shift.scheduledEndsAt) ?? null,
+            checkIntervalMin: shift.checkIntervalMin,
+            graceMinutes: shift.graceMinutes,
           }}
           customers={customers}
           sites={sites.map((s) => ({
