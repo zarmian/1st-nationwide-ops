@@ -114,16 +114,25 @@ export default async function PartnerActivitiesPage({
     prisma.shift.findMany({
       where: {
         handledByPartnerId: me.partnerId,
-        recordedByPartner: true,
-        actualStartedAt: { gte: fromDate, lte: toDate },
+        // Includes BOTH partner-recorded shifts and shifts our staff
+        // logged with handledByPartnerId = this partner. Recorded-by-
+        // partner vs 1NW-logged is differentiated by the chip in the
+        // row.
+        OR: [
+          { actualStartedAt: { gte: fromDate, lte: toDate } },
+          { scheduledStartsAt: { gte: fromDate, lte: toDate } },
+        ],
       },
-      orderBy: { actualStartedAt: "desc" },
+      orderBy: [{ actualStartedAt: "desc" }, { scheduledStartsAt: "desc" }],
       select: {
         id: true,
         type: true,
         status: true,
         actualStartedAt: true,
         actualEndedAt: true,
+        scheduledStartsAt: true,
+        scheduledEndsAt: true,
+        recordedByPartner: true,
         partnerChargeToUsAmount: true,
         site: {
           select: { id: true, name: true, code: true, postcodeFormatted: true, customer: { select: { name: true } } },
@@ -138,7 +147,11 @@ export default async function PartnerActivitiesPage({
     encodedId: string;
     when: Date | null;
     kindLabel: string;
-    source: "we-sent" | "you-logged-job" | "you-logged-shift";
+    source:
+      | "we-sent"
+      | "we-logged-shift"
+      | "you-logged-job"
+      | "you-logged-shift";
     siteName: string | null;
     siteCode: string | null;
     customerName: string | null;
@@ -165,9 +178,9 @@ export default async function PartnerActivitiesPage({
   for (const s of shifts) {
     rows.push({
       encodedId: `shift-${s.id}`,
-      when: s.actualStartedAt,
+      when: s.actualStartedAt ?? s.scheduledStartsAt,
       kindLabel: KIND_LABEL[s.type] ?? s.type,
-      source: "you-logged-shift",
+      source: s.recordedByPartner ? "you-logged-shift" : "we-logged-shift",
       siteName: s.site?.name ?? null,
       siteCode: s.site?.code ?? null,
       customerName: s.site?.customer?.name ?? null,
@@ -270,9 +283,10 @@ export default async function PartnerActivitiesPage({
                       )}
                     </td>
                     <td>
-                      {r.source === "we-sent" ? (
+                      {r.source === "we-sent" ||
+                      r.source === "we-logged-shift" ? (
                         <span className="chip-amber text-[10px]">
-                          1NW sent
+                          1NW logged
                         </span>
                       ) : (
                         <span className="chip-mint text-[10px]">
@@ -286,7 +300,14 @@ export default async function PartnerActivitiesPage({
                         : "—"}
                     </td>
                     <td className="text-right">
-                      {r.source !== "we-sent" && (
+                      {r.source === "we-logged-shift" ? (
+                        <Link
+                          href={`/partner/activities/${r.encodedId}/assign`}
+                          className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
+                        >
+                          assign officer
+                        </Link>
+                      ) : r.source !== "we-sent" && (
                         <Link
                           href={`/partner/activities/${r.encodedId}/edit`}
                           className="text-xs text-brand-blue-dark hover:text-brand-navy underline"

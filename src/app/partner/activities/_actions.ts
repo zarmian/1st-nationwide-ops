@@ -84,14 +84,29 @@ const JobInput = Common.extend({
   completedAt: z.string().optional().nullable(),
 });
 
-const ShiftInput = Common.extend({
+// SHIFT carries an extra `shiftMode` sub-discriminator:
+//   "completed" → actual start/end (today's behaviour, default)
+//   "scheduled" → future start/end + check-in interval / grace, status
+//                  lands at PENDING so the officer can clock in later.
+const ShiftCompletedInput = Common.extend({
   kind: z.literal("SHIFT"),
+  shiftMode: z.literal("completed").default("completed"),
   type: z.enum(ShiftTypes),
   startedAt: z.string().min(1, "Start time required"),
   endedAt: z.string().min(1, "End time required"),
 });
 
-const Input = z.discriminatedUnion("kind", [JobInput, ShiftInput]);
+const ShiftScheduledInput = Common.extend({
+  kind: z.literal("SHIFT"),
+  shiftMode: z.literal("scheduled"),
+  type: z.enum(ShiftTypes),
+  scheduledStartsAt: z.string().min(1, "Start time required"),
+  scheduledEndsAt: z.string().min(1, "End time required"),
+  checkIntervalMin: z.coerce.number().int().min(5).max(720).default(60),
+  graceMinutes: z.coerce.number().int().min(0).max(120).default(15),
+});
+
+const Input = z.union([JobInput, ShiftCompletedInput, ShiftScheduledInput]);
 
 function parseForm(formData: FormData) {
   const kind = formData.get("kind")?.toString();
@@ -109,8 +124,28 @@ function parseForm(formData: FormData) {
       completedAt: formData.get("completedAt")?.toString() || null,
     });
   }
+  // SHIFT branch — switch on shiftMode.
+  const shiftMode = formData.get("shiftMode")?.toString() ?? "completed";
+  if (shiftMode === "scheduled") {
+    return Input.safeParse({
+      kind: "SHIFT",
+      shiftMode: "scheduled",
+      customerId: formData.get("customerId")?.toString() ?? "",
+      siteId: formData.get("siteId")?.toString() ?? "",
+      partnerOfficerId: formData.get("partnerOfficerId")?.toString() ?? "",
+      chargeToUs: formData.get("chargeToUs")?.toString() ?? "0",
+      payToOfficer: formData.get("payToOfficer")?.toString() ?? "0",
+      notes: formData.get("notes")?.toString() || null,
+      type: formData.get("type")?.toString() ?? "STATIC_GUARDING",
+      scheduledStartsAt: formData.get("scheduledStartsAt")?.toString() ?? "",
+      scheduledEndsAt: formData.get("scheduledEndsAt")?.toString() ?? "",
+      checkIntervalMin: formData.get("checkIntervalMin")?.toString() ?? "60",
+      graceMinutes: formData.get("graceMinutes")?.toString() ?? "15",
+    });
+  }
   return Input.safeParse({
     kind: "SHIFT",
+    shiftMode: "completed",
     customerId: formData.get("customerId")?.toString() ?? "",
     siteId: formData.get("siteId")?.toString() ?? "",
     partnerOfficerId: formData.get("partnerOfficerId")?.toString() ?? "",
@@ -207,7 +242,51 @@ export async function createPartnerActivity(
     revalidatePath("/partner/activities");
     revalidatePath("/partner/finance");
     redirect(`/partner/activities/${created.id}/edit`);
+  } else if (d.shiftMode === "scheduled") {
+    // Future shift — same shape as the staff /shifts/new flow:
+    // scheduled times + check-in interval + grace. Lands at PENDING.
+    const start = parseUkDateTimeLocal(d.scheduledStartsAt);
+    const end = parseUkDateTimeLocal(d.scheduledEndsAt);
+    if (!start || !end) {
+      return {
+        error: "Couldn't read the start / end time.",
+        fieldErrors: !start
+          ? { scheduledStartsAt: ["Invalid date"] }
+          : { scheduledEndsAt: ["Invalid date"] },
+      };
+    }
+    if (end <= start) {
+      return {
+        error: "End must be after start.",
+        fieldErrors: { scheduledEndsAt: ["After start"] },
+      };
+    }
+    const created = await prisma.shift.create({
+      data: {
+        siteId: d.siteId,
+        officerId: null,
+        type: d.type as any,
+        scheduledStartsAt: start,
+        scheduledEndsAt: end,
+        actualStartedAt: null,
+        actualEndedAt: null,
+        status: "PENDING" as any,
+        checkIntervalMin: d.checkIntervalMin,
+        graceMinutes: d.graceMinutes,
+        handledByPartnerId: me.partnerId,
+        handledByPartnerOfficerId: d.partnerOfficerId,
+        partnerChargeToUsAmount: d.chargeToUs || 0,
+        partnerOfficerPayAmount: d.payToOfficer || 0,
+        recordedByPartner: true,
+        notes: d.notes,
+      },
+      select: { id: true },
+    });
+    revalidatePath("/partner/activities");
+    revalidatePath("/partner/finance");
+    redirect(`/partner/activities/shift-${created.id}/edit`);
   } else {
+    // Already-completed shift (default mode).
     const startedAt = parseUkDateTimeLocal(d.startedAt);
     const endedAt = parseUkDateTimeLocal(d.endedAt);
     if (!startedAt || !endedAt) {
@@ -310,42 +389,81 @@ export async function updatePartnerActivity(
     });
     if (r.count === 0) return { error: "Not found or not yours to edit." };
   } else if (isShift && d.kind === "SHIFT") {
-    const startedAt = parseUkDateTimeLocal(d.startedAt);
-    const endedAt = parseUkDateTimeLocal(d.endedAt);
-    if (!startedAt || !endedAt) {
-      return {
-        error: "Couldn't read the start / end time.",
-        fieldErrors: !startedAt
-          ? { startedAt: ["Invalid date"] }
-          : { endedAt: ["Invalid date"] },
-      };
+    if (d.shiftMode === "scheduled") {
+      const start = parseUkDateTimeLocal(d.scheduledStartsAt);
+      const end = parseUkDateTimeLocal(d.scheduledEndsAt);
+      if (!start || !end) {
+        return {
+          error: "Couldn't read the start / end time.",
+          fieldErrors: !start
+            ? { scheduledStartsAt: ["Invalid date"] }
+            : { scheduledEndsAt: ["Invalid date"] },
+        };
+      }
+      if (end <= start) {
+        return {
+          error: "End must be after start.",
+          fieldErrors: { scheduledEndsAt: ["After start"] },
+        };
+      }
+      const r = await prisma.shift.updateMany({
+        where: {
+          id: rawId,
+          handledByPartnerId: me.partnerId,
+          recordedByPartner: true,
+        },
+        data: {
+          type: d.type as any,
+          siteId: d.siteId,
+          handledByPartnerOfficerId: d.partnerOfficerId,
+          partnerChargeToUsAmount: d.chargeToUs || 0,
+          partnerOfficerPayAmount: d.payToOfficer || 0,
+          scheduledStartsAt: start,
+          scheduledEndsAt: end,
+          checkIntervalMin: d.checkIntervalMin,
+          graceMinutes: d.graceMinutes,
+          notes: d.notes,
+        },
+      });
+      if (r.count === 0) return { error: "Not found or not yours to edit." };
+    } else {
+      const startedAt = parseUkDateTimeLocal(d.startedAt);
+      const endedAt = parseUkDateTimeLocal(d.endedAt);
+      if (!startedAt || !endedAt) {
+        return {
+          error: "Couldn't read the start / end time.",
+          fieldErrors: !startedAt
+            ? { startedAt: ["Invalid date"] }
+            : { endedAt: ["Invalid date"] },
+        };
+      }
+      if (endedAt <= startedAt) {
+        return {
+          error: "End must be after start.",
+          fieldErrors: { endedAt: ["After start"] },
+        };
+      }
+      const r = await prisma.shift.updateMany({
+        where: {
+          id: rawId,
+          handledByPartnerId: me.partnerId,
+          recordedByPartner: true,
+        },
+        data: {
+          type: d.type as any,
+          siteId: d.siteId,
+          handledByPartnerOfficerId: d.partnerOfficerId,
+          partnerChargeToUsAmount: d.chargeToUs || 0,
+          partnerOfficerPayAmount: d.payToOfficer || 0,
+          scheduledStartsAt: startedAt,
+          scheduledEndsAt: endedAt,
+          actualStartedAt: startedAt,
+          actualEndedAt: endedAt,
+          notes: d.notes,
+        },
+      });
+      if (r.count === 0) return { error: "Not found or not yours to edit." };
     }
-    if (endedAt <= startedAt) {
-      return {
-        error: "End must be after start.",
-        fieldErrors: { endedAt: ["After start"] },
-      };
-    }
-    const r = await prisma.shift.updateMany({
-      where: {
-        id: rawId,
-        handledByPartnerId: me.partnerId,
-        recordedByPartner: true,
-      },
-      data: {
-        type: d.type as any,
-        siteId: d.siteId,
-        handledByPartnerOfficerId: d.partnerOfficerId,
-        partnerChargeToUsAmount: d.chargeToUs || 0,
-        partnerOfficerPayAmount: d.payToOfficer || 0,
-        scheduledStartsAt: startedAt,
-        scheduledEndsAt: endedAt,
-        actualStartedAt: startedAt,
-        actualEndedAt: endedAt,
-        notes: d.notes,
-      },
-    });
-    if (r.count === 0) return { error: "Not found or not yours to edit." };
   } else {
     return { error: "Kind doesn't match the record." };
   }
@@ -417,4 +535,73 @@ export async function getPartnerRateForType(
     payToOfficer: Number(r.payToOfficer),
     unit: r.unit,
   };
+}
+
+// ── Assign officer to an admin-logged shift ───────────────────────────────
+// When 1NW staff use /shifts/completed/new with handlerKind=partner, the
+// row lands with handledByPartnerId set but handledByPartnerOfficerId
+// null and recordedByPartner=false. This action lets the partner pick
+// which of their officers attended + optionally set their billing
+// snapshot — so the partner-portal finance dashboard reflects what
+// they're charging us / paying their officer for the shift.
+
+const AssignInput = z.object({
+  partnerOfficerId: z
+    .string()
+    .uuid()
+    .or(z.literal(""))
+    .nullable()
+    .transform((v) => v || null),
+  chargeToUs: z.coerce.number().min(0).max(99_999_999).default(0),
+  payToOfficer: z.coerce.number().min(0).max(99_999_999).default(0),
+  notes: z.string().trim().max(2000).optional().nullable(),
+});
+
+export async function assignAdminShift(
+  shiftId: string,
+  _prev: ActivityFormState,
+  formData: FormData,
+): Promise<ActivityFormState> {
+  const me = await requirePartner();
+  const parsed = AssignInput.safeParse({
+    partnerOfficerId: formData.get("partnerOfficerId")?.toString() ?? "",
+    chargeToUs: formData.get("chargeToUs")?.toString() ?? "0",
+    payToOfficer: formData.get("payToOfficer")?.toString() ?? "0",
+    notes: formData.get("notes")?.toString() || null,
+  });
+  if (!parsed.success) {
+    return {
+      error: "Please fix the errors below.",
+      fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
+    };
+  }
+  const d = parsed.data;
+  if (d.partnerOfficerId) {
+    if (!(await verifyOfficerBelongsToPartner(d.partnerOfficerId, me.partnerId))) {
+      return {
+        error: "Officer isn't on your roster.",
+        fieldErrors: { partnerOfficerId: ["Pick one of your officers"] },
+      };
+    }
+  }
+  // Scope strictly to admin-logged rows owned by this partner.
+  const r = await prisma.shift.updateMany({
+    where: {
+      id: shiftId,
+      handledByPartnerId: me.partnerId,
+      recordedByPartner: false,
+    },
+    data: {
+      handledByPartnerOfficerId: d.partnerOfficerId,
+      partnerChargeToUsAmount: d.chargeToUs || 0,
+      partnerOfficerPayAmount: d.payToOfficer || 0,
+      notes: d.notes,
+    },
+  });
+  if (r.count === 0) {
+    return { error: "Shift not found." };
+  }
+  revalidatePath("/partner/activities");
+  revalidatePath("/partner/finance");
+  return { success: "Saved." };
 }

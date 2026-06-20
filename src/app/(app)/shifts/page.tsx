@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CalendarPlus, History } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
@@ -63,9 +64,34 @@ export default async function ShiftsPage({
         title="Shifts"
         subtitle="Static guarding and dog-handler shifts with hourly check-ins."
         actions={
-          <Link href="/shifts/new" className="btn-primary">
-            + New shift
-          </Link>
+          <>
+            <Link
+              href="/shifts/completed/new"
+              className="btn-secondary text-left"
+              title="Log a shift that's already been done"
+            >
+              <History size={16} className="shrink-0" />
+              <span className="leading-tight">
+                <span className="block">Record completed shift</span>
+                <span className="block text-[10px] font-normal opacity-70">
+                  Log a past shift
+                </span>
+              </span>
+            </Link>
+            <Link
+              href="/shifts/new"
+              className="btn-primary text-left"
+              title="Schedule a new shift for the future"
+            >
+              <CalendarPlus size={16} className="shrink-0" />
+              <span className="leading-tight">
+                <span className="block">New shift</span>
+                <span className="block text-[10px] font-normal opacity-80">
+                  Schedule for the future
+                </span>
+              </span>
+            </Link>
+          </>
         }
       />
 

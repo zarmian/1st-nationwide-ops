@@ -28,8 +28,16 @@ export type PartnerActivityInitial = {
   notes: string | null;
   scheduledFor?: string | null; // datetime-local "YYYY-MM-DDTHH:mm"
   completedAt?: string | null;
+  /// Shift "completed" mode — actual start/end.
   startedAt?: string | null;
   endedAt?: string | null;
+  /// Shift "scheduled" mode — same datetime semantics as the staff
+  /// scheduled-shift form. Set when partner schedules a future shift.
+  shiftMode?: "completed" | "scheduled";
+  scheduledStartsAt?: string | null;
+  scheduledEndsAt?: string | null;
+  checkIntervalMin?: number;
+  graceMinutes?: number;
 };
 
 const JOB_TYPES: { v: string; label: string }[] = [
@@ -111,6 +119,12 @@ export function PartnerActivityForm({
     initial.payToOfficer,
   );
   const [rateTouched, setRateTouched] = useState(false);
+  // When kind=SHIFT, partner picks between "completed" (after-the-fact
+  // log, default — same as today) and "scheduled" (future shift with
+  // check-in inputs that mirror the staff /shifts/new form).
+  const [shiftMode, setShiftMode] = useState<"completed" | "scheduled">(
+    initial.shiftMode ?? "completed",
+  );
 
   const rateMap = useMemo(() => {
     const m = new Map<string, RateRow>();
@@ -304,40 +318,148 @@ export function PartnerActivityForm({
           </div>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 gap-4">
+        <>
+          <input type="hidden" name="shiftMode" value={shiftMode} />
           <div>
-            <label className="label" htmlFor="startedAt">
-              Started <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="startedAt"
-              name="startedAt"
-              type="datetime-local"
-              defaultValue={initial.startedAt ?? ""}
-              required
-              className="input"
-            />
-            {fe.startedAt?.[0] && (
-              <p className="text-xs text-red-600 mt-1">{fe.startedAt[0]}</p>
-            )}
+            <div className="text-xs uppercase tracking-wider text-slate-500 mb-1.5">
+              When is the shift?
+            </div>
+            <div className="flex gap-2">
+              {(["completed", "scheduled"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setShiftMode(m)}
+                  className={
+                    "px-3 py-1.5 rounded-xl text-sm border transition " +
+                    (shiftMode === m
+                      ? "bg-brand-blue text-white border-brand-blue"
+                      : "bg-white text-slate-700 border-slate-300 hover:border-brand-blue-300")
+                  }
+                  aria-pressed={shiftMode === m}
+                >
+                  {m === "completed" ? "Already done" : "Schedule for later"}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-1.5">
+              {shiftMode === "completed"
+                ? "Recording a shift that's already been done."
+                : "Booking a shift for the future — your officer will see it in their portal and clock in / out on the day."}
+            </p>
           </div>
-          <div>
-            <label className="label" htmlFor="endedAt">
-              Ended <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="endedAt"
-              name="endedAt"
-              type="datetime-local"
-              defaultValue={initial.endedAt ?? ""}
-              required
-              className="input"
-            />
-            {fe.endedAt?.[0] && (
-              <p className="text-xs text-red-600 mt-1">{fe.endedAt[0]}</p>
-            )}
-          </div>
-        </div>
+
+          {shiftMode === "completed" ? (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div>
+                <label className="label" htmlFor="startedAt">
+                  Started <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="startedAt"
+                  name="startedAt"
+                  type="datetime-local"
+                  defaultValue={initial.startedAt ?? ""}
+                  required
+                  className="input"
+                />
+                {fe.startedAt?.[0] && (
+                  <p className="text-xs text-red-600 mt-1">{fe.startedAt[0]}</p>
+                )}
+              </div>
+              <div>
+                <label className="label" htmlFor="endedAt">
+                  Ended <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="endedAt"
+                  name="endedAt"
+                  type="datetime-local"
+                  defaultValue={initial.endedAt ?? ""}
+                  required
+                  className="input"
+                />
+                {fe.endedAt?.[0] && (
+                  <p className="text-xs text-red-600 mt-1">{fe.endedAt[0]}</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label" htmlFor="scheduledStartsAt">
+                    Starts <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="scheduledStartsAt"
+                    name="scheduledStartsAt"
+                    type="datetime-local"
+                    defaultValue={initial.scheduledStartsAt ?? ""}
+                    required
+                    className="input"
+                  />
+                  {fe.scheduledStartsAt?.[0] && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {fe.scheduledStartsAt[0]}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="label" htmlFor="scheduledEndsAt">
+                    Ends <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    id="scheduledEndsAt"
+                    name="scheduledEndsAt"
+                    type="datetime-local"
+                    defaultValue={initial.scheduledEndsAt ?? ""}
+                    required
+                    className="input"
+                  />
+                  {fe.scheduledEndsAt?.[0] && (
+                    <p className="text-xs text-red-600 mt-1">
+                      {fe.scheduledEndsAt[0]}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="label" htmlFor="checkIntervalMin">
+                    Check every (minutes)
+                  </label>
+                  <input
+                    id="checkIntervalMin"
+                    name="checkIntervalMin"
+                    type="number"
+                    min={5}
+                    max={720}
+                    defaultValue={initial.checkIntervalMin ?? 60}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="graceMinutes">
+                    Grace (minutes)
+                  </label>
+                  <input
+                    id="graceMinutes"
+                    name="graceMinutes"
+                    type="number"
+                    min={0}
+                    max={120}
+                    defaultValue={initial.graceMinutes ?? 15}
+                    className="input"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">
+                    Officer is prompted at this cadence on their portal.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+        </>
       )}
 
       <div>
