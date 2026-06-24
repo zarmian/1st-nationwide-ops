@@ -197,7 +197,7 @@ export async function GET(req: Request) {
             assignedTo: { select: { name: true } },
             handledByPartner: { select: { name: true } },
           },
-          orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+          orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
         })
       : Promise.resolve([] as any[]),
     loadShifts
@@ -216,7 +216,7 @@ export async function GET(req: Request) {
             officer: { select: { name: true } },
             handledByPartner: { select: { name: true } },
           },
-          orderBy: [{ actualEndedAt: "desc" }, { scheduledStartsAt: "desc" }],
+          orderBy: [{ scheduledStartsAt: "desc" }],
         })
       : Promise.resolve([] as any[]),
   ]);
@@ -239,7 +239,7 @@ export async function GET(req: Request) {
   for (const v of visits) {
     const vk = v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL";
     rows.push({
-      at: v.departedAt ?? v.arrivedAt ?? v.scheduledAt ?? v.createdAt ?? new Date(),
+      at: v.scheduledAt ?? v.arrivedAt ?? v.createdAt ?? new Date(),
       kind: KIND_LABEL[`VISIT_${vk}`] ?? "Visit",
       siteCode: v.site?.code ?? null,
       siteName: v.site?.name ?? null,
@@ -254,7 +254,7 @@ export async function GET(req: Request) {
   }
   for (const j of jobs) {
     rows.push({
-      at: j.completedAt ?? j.scheduledFor ?? j.startedAt ?? j.createdAt ?? new Date(),
+      at: j.scheduledFor ?? j.startedAt ?? j.createdAt ?? new Date(),
       kind: KIND_LABEL[j.type] ?? j.type,
       siteCode: j.site?.code ?? null,
       siteName: j.site?.name ?? null,
@@ -271,7 +271,7 @@ export async function GET(req: Request) {
   }
   for (const s of shifts) {
     rows.push({
-      at: s.actualEndedAt ?? s.scheduledStartsAt ?? s.createdAt ?? new Date(),
+      at: s.scheduledStartsAt ?? s.actualStartedAt ?? s.createdAt ?? new Date(),
       kind: KIND_LABEL[`SHIFT_${s.type}`] ?? s.type,
       siteCode: s.site?.code ?? null,
       siteName: s.site?.name ?? null,
