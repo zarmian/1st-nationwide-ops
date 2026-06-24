@@ -137,14 +137,14 @@ export default async function ActivitiesPage({
   searchParams: {
     from?: string;
     to?: string;
-    accountId?: string; // "customer:<id>" | "partner:<id>"
-    customerId?: string;
-    partnerId?: string;
-    officerId?: string;
-    siteId?: string;
-    regionId?: string;
-    kind?: string; // JobType or "VISIT_PATROL" / "VISIT_VPI"
-    status?: string; // accepted but no longer affects the query — see comment in the SQL block
+    accountId?: string; // "customer:<id>" | "partner:<id>" — finance click-through
+    customerId?: string; // comma-separated ids
+    partnerId?: string; // comma-separated ids
+    officerId?: string; // comma-separated ids
+    siteId?: string; // comma-separated ids
+    regionId?: string; // comma-separated numeric ids
+    kind?: string; // comma-separated JobType / VISIT_PATROL / SHIFT_*
+    status?: string; // comma-separated user-friendly status keys (see STATUS_GROUPS)
     groupBy?: GroupBy;
     page?: string;
   };
@@ -172,21 +172,29 @@ export default async function ActivitiesPage({
   const fromDate = parseLocalDate(searchParams.from) ?? monthStart;
   const toDate = parseLocalDate(searchParams.to, true) ?? monthEnd;
 
+  // Comma-separated lists — every facet picker is multi-select.
+  const splitCsv = (v: string | undefined): string[] =>
+    v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
   // Allow `accountId=customer:<uuid>` or `partner:<uuid>` shorthand from
   // the Finance click-throughs — split it into the right side.
-  let customerId = searchParams.customerId ?? "";
-  let partnerId = searchParams.partnerId ?? "";
+  let customerIds = splitCsv(searchParams.customerId);
+  let partnerIds = splitCsv(searchParams.partnerId);
   if (searchParams.accountId) {
-    const [kind, id] = searchParams.accountId.split(":");
-    if (kind === "customer") customerId = id ?? "";
-    else if (kind === "partner") partnerId = id ?? "";
+    const [aKind, id] = searchParams.accountId.split(":");
+    if (aKind === "customer" && id) customerIds = [id];
+    else if (aKind === "partner" && id) partnerIds = [id];
   }
 
-  const officerId = searchParams.officerId ?? "";
-  const siteId = searchParams.siteId ?? "";
-  const regionId = searchParams.regionId ?? "";
-  const kind = searchParams.kind ?? "";
-  const status = searchParams.status ?? "completed";
+  const officerIds = splitCsv(searchParams.officerId);
+  const siteIds = splitCsv(searchParams.siteId);
+  const regionIdsRaw = splitCsv(searchParams.regionId);
+  const regionIds = regionIdsRaw
+    .map((r) => Number(r))
+    .filter((n) => Number.isFinite(n));
+  const kinds = splitCsv(searchParams.kind);
+  // No status param → no filter (show all). Empty array = "show all".
+  const statuses = splitCsv(searchParams.status);
   const groupBy: GroupBy =
     searchParams.groupBy === "day" ||
     searchParams.groupBy === "week" ||
@@ -196,134 +204,122 @@ export default async function ActivitiesPage({
   const page = Math.max(1, Number(searchParams.page ?? "1") || 1);
 
   // ── 2. Build the where clauses ──────────────────────────────────────────
-  // The page is "completed activities" by default — we anchor on the
-  // event's billed/completed date so finance + ops both line up. The user
-  // can change to "all" / "billed" / "paid" via the status filter.
-
-  // Field selection per status. PatrolVisit uses departedAt/billedAt/paidAt;
-  // Job uses completedAt/billedAt/paidAt. We keep them parallel.
-  const visitWhere: any = {};
-  const jobWhere: any = {};
-
-  // /activities is the ops log — anything happening or having happened in
-  // the chosen window, regardless of completion state. Anchor on either
-  // the completion timestamp OR the scheduled timestamp so:
-  //   - A patrol scheduled for tomorrow that's still PENDING shows up.
-  //   - A missed VPI shows up.
-  //   - A job created from an alarm but never dispatched shows up.
-  //   - A completed visit still shows up.
-  // Finance-scoped filters (billed/paid date) live on /finance/activities;
-  // status filtering happens in JS once rows are merged.
+  // Date range anchors on the SCHEDULED timestamp for each source so a
+  // shift scheduled for 22:00 → 06:00 falls into the day it started,
+  // and a visit scheduled for Tue but completed Wed shows up on Tue.
+  // Rows with no scheduled date fall back to createdAt so ad-hoc jobs
+  // logged from /submit don't disappear.
   const dateInRange = { gte: fromDate, lte: toDate };
-  visitWhere.OR = [
-    { departedAt: dateInRange },
-    { scheduledAt: dateInRange },
-  ];
-  jobWhere.OR = [
-    { completedAt: dateInRange },
-    { scheduledFor: dateInRange },
-  ];
+  const visitWhere: any = {
+    OR: [
+      { scheduledAt: dateInRange },
+      { AND: [{ scheduledAt: null }, { createdAt: dateInRange }] },
+    ],
+  };
+  const jobWhere: any = {
+    OR: [
+      { scheduledFor: dateInRange },
+      { AND: [{ scheduledFor: null }, { createdAt: dateInRange }] },
+    ],
+  };
 
-  if (officerId) {
-    visitWhere.officerId = officerId;
-    jobWhere.assignedToUserId = officerId;
+  if (officerIds.length) {
+    visitWhere.officerId = { in: officerIds };
+    jobWhere.assignedToUserId = { in: officerIds };
   }
-  if (siteId) {
-    visitWhere.siteId = siteId;
-    jobWhere.siteId = siteId;
+  if (siteIds.length) {
+    visitWhere.siteId = { in: siteIds };
+    jobWhere.siteId = { in: siteIds };
   }
-  if (customerId) {
-    visitWhere.site = { ...(visitWhere.site ?? {}), customerId };
-    jobWhere.customerId = customerId;
+  if (customerIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), customerId: { in: customerIds } };
+    jobWhere.customerId = { in: customerIds };
   }
-  if (partnerId) {
-    visitWhere.site = { ...(visitWhere.site ?? {}), partnerId };
-    jobWhere.partnerId = partnerId;
+  if (partnerIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), partnerId: { in: partnerIds } };
+    jobWhere.partnerId = { in: partnerIds };
   }
-  if (regionId && Number.isFinite(Number(regionId))) {
-    const rid = Number(regionId);
-    visitWhere.site = { ...(visitWhere.site ?? {}), regionId: rid };
-    jobWhere.site = { ...(jobWhere.site ?? {}), regionId: rid };
+  if (regionIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), regionId: { in: regionIds } };
+    jobWhere.site = { ...(jobWhere.site ?? {}), regionId: { in: regionIds } };
   }
 
-  // Kind filter routes between the three tables. If the user picks one of
-  // the JobType kinds we still load visits only if no kind set (so the
-  // merged list isn't accidentally empty).
+  // ── Kind filter routes loading per source ──────────────────────────────
+  // Each kind value belongs to exactly one source. With multi-select
+  // we look at the SET of selected kinds to decide which tables to
+  // hit — e.g. picking only `VISIT_PATROL` drops jobs + shifts.
+  const kindSet = new Set(kinds);
+  const wantVisitPatrol = kindSet.has("VISIT_PATROL");
+  const wantVisitVpi = kindSet.has("VISIT_VPI");
+  const wantShiftStatic = kindSet.has("STATIC_GUARDING_SHIFT");
+  const wantShiftDog = kindSet.has("DOG_HANDLER_SHIFT");
+  const jobKinds = [...kindSet].filter(
+    (k) =>
+      k !== "VISIT_PATROL" &&
+      k !== "VISIT_VPI" &&
+      k !== "STATIC_GUARDING_SHIFT" &&
+      k !== "DOG_HANDLER_SHIFT",
+  );
+
   let loadVisits = true;
   let loadJobs = true;
   let loadShifts = true;
-  // Orphan submissions = FormSubmission rows with neither a Job nor a
-  // Visit link — officer hit /submit, picked a site, picked PATROL,
-  // submitted. Without this load they're invisible to /activities even
-  // though they're real recorded work. Skipped when a non-orphan kind
-  // is selected (e.g. "ALARM_RESPONSE") so the filter narrows cleanly.
   let loadOrphanSubmissions = true;
-  if (kind === "VISIT_PATROL") {
-    loadJobs = false;
-    loadShifts = false;
-    loadOrphanSubmissions = false;
-    visitWhere.patrolSchedule = { kind: "PATROL" };
-  } else if (kind === "VISIT_VPI") {
-    loadJobs = false;
-    loadShifts = false;
-    loadOrphanSubmissions = false;
-    visitWhere.patrolSchedule = { kind: "VPI" };
-  } else if (kind === "STATIC_GUARDING_SHIFT") {
-    loadVisits = false;
-    loadJobs = false;
-    loadOrphanSubmissions = false;
-  } else if (kind === "DOG_HANDLER_SHIFT") {
-    loadVisits = false;
-    loadJobs = false;
-    loadOrphanSubmissions = false;
-  } else if (kind) {
-    // It's a JobType — restrict jobs and drop visits + shifts.
-    loadVisits = false;
-    loadShifts = false;
-    loadOrphanSubmissions = false;
-    jobWhere.type = kind;
+  if (kinds.length > 0) {
+    const wantsAnyVisit = wantVisitPatrol || wantVisitVpi;
+    const wantsAnyShift = wantShiftStatic || wantShiftDog;
+    const wantsAnyJob = jobKinds.length > 0;
+    loadVisits = wantsAnyVisit;
+    loadJobs = wantsAnyJob;
+    loadShifts = wantsAnyShift;
+    // Orphan submissions are job-shaped (no shift / visit ref). They
+    // surface only when the kind filter includes a JobType the orphan
+    // matches.
+    loadOrphanSubmissions = wantsAnyJob;
+    if (wantsAnyVisit) {
+      const visitKindFilter: string[] = [];
+      if (wantVisitPatrol) visitKindFilter.push("PATROL");
+      if (wantVisitVpi) visitKindFilter.push("VPI");
+      visitWhere.patrolSchedule = { kind: { in: visitKindFilter } };
+    }
+    if (wantsAnyJob) {
+      jobWhere.type = { in: jobKinds };
+    }
   }
 
-  // Shift where clause — anchor on the scheduled start so a shift
-  // running from 22:00 → 06:00 lands in the day it started, same as
-  // jobs/visits use their completion timestamp. Cancelled shifts are
-  // not a status today so no filter needed there.
+  // Shift where clause — anchor on the scheduled start. Cancelled
+  // shifts use status=MISSED/ABANDONED (no CANCELLED in the enum) so
+  // no cancel-status branch here.
   const shiftWhere: any = {
-    scheduledStartsAt: { gte: fromDate, lte: toDate },
+    scheduledStartsAt: dateInRange,
   };
-  if (officerId) shiftWhere.officerId = officerId;
-  if (siteId) shiftWhere.siteId = siteId;
-  if (customerId) shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId };
-  if (partnerId) shiftWhere.site = { ...(shiftWhere.site ?? {}), partnerId };
-  if (regionId && Number.isFinite(Number(regionId))) {
-    shiftWhere.site = { ...(shiftWhere.site ?? {}), regionId: Number(regionId) };
-  }
-  if (kind === "STATIC_GUARDING_SHIFT") shiftWhere.type = "STATIC_GUARDING";
-  else if (kind === "DOG_HANDLER_SHIFT") shiftWhere.type = "DOG_HANDLER";
+  if (officerIds.length) shiftWhere.officerId = { in: officerIds };
+  if (siteIds.length) shiftWhere.siteId = { in: siteIds };
+  if (customerIds.length) shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId: { in: customerIds } };
+  if (partnerIds.length) shiftWhere.site = { ...(shiftWhere.site ?? {}), partnerId: { in: partnerIds } };
+  if (regionIds.length) shiftWhere.site = { ...(shiftWhere.site ?? {}), regionId: { in: regionIds } };
+  if (wantShiftStatic && !wantShiftDog) shiftWhere.type = "STATIC_GUARDING";
+  else if (wantShiftDog && !wantShiftStatic) shiftWhere.type = "DOG_HANDLER";
 
-  // Orphan-submission where: a FormSubmission with no Job and no Visit
-  // link — officer logged ad-hoc from /submit. Anchored on submittedAt
-  // since that's the only completion timestamp these have.
+  // Orphan-submission where — anchored on submittedAt, the only
+  // timestamp on rows without a Job / Visit link.
   const submissionWhere: any = {
     jobId: null,
     patrolVisitId: null,
-    submittedAt: { gte: fromDate, lte: toDate },
+    submittedAt: dateInRange,
   };
-  if (officerId) submissionWhere.submittedByUserId = officerId;
-  if (siteId) submissionWhere.siteId = siteId;
-  if (customerId)
-    submissionWhere.site = { ...(submissionWhere.site ?? {}), customerId };
-  if (partnerId)
-    submissionWhere.site = { ...(submissionWhere.site ?? {}), partnerId };
-  if (regionId && Number.isFinite(Number(regionId))) {
-    submissionWhere.site = {
-      ...(submissionWhere.site ?? {}),
-      regionId: Number(regionId),
-    };
+  if (officerIds.length) submissionWhere.submittedByUserId = { in: officerIds };
+  if (siteIds.length) submissionWhere.siteId = { in: siteIds };
+  if (customerIds.length) submissionWhere.site = { ...(submissionWhere.site ?? {}), customerId: { in: customerIds } };
+  if (partnerIds.length) submissionWhere.site = { ...(submissionWhere.site ?? {}), partnerId: { in: partnerIds } };
+  if (regionIds.length) submissionWhere.site = { ...(submissionWhere.site ?? {}), regionId: { in: regionIds } };
+  // The /submit form writes `form` = JobType. Same kind filter applies.
+  if (kinds.length > 0 && jobKinds.length > 0) {
+    submissionWhere.form = { in: jobKinds };
   }
 
   // ── 3. Load rows + the small filter-lookup data ────────────────────────
-  const [visits, jobs, shifts, orphanSubmissions, regions, customers, partners, officers] =
+  const [visits, jobs, shifts, orphanSubmissions, regions, customers, partners, officers, sites] =
     await Promise.all([
       loadVisits
         ? prisma.patrolVisit.findMany({
@@ -423,6 +419,11 @@ export default async function ActivitiesPage({
         where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
         orderBy: { name: "asc" },
         select: { id: true, name: true },
+      }),
+      prisma.site.findMany({
+        where: { active: true },
+        orderBy: [{ code: "asc" }, { name: "asc" }],
+        select: { id: true, name: true, code: true },
       }),
     ]);
 
@@ -562,17 +563,64 @@ export default async function ActivitiesPage({
     });
   }
 
-  rows.sort((a, b) => b.at.getTime() - a.at.getTime());
+  // ── 4b. Status filter (post-load) ──────────────────────────────────────
+  // Each user-facing status group maps to a different set of enum
+  // values per source — VisitStatus / JobStatus / ShiftStatus +
+  // ReviewStatus (orphan submissions) don't share names. Doing this
+  // in JS after the merge avoids three parallel where-clauses with
+  // the same logical filter.
+  const STATUS_GROUPS: Record<string, Set<string>> = {
+    scheduled: new Set([
+      // Job
+      "OPEN",
+      "ASSIGNED",
+      // Visit + Shift
+      "PENDING",
+      // Orphan submission (review)
+      "DRAFT",
+    ]),
+    in_progress: new Set([
+      "IN_PROGRESS",
+      // Job intermediate stages
+      "SUBMITTED",
+      "REVIEW_PENDING",
+      // Visit "running late but still active"
+      "LATE",
+    ]),
+    completed: new Set([
+      // Visit + Shift
+      "COMPLETED",
+      // Job
+      "APPROVED",
+      "SENT_TO_CLIENT",
+      "CLOSED",
+      // Orphan submission (review)
+      "EDITED_AND_APPROVED",
+    ]),
+    missed: new Set(["MISSED", "ABANDONED"]),
+    cancelled: new Set(["CANCELLED"]),
+  };
+  let filteredRows = rows;
+  if (statuses.length > 0) {
+    const allowed = new Set<string>();
+    for (const g of statuses) {
+      const set = STATUS_GROUPS[g];
+      if (!set) continue;
+      for (const s of set) allowed.add(s);
+    }
+    filteredRows = rows.filter((r) => allowed.has(r.status));
+  }
+  filteredRows.sort((a, b) => b.at.getTime() - a.at.getTime());
 
   // ── 5. Totals (always over the unfiltered-by-page slice) ───────────────
-  const totals = { count: rows.length };
+  const totals = { count: filteredRows.length };
 
   // ── 6. Group-by pivot OR paginated raw rows ────────────────────────────
   type Bucket = { key: string; label: string; count: number };
   let pivot: Bucket[] = [];
   if (groupBy !== "none") {
     const m = new Map<string, Bucket>();
-    for (const r of rows) {
+    for (const r of filteredRows) {
       const key = bucketKey(r.at, groupBy);
       const b = m.get(key) ?? {
         key,
@@ -587,10 +635,10 @@ export default async function ActivitiesPage({
     );
   }
 
-  const totalShown = rows.length;
+  const totalShown = filteredRows.length;
   const totalPages = Math.max(1, Math.ceil(totalShown / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const pageRows = rows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pageRows = filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   // ── 7. Export QS (preserve every filter) ───────────────────────────────
   const exportParams = new URLSearchParams();
@@ -599,11 +647,17 @@ export default async function ActivitiesPage({
   }
 
   const accountLabel = (() => {
-    if (customerId) {
-      return customers.find((c) => c.id === customerId)?.name ?? "Customer";
+    if (customerIds.length === 1) {
+      return customers.find((c) => c.id === customerIds[0])?.name ?? "Customer";
     }
-    if (partnerId) {
-      return partners.find((p) => p.id === partnerId)?.name ?? "Partner";
+    if (customerIds.length > 1) {
+      return `${customerIds.length} customers`;
+    }
+    if (partnerIds.length === 1) {
+      return partners.find((p) => p.id === partnerIds[0])?.name ?? "Partner";
+    }
+    if (partnerIds.length > 1) {
+      return `${partnerIds.length} partners`;
     }
     return null;
   })();
@@ -645,39 +699,63 @@ export default async function ActivitiesPage({
             const qs = sp.toString();
             return qs ? `/activities?${qs}` : "/activities";
           };
-          if (customerId) {
+          const summarise = (
+            ids: string[],
+            lookup: (id: string) => string | undefined,
+          ): string => {
+            if (ids.length === 1) return lookup(ids[0]) ?? "?";
+            const first = lookup(ids[0]) ?? "?";
+            return `${first} +${ids.length - 1}`;
+          };
+          if (customerIds.length) {
             filters.push({
-              label: `Customer: ${customers.find((c) => c.id === customerId)?.name ?? "?"}`,
+              label: `Customer: ${summarise(customerIds, (id) => customers.find((c) => c.id === id)?.name)}`,
               clearHref: drop("customerId"),
             });
           }
-          if (partnerId) {
+          if (partnerIds.length) {
             filters.push({
-              label: `Partner: ${partners.find((p) => p.id === partnerId)?.name ?? "?"}`,
+              label: `Partner: ${summarise(partnerIds, (id) => partners.find((p) => p.id === id)?.name)}`,
               clearHref: drop("partnerId"),
             });
           }
-          if (officerId) {
+          if (officerIds.length) {
             filters.push({
-              label: `Officer: ${officers.find((o) => o.id === officerId)?.name ?? "?"}`,
+              label: `Officer: ${summarise(officerIds, (id) => officers.find((o) => o.id === id)?.name)}`,
               clearHref: drop("officerId"),
             });
           }
-          if (regionId) {
+          if (siteIds.length) {
             filters.push({
-              label: `Region: ${regions.find((r) => r.id === Number(regionId))?.name ?? "?"}`,
+              label: `Site: ${summarise(siteIds, (id) => {
+                const s = sites.find((x) => x.id === id);
+                return s ? (s.code ? `${s.code} · ${s.name}` : s.name) : undefined;
+              })}`,
+              clearHref: drop("siteId"),
+            });
+          }
+          if (regionIds.length) {
+            filters.push({
+              label: `Region: ${summarise(regionIds.map(String), (id) => regions.find((r) => r.id === Number(id))?.name)}`,
               clearHref: drop("regionId"),
             });
           }
-          if (kind) {
+          if (kinds.length) {
             filters.push({
-              label: `Service: ${KIND_LABEL[kind] ?? kind}`,
+              label: `Service: ${summarise(kinds, (k) => KIND_LABEL[k] ?? k)}`,
               clearHref: drop("kind"),
             });
           }
-          if (status && status !== "completed") {
+          if (statuses.length) {
+            const STATUS_LABEL: Record<string, string> = {
+              scheduled: "Scheduled",
+              in_progress: "In progress",
+              completed: "Completed",
+              missed: "Missed",
+              cancelled: "Cancelled",
+            };
             filters.push({
-              label: `Status: ${status}`,
+              label: `Status: ${summarise(statuses, (s) => STATUS_LABEL[s] ?? s)}`,
               clearHref: drop("status"),
             });
           }
@@ -685,21 +763,12 @@ export default async function ActivitiesPage({
         })()}
       >
         <ActivitiesFilters
-          initial={{
-            from: ymd(fromDate),
-            to: ymd(toDate),
-            customerId,
-            partnerId,
-            officerId,
-            regionId,
-            kind,
-            status,
-            groupBy,
-          }}
+          initial={{ from: ymd(fromDate), to: ymd(toDate) }}
           regions={regions.map((r) => ({ id: r.id, name: r.name }))}
           customers={customers}
           partners={partners}
           officers={officers}
+          sites={sites}
           jobTypes={JOB_TYPES.map((t) => ({ v: t, label: KIND_LABEL[t] ?? t }))}
           visitKinds={VISIT_KIND_OPTIONS.map((k) => ({
             v: `VISIT_${k}`,

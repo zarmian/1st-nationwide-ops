@@ -60,90 +60,105 @@ export async function GET(req: Request) {
   const fromDate = parseLocalDate(url.searchParams.get("from")) ?? monthStart;
   const toDate = parseLocalDate(url.searchParams.get("to"), true) ?? monthEnd;
 
-  let customerId = url.searchParams.get("customerId") ?? "";
-  let partnerId = url.searchParams.get("partnerId") ?? "";
+  const splitCsv = (v: string | null): string[] =>
+    v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
+  let customerIds = splitCsv(url.searchParams.get("customerId"));
+  let partnerIds = splitCsv(url.searchParams.get("partnerId"));
   const accountId = url.searchParams.get("accountId");
   if (accountId) {
-    const [kind, id] = accountId.split(":");
-    if (kind === "customer") customerId = id ?? "";
-    else if (kind === "partner") partnerId = id ?? "";
+    const [aKind, id] = accountId.split(":");
+    if (aKind === "customer" && id) customerIds = [id];
+    else if (aKind === "partner" && id) partnerIds = [id];
   }
-  const officerId = url.searchParams.get("officerId") ?? "";
-  const siteId = url.searchParams.get("siteId") ?? "";
-  const regionId = url.searchParams.get("regionId") ?? "";
-  const kind = url.searchParams.get("kind") ?? "";
-  const status = url.searchParams.get("status") ?? "completed";
+  const officerIds = splitCsv(url.searchParams.get("officerId"));
+  const siteIds = splitCsv(url.searchParams.get("siteId"));
+  const regionIds = splitCsv(url.searchParams.get("regionId"))
+    .map((r) => Number(r))
+    .filter((n) => Number.isFinite(n));
+  const kinds = splitCsv(url.searchParams.get("kind"));
+  // Status semantics match /activities — anchor date on scheduled-for,
+  // narrow stage by status group.
+  const statuses = splitCsv(url.searchParams.get("status"));
 
-  const visitWhere: any = {};
-  const jobWhere: any = {};
-  const shiftWhere: any = {};
-  if (status === "billed") {
-    visitWhere.status = "COMPLETED";
-    visitWhere.billedAt = { gte: fromDate, lte: toDate };
-    jobWhere.completedAt = { not: null };
-    jobWhere.billedAt = { gte: fromDate, lte: toDate };
-    shiftWhere.status = "COMPLETED";
-    shiftWhere.billedAt = { gte: fromDate, lte: toDate };
-  } else if (status === "paid") {
-    visitWhere.status = "COMPLETED";
-    visitWhere.paidAt = { gte: fromDate, lte: toDate };
-    jobWhere.completedAt = { not: null };
-    jobWhere.paidAt = { gte: fromDate, lte: toDate };
-    shiftWhere.status = "COMPLETED";
-    shiftWhere.paidAt = { gte: fromDate, lte: toDate };
-  } else {
-    visitWhere.status = "COMPLETED";
-    visitWhere.departedAt = { gte: fromDate, lte: toDate };
-    jobWhere.completedAt = { gte: fromDate, lte: toDate };
-    shiftWhere.status = "COMPLETED";
-    shiftWhere.actualEndedAt = { gte: fromDate, lte: toDate };
+  const dateInRange = { gte: fromDate, lte: toDate };
+  const visitWhere: any = {
+    OR: [
+      { scheduledAt: dateInRange },
+      { AND: [{ scheduledAt: null }, { createdAt: dateInRange }] },
+    ],
+  };
+  const jobWhere: any = {
+    OR: [
+      { scheduledFor: dateInRange },
+      { AND: [{ scheduledFor: null }, { createdAt: dateInRange }] },
+    ],
+  };
+  const shiftWhere: any = {
+    scheduledStartsAt: dateInRange,
+  };
+  if (officerIds.length) {
+    visitWhere.officerId = { in: officerIds };
+    jobWhere.assignedToUserId = { in: officerIds };
+    shiftWhere.officerId = { in: officerIds };
   }
-  if (officerId) {
-    visitWhere.officerId = officerId;
-    jobWhere.assignedToUserId = officerId;
-    shiftWhere.officerId = officerId;
+  if (siteIds.length) {
+    visitWhere.siteId = { in: siteIds };
+    jobWhere.siteId = { in: siteIds };
+    shiftWhere.siteId = { in: siteIds };
   }
-  if (siteId) {
-    visitWhere.siteId = siteId;
-    jobWhere.siteId = siteId;
-    shiftWhere.siteId = siteId;
+  if (customerIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), customerId: { in: customerIds } };
+    jobWhere.customerId = { in: customerIds };
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId: { in: customerIds } };
   }
-  if (customerId) {
-    visitWhere.site = { ...(visitWhere.site ?? {}), customerId };
-    jobWhere.customerId = customerId;
-    shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId };
+  if (partnerIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), partnerId: { in: partnerIds } };
+    jobWhere.partnerId = { in: partnerIds };
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), partnerId: { in: partnerIds } };
   }
-  if (partnerId) {
-    visitWhere.site = { ...(visitWhere.site ?? {}), partnerId };
-    jobWhere.partnerId = partnerId;
-    shiftWhere.site = { ...(shiftWhere.site ?? {}), partnerId };
+  if (regionIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), regionId: { in: regionIds } };
+    jobWhere.site = { ...(jobWhere.site ?? {}), regionId: { in: regionIds } };
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), regionId: { in: regionIds } };
   }
-  if (regionId && Number.isFinite(Number(regionId))) {
-    const rid = Number(regionId);
-    visitWhere.site = { ...(visitWhere.site ?? {}), regionId: rid };
-    jobWhere.site = { ...(jobWhere.site ?? {}), regionId: rid };
-    shiftWhere.site = { ...(shiftWhere.site ?? {}), regionId: rid };
-  }
+
+  const kindSet = new Set(kinds);
+  const wantVisitPatrol = kindSet.has("VISIT_PATROL");
+  const wantVisitVpi = kindSet.has("VISIT_VPI");
+  const wantShiftStatic =
+    kindSet.has("STATIC_GUARDING_SHIFT") || kindSet.has("SHIFT_STATIC_GUARDING");
+  const wantShiftDog =
+    kindSet.has("DOG_HANDLER_SHIFT") || kindSet.has("SHIFT_DOG_HANDLER");
+  const jobKinds = [...kindSet].filter(
+    (k) =>
+      k !== "VISIT_PATROL" &&
+      k !== "VISIT_VPI" &&
+      k !== "STATIC_GUARDING_SHIFT" &&
+      k !== "DOG_HANDLER_SHIFT" &&
+      k !== "SHIFT_STATIC_GUARDING" &&
+      k !== "SHIFT_DOG_HANDLER",
+  );
 
   let loadVisits = true;
   let loadJobs = true;
   let loadShifts = true;
-  if (kind === "VISIT_PATROL") {
-    loadJobs = false;
-    loadShifts = false;
-    visitWhere.patrolSchedule = { kind: "PATROL" };
-  } else if (kind === "VISIT_VPI") {
-    loadJobs = false;
-    loadShifts = false;
-    visitWhere.patrolSchedule = { kind: "VPI" };
-  } else if (kind?.startsWith("SHIFT_")) {
-    loadVisits = false;
-    loadJobs = false;
-    shiftWhere.type = kind.slice("SHIFT_".length);
-  } else if (kind) {
-    loadVisits = false;
-    loadShifts = false;
-    jobWhere.type = kind;
+  if (kinds.length > 0) {
+    const wantsAnyVisit = wantVisitPatrol || wantVisitVpi;
+    const wantsAnyShift = wantShiftStatic || wantShiftDog;
+    const wantsAnyJob = jobKinds.length > 0;
+    loadVisits = wantsAnyVisit;
+    loadJobs = wantsAnyJob;
+    loadShifts = wantsAnyShift;
+    if (wantsAnyVisit) {
+      const visitKindFilter: string[] = [];
+      if (wantVisitPatrol) visitKindFilter.push("PATROL");
+      if (wantVisitVpi) visitKindFilter.push("VPI");
+      visitWhere.patrolSchedule = { kind: { in: visitKindFilter } };
+    }
+    if (wantsAnyJob) jobWhere.type = { in: jobKinds };
+    if (wantShiftStatic && !wantShiftDog) shiftWhere.type = "STATIC_GUARDING";
+    else if (wantShiftDog && !wantShiftStatic) shiftWhere.type = "DOG_HANDLER";
   }
 
   const [visits, jobs, shifts] = await Promise.all([
@@ -270,6 +285,33 @@ export async function GET(req: Request) {
       paid: s.paidAmount != null ? Number(s.paidAmount) : null,
       status: s.status,
     });
+  }
+  if (statuses.length > 0) {
+    const STATUS_GROUPS: Record<string, Set<string>> = {
+      scheduled: new Set(["OPEN", "ASSIGNED", "PENDING", "DRAFT"]),
+      in_progress: new Set([
+        "IN_PROGRESS",
+        "SUBMITTED",
+        "REVIEW_PENDING",
+        "LATE",
+      ]),
+      completed: new Set([
+        "COMPLETED",
+        "APPROVED",
+        "SENT_TO_CLIENT",
+        "CLOSED",
+        "EDITED_AND_APPROVED",
+      ]),
+      missed: new Set(["MISSED", "ABANDONED"]),
+      cancelled: new Set(["CANCELLED"]),
+    };
+    const allowed = new Set<string>();
+    for (const g of statuses) {
+      const set = STATUS_GROUPS[g];
+      if (!set) continue;
+      for (const s of set) allowed.add(s);
+    }
+    rows.splice(0, rows.length, ...rows.filter((r) => allowed.has(r.status)));
   }
   rows.sort((a, b) => b.at.getTime() - a.at.getTime());
 
