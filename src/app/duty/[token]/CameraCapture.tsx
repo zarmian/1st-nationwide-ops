@@ -36,6 +36,21 @@ export function CameraCapture({
 
   useEffect(() => stop, [stop]);
 
+  // Attach the stream only once the <video> is actually rendered. The video
+  // element is mounted only in the "live" phase, so attaching inside
+  // openCamera() (when phase is still "idle") found a null ref and left the
+  // preview — and every captured frame — black. This effect runs after the
+  // "live" render, when videoRef.current exists.
+  useEffect(() => {
+    if (phase !== "live") return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream) return;
+    video.srcObject = stream;
+    const played = video.play();
+    if (played && typeof played.catch === "function") played.catch(() => {});
+  }, [phase]);
+
   async function openCamera() {
     setError(null);
     try {
@@ -44,10 +59,8 @@ export function CameraCapture({
         audio: false,
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
-      }
+      // Render the <video> first; the effect above attaches the stream once
+      // the element exists.
       setPhase("live");
     } catch {
       setError(
@@ -59,8 +72,14 @@ export function CameraCapture({
   async function capture() {
     const video = videoRef.current;
     if (!video) return;
-    const w = video.videoWidth || 1280;
-    const h = video.videoHeight || 720;
+    // If the first frame hasn't arrived yet the video has no dimensions —
+    // drawing it would produce a black image. Ask the user to wait a beat.
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) {
+      setError("Camera is still starting — wait a second and tap again.");
+      return;
+    }
     const canvas = document.createElement("canvas");
     canvas.width = w;
     canvas.height = h;
@@ -124,6 +143,7 @@ export function CameraCapture({
         <div className="space-y-2">
           <video
             ref={videoRef}
+            autoPlay
             playsInline
             muted
             className="w-full rounded-lg bg-black aspect-[3/4] object-cover"
