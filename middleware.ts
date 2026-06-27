@@ -11,9 +11,10 @@ import { NextResponse } from "next/server";
  *  3. Server actions still call requireAdmin/requireStaff as a backstop — if
  *     someone slips past middleware, the action throws.
  *
- * `/submit` and `/jobs` are intentionally excluded so any outside officer
- * can browse the public job board, claim a job, and file the report from a
- * shared link without an account.
+ * `/submit`, `/jobs` and `/duty` are intentionally excluded so any outside
+ * officer can browse the public job board, claim a job, or run a single
+ * shift from a token link without an account. `/duty/<token>` opens exactly
+ * one shift and nothing else — the token is the only credential.
  */
 export default withAuth(
   function middleware(req) {
@@ -150,6 +151,9 @@ export const config = {
   // with an extension (favicons, images, manifest.json, sw.js, etc.).
   // Everything else hits this middleware.
   matcher: [
-    "/((?!api/auth|_next/static|_next/image|login|submit|jobs|offline|robots|sitemap|.*\\..*).*)",
+    // `api/blob` is excluded so anonymous officers on /submit and /duty can
+    // get a scoped upload token (the route does its own siteId + size +
+    // rate-limit validation; it never relied on a session).
+    "/((?!api/auth|api/blob|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
   ],
 };

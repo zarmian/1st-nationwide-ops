@@ -128,8 +128,10 @@ export function jobTypeToRateService(jobType: string): RateService | null {
     case "ADHOC":
       return "ADHOC";
     case "STATIC_GUARDING_SHIFT":
+    case "STATIC_GUARDING":
       return "STATIC_GUARDING";
     case "DOG_HANDLER_SHIFT":
+    case "DOG_HANDLER":
       return "DOG_HANDLER";
     default:
       return null;
@@ -144,6 +146,20 @@ export function durationMinutes(
   const ms = departedAt.getTime() - arrivedAt.getTime();
   if (ms <= 0) return null;
   return Math.round(ms / 60000);
+}
+
+/**
+ * Round a duration UP to the next whole 30-minute block. Shift pay is
+ * calculated on 30-minute intervals (any part-block counts as a full half
+ * hour), per the operating model. Returns null pass-through so callers can
+ * chain off durationMinutes().
+ *
+ * e.g. 1 → 30, 30 → 30, 31 → 60, 431 (7h11m) → 450 (7h30m).
+ */
+export function roundUpToHalfHour(minutes: number | null): number | null {
+  if (minutes == null) return null;
+  if (minutes <= 0) return 0;
+  return Math.ceil(minutes / 30) * 30;
 }
 
 // ── DB helpers ────────────────────────────────────────────────────────────
@@ -221,6 +237,34 @@ export async function applyBillingToJob(
   }
   await prisma.job.update({
     where: { id: jobId },
+    data: {
+      billedAmount: new Prisma.Decimal(result.amount),
+      billedCurrency: result.currency,
+      billedAt: new Date(),
+      payRateUnit: result.unit,
+    },
+  });
+}
+
+/** Mirrors applyBillingToJob — writes the billing snapshot onto a Shift row. */
+export async function applyBillingToShift(
+  shiftId: string,
+  result: BillingResult,
+): Promise<void> {
+  if (!result.ok) {
+    await prisma.shift.update({
+      where: { id: shiftId },
+      data: {
+        billedAmount: null,
+        billedCurrency: null,
+        billedAt: null,
+        payRateUnit: null,
+      },
+    });
+    return;
+  }
+  await prisma.shift.update({
+    where: { id: shiftId },
     data: {
       billedAmount: new Prisma.Decimal(result.amount),
       billedCurrency: result.currency,
@@ -350,6 +394,28 @@ export async function applyPayToJob(
   }
   await prisma.job.update({
     where: { id: jobId },
+    data: {
+      paidAmount: new Prisma.Decimal(result.amount),
+      paidCurrency: result.currency,
+      paidAt: new Date(),
+    },
+  });
+}
+
+/** Mirrors applyPayToJob — writes the officer-pay snapshot onto a Shift. */
+export async function applyPayToShift(
+  shiftId: string,
+  result: BillingResult,
+): Promise<void> {
+  if (!result.ok) {
+    await prisma.shift.update({
+      where: { id: shiftId },
+      data: { paidAmount: null, paidCurrency: null, paidAt: null },
+    });
+    return;
+  }
+  await prisma.shift.update({
+    where: { id: shiftId },
     data: {
       paidAmount: new Prisma.Decimal(result.amount),
       paidCurrency: result.currency,

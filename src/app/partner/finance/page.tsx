@@ -65,10 +65,13 @@ function fmtDate(d: Date | null): string {
  *   - Per-customer breakdown  total charge per 1NW customer
  *   - Per-service breakdown   total charge per service kind
  *
- * Only counts activities the partner recorded themselves (jobs +
- * shifts with recordedByPartner = true). Jobs we *sent* them but
- * they haven't yet logged with a rate are excluded — those need to
- * be backfilled via /partner/activities anyway.
+ * Includes:
+ *   - Activities the partner recorded themselves (recordedByPartner=true),
+ *     even if the rate fields are 0 — that's their stated value.
+ *   - 1NW-logged activities the partner has assigned a rate to via
+ *     /partner/activities/<id>/assign (chargeToUs or payToOfficer set).
+ * Excludes 1NW-logged activities still awaiting assignment — those
+ * surface in /partner/activities with an "assign officer" prompt.
  */
 export default async function PartnerFinancePage({
   searchParams,
@@ -91,15 +94,31 @@ export default async function PartnerFinancePage({
   const fromDate = parseLocalDate(searchParams.from) ?? monthStart;
   const toDate = parseLocalDate(searchParams.to, true) ?? monthEnd;
 
+  // Match either:
+  //   - partner-recorded rows, or
+  //   - 1NW-logged rows the partner has already filled in a rate for.
+  // Keeps un-assigned 1NW-logged work out of the totals (it has 0 rate)
+  // so the activity count stays honest.
+  const partnerAssigned = {
+    OR: [
+      { recordedByPartner: true },
+      { partnerChargeToUsAmount: { gt: 0 } },
+      { partnerOfficerPayAmount: { gt: 0 } },
+    ],
+  };
   const [jobs, shifts] = await Promise.all([
     prisma.job.findMany({
       where: {
         handledByPartnerId: me.partnerId,
-        recordedByPartner: true,
         status: { not: "CANCELLED" },
-        OR: [
-          { completedAt: { gte: fromDate, lte: toDate } },
-          { scheduledFor: { gte: fromDate, lte: toDate } },
+        AND: [
+          partnerAssigned,
+          {
+            OR: [
+              { completedAt: { gte: fromDate, lte: toDate } },
+              { scheduledFor: { gte: fromDate, lte: toDate } },
+            ],
+          },
         ],
       },
       select: {
@@ -113,8 +132,15 @@ export default async function PartnerFinancePage({
     prisma.shift.findMany({
       where: {
         handledByPartnerId: me.partnerId,
-        recordedByPartner: true,
-        actualStartedAt: { gte: fromDate, lte: toDate },
+        AND: [
+          partnerAssigned,
+          {
+            OR: [
+              { actualStartedAt: { gte: fromDate, lte: toDate } },
+              { scheduledStartsAt: { gte: fromDate, lte: toDate } },
+            ],
+          },
+        ],
       },
       select: {
         type: true,
@@ -380,16 +406,16 @@ export default async function PartnerFinancePage({
       </div>
 
       <p className="text-xs text-slate-500">
-        Counts only activities you've recorded yourself. Jobs 1NW sent
-        you that you haven't yet logged with a rate aren't counted —
-        record them at{" "}
+        Counts activities you've recorded plus 1NW-logged work where
+        you've set a rate. Work 1NW sent you that you haven't yet
+        priced up is excluded — open{" "}
         <Link
-          href="/partner/activities/new"
+          href="/partner/activities"
           className="text-brand-blue-dark hover:underline"
         >
-          /partner/activities/new
+          /partner/activities
         </Link>{" "}
-        to include them.
+        and use "assign officer" to set rates on those.
       </p>
     </div>
   );

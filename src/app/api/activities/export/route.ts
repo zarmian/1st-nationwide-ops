@@ -18,6 +18,8 @@ const KIND_LABEL: Record<string, string> = {
   DOG_HANDLER_SHIFT: "Dog-handler shift",
   VISIT_PATROL: "Patrol visit",
   VISIT_VPI: "VPI visit",
+  SHIFT_STATIC_GUARDING: "Static-guarding shift",
+  SHIFT_DOG_HANDLER: "Dog-handler shift",
 };
 
 function parseLocalDate(s: string | null, endOfDay = false): Date | null {
@@ -58,73 +60,108 @@ export async function GET(req: Request) {
   const fromDate = parseLocalDate(url.searchParams.get("from")) ?? monthStart;
   const toDate = parseLocalDate(url.searchParams.get("to"), true) ?? monthEnd;
 
-  let customerId = url.searchParams.get("customerId") ?? "";
-  let partnerId = url.searchParams.get("partnerId") ?? "";
+  const splitCsv = (v: string | null): string[] =>
+    v ? v.split(",").map((s) => s.trim()).filter(Boolean) : [];
+
+  let customerIds = splitCsv(url.searchParams.get("customerId"));
+  let partnerIds = splitCsv(url.searchParams.get("partnerId"));
   const accountId = url.searchParams.get("accountId");
   if (accountId) {
-    const [kind, id] = accountId.split(":");
-    if (kind === "customer") customerId = id ?? "";
-    else if (kind === "partner") partnerId = id ?? "";
+    const [aKind, id] = accountId.split(":");
+    if (aKind === "customer" && id) customerIds = [id];
+    else if (aKind === "partner" && id) partnerIds = [id];
   }
-  const officerId = url.searchParams.get("officerId") ?? "";
-  const siteId = url.searchParams.get("siteId") ?? "";
-  const regionId = url.searchParams.get("regionId") ?? "";
-  const kind = url.searchParams.get("kind") ?? "";
-  const status = url.searchParams.get("status") ?? "completed";
+  const officerIds = splitCsv(url.searchParams.get("officerId"));
+  const siteIds = splitCsv(url.searchParams.get("siteId"));
+  const regionIds = splitCsv(url.searchParams.get("regionId"))
+    .map((r) => Number(r))
+    .filter((n) => Number.isFinite(n));
+  const kinds = splitCsv(url.searchParams.get("kind"));
+  // Status semantics match /activities — anchor date on scheduled-for,
+  // narrow stage by status group.
+  const statuses = splitCsv(url.searchParams.get("status"));
 
-  const visitWhere: any = {};
-  const jobWhere: any = {};
-  if (status === "billed") {
-    visitWhere.status = "COMPLETED";
-    visitWhere.billedAt = { gte: fromDate, lte: toDate };
-    jobWhere.completedAt = { not: null };
-    jobWhere.billedAt = { gte: fromDate, lte: toDate };
-  } else if (status === "paid") {
-    visitWhere.status = "COMPLETED";
-    visitWhere.paidAt = { gte: fromDate, lte: toDate };
-    jobWhere.completedAt = { not: null };
-    jobWhere.paidAt = { gte: fromDate, lte: toDate };
-  } else {
-    visitWhere.status = "COMPLETED";
-    visitWhere.departedAt = { gte: fromDate, lte: toDate };
-    jobWhere.completedAt = { gte: fromDate, lte: toDate };
+  const dateInRange = { gte: fromDate, lte: toDate };
+  const visitWhere: any = {
+    OR: [
+      { scheduledAt: dateInRange },
+      { AND: [{ scheduledAt: null }, { createdAt: dateInRange }] },
+    ],
+  };
+  const jobWhere: any = {
+    OR: [
+      { scheduledFor: dateInRange },
+      { AND: [{ scheduledFor: null }, { createdAt: dateInRange }] },
+    ],
+  };
+  const shiftWhere: any = {
+    scheduledStartsAt: dateInRange,
+  };
+  if (officerIds.length) {
+    visitWhere.officerId = { in: officerIds };
+    jobWhere.assignedToUserId = { in: officerIds };
+    shiftWhere.officerId = { in: officerIds };
   }
-  if (officerId) {
-    visitWhere.officerId = officerId;
-    jobWhere.assignedToUserId = officerId;
+  if (siteIds.length) {
+    visitWhere.siteId = { in: siteIds };
+    jobWhere.siteId = { in: siteIds };
+    shiftWhere.siteId = { in: siteIds };
   }
-  if (siteId) {
-    visitWhere.siteId = siteId;
-    jobWhere.siteId = siteId;
+  if (customerIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), customerId: { in: customerIds } };
+    jobWhere.customerId = { in: customerIds };
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId: { in: customerIds } };
   }
-  if (customerId) {
-    visitWhere.site = { ...(visitWhere.site ?? {}), customerId };
-    jobWhere.customerId = customerId;
+  if (partnerIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), partnerId: { in: partnerIds } };
+    jobWhere.partnerId = { in: partnerIds };
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), partnerId: { in: partnerIds } };
   }
-  if (partnerId) {
-    visitWhere.site = { ...(visitWhere.site ?? {}), partnerId };
-    jobWhere.partnerId = partnerId;
+  if (regionIds.length) {
+    visitWhere.site = { ...(visitWhere.site ?? {}), regionId: { in: regionIds } };
+    jobWhere.site = { ...(jobWhere.site ?? {}), regionId: { in: regionIds } };
+    shiftWhere.site = { ...(shiftWhere.site ?? {}), regionId: { in: regionIds } };
   }
-  if (regionId && Number.isFinite(Number(regionId))) {
-    const rid = Number(regionId);
-    visitWhere.site = { ...(visitWhere.site ?? {}), regionId: rid };
-    jobWhere.site = { ...(jobWhere.site ?? {}), regionId: rid };
-  }
+
+  const kindSet = new Set(kinds);
+  const wantVisitPatrol = kindSet.has("VISIT_PATROL");
+  const wantVisitVpi = kindSet.has("VISIT_VPI");
+  const wantShiftStatic =
+    kindSet.has("STATIC_GUARDING_SHIFT") || kindSet.has("SHIFT_STATIC_GUARDING");
+  const wantShiftDog =
+    kindSet.has("DOG_HANDLER_SHIFT") || kindSet.has("SHIFT_DOG_HANDLER");
+  const jobKinds = [...kindSet].filter(
+    (k) =>
+      k !== "VISIT_PATROL" &&
+      k !== "VISIT_VPI" &&
+      k !== "STATIC_GUARDING_SHIFT" &&
+      k !== "DOG_HANDLER_SHIFT" &&
+      k !== "SHIFT_STATIC_GUARDING" &&
+      k !== "SHIFT_DOG_HANDLER",
+  );
 
   let loadVisits = true;
   let loadJobs = true;
-  if (kind === "VISIT_PATROL") {
-    loadJobs = false;
-    visitWhere.patrolSchedule = { kind: "PATROL" };
-  } else if (kind === "VISIT_VPI") {
-    loadJobs = false;
-    visitWhere.patrolSchedule = { kind: "VPI" };
-  } else if (kind) {
-    loadVisits = false;
-    jobWhere.type = kind;
+  let loadShifts = true;
+  if (kinds.length > 0) {
+    const wantsAnyVisit = wantVisitPatrol || wantVisitVpi;
+    const wantsAnyShift = wantShiftStatic || wantShiftDog;
+    const wantsAnyJob = jobKinds.length > 0;
+    loadVisits = wantsAnyVisit;
+    loadJobs = wantsAnyJob;
+    loadShifts = wantsAnyShift;
+    if (wantsAnyVisit) {
+      const visitKindFilter: string[] = [];
+      if (wantVisitPatrol) visitKindFilter.push("PATROL");
+      if (wantVisitVpi) visitKindFilter.push("VPI");
+      visitWhere.patrolSchedule = { kind: { in: visitKindFilter } };
+    }
+    if (wantsAnyJob) jobWhere.type = { in: jobKinds };
+    if (wantShiftStatic && !wantShiftDog) shiftWhere.type = "STATIC_GUARDING";
+    else if (wantShiftDog && !wantShiftStatic) shiftWhere.type = "DOG_HANDLER";
   }
 
-  const [visits, jobs] = await Promise.all([
+  const [visits, jobs, shifts] = await Promise.all([
     loadVisits
       ? prisma.patrolVisit.findMany({
           where: visitWhere,
@@ -160,7 +197,26 @@ export async function GET(req: Request) {
             assignedTo: { select: { name: true } },
             handledByPartner: { select: { name: true } },
           },
-          orderBy: [{ completedAt: "desc" }, { createdAt: "desc" }],
+          orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
+        })
+      : Promise.resolve([] as any[]),
+    loadShifts
+      ? prisma.shift.findMany({
+          where: shiftWhere,
+          include: {
+            site: {
+              select: {
+                code: true,
+                name: true,
+                region: { select: { name: true } },
+                customer: { select: { name: true } },
+                partner: { select: { name: true } },
+              },
+            },
+            officer: { select: { name: true } },
+            handledByPartner: { select: { name: true } },
+          },
+          orderBy: [{ scheduledStartsAt: "desc" }],
         })
       : Promise.resolve([] as any[]),
   ]);
@@ -183,7 +239,7 @@ export async function GET(req: Request) {
   for (const v of visits) {
     const vk = v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL";
     rows.push({
-      at: v.departedAt ?? v.arrivedAt ?? v.scheduledAt ?? v.createdAt ?? new Date(),
+      at: v.scheduledAt ?? v.arrivedAt ?? v.createdAt ?? new Date(),
       kind: KIND_LABEL[`VISIT_${vk}`] ?? "Visit",
       siteCode: v.site?.code ?? null,
       siteName: v.site?.name ?? null,
@@ -198,7 +254,7 @@ export async function GET(req: Request) {
   }
   for (const j of jobs) {
     rows.push({
-      at: j.completedAt ?? j.scheduledFor ?? j.startedAt ?? j.createdAt ?? new Date(),
+      at: j.scheduledFor ?? j.startedAt ?? j.createdAt ?? new Date(),
       kind: KIND_LABEL[j.type] ?? j.type,
       siteCode: j.site?.code ?? null,
       siteName: j.site?.name ?? null,
@@ -212,6 +268,50 @@ export async function GET(req: Request) {
       paid: j.paidAmount != null ? Number(j.paidAmount) : null,
       status: j.status,
     });
+  }
+  for (const s of shifts) {
+    rows.push({
+      at: s.scheduledStartsAt ?? s.actualStartedAt ?? s.createdAt ?? new Date(),
+      kind: KIND_LABEL[`SHIFT_${s.type}`] ?? s.type,
+      siteCode: s.site?.code ?? null,
+      siteName: s.site?.name ?? null,
+      region: s.site?.region?.name ?? null,
+      customer: s.site?.customer?.name ?? null,
+      partner: s.site?.partner?.name ?? null,
+      officer: s.handledByPartner
+        ? `${s.handledByPartner.name} (partner)`
+        : s.officer?.name ?? null,
+      billed: s.billedAmount != null ? Number(s.billedAmount) : null,
+      paid: s.paidAmount != null ? Number(s.paidAmount) : null,
+      status: s.status,
+    });
+  }
+  if (statuses.length > 0) {
+    const STATUS_GROUPS: Record<string, Set<string>> = {
+      scheduled: new Set(["OPEN", "ASSIGNED", "PENDING", "DRAFT"]),
+      in_progress: new Set([
+        "IN_PROGRESS",
+        "SUBMITTED",
+        "REVIEW_PENDING",
+        "LATE",
+      ]),
+      completed: new Set([
+        "COMPLETED",
+        "APPROVED",
+        "SENT_TO_CLIENT",
+        "CLOSED",
+        "EDITED_AND_APPROVED",
+      ]),
+      missed: new Set(["MISSED", "ABANDONED"]),
+      cancelled: new Set(["CANCELLED"]),
+    };
+    const allowed = new Set<string>();
+    for (const g of statuses) {
+      const set = STATUS_GROUPS[g];
+      if (!set) continue;
+      for (const s of set) allowed.add(s);
+    }
+    rows.splice(0, rows.length, ...rows.filter((r) => allowed.has(r.status)));
   }
   rows.sort((a, b) => b.at.getTime() - a.at.getTime());
 

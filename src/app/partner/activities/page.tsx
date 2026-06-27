@@ -99,6 +99,7 @@ export default async function PartnerActivitiesPage({
         type: true,
         status: true,
         scheduledFor: true,
+        startedAt: true,
         completedAt: true,
         partnerReportRef: true,
         recordedByPartner: true,
@@ -123,7 +124,7 @@ export default async function PartnerActivitiesPage({
           { scheduledStartsAt: { gte: fromDate, lte: toDate } },
         ],
       },
-      orderBy: [{ actualStartedAt: "desc" }, { scheduledStartsAt: "desc" }],
+      orderBy: [{ scheduledStartsAt: "desc" }, { actualStartedAt: "desc" }],
       select: {
         id: true,
         type: true,
@@ -163,7 +164,7 @@ export default async function PartnerActivitiesPage({
   for (const j of jobs) {
     rows.push({
       encodedId: j.id,
-      when: j.scheduledFor ?? j.completedAt,
+      when: j.scheduledFor ?? j.startedAt ?? j.completedAt,
       kindLabel: KIND_LABEL[j.type] ?? j.type.replace(/_/g, " "),
       source: j.recordedByPartner ? "you-logged-job" : "we-sent",
       siteName: j.site?.name ?? null,
@@ -178,7 +179,7 @@ export default async function PartnerActivitiesPage({
   for (const s of shifts) {
     rows.push({
       encodedId: `shift-${s.id}`,
-      when: s.actualStartedAt ?? s.scheduledStartsAt,
+      when: s.scheduledStartsAt ?? s.actualStartedAt,
       kindLabel: KIND_LABEL[s.type] ?? s.type,
       source: s.recordedByPartner ? "you-logged-shift" : "we-logged-shift",
       siteName: s.site?.name ?? null,
@@ -300,14 +301,15 @@ export default async function PartnerActivitiesPage({
                         : "—"}
                     </td>
                     <td className="text-right">
-                      {r.source === "we-logged-shift" ? (
+                      {r.source === "we-logged-shift" ||
+                      r.source === "we-sent" ? (
                         <Link
                           href={`/partner/activities/${r.encodedId}/assign`}
                           className="text-xs text-brand-blue-dark hover:text-brand-navy underline"
                         >
                           assign officer
                         </Link>
-                      ) : r.source !== "we-sent" && (
+                      ) : (
                         <Link
                           href={`/partner/activities/${r.encodedId}/edit`}
                           className="text-xs text-brand-blue-dark hover:text-brand-navy underline"

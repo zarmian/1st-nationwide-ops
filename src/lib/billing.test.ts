@@ -5,6 +5,7 @@ import {
   calculatePay,
   durationMinutes,
   jobTypeToRateService,
+  roundUpToHalfHour,
 } from "./billing";
 
 type RateRow = {
@@ -253,5 +254,21 @@ describe("durationMinutes", () => {
     const before = new Date("2026-05-01T17:59:59Z");
     expect(durationMinutes(a, a)).toBeNull();
     expect(durationMinutes(a, before)).toBeNull();
+  });
+});
+
+describe("roundUpToHalfHour", () => {
+  it("rounds any part-block up to the next 30 minutes", () => {
+    expect(roundUpToHalfHour(1)).toBe(30);
+    expect(roundUpToHalfHour(30)).toBe(30);
+    expect(roundUpToHalfHour(31)).toBe(60);
+    expect(roundUpToHalfHour(431)).toBe(450); // 7h11m → 7h30m
+    expect(roundUpToHalfHour(480)).toBe(480); // exactly 8h stays
+  });
+
+  it("passes null through and floors at zero", () => {
+    expect(roundUpToHalfHour(null)).toBeNull();
+    expect(roundUpToHalfHour(0)).toBe(0);
+    expect(roundUpToHalfHour(-5)).toBe(0);
   });
 });

@@ -128,7 +128,7 @@ export default async function FinancePage({
   // require the visit/job to be in a terminal state — otherwise tomorrow's
   // lock-ups would land in today's "earned" figure.
   async function billedSum(from: Date, to: Date): Promise<number> {
-    const [v, j] = await prisma.$transaction([
+    const [v, j, s] = await prisma.$transaction([
       prisma.patrolVisit.aggregate({
         _sum: { billedAmount: true },
         where: {
@@ -143,9 +143,20 @@ export default async function FinancePage({
           status: { not: "CANCELLED" },
         },
       }),
+      // Shifts (Phase 4 finance integration) — anchor on actualEndedAt
+      // so a shift that spans midnight bills to the day it finished.
+      prisma.shift.aggregate({
+        _sum: { billedAmount: true },
+        where: {
+          status: "COMPLETED",
+          actualEndedAt: { gte: from, lte: to },
+        },
+      }),
     ]);
     return (
-      Number(v._sum.billedAmount ?? 0) + Number(j._sum.billedAmount ?? 0)
+      Number(v._sum.billedAmount ?? 0) +
+      Number(j._sum.billedAmount ?? 0) +
+      Number(s._sum.billedAmount ?? 0)
     );
   }
 
@@ -194,6 +205,12 @@ export default async function FinancePage({
       FROM "Job"
       WHERE "completedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
         AND "status" <> 'CANCELLED'
+        AND "billedAmount" IS NOT NULL
+      UNION ALL
+      SELECT date_trunc('day', "actualEndedAt") AS day, "billedAmount" AS amount
+      FROM "Shift"
+      WHERE "actualEndedAt" BETWEEN ${sparkStart} AND ${sparkEnd}
+        AND "status" = 'COMPLETED'
         AND "billedAmount" IS NOT NULL
     ) s
     GROUP BY day
@@ -251,7 +268,7 @@ export default async function FinancePage({
     return fresh;
   }
 
-  const [rangeVisits, rangeJobs] = await Promise.all([
+  const [rangeVisits, rangeJobs, rangeShifts] = await Promise.all([
     prisma.patrolVisit.findMany({
       where: {
         status: "COMPLETED",
@@ -315,6 +332,39 @@ export default async function FinancePage({
         handledByPartner: { select: { name: true } },
       },
     }),
+    // Shifts anchor on actualEndedAt so a shift that spans midnight
+    // bills to the day it finished. Officer-pay and partner-charge
+    // are surfaced separately downstream.
+    prisma.shift.findMany({
+      where: {
+        status: "COMPLETED",
+        actualEndedAt: { gte: fromDate, lte: toDate },
+      },
+      select: {
+        billedAmount: true,
+        paidAmount: true,
+        partnerChargeToUsAmount: true,
+        type: true,
+        siteId: true,
+        officerId: true,
+        officer: { select: { name: true } },
+        handledByPartnerId: true,
+        handledByPartner: { select: { name: true } },
+        site: {
+          select: {
+            id: true,
+            name: true,
+            code: true,
+            customerId: true,
+            customer: { select: { name: true } },
+            partnerId: true,
+            partner: { select: { name: true } },
+            regionId: true,
+            region: { select: { id: true, name: true } },
+          },
+        },
+      },
+    }),
   ]);
   for (const v of rangeVisits) {
     const b = bucketFor(
@@ -340,6 +390,23 @@ export default async function FinancePage({
     const b = bucketFor(customerId, customerName, partnerId, partnerName);
     b.billed += Number(j.billedAmount ?? 0);
     b.paid += Number(j.paidAmount ?? 0);
+    b.activities++;
+  }
+  for (const s of rangeShifts) {
+    // Shifts inherit their bill-to from the site. For partner-handled
+    // shifts the cost we owe the partner is `partnerChargeToUsAmount`
+    // — fold that into `paid` so the P&L profit column reflects our
+    // real outgoings whether the work was done by an officer or a
+    // subcontractor.
+    const b = bucketFor(
+      s.site?.customerId ?? null,
+      s.site?.customer?.name ?? null,
+      s.site?.partnerId ?? null,
+      s.site?.partner?.name ?? null,
+    );
+    b.billed += Number(s.billedAmount ?? 0);
+    b.paid +=
+      Number(s.paidAmount ?? 0) + Number(s.partnerChargeToUsAmount ?? 0);
     b.activities++;
   }
   const pnlRows = Array.from(pnlByAccount.values()).sort(
@@ -383,6 +450,15 @@ export default async function FinancePage({
     if (!o) continue;
     o.activities++;
     o.paid += Number(j.paidAmount ?? 0);
+  }
+  for (const s of rangeShifts) {
+    // Officer-handled shifts only — partner-handled shifts don't
+    // belong to any of our officers, even though they show on the
+    // partner side of partnerByKey.
+    const o = officerBucket(s.officerId, s.officer?.name);
+    if (!o) continue;
+    o.activities++;
+    o.paid += Number(s.paidAmount ?? 0);
   }
   const officerRows = Array.from(officerByKey.values()).sort(
     (a, b) => b.paid - a.paid,
@@ -447,6 +523,23 @@ export default async function FinancePage({
       asSub.asSubcontractor.billed += Number(j.billedAmount ?? 0);
     }
   }
+  for (const s of rangeShifts) {
+    // Partner as customer — shift on a site they bill us through.
+    const asCust = partnerBucket(s.site?.partnerId, s.site?.partner?.name);
+    if (asCust) {
+      asCust.asCustomer.activities++;
+      asCust.asCustomer.billed += Number(s.billedAmount ?? 0);
+    }
+    // Partner as subcontractor — shift we sent them to handle.
+    const asSub = partnerBucket(
+      s.handledByPartnerId,
+      s.handledByPartner?.name,
+    );
+    if (asSub) {
+      asSub.asSubcontractor.activities++;
+      asSub.asSubcontractor.billed += Number(s.billedAmount ?? 0);
+    }
+  }
   const partnerRows = Array.from(partnerByKey.values()).sort(
     (a, b) =>
       b.asCustomer.billed +
@@ -504,6 +597,17 @@ export default async function FinancePage({
     s.billed += Number(j.billedAmount ?? 0);
     s.paid += Number(j.paidAmount ?? 0);
   }
+  for (const sh of rangeShifts) {
+    const name = sh.site?.code
+      ? `${sh.site.code} · ${sh.site.name}`
+      : sh.site?.name;
+    const s = siteBucket(sh.siteId, name);
+    if (!s) continue;
+    s.activities++;
+    s.billed += Number(sh.billedAmount ?? 0);
+    s.paid +=
+      Number(sh.paidAmount ?? 0) + Number(sh.partnerChargeToUsAmount ?? 0);
+  }
   const topSitesByRevenue = Array.from(siteByKey.values())
     .sort((a, b) => b.billed - a.billed)
     .slice(0, 10);
@@ -534,6 +638,12 @@ export default async function FinancePage({
   for (const j of rangeJobs) {
     addService(RATE_LABEL[j.type] ?? j.type.replace(/_/g, " "), Number(j.billedAmount ?? 0));
   }
+  for (const s of rangeShifts) {
+    addService(
+      RATE_LABEL[s.type] ?? s.type.replace(/_/g, " "),
+      Number(s.billedAmount ?? 0),
+    );
+  }
   const revenueByService = Array.from(serviceByKey.entries())
     .map(([label, value]) => ({ label, value }))
     .filter((s) => s.value > 0)
@@ -557,6 +667,9 @@ export default async function FinancePage({
   }
   for (const j of rangeJobs) {
     addRegion(j.site?.region?.name ?? "No region", Number(j.billedAmount ?? 0));
+  }
+  for (const s of rangeShifts) {
+    addRegion(s.site?.region?.name ?? "No region", Number(s.billedAmount ?? 0));
   }
   const revenueByRegion = Array.from(regionByKey.values()).sort(
     (a, b) => b.billed - a.billed,

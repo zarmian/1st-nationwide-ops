@@ -13,6 +13,7 @@ export function ActivitiesFilters({
   officers,
   jobTypes,
   visitKinds,
+  shiftTypes,
 }: {
   initial: {
     from: string;
@@ -31,6 +32,7 @@ export function ActivitiesFilters({
   officers: { id: string; name: string }[];
   jobTypes: Opt[];
   visitKinds: Opt[];
+  shiftTypes?: Opt[];
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -191,6 +193,13 @@ export function ActivitiesFilters({
                 <option key={k.v} value={k.v}>{k.label}</option>
               ))}
             </optgroup>
+            {shiftTypes && shiftTypes.length > 0 && (
+              <optgroup label="Shifts">
+                {shiftTypes.map((s) => (
+                  <option key={s.v} value={s.v}>{s.label}</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
         <div className="flex items-end gap-2 lg:col-span-3">

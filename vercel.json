@@ -21,8 +21,20 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/sms-queue",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/shift-checks",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/upcoming-reminders",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/pay-summary",
+      "schedule": "0 9 1 * *"
     }
   ]
 }

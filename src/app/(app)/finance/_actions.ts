@@ -19,6 +19,8 @@ export type RecalcResult = {
   jobsScanned: number;
   jobsBilled: number;
   jobsAccountBackfilled: number;
+  shiftsScanned: number;
+  shiftsBilled: number;
   error?: string;
 };
 
@@ -110,11 +112,40 @@ export async function recalculateBilling(
     take: 5000,
   });
 
+  // Shifts mirror the visit/job scan. Officer-handled shifts get a pay
+  // snapshot too; partner-handled shifts only get the bill side because
+  // their cost is held on `partnerChargeToUsAmount` instead.
+  const shiftWhere: Prisma.ShiftWhereInput = { status: "COMPLETED" };
+  if (from || to) {
+    shiftWhere.actualEndedAt = {
+      ...(from ? { gte: from } : {}),
+      ...(to ? { lte: to } : {}),
+    };
+  } else {
+    shiftWhere.actualEndedAt = { not: null };
+  }
+  if (scope === "missing") shiftWhere.billedAmount = null;
+
+  const shifts = await prisma.shift.findMany({
+    where: shiftWhere,
+    select: {
+      id: true,
+      siteId: true,
+      type: true,
+      officerId: true,
+      handledByPartnerId: true,
+      actualStartedAt: true,
+      actualEndedAt: true,
+    },
+    take: 5000,
+  });
+
   // ── Pre-fetch all the rates in two queries instead of N+1 ──────────
   const siteIds = Array.from(
     new Set<string>([
       ...visits.map((v) => v.siteId).filter(Boolean),
       ...jobs.map((j) => j.siteId).filter((id): id is string => Boolean(id)),
+      ...shifts.map((s) => s.siteId).filter(Boolean),
     ]),
   );
   const officerIds = Array.from(
@@ -122,6 +153,9 @@ export async function recalculateBilling(
       ...visits.map((v) => v.officerId).filter((id): id is string => Boolean(id)),
       ...jobs
         .map((j) => j.assignedToUserId)
+        .filter((id): id is string => Boolean(id)),
+      ...shifts
+        .map((s) => s.officerId)
         .filter((id): id is string => Boolean(id)),
     ]),
   );
@@ -248,6 +282,31 @@ export async function recalculateBilling(
     });
   }
 
+  type ShiftUpdate = {
+    id: string;
+    bill: ReturnType<typeof calculateBilling>;
+    pay: ReturnType<typeof calculatePay> | null;
+  };
+  const shiftUpdates: ShiftUpdate[] = [];
+  for (const s of shifts) {
+    if (!s.siteId) continue;
+    const rateService = jobTypeToRateService(s.type) as RateService | null;
+    if (!rateService) continue;
+    const duration = durationMinutes(s.actualStartedAt, s.actualEndedAt);
+    const rates = siteRatesByKey.get(s.siteId) ?? [];
+    const bill = calculateBilling(rates, rateService, duration);
+    // Only officer-handled shifts get a pay snapshot — partner-handled
+    // shifts carry their cost on `partnerChargeToUsAmount` instead, set
+    // when the partner-side action recorded the shift.
+    let pay = null;
+    if (s.officerId && !s.handledByPartnerId) {
+      const officerSpecific = officerRatesByKey.get(s.officerId) ?? [];
+      const merged = [...officerSpecific, ...companyRates];
+      pay = calculatePay(merged, s.officerId, rateService, duration);
+    }
+    shiftUpdates.push({ id: s.id, bill, pay });
+  }
+
   // ── Write in parallel chunks ──────────────────────────────────────
   const CHUNK = 25;
   let visitsBilled = 0;
@@ -280,9 +339,23 @@ export async function recalculateBilling(
     );
   }
 
+  let shiftsBilled = 0;
+  for (let i = 0; i < shiftUpdates.length; i += CHUNK) {
+    await Promise.all(
+      shiftUpdates.slice(i, i + CHUNK).map(async (u) => {
+        await prisma.shift.update({
+          where: { id: u.id },
+          data: shiftDataFor(u.bill, u.pay),
+        });
+        if (u.bill.ok) shiftsBilled++;
+      }),
+    );
+  }
+
   revalidatePath("/finance");
   revalidatePath("/dispatch");
   revalidatePath("/activities");
+  revalidatePath("/shifts");
   return {
     ok: true,
     visitsScanned: visits.length,
@@ -290,6 +363,8 @@ export async function recalculateBilling(
     jobsScanned: jobs.length,
     jobsBilled,
     jobsAccountBackfilled,
+    shiftsScanned: shifts.length,
+    shiftsBilled,
   };
 }
 
@@ -343,6 +418,37 @@ function jobDataFor(
       };
   if (pay == null) {
     // Officer not assigned — leave pay columns alone.
+  } else if (pay.ok) {
+    data.paidAmount = new Prisma.Decimal(pay.amount);
+    data.paidCurrency = pay.currency;
+    data.paidAt = new Date();
+  } else {
+    data.paidAmount = null;
+    data.paidCurrency = null;
+    data.paidAt = null;
+  }
+  return data;
+}
+
+function shiftDataFor(
+  bill: ReturnType<typeof calculateBilling>,
+  pay: ReturnType<typeof calculatePay> | null,
+): Prisma.ShiftUncheckedUpdateInput {
+  const data: Prisma.ShiftUncheckedUpdateInput = bill.ok
+    ? {
+        billedAmount: new Prisma.Decimal(bill.amount),
+        billedCurrency: bill.currency,
+        billedAt: new Date(),
+        payRateUnit: bill.unit,
+      }
+    : {
+        billedAmount: null,
+        billedCurrency: null,
+        billedAt: null,
+        payRateUnit: null,
+      };
+  if (pay == null) {
+    // Partner-handled or unstaffed shift — leave pay columns alone.
   } else if (pay.ok) {
     data.paidAmount = new Prisma.Decimal(pay.amount);
     data.paidCurrency = pay.currency;

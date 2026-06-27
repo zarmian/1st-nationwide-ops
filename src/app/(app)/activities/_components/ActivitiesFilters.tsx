@@ -2,40 +2,51 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FilterPills } from "@/components/FilterPills";
+import { MultiSelect } from "@/components/MultiSelect";
 
 type Opt = { v: string; label: string };
 
+/**
+ * /activities filter row. All facet pickers are multi-select (the user
+ * can scope to several customers, officers, services, etc. at once)
+ * with a free-text search inside each popover so the site picker
+ * stays usable with hundreds of options. Each toggle navigates via
+ * router.replace; there's no Apply button — changes commit instantly.
+ *
+ * The date inputs still need a commit step (typing a partial date
+ * shouldn't fire a navigation) so they go through onBlur / Enter.
+ */
 export function ActivitiesFilters({
   initial,
   regions,
   customers,
   partners,
   officers,
+  sites,
   jobTypes,
   visitKinds,
   shiftKinds = [],
 }: {
-  initial: {
-    from: string;
-    to: string;
-    customerId: string;
-    partnerId: string;
-    officerId: string;
-    regionId: string;
-    kind: string;
-    status: string;
-    groupBy: string;
-  };
+  initial: { from: string; to: string };
   regions: { id: number; name: string }[];
   customers: { id: string; name: string }[];
   partners: { id: string; name: string }[];
   officers: { id: string; name: string }[];
+  sites: { id: string; name: string; code: string | null }[];
   jobTypes: Opt[];
   visitKinds: Opt[];
   shiftKinds?: Opt[];
 }) {
   const router = useRouter();
   const sp = useSearchParams();
+
+  function commitDate(key: "from" | "to", value: string) {
+    const next = new URLSearchParams(sp?.toString() ?? "");
+    if (value) next.set(key, value);
+    else next.delete(key);
+    next.delete("page");
+    router.replace(`/activities?${next.toString()}`);
+  }
 
   function preset(key: "today" | "week" | "month" | "lastMonth") {
     const now = new Date();
@@ -57,23 +68,37 @@ export function ActivitiesFilters({
     const pad = (n: number) => n.toString().padStart(2, "0");
     const ymd = (d: Date) =>
       `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-    const next = new URLSearchParams(sp.toString());
+    const next = new URLSearchParams(sp?.toString() ?? "");
     next.set("from", ymd(from));
     next.set("to", ymd(to));
     next.delete("page");
     router.replace(`/activities?${next.toString()}`);
   }
 
+  const allKindOptions: Opt[] = [
+    ...jobTypes.map((t) => ({ v: t.v, label: `Job — ${t.label}` })),
+    ...visitKinds.map((k) => ({ v: k.v, label: `Visit — ${k.label}` })),
+    ...shiftKinds.map((k) => ({ v: k.v, label: `Shift — ${k.label}` })),
+  ];
+
+  const statusOptions: Opt[] = [
+    { v: "scheduled", label: "Scheduled" },
+    { v: "in_progress", label: "In progress" },
+    { v: "completed", label: "Completed" },
+    { v: "missed", label: "Missed" },
+    { v: "cancelled", label: "Cancelled" },
+  ];
+
   return (
-    <form className="space-y-3">
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div className="space-y-3">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
         <div>
           <label className="label" htmlFor="from">From</label>
           <input
             id="from"
-            name="from"
             type="date"
             defaultValue={initial.from}
+            onChange={(e) => commitDate("from", e.target.value)}
             className="input"
           />
         </div>
@@ -81,130 +106,13 @@ export function ActivitiesFilters({
           <label className="label" htmlFor="to">To</label>
           <input
             id="to"
-            name="to"
             type="date"
             defaultValue={initial.to}
+            onChange={(e) => commitDate("to", e.target.value)}
             className="input"
           />
         </div>
-        <div>
-          <label className="label" htmlFor="status">Status</label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={initial.status}
-            className="input"
-          >
-            <option value="completed">Completed (by date done)</option>
-          </select>
-        </div>
-        <div>
-          <label className="label">Group by</label>
-          <FilterPills
-            paramKey="groupBy"
-            defaultValue="none"
-            options={[
-              { value: "none", label: "List" },
-              { value: "day", label: "Day" },
-              { value: "week", label: "Week" },
-              { value: "month", label: "Month" },
-            ]}
-          />
-        </div>
-      </div>
-
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <div>
-          <label className="label" htmlFor="customerId">Customer</label>
-          <select
-            id="customerId"
-            name="customerId"
-            defaultValue={initial.customerId}
-            className="input"
-          >
-            <option value="">All customers</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="partnerId">Partner</label>
-          <select
-            id="partnerId"
-            name="partnerId"
-            defaultValue={initial.partnerId}
-            className="input"
-          >
-            <option value="">All partners</option>
-            {partners.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="officerId">Officer</label>
-          <select
-            id="officerId"
-            name="officerId"
-            defaultValue={initial.officerId}
-            className="input"
-          >
-            <option value="">All officers</option>
-            {officers.map((o) => (
-              <option key={o.id} value={o.id}>{o.name}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="regionId">Region</label>
-          <select
-            id="regionId"
-            name="regionId"
-            defaultValue={initial.regionId}
-            className="input"
-          >
-            <option value="">All regions</option>
-            {regions.map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
-        <div>
-          <label className="label" htmlFor="kind">Service / type</label>
-          <select
-            id="kind"
-            name="kind"
-            defaultValue={initial.kind}
-            className="input"
-          >
-            <option value="">All</option>
-            <optgroup label="Jobs">
-              {jobTypes.map((t) => (
-                <option key={t.v} value={t.v}>{t.label}</option>
-              ))}
-            </optgroup>
-            <optgroup label="Visits">
-              {visitKinds.map((k) => (
-                <option key={k.v} value={k.v}>{k.label}</option>
-              ))}
-            </optgroup>
-            {shiftKinds.length > 0 && (
-              <optgroup label="Shifts">
-                {shiftKinds.map((k) => (
-                  <option key={k.v} value={k.v}>{k.label}</option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </div>
-        <div className="flex items-end gap-2 lg:col-span-3">
-          <button type="submit" className="btn-secondary text-sm">
-            Apply
-          </button>
+        <div className="lg:col-span-2 flex items-end gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => preset("today")}
@@ -235,6 +143,73 @@ export function ActivitiesFilters({
           </button>
         </div>
       </div>
-    </form>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <MultiSelect
+          paramKey="customerId"
+          label="Customer"
+          defaultLabel="All customers"
+          options={customers.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <MultiSelect
+          paramKey="partnerId"
+          label="Partner"
+          defaultLabel="All partners"
+          options={partners.map((p) => ({ value: p.id, label: p.name }))}
+        />
+        <MultiSelect
+          paramKey="officerId"
+          label="Officer"
+          defaultLabel="All officers"
+          options={officers.map((o) => ({ value: o.id, label: o.name }))}
+        />
+        <MultiSelect
+          paramKey="regionId"
+          label="Region"
+          defaultLabel="All regions"
+          options={regions.map((r) => ({
+            value: String(r.id),
+            label: r.name,
+          }))}
+        />
+      </div>
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+        <MultiSelect
+          paramKey="siteId"
+          label="Site"
+          defaultLabel="All sites"
+          options={sites.map((s) => ({
+            value: s.id,
+            label: s.code ? `${s.code} · ${s.name}` : s.name,
+          }))}
+        />
+        <MultiSelect
+          paramKey="kind"
+          label="Service / type"
+          defaultLabel="All services"
+          options={allKindOptions.map((o) => ({ value: o.v, label: o.label }))}
+        />
+        <MultiSelect
+          paramKey="status"
+          label="Status"
+          defaultLabel="All statuses"
+          options={statusOptions.map((s) => ({ value: s.v, label: s.label }))}
+        />
+        <div>
+          <label className="label">Group by</label>
+          <FilterPills
+            paramKey="groupBy"
+            defaultValue="none"
+            options={[
+              { value: "none", label: "List" },
+              { value: "day", label: "Day" },
+              { value: "week", label: "Week" },
+              { value: "month", label: "Month" },
+            ]}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

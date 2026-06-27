@@ -6,6 +6,24 @@ import { z } from "zod";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { encryptString } from "@/lib/crypto";
+import { geocodePostcodes } from "@/lib/geocode";
+
+/**
+ * Best-effort geocode of one postcode → { lat, lng }. Returns null on any
+ * failure (geocodePostcodes already swallows network errors) so a lookup
+ * miss never blocks saving a site.
+ */
+async function geocodeOne(
+  postcode: string,
+): Promise<{ lat: number; lng: number } | null> {
+  if (!postcode) return null;
+  try {
+    const coords = await geocodePostcodes([postcode]);
+    return Array.from(coords.values())[0] ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const SITE_TYPES = [
   "COMMERCIAL",
@@ -439,6 +457,9 @@ export async function createSite(
     }
   }
 
+  // Geocode the postcode so the new site shows on the map straight away.
+  const coords = await geocodeOne(d.postcode);
+
   const created = await prisma.site.create({
     data: {
       code: d.code || null,
@@ -447,6 +468,8 @@ export async function createSite(
       postcode: normalisePostcode(d.postcode),
       postcodeFormatted: formatPostcode(d.postcode),
       city: d.city || null,
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
       type: d.type as any,
       regionId: d.regionId ?? null,
       customerId: d.customerId || null,
@@ -503,6 +526,20 @@ export async function updateSite(
     }
   }
 
+  // Re-geocode when the postcode changed or coordinates are still missing,
+  // so an edit can put a site on the map (or move its pin). Keep the
+  // existing coords otherwise.
+  const before = await prisma.site.findUnique({
+    where: { id },
+    select: { postcode: true, lat: true, lng: true },
+  });
+  const newPostcodeNorm = normalisePostcode(d.postcode);
+  const postcodeChanged =
+    !before || normalisePostcode(before.postcode) !== newPostcodeNorm;
+  const needsGeocode =
+    postcodeChanged || before?.lat == null || before?.lng == null;
+  const coords = needsGeocode ? await geocodeOne(d.postcode) : null;
+
   await prisma.site.update({
     where: { id },
     data: {
@@ -512,6 +549,9 @@ export async function updateSite(
       postcode: normalisePostcode(d.postcode),
       postcodeFormatted: formatPostcode(d.postcode),
       city: d.city || null,
+      // Only overwrite coords when we actually got a fresh fix; never wipe
+      // good coordinates because a one-off lookup failed.
+      ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
       type: d.type as any,
       regionId: d.regionId ?? null,
       customerId: d.customerId || null,

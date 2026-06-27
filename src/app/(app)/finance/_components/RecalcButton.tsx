@@ -54,7 +54,7 @@ export function RecalcButton({
           : "";
       toast.show({
         tone: "success",
-        message: `${r.visitsBilled} visits · ${r.jobsBilled} jobs billed${healedTail}.`,
+        message: `${r.visitsBilled} visits · ${r.jobsBilled} jobs · ${r.shiftsBilled} shifts billed${healedTail}.`,
       });
       router.refresh();
     });
@@ -88,7 +88,8 @@ export function RecalcButton({
       {last && (
         <p className="text-xs text-slate-500">
           {last.visitsBilled}/{last.visitsScanned} visits ·{" "}
-          {last.jobsBilled}/{last.jobsScanned} jobs billed.
+          {last.jobsBilled}/{last.jobsScanned} jobs ·{" "}
+          {last.shiftsBilled}/{last.shiftsScanned} shifts billed.
         </p>
       )}
     </div>

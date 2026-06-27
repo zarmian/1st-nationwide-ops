@@ -300,6 +300,12 @@ enum NotificationKind {
   ALARM_RECEIVED
   KEY_HANDOVER
   SHIFT_CHECK_OVERDUE
+  SHIFT_REMINDER
+  JOB_REMINDER
+  OFFICER_NO_SHOW
+  ALARM_CUSTOMER_ACK
+  PAY_SUMMARY
+  SHIFT_LINK
 }
 
 enum NotificationStatus {
@@ -428,6 +434,9 @@ model Customer {
   contractStart   DateTime?
   contractEnd     DateTime?
   notes           String?
+  /// Opt-in for alarm-response SMS acknowledgements to contactPhone.
+  /// Default false so we never text a customer who hasn't agreed.
+  smsAlertsOn     Boolean       @default(false)
   active          Boolean       @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -466,6 +475,10 @@ model Site {
   city                  String?
   lat                   Float?
   lng                   Float?
+  /// Geofence radius in metres for shift start/check-in/end location
+  /// matching. Null → fall back to the app default (300 m). Per-site
+  /// override for awkward locations (large estates, poor GPS).
+  geofenceRadiusM       Int?
   type                  SiteType     @default(COMMERCIAL)
   regionId              Int?
   region                Region?      @relation(fields: [regionId], references: [id])
@@ -1087,6 +1100,9 @@ model Notification {
   templateName    String
   templateParams  Json                @default("[]")
   bodyPreview     String?
+  /// Plain-text body used by the SMS driver. WhatsApp rows render from
+  /// templateName / templateParams instead; SMS rows render from bodyText.
+  bodyText        String?
   status          NotificationStatus  @default(PENDING)
   attempts        Int                 @default(0)
   error           String?
@@ -1126,6 +1142,50 @@ model Shift {
   checkIntervalMin   Int          @default(60)
   graceMinutes       Int          @default(15)
   notes              String?
+  /// ── Officer link (token-gated public duty page at /duty/<token>) ──
+  /// Unguessable secret. The officer opens ONLY this shift via the link;
+  /// no login, no other access. Generated on create.
+  publicToken        String?      @unique
+  /// Name the officer typed on the duty page when the shift wasn't
+  /// pre-assigned to a known officer / partner officer.
+  officerNameRaw     String?
+  /// Mobile we text the duty link to (E.164). For partner-handled shifts
+  /// this is the partner officer's number; for own officers it can default
+  /// to the User's phone.
+  linkPhone          String?
+  /// ── GPS capture + geofence result at start ──────────────────────────
+  startLat           Float?
+  startLng           Float?
+  startGpsAccuracy   Float?
+  /// Metres from the site at start (haversine). Null when site has no
+  /// coordinates (geofence not enforced).
+  startDistanceM     Float?
+  startWithinGeofence Boolean?
+  /// ── GPS capture + geofence result at end ────────────────────────────
+  endLat             Float?
+  endLng             Float?
+  endGpsAccuracy     Float?
+  endDistanceM       Float?
+  endWithinGeofence  Boolean?
+  /// Officer ended after the scheduled end → reason required + recorded.
+  endedLate          Boolean      @default(false)
+  lateReason         String?
+  /// Actual worked minutes rounded UP to the next 30-min block — the basis
+  /// for officer pay. Stored so the report shows the breakdown.
+  payableMinutes     Int?
+  /// Finance snapshots. Same shape as Job / PatrolVisit so /finance
+  /// can aggregate shifts the same way. `billedAmount` = what we
+  /// bill our customer (from SiteRate). `paidAmount` = what we pay
+  /// our internal officer when officer-handled (from OfficerRate);
+  /// stays null for partner-handled shifts — their cost is captured
+  /// by `partnerChargeToUsAmount` above instead.
+  billedAmount       Decimal?     @db.Decimal(10, 2)
+  billedCurrency     String?
+  billedAt           DateTime?
+  paidAmount         Decimal?     @db.Decimal(10, 2)
+  paidCurrency       String?
+  paidAt             DateTime?
+  payRateUnit        String?
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 

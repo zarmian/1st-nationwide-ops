@@ -11,6 +11,8 @@ type Shift = {
   status: string;
   siteName: string;
   siteId: string;
+  /** When set, the officer runs the shift via the GPS-enforced /duty page. */
+  publicToken: string | null;
   scheduledStartsAt: string;
   scheduledEndsAt: string;
   actualStartedAt: string | null;
@@ -153,37 +155,56 @@ export function ShiftCard({
       )}
 
       <div className="flex gap-2">
-        {!inProgress && shift.status === "PENDING" && (
-          <button
-            type="button"
-            onClick={onStart}
-            disabled={pending}
-            className="btn-primary text-sm flex-1"
+        {shift.publicToken ? (
+          // GPS-enforced flow: start, check in (camera + location) and end
+          // all happen on the duty page so location is verified every time.
+          <Link
+            href={`/duty/${shift.publicToken}`}
+            className={
+              "btn flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium " +
+              (overdue
+                ? "bg-red-600 text-white hover:bg-red-700"
+                : "bg-brand-navy text-white hover:bg-slate-800")
+            }
           >
-            {pending ? "Starting…" : "Start shift"}
-          </button>
-        )}
-        {inProgress && (
+            {inProgress ? "Check in / end shift" : "Start shift"}
+          </Link>
+        ) : (
+          // Fallback for shifts created before duty links existed (no token).
           <>
-            <Link
-              href={`/submit?siteId=${shift.siteId}&shiftId=${shift.id}`}
-              className={
-                "btn flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium " +
-                (overdue
-                  ? "bg-red-600 text-white hover:bg-red-700"
-                  : "bg-brand-navy text-white hover:bg-slate-800")
-              }
-            >
-              Submit hourly check
-            </Link>
-            <button
-              type="button"
-              onClick={onEnd}
-              disabled={pending}
-              className="btn-secondary text-sm"
-            >
-              {pending ? "Ending…" : "End shift"}
-            </button>
+            {!inProgress && shift.status === "PENDING" && (
+              <button
+                type="button"
+                onClick={onStart}
+                disabled={pending}
+                className="btn-primary text-sm flex-1"
+              >
+                {pending ? "Starting…" : "Start shift"}
+              </button>
+            )}
+            {inProgress && (
+              <>
+                <Link
+                  href={`/submit?siteId=${shift.siteId}&shiftId=${shift.id}`}
+                  className={
+                    "btn flex-1 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium " +
+                    (overdue
+                      ? "bg-red-600 text-white hover:bg-red-700"
+                      : "bg-brand-navy text-white hover:bg-slate-800")
+                  }
+                >
+                  Submit hourly check
+                </Link>
+                <button
+                  type="button"
+                  onClick={onEnd}
+                  disabled={pending}
+                  className="btn-secondary text-sm"
+                >
+                  {pending ? "Ending…" : "End shift"}
+                </button>
+              </>
+            )}
           </>
         )}
       </div>
