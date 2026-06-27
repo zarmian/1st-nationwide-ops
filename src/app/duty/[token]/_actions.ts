@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { evaluateGeofence, roundMeters } from "@/lib/geo";
 import { logActivity } from "@/lib/audit";
@@ -117,11 +119,22 @@ export async function startDuty(input: {
   const blocked = outOfRange(geo);
   if (blocked) return blocked;
 
+  // If a logged-in officer opened their own shift via /m/today (the link
+  // is the same /duty page), claim an unassigned, non-partner shift to
+  // them so the finance snapshot at end-of-shift can compute their pay.
+  let claimOfficerId = shift.officerId;
+  if (!shift.officerId && !shift.handledByPartnerId) {
+    const session = await getServerSession(authOptions);
+    const sessionUserId = (session?.user as { id?: string } | undefined)?.id;
+    if (sessionUserId) claimOfficerId = sessionUserId;
+  }
+
   await prisma.shift.update({
     where: { id: shift.id },
     data: {
       status: "IN_PROGRESS",
       actualStartedAt: shift.actualStartedAt ?? new Date(),
+      officerId: claimOfficerId,
       startLat: input.gps.lat,
       startLng: input.gps.lng,
       startGpsAccuracy: input.gps.accuracy ?? null,

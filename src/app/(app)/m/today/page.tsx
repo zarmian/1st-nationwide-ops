@@ -153,6 +153,7 @@ export default async function OfficerTodayPage() {
                 status: s.status,
                 siteId: s.site.id,
                 siteName: s.site.name,
+                publicToken: s.publicToken ?? null,
                 scheduledStartsAt: s.scheduledStartsAt.toISOString(),
                 scheduledEndsAt: s.scheduledEndsAt.toISOString(),
                 actualStartedAt: s.actualStartedAt?.toISOString() ?? null,

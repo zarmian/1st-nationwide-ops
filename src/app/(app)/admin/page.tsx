@@ -79,6 +79,13 @@ export default async function AdminHubPage() {
       statLabel: "tool",
     },
     {
+      href: "/admin/imports/sites",
+      title: "Sites import",
+      blurb: "Upload a site list (Shurgard, Aegis, Orbis, or a custom CSV). Matches by code or name + postcode, then geocodes.",
+      stat: 0,
+      statLabel: "tool",
+    },
+    {
       href: "/admin/officer-rates",
       title: "Officer pay rates",
       blurb: "Monthly retainer + per-service rates. Company defaults with per-officer overrides.",
