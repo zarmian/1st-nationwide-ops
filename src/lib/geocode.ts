@@ -63,10 +63,20 @@ export async function geocodePostcodes(
   return out;
 }
 
+export type GeocodeFailure = {
+  id: string;
+  code: string | null;
+  name: string;
+  postcode: string;
+};
+
 export type GeocodeBackfillResult = {
   scanned: number;
   geocoded: number;
   failed: number;
+  /** The sites whose postcode didn't resolve — so the admin can see
+   *  exactly which sites still have no coordinates and fix them. */
+  failures: GeocodeFailure[];
 };
 
 /**
@@ -88,17 +98,24 @@ export async function geocodeSitesMissingCoords(
           OR: [{ lat: null }, { lng: null }],
           postcode: { not: "" },
         },
-    select: { id: true, postcode: true },
+    select: { id: true, code: true, name: true, postcode: true },
+    orderBy: [{ code: "asc" }, { name: "asc" }],
   });
-  if (sites.length === 0) return { scanned: 0, geocoded: 0, failed: 0 };
+  if (sites.length === 0)
+    return { scanned: 0, geocoded: 0, failed: 0, failures: [] };
 
   const coords = await geocodePostcodes(sites.map((s) => s.postcode));
   let geocoded = 0;
-  let failed = 0;
+  const failures: GeocodeFailure[] = [];
   for (const s of sites) {
     const c = coords.get(normalise(s.postcode));
     if (!c) {
-      failed++;
+      failures.push({
+        id: s.id,
+        code: s.code,
+        name: s.name,
+        postcode: s.postcode,
+      });
       continue;
     }
     await prisma.site.update({
@@ -107,5 +124,10 @@ export async function geocodeSitesMissingCoords(
     });
     geocoded++;
   }
-  return { scanned: sites.length, geocoded, failed };
+  return {
+    scanned: sites.length,
+    geocoded,
+    failed: failures.length,
+    failures,
+  };
 }

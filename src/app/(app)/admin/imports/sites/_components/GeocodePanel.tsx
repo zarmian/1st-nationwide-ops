@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { GeocodeActionResult } from "../_actions";
 
@@ -106,16 +107,44 @@ export function GeocodePanel({
       )}
 
       {result?.ok && (
-        <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light p-3 text-sm space-y-1">
+        <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light p-3 text-sm space-y-2">
           <div className="text-brand-blue-dark font-medium">
             Geocoded {result.geocoded.toLocaleString("en-GB")} of{" "}
             {result.scanned.toLocaleString("en-GB")}.
           </div>
-          {result.failed > 0 && (
-            <div className="text-slate-700">
-              {result.failed.toLocaleString("en-GB")} postcode
-              {result.failed === 1 ? "" : "s"} didn't resolve — usually invalid
-              or non-UK. Fix and re-run.
+          {result.failures.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-slate-700">
+                {result.failed.toLocaleString("en-GB")} site
+                {result.failed === 1 ? "" : "s"} still without coordinates —
+                postcode didn&apos;t resolve (usually invalid or non-UK). Open
+                each to fix the postcode, then re-run.
+              </div>
+              <ul className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white divide-y divide-slate-100">
+                {result.failures.map((f) => (
+                  <li
+                    key={f.id}
+                    className="flex items-center justify-between gap-2 px-3 py-1.5"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-medium text-brand-navy">
+                        {f.code ? `${f.code} · ` : ""}
+                        {f.name}
+                      </span>
+                      <span className="text-slate-500">
+                        {" "}
+                        — {f.postcode || "no postcode"}
+                      </span>
+                    </span>
+                    <Link
+                      href={`/sites/${f.id}/edit`}
+                      className="text-brand-blue-dark hover:underline whitespace-nowrap"
+                    >
+                      fix
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
