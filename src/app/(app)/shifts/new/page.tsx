@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function NewShiftPage() {
-  const [sites, officers] = await Promise.all([
+  const [sites, officers, partners] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
@@ -14,6 +14,12 @@ export default async function NewShiftPage() {
     }),
     prisma.user.findMany({
       where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    // Only partners who can take subcontracted work can hold a shift.
+    prisma.partner.findMany({
+      where: { active: true, role: { in: ["SUBCONTRACTOR", "BOTH"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
@@ -28,7 +34,12 @@ export default async function NewShiftPage() {
         subtitle="Static guarding or dog-handler shift with periodic hourly check-ins."
       />
 
-      <NewShiftForm action={createShift} sites={sites} officers={officers} />
+      <NewShiftForm
+        action={createShift}
+        sites={sites}
+        officers={officers}
+        partners={partners}
+      />
     </div>
   );
 }

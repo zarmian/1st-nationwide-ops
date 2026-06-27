@@ -148,6 +148,20 @@ export function durationMinutes(
   return Math.round(ms / 60000);
 }
 
+/**
+ * Round a duration UP to the next whole 30-minute block. Shift pay is
+ * calculated on 30-minute intervals (any part-block counts as a full half
+ * hour), per the operating model. Returns null pass-through so callers can
+ * chain off durationMinutes().
+ *
+ * e.g. 1 → 30, 30 → 30, 31 → 60, 431 (7h11m) → 450 (7h30m).
+ */
+export function roundUpToHalfHour(minutes: number | null): number | null {
+  if (minutes == null) return null;
+  if (minutes <= 0) return 0;
+  return Math.ceil(minutes / 30) * 30;
+}
+
 // ── DB helpers ────────────────────────────────────────────────────────────
 
 /**

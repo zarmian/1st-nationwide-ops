@@ -13,10 +13,23 @@ import {
   durationMinutes,
   jobTypeToRateService,
   payForOfficer,
+  roundUpToHalfHour,
 } from "@/lib/billing";
+import { newPublicToken } from "@/lib/tokens";
+import { isSmsConfigured, normaliseE164, sendSms } from "@/lib/sms";
+import { diffFields, logActivity } from "@/lib/audit";
+import { dutyUrl } from "@/lib/dutyLink";
 
 const SHIFT_TYPES = ["STATIC_GUARDING", "DOG_HANDLER"] as const;
 const HANDLER_KINDS = ["officer", "partner"] as const;
+const CREATE_HANDLER_KINDS = ["own", "partner"] as const;
+
+const CreateHandlerInput = z.object({
+  handlerKind: z.enum(CREATE_HANDLER_KINDS).default("own"),
+  handlerPartnerId: z.string().uuid().or(z.literal("")).optional().nullable(),
+  linkPhone: z.string().trim().max(32).optional().nullable(),
+  officerName: z.string().trim().max(120).optional().nullable(),
+});
 
 const NewShiftInput = z
   .object({
@@ -74,7 +87,7 @@ export async function createShift(
   _prev: ShiftFormState,
   formData: FormData,
 ): Promise<ShiftFormState> {
-  await requireStaff();
+  const me = await requireStaff();
   const parsed = parseNew(formData);
   if (!parsed.success) {
     return {
@@ -82,21 +95,104 @@ export async function createShift(
       fieldErrors: parsed.error.flatten().fieldErrors as Record<string, string[]>,
     };
   }
+  const handler = CreateHandlerInput.safeParse({
+    handlerKind: formData.get("handlerKind")?.toString() ?? "own",
+    handlerPartnerId: formData.get("handlerPartnerId")?.toString() || null,
+    linkPhone: formData.get("linkPhone")?.toString() || null,
+    officerName: formData.get("officerName")?.toString() || null,
+  });
+  if (!handler.success) {
+    return { error: "Please fix the errors below." };
+  }
   const d = parsed.data;
-  await prisma.shift.create({
+  const h = handler.data;
+
+  // Resolve the link phone (E.164). Required for partner-handled shifts;
+  // optional for own officers (falls back to the officer's saved number).
+  let linkPhone: string | null = null;
+  if (h.linkPhone) {
+    const e164 = normaliseE164(h.linkPhone);
+    if (!e164) {
+      return {
+        error: "Please fix the errors below.",
+        fieldErrors: { linkPhone: ["Enter a valid UK mobile number"] },
+      };
+    }
+    linkPhone = e164;
+  }
+
+  let officerId: string | null =
+    d.officerId && d.officerId !== "" ? d.officerId : null;
+  let handledByPartnerId: string | null = null;
+
+  if (h.handlerKind === "partner") {
+    officerId = null; // partner-handled — no internal officer
+    if (!h.handlerPartnerId) {
+      return {
+        error: "Please fix the errors below.",
+        fieldErrors: { handlerPartnerId: ["Pick a partner"] },
+      };
+    }
+    const partner = await prisma.partner.findUnique({
+      where: { id: h.handlerPartnerId },
+      select: { id: true, role: true, active: true },
+    });
+    if (!partner || !partner.active) {
+      return {
+        error: "Partner not found or inactive.",
+        fieldErrors: { handlerPartnerId: ["Unknown or inactive"] },
+      };
+    }
+    if (partner.role !== "SUBCONTRACTOR" && partner.role !== "BOTH") {
+      return {
+        error: "Only subcontracting partners can take a shift.",
+        fieldErrors: { handlerPartnerId: ["Not a subcontracting partner"] },
+      };
+    }
+    handledByPartnerId = partner.id;
+    if (!linkPhone) {
+      return {
+        error: "Please fix the errors below.",
+        fieldErrors: { linkPhone: ["Officer mobile is required for partners"] },
+      };
+    }
+  } else if (officerId && !linkPhone) {
+    // Own officer with an account — default the link number to theirs.
+    const officer = await prisma.user.findUnique({
+      where: { id: officerId },
+      select: { phone: true },
+    });
+    if (officer?.phone) linkPhone = normaliseE164(officer.phone);
+  }
+
+  const created = await prisma.shift.create({
     data: {
       siteId: d.siteId,
-      officerId: d.officerId && d.officerId !== "" ? d.officerId : null,
+      officerId,
+      handledByPartnerId,
       type: d.type as any,
       scheduledStartsAt: parseUkDateTimeLocal(d.scheduledStartsAt)!,
       scheduledEndsAt: parseUkDateTimeLocal(d.scheduledEndsAt)!,
       checkIntervalMin: d.checkIntervalMin,
       graceMinutes: d.graceMinutes,
       notes: d.notes,
+      publicToken: newPublicToken(),
+      linkPhone,
+      officerNameRaw: h.officerName || null,
     },
+    select: { id: true },
   });
+
+  await logActivity({
+    entity: "Shift",
+    entityId: created.id,
+    action: "created",
+    userId: me.id,
+  });
+
   revalidatePath("/shifts");
-  redirect("/shifts");
+  // Land on the detail page so the officer link + Send-SMS is right there.
+  redirect(`/shifts/${created.id}`);
 }
 
 export async function updateShift(
@@ -104,7 +200,7 @@ export async function updateShift(
   _prev: ShiftFormState,
   formData: FormData,
 ): Promise<ShiftFormState> {
-  await requireStaff();
+  const me = await requireStaff();
   const parsed = parseNew(formData);
   if (!parsed.success) {
     return {
@@ -115,22 +211,47 @@ export async function updateShift(
   const d = parsed.data;
   const existing = await prisma.shift.findUnique({
     where: { id: shiftId },
-    select: { id: true },
-  });
-  if (!existing) return { error: "Shift not found" };
-  await prisma.shift.update({
-    where: { id: shiftId },
-    data: {
-      siteId: d.siteId,
-      officerId: d.officerId && d.officerId !== "" ? d.officerId : null,
-      type: d.type as any,
-      scheduledStartsAt: parseUkDateTimeLocal(d.scheduledStartsAt)!,
-      scheduledEndsAt: parseUkDateTimeLocal(d.scheduledEndsAt)!,
-      checkIntervalMin: d.checkIntervalMin,
-      graceMinutes: d.graceMinutes,
-      notes: d.notes,
+    select: {
+      id: true,
+      status: true,
+      siteId: true,
+      officerId: true,
+      type: true,
+      scheduledStartsAt: true,
+      scheduledEndsAt: true,
+      checkIntervalMin: true,
+      graceMinutes: true,
+      notes: true,
     },
   });
+  if (!existing) return { error: "Shift not found" };
+
+  const after = {
+    siteId: d.siteId,
+    officerId: d.officerId && d.officerId !== "" ? d.officerId : null,
+    type: d.type as any,
+    scheduledStartsAt: parseUkDateTimeLocal(d.scheduledStartsAt)!,
+    scheduledEndsAt: parseUkDateTimeLocal(d.scheduledEndsAt)!,
+    checkIntervalMin: d.checkIntervalMin,
+    graceMinutes: d.graceMinutes,
+    notes: d.notes ?? null,
+  };
+  await prisma.shift.update({ where: { id: shiftId }, data: after });
+
+  // Record who changed what, with a timestamp. The detail page surfaces
+  // this — the requirement is that anything edited (especially after the
+  // shift is done) is visible in the log.
+  const diff = diffFields(existing as Record<string, unknown>, after);
+  if (Object.keys(diff).length > 0) {
+    await logActivity({
+      entity: "Shift",
+      entityId: shiftId,
+      action: existing.status === "COMPLETED" ? "edited_after_completion" : "edited",
+      userId: me.id,
+      diff,
+    });
+  }
+
   revalidatePath("/shifts");
   revalidatePath(`/shifts/${shiftId}`);
   redirect(`/shifts/${shiftId}`);
@@ -160,6 +281,81 @@ export async function deleteShift(
   await prisma.shift.delete({ where: { id: shiftId } });
   revalidatePath("/shifts");
   revalidatePath("/dispatch");
+  return { ok: true };
+}
+
+/**
+ * Text the officer their duty link. Sends immediately (not via the queue)
+ * so the admin gets instant success/failure feedback, then records a
+ * Notification row + audit entry for the log.
+ */
+export async function sendShiftLinkSms(
+  shiftId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await requireStaff();
+  const shift = await prisma.shift.findUnique({
+    where: { id: shiftId },
+    select: {
+      id: true,
+      publicToken: true,
+      linkPhone: true,
+      site: { select: { name: true, code: true } },
+      officer: { select: { phone: true } },
+    },
+  });
+  if (!shift) return { ok: false, error: "Shift not found" };
+  if (!shift.publicToken) return { ok: false, error: "This shift has no link." };
+
+  const to =
+    shift.linkPhone ??
+    (shift.officer?.phone ? normaliseE164(shift.officer.phone) : null);
+  if (!to) {
+    return {
+      ok: false,
+      error: "No mobile number on this shift. Add one, then resend.",
+    };
+  }
+  if (!isSmsConfigured()) {
+    return {
+      ok: false,
+      error: "SMS isn't configured yet (Twilio keys missing in Vercel).",
+    };
+  }
+
+  const siteLabel = shift.site.code
+    ? `${shift.site.code} ${shift.site.name}`
+    : shift.site.name;
+  const url = dutyUrl(shift.publicToken);
+  const body = `1NW: Your shift at ${siteLabel}. Tap to start, check in and end on site: ${url}`;
+  const res = await sendSms({ to, body });
+
+  await prisma.notification.create({
+    data: {
+      channel: "SMS",
+      kind: "SHIFT_LINK",
+      recipientNumber: to,
+      templateName: "SHIFT_LINK",
+      templateParams: [],
+      bodyText: body,
+      bodyPreview: body.slice(0, 240),
+      status: res.ok ? "SENT" : "FAILED",
+      sentAt: res.ok ? new Date() : null,
+      attempts: 1,
+      error: res.ok ? null : res.error.slice(0, 1000),
+      eventEntity: "Shift",
+      eventEntityId: shiftId,
+    },
+  });
+  await logActivity({
+    entity: "Shift",
+    entityId: shiftId,
+    action: "link_sent",
+    userId: me.id,
+    diff: { sentTo: to },
+  });
+
+  if (!res.ok) return { ok: false, error: res.error };
+  revalidatePath(`/shifts/${shiftId}`);
   return { ok: true };
 }
 
