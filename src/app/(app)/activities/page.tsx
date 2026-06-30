@@ -210,12 +210,12 @@ export default async function ActivitiesPage({
   // Rows with no scheduled date fall back to createdAt so ad-hoc jobs
   // logged from /submit don't disappear.
   const dateInRange = { gte: fromDate, lte: toDate };
-  const visitWhere: any = {
-    OR: [
-      { scheduledAt: dateInRange },
-      { AND: [{ scheduledAt: null }, { createdAt: dateInRange }] },
-    ],
-  };
+  // PatrolVisit.scheduledAt is a required column, so every visit has one —
+  // anchor the window directly on it. (Filtering it by null is an invalid
+  // Prisma filter and was crashing the page.)
+  const visitWhere: any = { scheduledAt: dateInRange };
+  // Job.scheduledFor is nullable, so keep the createdAt fallback for ad-hoc
+  // jobs that were logged without a scheduled time.
   const jobWhere: any = {
     OR: [
       { scheduledFor: dateInRange },
