@@ -82,12 +82,9 @@ export async function GET(req: Request) {
   const statuses = splitCsv(url.searchParams.get("status"));
 
   const dateInRange = { gte: fromDate, lte: toDate };
-  const visitWhere: any = {
-    OR: [
-      { scheduledAt: dateInRange },
-      { AND: [{ scheduledAt: null }, { createdAt: dateInRange }] },
-    ],
-  };
+  // PatrolVisit.scheduledAt is required — anchor on it directly. (Filtering
+  // it by null is invalid and crashes the query.)
+  const visitWhere: any = { scheduledAt: dateInRange };
   const jobWhere: any = {
     OR: [
       { scheduledFor: dateInRange },
