@@ -288,75 +288,74 @@ export default async function ActivitiesPage({
   }
 
   // ── 3. Load rows + the small filter-lookup data ────────────────────────
+  // Serial $transaction over one pooled connection (not Promise.all) to
+  // avoid Supabase pgbouncer pool exhaustion on Vercel — same fix as the
+  // admin hub + /activities. Sources excluded by the kind filter use an
+  // empty `id in []` so they stay Prisma promises and return nothing.
+  const NONE = { id: { in: [] as string[] } };
   const [visits, jobs, shifts, regions, customers, partners, officers] =
-    await Promise.all([
-      loadVisits
-        ? prisma.patrolVisit.findMany({
-            where: visitWhere,
-            include: {
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  region: { select: { name: true } },
-                  customer: { select: { id: true, name: true } },
-                  partner: { select: { id: true, name: true } },
-                },
-              },
-              officer: { select: { id: true, name: true } },
-              patrolSchedule: { select: { kind: true } },
-            },
-            orderBy: [{ scheduledAt: "desc" }],
-            take: 1000,
-          })
-        : Promise.resolve([] as any[]),
-      loadJobs
-        ? prisma.job.findMany({
-            where: jobWhere,
-            include: {
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  region: { select: { name: true } },
-                  // Fallbacks for stale Jobs whose customerId/partnerId
-                  // hadn't been backfilled when the site got assigned.
-                  customer: { select: { id: true, name: true } },
-                  partner: { select: { id: true, name: true } },
-                },
-              },
+    await prisma.$transaction([
+      prisma.patrolVisit.findMany({
+        where: loadVisits ? visitWhere : NONE,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
               customer: { select: { id: true, name: true } },
               partner: { select: { id: true, name: true } },
-              assignedTo: { select: { id: true, name: true } },
-              handledByPartner: { select: { id: true, name: true } },
             },
-            orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
-            take: 1000,
-          })
-        : Promise.resolve([] as any[]),
-      loadShifts
-        ? prisma.shift.findMany({
-            where: shiftWhere,
-            include: {
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  region: { select: { name: true } },
-                  customer: { select: { id: true, name: true } },
-                  partner: { select: { id: true, name: true } },
-                },
-              },
-              officer: { select: { id: true, name: true } },
-              handledByPartner: { select: { id: true, name: true } },
+          },
+          officer: { select: { id: true, name: true } },
+          patrolSchedule: { select: { kind: true } },
+        },
+        orderBy: [{ scheduledAt: "desc" }],
+        take: 1000,
+      }),
+      prisma.job.findMany({
+        where: loadJobs ? jobWhere : NONE,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
+              // Fallbacks for stale Jobs whose customerId/partnerId
+              // hadn't been backfilled when the site got assigned.
+              customer: { select: { id: true, name: true } },
+              partner: { select: { id: true, name: true } },
             },
-            orderBy: [{ scheduledStartsAt: "desc" }, { createdAt: "desc" }],
-            take: 1000,
-          })
-        : Promise.resolve([] as any[]),
+          },
+          customer: { select: { id: true, name: true } },
+          partner: { select: { id: true, name: true } },
+          assignedTo: { select: { id: true, name: true } },
+          handledByPartner: { select: { id: true, name: true } },
+        },
+        orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
+        take: 1000,
+      }),
+      prisma.shift.findMany({
+        where: loadShifts ? shiftWhere : NONE,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
+              customer: { select: { id: true, name: true } },
+              partner: { select: { id: true, name: true } },
+            },
+          },
+          officer: { select: { id: true, name: true } },
+          handledByPartner: { select: { id: true, name: true } },
+        },
+        orderBy: [{ scheduledStartsAt: "desc" }, { createdAt: "desc" }],
+        take: 1000,
+      }),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.customer.findMany({
         where: { active: true },

@@ -306,6 +306,9 @@ export default async function ActivitiesPage({
   const submissionWhere: any = {
     jobId: null,
     patrolVisitId: null,
+    // Exclude shift hourly check-ins — they belong to their shift row, not
+    // the orphan list. (They have shiftId set but no job/visit link.)
+    shiftId: null,
     submittedAt: dateInRange,
   };
   if (officerIds.length) submissionWhere.submittedByUserId = { in: officerIds };
@@ -319,91 +322,90 @@ export default async function ActivitiesPage({
   }
 
   // ── 3. Load rows + the small filter-lookup data ────────────────────────
+  // Run serially in a single $transaction (one pooled connection) rather
+  // than Promise.all — concurrent fan-out exhausts the Supabase pgbouncer
+  // pool on Vercel (the documented gotcha; the admin hub does the same).
+  // Sources excluded by the kind filter use an empty `id in []` so every
+  // element stays a Prisma promise (required by $transaction) and returns
+  // nothing without a wasted scan.
+  const NONE = { id: { in: [] as string[] } };
   const [visits, jobs, shifts, orphanSubmissions, regions, customers, partners, officers, sites] =
-    await Promise.all([
-      loadVisits
-        ? prisma.patrolVisit.findMany({
-            where: visitWhere,
-            include: {
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  region: { select: { name: true } },
-                  customer: { select: { id: true, name: true } },
-                  partner: { select: { id: true, name: true } },
-                },
-              },
-              officer: { select: { id: true, name: true } },
-              patrolSchedule: { select: { kind: true } },
-            },
-            orderBy: [{ scheduledAt: "desc" }],
-            take: 1000,
-          })
-        : Promise.resolve([] as any[]),
-      loadJobs
-        ? prisma.job.findMany({
-            where: jobWhere,
-            include: {
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  region: { select: { name: true } },
-                },
-              },
+    await prisma.$transaction([
+      prisma.patrolVisit.findMany({
+        where: loadVisits ? visitWhere : NONE,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
               customer: { select: { id: true, name: true } },
               partner: { select: { id: true, name: true } },
-              assignedTo: { select: { id: true, name: true } },
-              handledByPartner: { select: { id: true, name: true } },
             },
-            orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
-            take: 1000,
-          })
-        : Promise.resolve([] as any[]),
-      loadShifts
-        ? prisma.shift.findMany({
-            where: shiftWhere,
-            include: {
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  region: { select: { name: true } },
-                  customer: { select: { id: true, name: true } },
-                  partner: { select: { id: true, name: true } },
-                },
-              },
-              officer: { select: { id: true, name: true } },
+          },
+          officer: { select: { id: true, name: true } },
+          patrolSchedule: { select: { kind: true } },
+        },
+        orderBy: [{ scheduledAt: "desc" }],
+        take: 1000,
+      }),
+      prisma.job.findMany({
+        where: loadJobs ? jobWhere : NONE,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
             },
-            orderBy: [{ scheduledStartsAt: "desc" }],
-            take: 1000,
-          })
-        : Promise.resolve([] as any[]),
-      loadOrphanSubmissions
-        ? prisma.formSubmission.findMany({
-            where: submissionWhere,
-            include: {
-              site: {
-                select: {
-                  id: true,
-                  name: true,
-                  code: true,
-                  region: { select: { name: true } },
-                  customer: { select: { id: true, name: true } },
-                  partner: { select: { id: true, name: true } },
-                },
-              },
-              submittedBy: { select: { id: true, name: true } },
-              review: { select: { status: true } },
+          },
+          customer: { select: { id: true, name: true } },
+          partner: { select: { id: true, name: true } },
+          assignedTo: { select: { id: true, name: true } },
+          handledByPartner: { select: { id: true, name: true } },
+        },
+        orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
+        take: 1000,
+      }),
+      prisma.shift.findMany({
+        where: loadShifts ? shiftWhere : NONE,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
+              customer: { select: { id: true, name: true } },
+              partner: { select: { id: true, name: true } },
             },
-            orderBy: [{ submittedAt: "desc" }],
-            take: 1000,
-          })
-        : Promise.resolve([] as any[]),
+          },
+          officer: { select: { id: true, name: true } },
+        },
+        orderBy: [{ scheduledStartsAt: "desc" }],
+        take: 1000,
+      }),
+      prisma.formSubmission.findMany({
+        where: loadOrphanSubmissions ? submissionWhere : NONE,
+        include: {
+          site: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              region: { select: { name: true } },
+              customer: { select: { id: true, name: true } },
+              partner: { select: { id: true, name: true } },
+            },
+          },
+          submittedBy: { select: { id: true, name: true } },
+          review: { select: { status: true } },
+        },
+        orderBy: [{ submittedAt: "desc" }],
+        take: 1000,
+      }),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.customer.findMany({
         where: { active: true },
