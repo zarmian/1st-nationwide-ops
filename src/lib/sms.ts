@@ -1,16 +1,22 @@
 /**
- * Twilio SMS client.
+ * The SMS Works client (https://thesmsworks.co.uk).
  *
- * Direct REST POST — no Twilio SDK so the deploy bundle stays slim.
- * Required env vars to actually send:
- *   TWILIO_ACCOUNT_SID   — Account SID from Twilio console
- *   TWILIO_AUTH_TOKEN    — Auth token (or API key secret)
- *   TWILIO_FROM          — Twilio number in E.164, e.g. "+447700900123"
+ * Direct REST POST — no SDK. Required env vars to actually send:
+ *   SMS_WORKS_JWT     — the customer JWT from your SMS Works account
+ *                       (Account → API keys → JWT). Long-lived.
+ *   SMS_WORKS_SENDER  — optional sender ID shown to recipients. Alphanumeric
+ *                       (max 11 chars, one-way) or a number. Defaults to
+ *                       "1NW".
  *
- * If any are unset, isSmsConfigured() returns false. Callers should still
- * queue Notification rows — drainQueue marks SMS rows SKIPPED with a clear
- * reason while configuration is being set up.
+ * If SMS_WORKS_JWT is unset, isSmsConfigured() returns false and the queue
+ * drainer marks SMS rows SKIPPED with a clear reason instead of sending.
+ *
+ * We keep the exported surface (isSmsConfigured / normaliseE164 / sendSms)
+ * identical to the previous Twilio driver, so the notification queue, crons
+ * and every SMS use-case work unchanged.
  */
+
+const ENDPOINT = "https://api.thesmsworks.co.uk/v1/message/send";
 
 export type SendSmsInput = {
   to: string; // E.164, e.g. "+447700900123"
@@ -22,17 +28,12 @@ export type SendSmsResult =
   | { ok: false; error: string };
 
 export function isSmsConfigured(): boolean {
-  return Boolean(
-    process.env.TWILIO_ACCOUNT_SID &&
-      process.env.TWILIO_AUTH_TOKEN &&
-      process.env.TWILIO_FROM,
-  );
+  return Boolean(process.env.SMS_WORKS_JWT);
 }
 
 /**
- * Loose E.164 normaliser shared with the WhatsApp driver — accepts UK
- * "07700900123" + drops formatting whitespace / brackets. Returns null
- * when the input clearly isn't a phone number.
+ * Loose E.164 normaliser — accepts UK "07700900123" and drops formatting.
+ * Returns null when the input clearly isn't a phone number.
  */
 export function normaliseE164(input: string): string | null {
   const trimmed = input.trim().replace(/[\s()-]/g, "");
@@ -43,33 +44,32 @@ export function normaliseE164(input: string): string | null {
 }
 
 export async function sendSms({ to, body }: SendSmsInput): Promise<SendSmsResult> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM;
-  if (!sid || !token || !from) {
-    return { ok: false, error: "Twilio not configured" };
-  }
+  const rawJwt = process.env.SMS_WORKS_JWT;
+  if (!rawJwt) return { ok: false, error: "SMS Works not configured" };
+  // Accept the token with or without a "JWT "/"Bearer " label — the API
+  // wants the raw token as the Authorization header value.
+  const jwt = rawJwt.replace(/^(JWT|Bearer)\s+/i, "").trim();
+  const sender = process.env.SMS_WORKS_SENDER || "1NW";
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`;
-  const form = new URLSearchParams();
-  form.set("To", to);
-  form.set("From", from);
-  // Hard cap at 1600 chars — Twilio rejects longer, and we'd rather
-  // truncate than 400. Single SMS segment is 160 GSM-7 chars; over that
-  // Twilio splits + charges per segment, so keep templates tight.
-  form.set("Body", body.slice(0, 1600));
-
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
+  // SMS Works wants the destination in international format, digits only
+  // (no leading +). Our numbers are already E.164.
+  const destination = to.replace(/[^\d]/g, "");
 
   let res: Response;
   try {
-    res = await fetch(url, {
+    res = await fetch(ENDPOINT, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${auth}`,
-        "Content-Type": "application/x-www-form-urlencoded",
+        Authorization: jwt,
+        "Content-Type": "application/json",
       },
-      body: form.toString(),
+      body: JSON.stringify({
+        sender,
+        destination,
+        // Cap length defensively; SMS Works splits into segments and bills
+        // per segment, so keep templates tight.
+        content: body.slice(0, 1600),
+      }),
     });
   } catch (e: any) {
     return { ok: false, error: `Network: ${e?.message ?? "fetch failed"}` };
@@ -77,12 +77,13 @@ export async function sendSms({ to, body }: SendSmsInput): Promise<SendSmsResult
 
   const json: any = await res.json().catch(() => null);
   if (!res.ok) {
-    const meta = json?.message ?? `${res.status} ${res.statusText}`;
-    return { ok: false, error: `Twilio: ${meta}` };
+    const meta =
+      json?.message ?? json?.error ?? `${res.status} ${res.statusText}`;
+    return { ok: false, error: `SMS Works: ${meta}` };
   }
-  const messageId = json?.sid;
+  const messageId = json?.messageid ?? json?.messageId ?? json?.id;
   if (!messageId) {
-    return { ok: false, error: "Twilio: unexpected response shape" };
+    return { ok: false, error: "SMS Works: unexpected response shape" };
   }
-  return { ok: true, messageId };
+  return { ok: true, messageId: String(messageId) };
 }

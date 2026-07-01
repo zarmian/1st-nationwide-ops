@@ -318,7 +318,7 @@ export async function sendShiftLinkSms(
   if (!isSmsConfigured()) {
     return {
       ok: false,
-      error: "SMS isn't configured yet (Twilio keys missing in Vercel).",
+      error: "SMS isn't configured yet (SMS Works token missing in Vercel).",
     };
   }
 

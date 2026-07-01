@@ -306,6 +306,7 @@ enum NotificationKind {
   ALARM_CUSTOMER_ACK
   PAY_SUMMARY
   SHIFT_LINK
+  MISSED_CALL
 }
 
 enum NotificationStatus {
@@ -1116,6 +1117,34 @@ model Notification {
   @@index([recipientUserId])
   @@index([eventEntity, eventEntityId])
   @@index([kind])
+}
+
+/// Call events posted by the phone provider (bOnline) webhook. We always
+/// store the raw payload so the parser can be tuned from real data, plus
+/// best-effort normalised fields for the call log + missed-call alerts.
+model CallEvent {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider    String    @default("bonline")
+  /// Provider's own call/event id when present — used to de-dupe repeated
+  /// webhook deliveries for the same call.
+  externalId  String?
+  direction   String?   // INBOUND | OUTBOUND | UNKNOWN
+  status      String?   // normalised: MISSED | ANSWERED | BUSY | ... | UNKNOWN
+  rawStatus   String?   // the provider's own status string, for reference
+  fromNumber  String?
+  toNumber    String?
+  durationSec Int?
+  missed      Boolean   @default(false)
+  /// True once a dispatch alert SMS has been queued for this missed call.
+  alerted     Boolean   @default(false)
+  occurredAt  DateTime? // event time from the payload when available
+  payload     Json      @default("{}") // raw webhook body, always kept
+  createdAt   DateTime  @default(now())
+
+  @@index([occurredAt])
+  @@index([missed])
+  @@index([externalId])
+  @@index([createdAt])
 }
 
 model Shift {
