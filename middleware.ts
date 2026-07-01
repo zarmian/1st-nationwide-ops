@@ -153,7 +153,9 @@ export const config = {
   matcher: [
     // `api/blob` is excluded so anonymous officers on /submit and /duty can
     // get a scoped upload token (the route does its own siteId + size +
-    // rate-limit validation; it never relied on a session).
-    "/((?!api/auth|api/blob|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
+    // rate-limit validation; it never relied on a session). `api/webhooks`
+    // is excluded so external providers (bOnline calls) can POST in — those
+    // routes verify their own shared secret.
+    "/((?!api/auth|api/blob|api/webhooks|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
   ],
 };

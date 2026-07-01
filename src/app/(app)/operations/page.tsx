@@ -15,6 +15,7 @@ export default async function OperationsHubPage() {
     onboardingOpen,
     activeOfficers,
     pendingReviews,
+    missedCallsWeek,
   ] = await prisma.$transaction([
     prisma.patrolSchedule.count({ where: { active: true } }),
     prisma.shift.count({ where: { status: "PENDING" } }),
@@ -29,6 +30,12 @@ export default async function OperationsHubPage() {
     }),
     prisma.user.count({ where: { active: true, role: "OFFICER" } }),
     prisma.reportReview.count({ where: { status: "PENDING" } }),
+    prisma.callEvent.count({
+      where: {
+        missed: true,
+        createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
+      },
+    }),
   ]);
 
   const cards = [
@@ -86,6 +93,14 @@ export default async function OperationsHubPage() {
         "Officer submissions waiting for sign-off before they go to the customer (alarm responses, ad-hoc reports). Patrols, VPI, lock + unlock auto-approve.",
       stat: pendingReviews,
       statLabel: "pending",
+    },
+    {
+      href: "/calls",
+      title: "Call log",
+      blurb:
+        "Calls from the bOnline phone webhook. Missed calls alert dispatch by SMS.",
+      stat: missedCallsWeek,
+      statLabel: "missed / 7 days",
     },
   ];
 

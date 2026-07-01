@@ -263,7 +263,7 @@ export async function notifyKeyHandover(
 //
 // Each helper resolves the recipient, builds a plain-text body, and
 // queues a Notification row with channel=SMS. The cron at
-// /api/cron/sms-queue picks them up and sends via Twilio.
+// /api/cron/sms-queue picks them up and sends via SMS Works.
 //
 // All helpers are idempotent at the entity-id level via Notification's
 // eventEntityId index — callers check for an existing row before
@@ -488,6 +488,34 @@ export async function notifyOfficerPaySummary(args: {
   });
 }
 
+/**
+ * Alert dispatch / on-call staff that a call was missed. Fires 24/7. Deduped
+ * per CallEvent so repeated webhook deliveries don't re-text the team.
+ */
+export async function notifyMissedCall(callEventId: string): Promise<number> {
+  const call = await prisma.callEvent.findUnique({
+    where: { id: callEventId },
+    select: {
+      id: true,
+      fromNumber: true,
+      toNumber: true,
+      occurredAt: true,
+    },
+  });
+  if (!call) return 0;
+  const from = call.fromNumber ?? "withheld / unknown number";
+  const when = fmt(call.occurredAt ?? new Date());
+  const line = call.toNumber ? ` (on ${call.toNumber})` : "";
+  const body = `1NW: Missed call from ${from}${line} at ${when}. Please call back.`;
+  return queueSmsOnce({
+    kind: "MISSED_CALL",
+    recipients: await dispatcherSmsRecipients(),
+    body,
+    eventEntity: "CallEvent",
+    eventEntityId: callEventId,
+  });
+}
+
 // ── Queue drainer ────────────────────────────────────────────────────────
 
 import { isWhatsAppConfigured, sendTemplate } from "@/lib/whatsapp";
@@ -530,7 +558,7 @@ export async function drainQueue(
           error:
             channel === "WHATSAPP"
               ? "WhatsApp not configured (WHATSAPP_PHONE_ID / WHATSAPP_ACCESS_TOKEN missing)"
-              : "SMS not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM missing)",
+              : "SMS not configured (SMS_WORKS_JWT missing)",
           attempts: { increment: 1 },
         },
       });
