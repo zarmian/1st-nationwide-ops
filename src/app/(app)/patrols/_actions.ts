@@ -66,6 +66,8 @@ export async function reassignVisit(
     data: { officerId: officerId === "" ? null : officerId },
   });
   revalidatePath("/patrols");
+  revalidatePath("/dispatch");
+  revalidatePath("/activities");
   return { ok: true };
 }
 
@@ -118,6 +120,7 @@ export async function reassignJob(
   });
   revalidatePath("/patrols");
   revalidatePath("/dispatch");
+  revalidatePath("/activities");
   return { ok: true };
 }
 

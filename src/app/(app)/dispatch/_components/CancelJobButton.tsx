@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2, X } from "lucide-react";
 import { useConfirm } from "@/components/Confirm";
 import { useToast } from "@/components/Toast";
 import { cancelJob } from "../_actions";
@@ -9,9 +10,11 @@ import { cancelJob } from "../_actions";
 export function CancelJobButton({
   jobId,
   jobLabel,
+  size = "default",
 }: {
   jobId: string;
   jobLabel: string;
+  size?: "default" | "small";
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -51,14 +54,21 @@ export function CancelJobButton({
     });
   }
 
+  const icon = size === "small" ? "h-3.5 w-3.5" : "h-4 w-4";
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={pending}
-      className="text-xs text-red-600 hover:text-red-700 hover:underline"
+      title="Cancel job"
+      aria-label="Cancel job"
+      className="inline-flex items-center justify-center rounded p-1 text-red-600 hover:bg-red-50 hover:text-red-700 disabled:opacity-50 transition-colors"
     >
-      {pending ? "Cancelling…" : "Cancel"}
+      {pending ? (
+        <Loader2 className={`${icon} animate-spin`} aria-hidden />
+      ) : (
+        <X className={icon} aria-hidden />
+      )}
     </button>
   );
 }

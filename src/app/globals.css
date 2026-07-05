@@ -134,6 +134,7 @@ body {
   .chip-slate { @apply chip bg-slate-100 text-slate-700; }
   .chip-amber { @apply chip bg-amber-100 text-amber-800; }
   .chip-red   { @apply chip bg-red-100 text-red-800; }
+  .chip-green { @apply chip bg-emerald-100 text-emerald-800; }
   .chip-info  { @apply chip bg-blue-50 text-blue-700; }
 
   /* ── Tables ────────────────────────────────────────────────────── */

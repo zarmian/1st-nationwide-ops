@@ -9,6 +9,8 @@ import { BarList } from "@/components/BarList";
 import { TrendChart } from "@/components/TrendChart";
 import { CancelJobButton } from "./_components/CancelJobButton";
 import { CloseActivityButton } from "./_components/CloseActivityButton";
+import { ReassignOfficer } from "./_components/ReassignOfficer";
+import { EditIconLink } from "./_components/EditIconLink";
 import { ActivityCard } from "./_components/ActivityCard";
 import { DispatchMap } from "./_components/DispatchMap";
 import { SyncSchedulesButton } from "./_components/SyncSchedulesButton";
@@ -954,16 +956,10 @@ export default async function DispatchPage({
                 const officerName = j.handledByPartner
                   ? `${j.handledByPartner.name} (partner)`
                   : (j.assignedTo?.name ?? null);
-                // Status dot tone mirrors the DataTable: LATE → warn,
-                // IN_PROGRESS → live, everything else stays muted.
-                const tone =
-                  j.status === "LATE"
-                    ? ("warn" as const)
-                    : j.status === "IN_PROGRESS"
-                      ? ("live" as const)
-                      : ("muted" as const);
-                const pulse =
-                  j.status === "LATE" || j.status === "IN_PROGRESS";
+                // Reassign is offered on any still-live activity that isn't
+                // handled in a partner's app (those have no internal officer
+                // to swap).
+                const canReassign = !isClosed && !j.handledByPartner;
                 return (
                   <ActivityCard
                     key={j.id}
@@ -973,32 +969,36 @@ export default async function DispatchPage({
                     siteId={j.site?.id ?? null}
                     siteName={j.site?.name ?? null}
                     officerName={officerName}
-                    statusLabel={j.status.toLowerCase().replace(/_/g, " ")}
-                    statusTone={tone}
-                    statusPulse={pulse}
+                    status={j.status}
                     priority={j.priority as "HIGH" | "MEDIUM" | "LOW"}
                     overdue={overdue}
                     actions={
                       <>
+                        {canReassign && (
+                          <ReassignOfficer
+                            kind={isVisit ? "visit" : "job"}
+                            id={isVisit ? j.__visitId! : j.id}
+                            currentOfficerId={j.assignedTo?.id ?? null}
+                            officers={assignableOfficers}
+                            size="small"
+                          />
+                        )}
                         {canEdit && (
-                          <Link
-                            href={editHref}
-                            className="text-brand-blue-dark hover:text-brand-navy underline"
-                          >
-                            edit
-                          </Link>
+                          <EditIconLink href={editHref} size="small" />
                         )}
                         {canClose && (
                           <CloseActivityButton
                             kind={isVisit ? "visit" : "job"}
                             id={isVisit ? j.__visitId! : j.id}
                             label={activityLabel}
+                            size="small"
                           />
                         )}
-                        {!isVisit && (
+                        {!isVisit && !isClosed && (
                           <CancelJobButton
                             jobId={j.id}
                             jobLabel={activityLabel}
+                            size="small"
                           />
                         )}
                       </>
