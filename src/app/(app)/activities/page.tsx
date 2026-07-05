@@ -8,6 +8,9 @@ import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
 import { RestoreJobButton } from "../dispatch/_components/RestoreJobButton";
 import { CloseActivityButton } from "../dispatch/_components/CloseActivityButton";
+import { CancelJobButton } from "../dispatch/_components/CancelJobButton";
+import { ReassignOfficer } from "../dispatch/_components/ReassignOfficer";
+import { EditIconLink } from "../dispatch/_components/EditIconLink";
 
 export const dynamic = "force-dynamic";
 
@@ -869,80 +872,108 @@ export default async function ActivitiesPage({
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
-                      {fmtDate(r.at)}
-                    </td>
-                    <td className="px-4 py-2 text-slate-700">
-                      <span className="chip-slate text-[10px]">
-                        {r.kindLabel}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      {r.siteId ? (
-                        <Link
-                          href={`/sites/${r.siteId}`}
-                          className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                        >
-                          {r.siteCode ? `${r.siteCode} · ` : ""}
-                          {r.siteName}
-                        </Link>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )}
-                      <div className="text-xs text-slate-500">
-                        {r.regionName ?? "—"}
-                      </div>
-                    </td>
-                    <td className="px-4 py-2 text-slate-700">
-                      {r.customerName ?? r.partnerName ?? (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-slate-700">
-                      {r.officerName ?? (
-                        <span className="text-slate-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-slate-600 text-xs">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <ActivityStatus status={r.status} />
-                        {isAdmin &&
-                          r.source === "JOB" &&
-                          r.status === "CANCELLED" && (
-                            <RestoreJobButton
-                              jobId={r.id.replace(/^j:/, "")}
-                              jobLabel={`${r.kindLabel} @ ${r.siteName ?? "site"}`}
-                              size="small"
-                            />
+                {pageRows.map((r) => {
+                  const activityLabel = `${r.kindLabel} @ ${r.siteName ?? "site"}`;
+                  const rawId = r.id.replace(/^[jv]:/, "");
+                  const notDone = ![
+                    "APPROVED",
+                    "SENT_TO_CLIENT",
+                    "CLOSED",
+                    "CANCELLED",
+                    "COMPLETED",
+                  ].includes(r.status);
+                  const isJobOrVisit = r.source === "JOB" || r.source === "VISIT";
+                  const canReassign =
+                    isStaff &&
+                    isJobOrVisit &&
+                    ["OPEN", "ASSIGNED", "IN_PROGRESS", "PENDING", "LATE"].includes(
+                      r.status,
+                    );
+                  const canEdit =
+                    isStaff && r.status !== "CANCELLED" && r.source !== "SHIFT";
+                  const canClose = isStaff && isJobOrVisit && notDone;
+                  const canCancel = isStaff && r.source === "JOB" && notDone;
+                  return (
+                    <tr key={r.id}>
+                      <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                        {fmtDate(r.at)}
+                      </td>
+                      <td className="px-4 py-2 text-slate-700">
+                        <span className="chip-slate text-[10px]">
+                          {r.kindLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2">
+                        {r.siteId ? (
+                          <Link
+                            href={`/sites/${r.siteId}`}
+                            className="font-medium text-brand-navy hover:text-brand-blue-dark"
+                          >
+                            {r.siteCode ? `${r.siteCode} · ` : ""}
+                            {r.siteName}
+                          </Link>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                        <div className="text-xs text-slate-500">
+                          {r.regionName ?? "—"}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-slate-700">
+                        {r.customerName ?? r.partnerName ?? (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-slate-700">
+                        {canReassign ? (
+                          <ReassignOfficer
+                            kind={r.source === "VISIT" ? "visit" : "job"}
+                            id={rawId}
+                            currentOfficerId={r.officerId}
+                            officers={officers}
+                            size="small"
+                          />
+                        ) : (
+                          r.officerName ?? (
+                            <span className="text-slate-400">—</span>
+                          )
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-slate-600 text-xs">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <ActivityStatus status={r.status} />
+                          {isAdmin &&
+                            r.source === "JOB" &&
+                            r.status === "CANCELLED" && (
+                              <RestoreJobButton
+                                jobId={rawId}
+                                jobLabel={activityLabel}
+                                size="small"
+                              />
+                            )}
+                          {canEdit && (
+                            <EditIconLink href={`${r.href}/edit`} size="small" />
                           )}
-                        {isStaff &&
-                          r.status !== "CANCELLED" &&
-                          r.source !== "SHIFT" && (
-                            <Link
-                              href={`${r.href}/edit`}
-                              className="text-brand-blue-dark hover:text-brand-navy underline"
-                            >
-                              edit
-                            </Link>
-                          )}
-                        {isStaff &&
-                          (r.source === "JOB" || r.source === "VISIT") &&
-                          !["APPROVED", "SENT_TO_CLIENT", "CLOSED", "CANCELLED", "COMPLETED"].includes(
-                            r.status,
-                          ) && (
+                          {canClose && (
                             <CloseActivityButton
                               kind={r.source === "VISIT" ? "visit" : "job"}
-                              id={r.id.replace(/^[jv]:/, "")}
-                              label={`${r.kindLabel} @ ${r.siteName ?? "site"}`}
+                              id={rawId}
+                              label={activityLabel}
                               size="small"
                             />
                           )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          {canCancel && (
+                            <CancelJobButton
+                              jobId={rawId}
+                              jobLabel={activityLabel}
+                              size="small"
+                            />
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
                 {pageRows.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-8 text-center text-slate-500">

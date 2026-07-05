@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { Loader2, RotateCcw } from "lucide-react";
 import { useConfirm } from "@/components/Confirm";
 import { useToast } from "@/components/Toast";
 import { restoreJob } from "../_actions";
@@ -53,19 +54,22 @@ export function RestoreJobButton({
     });
   }
 
-  const className =
-    size === "small"
-      ? "text-xs text-brand-blue-dark hover:text-brand-navy underline disabled:opacity-50"
-      : "btn-secondary text-sm";
+  const icon = size === "small" ? "h-3.5 w-3.5" : "h-4 w-4";
 
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={pending}
-      className={className}
+      title="Restore job"
+      aria-label="Restore job"
+      className="inline-flex items-center justify-center rounded p-1 text-brand-blue-dark hover:bg-brand-blue-50 hover:text-brand-navy disabled:opacity-50 transition-colors"
     >
-      {pending ? "Restoring…" : "Restore"}
+      {pending ? (
+        <Loader2 className={`${icon} animate-spin`} aria-hidden />
+      ) : (
+        <RotateCcw className={icon} aria-hidden />
+      )}
     </button>
   );
 }

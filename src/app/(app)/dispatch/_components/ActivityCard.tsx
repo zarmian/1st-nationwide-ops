@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { StatusDot } from "@/components/StatusDot";
+import { ActivityStatus } from "@/components/ActivityStatus";
 
 /**
  * Compact activity row used inside the dispatch workspace columns
@@ -23,6 +24,9 @@ export type ActivityCardProps = {
   siteId: string | null;
   siteName: string | null;
   officerName: string | null;
+  /** Raw status enum — when set, renders the colour-coded ActivityStatus
+   *  chip (preferred). Falls back to the statusLabel/dot props below. */
+  status?: string;
   /** Status chip text (e.g. "in progress", "completed"). */
   statusLabel?: string;
   /** StatusDot tone driving the dot color + pulse. */
@@ -42,6 +46,7 @@ export function ActivityCard({
   siteId,
   siteName,
   officerName,
+  status,
   statusLabel,
   statusTone = "muted",
   statusPulse = false,
@@ -60,13 +65,19 @@ export function ActivityCard({
             <span className="chip-red text-[10px]">HIGH</span>
           )}
         </div>
-        {statusLabel && (
-          <span className="inline-flex items-center gap-1 shrink-0">
-            <StatusDot tone={statusTone} pulse={statusPulse} />
-            <span className="text-[10px] text-slate-600 whitespace-nowrap">
-              {statusLabel}
-            </span>
+        {status ? (
+          <span className="shrink-0">
+            <ActivityStatus status={status} />
           </span>
+        ) : (
+          statusLabel && (
+            <span className="inline-flex items-center gap-1 shrink-0">
+              <StatusDot tone={statusTone} pulse={statusPulse} />
+              <span className="text-[10px] text-slate-600 whitespace-nowrap">
+                {statusLabel}
+              </span>
+            </span>
+          )
         )}
       </div>
 
