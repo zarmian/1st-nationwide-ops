@@ -4,6 +4,15 @@
 
 @import 'leaflet/dist/leaflet.css';
 
+/* Leaflet paints its panes, markers (z-index 600) and zoom/attribution
+   controls (z-index 1000) high enough to cover app dialogs, toasts and the
+   command palette (which are fixed at z-50). `isolation: isolate` turns the
+   map into its own stacking context so those internal z-indexes stay
+   contained — every app overlay then reliably sits above the map. */
+.leaflet-container {
+  isolation: isolate;
+}
+
 :root {
   --brand-blue: #3B82F6;
   --brand-navy: #0F1929;
