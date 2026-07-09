@@ -168,6 +168,32 @@ export default async function PatrolScheduleDetailPage({
             Window
           </h2>
           <dl className="text-sm space-y-1">
+            <Row label={schedule.kind === "VPI" ? "Time" : "Patrol times"}>
+              {(() => {
+                const times =
+                  schedule.timesOfDay && schedule.timesOfDay.length > 0
+                    ? schedule.timesOfDay
+                    : schedule.timeOfDay
+                      ? [schedule.timeOfDay]
+                      : [];
+                if (times.length === 0) {
+                  return (
+                    <span className="text-slate-400">
+                      {schedule.kind === "VPI" ? "09:00" : "22:00"} (default)
+                    </span>
+                  );
+                }
+                return (
+                  <span className="inline-flex flex-wrap gap-1">
+                    {times.map((t, i) => (
+                      <span key={i} className="chip-slate text-[10px] tabular-nums">
+                        {t}
+                      </span>
+                    ))}
+                  </span>
+                );
+              })()}
+            </Row>
             <Row label="Starts on">{fmtDate(schedule.startsOn)}</Row>
             <Row label="Ends on">{fmtDate(schedule.endsOn)}</Row>
           </dl>

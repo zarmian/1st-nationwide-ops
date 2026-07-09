@@ -645,7 +645,14 @@ model PatrolSchedule {
   // (09:00 for VPI, 22:00 for patrols). Time interpretation is via
   // ukWallClockToUtc so a value like "08:00" lands at 08:00 BST in
   // summer / 08:00 GMT in winter, never an hour adrift on the server.
+  // Legacy single time — kept in sync with timesOfDay[0] for old readers.
   timeOfDay         String?
+  // Multiple patrol times for each matching day ("HH:MM" UK wall-clock, in
+  // run order). One PatrolVisit is materialised per time. A time earlier
+  // than the previous one is treated as crossing midnight: it lands on the
+  // next calendar day but stays grouped under the night it started. Empty
+  // → fall back to timeOfDay, then the kind default.
+  timesOfDay        String[]        @default([])
   // Custom recurrence: when set, overrides the frequency enum and means
   // "every N weeks starting from the anchor." 1=weekly, 2=fortnightly,
   // 3=every 3rd week, etc. Null = use frequency enum.
@@ -677,6 +684,10 @@ model PatrolVisit {
   officerId          String?         @db.Uuid
   officer            User?           @relation(fields: [officerId], references: [id])
   scheduledAt        DateTime
+  // UK calendar date (at UK midnight) of the night/day this visit is grouped
+  // under. For overnight patrols the after-midnight visits carry the date of
+  // the evening they started, so client reports group them under that night.
+  scheduleDate       DateTime?
   arrivedAt          DateTime?
   departedAt         DateTime?
   status             VisitStatus     @default(PENDING)

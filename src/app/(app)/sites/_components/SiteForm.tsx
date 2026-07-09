@@ -6,6 +6,17 @@ import { useFormState, useFormStatus } from "react-dom";
 import { upload } from "@vercel/blob/client";
 import type { SiteFormState } from "../_actions";
 import { FormError } from "@/components/FormError";
+import { PatrolTimesEditor } from "./PatrolTimesEditor";
+
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+/** Only keep well-formed HH:MM times when serialising for the server. */
+function cleanScheduleTimes(rows: ScheduleDay[]): ScheduleDay[] {
+  return rows.map((r) => ({
+    ...r,
+    times: (r.times ?? []).map((t) => t.trim()).filter((t) => TIME_RE.test(t)),
+  }));
+}
 
 type Lookup = { id: string | number; name: string };
 
@@ -90,7 +101,8 @@ export type KeySetRow = {
 export type ScheduleDay = {
   dayOfWeek: string;
   frequency: string;
-  timeOfDay?: string;       // "HH:MM" UK wall-clock
+  timeOfDay?: string;       // legacy single "HH:MM" (kept for load compat)
+  times?: string[];         // ordered "HH:MM" UK wall-clock list (1 per patrol)
   startsOn?: string;        // "YYYY-MM-DD" anchor
   endsOn?: string;          // "YYYY-MM-DD" stop date
   assignedOfficerId?: string; // per-day officer
@@ -188,10 +200,13 @@ export function SiteForm({
 
   const keySetsJson = useMemo(() => JSON.stringify(keySets), [keySets]);
   const patrolDaysJson = useMemo(
-    () => JSON.stringify(patrolDays),
+    () => JSON.stringify(cleanScheduleTimes(patrolDays)),
     [patrolDays],
   );
-  const vpiDaysJson = useMemo(() => JSON.stringify(vpiDays), [vpiDays]);
+  const vpiDaysJson = useMemo(
+    () => JSON.stringify(cleanScheduleTimes(vpiDays)),
+    [vpiDays],
+  );
 
   function toggleService(v: string, on: boolean) {
     setServices((s) => (on ? [...s, v] : s.filter((x) => x !== v)));
@@ -588,10 +603,11 @@ export function SiteForm({
         <ScheduleSection
           anchorId="patrol-section"
           title="Patrol schedule"
-          blurb="One row per day we patrol. Pick day, frequency, and time; expand Advanced for per-day officer, end date, custom interval, and skip dates."
+          blurb="One row per day we patrol. Add as many patrol times as the client wants — several a day, or clustered overnight (past-midnight times roll to the next day but still count under that night). Expand Advanced for per-day officer, end date, custom interval, and skip dates."
           days={patrolDays}
           setDays={setPatrolDays}
           officers={officers}
+          allowMultipleTimes
         />
       )}
 
@@ -1024,6 +1040,7 @@ function ScheduleSection({
   days,
   setDays,
   officers,
+  allowMultipleTimes = false,
 }: {
   anchorId: string;
   title: string;
@@ -1031,6 +1048,7 @@ function ScheduleSection({
   days: ScheduleDay[];
   setDays: React.Dispatch<React.SetStateAction<ScheduleDay[]>>;
   officers: Lookup[];
+  allowMultipleTimes?: boolean;
 }) {
   const selectedDays = useMemo(() => days.map((d) => d.dayOfWeek), [days]);
 
@@ -1050,11 +1068,9 @@ function ScheduleSection({
     );
   }
 
-  function setTimeOfDay(day: string, t: string) {
+  function setTimes(day: string, times: string[]) {
     setDays((rows) =>
-      rows.map((r) =>
-        r.dayOfWeek === day ? { ...r, timeOfDay: t || undefined } : r,
-      ),
+      rows.map((r) => (r.dayOfWeek === day ? { ...r, times } : r)),
     );
   }
 
@@ -1145,7 +1161,7 @@ function ScheduleSection({
                   key={d.dayOfWeek}
                   className="rounded-xl border border-slate-200 p-3 space-y-3"
                 >
-                  <div className="grid grid-cols-[80px_repeat(3,minmax(0,1fr))] items-end gap-3 text-sm">
+                  <div className="grid grid-cols-[80px_repeat(2,minmax(0,1fr))] items-end gap-3 text-sm">
                     <span className="font-medium text-slate-700 self-center">
                       {DAYS.find((x) => x.v === d.dayOfWeek)?.label}
                     </span>
@@ -1176,19 +1192,6 @@ function ScheduleSection({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-                        Time (UK)
-                      </label>
-                      <input
-                        type="time"
-                        className="input"
-                        value={d.timeOfDay ?? ""}
-                        onChange={(e) =>
-                          setTimeOfDay(d.dayOfWeek, e.target.value)
-                        }
-                      />
-                    </div>
-                    <div>
                       <label
                         className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5"
                         title={
@@ -1211,6 +1214,30 @@ function ScheduleSection({
                       />
                     </div>
                   </div>
+
+                  {allowMultipleTimes ? (
+                    <PatrolTimesEditor
+                      value={d.times ?? []}
+                      onChange={(t) => setTimes(d.dayOfWeek, t)}
+                    />
+                  ) : (
+                    <div className="max-w-[160px]">
+                      <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
+                        Time (UK)
+                      </label>
+                      <input
+                        type="time"
+                        className="input"
+                        value={d.times?.[0] ?? ""}
+                        onChange={(e) =>
+                          setTimes(
+                            d.dayOfWeek,
+                            e.target.value ? [e.target.value] : [],
+                          )
+                        }
+                      />
+                    </div>
+                  )}
 
                   <details className="group">
                     <summary className="cursor-pointer text-xs text-slate-500 hover:text-brand-navy select-none">

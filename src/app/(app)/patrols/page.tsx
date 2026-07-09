@@ -364,6 +364,22 @@ export default async function PatrolsPage({
                   <td className="px-4 py-2 text-slate-600">
                     {DAY_LABEL[s.dayOfWeek] ?? s.dayOfWeek} ·{" "}
                     {FREQ_LABEL[s.frequency] ?? s.frequency}
+                    {(() => {
+                      const times =
+                        s.timesOfDay && s.timesOfDay.length > 0
+                          ? s.timesOfDay
+                          : s.timeOfDay
+                            ? [s.timeOfDay]
+                            : [];
+                      if (times.length === 0) return null;
+                      return (
+                        <div className="text-xs text-slate-400 tabular-nums">
+                          {times.length > 1
+                            ? `${times.length} patrols · ${times.join(", ")}`
+                            : times[0]}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-2">
                     <QuickReassignSchedule

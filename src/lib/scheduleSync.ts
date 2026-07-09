@@ -5,11 +5,7 @@ import {
   billForSite,
   payForOfficer,
 } from "@/lib/billing";
-import {
-  defaultScheduledAt,
-  evaluateSchedule,
-  shouldCreateVisitOn,
-} from "@/lib/patrolDates";
+import { evaluateSchedule, resolvePatrolSlots } from "@/lib/patrolDates";
 import { ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
 
 /**
@@ -171,46 +167,46 @@ export async function materializePatrolVisits(opts: {
         continue;
       }
 
-      const dayStart = new Date(target);
-      const dayEnd = new Date(target);
-      dayEnd.setUTCHours(23, 59, 59, 999);
-
-      const existing = await prisma.patrolVisit.findFirst({
-        where: {
-          siteId: s.siteId,
-          patrolScheduleId: s.id,
-          scheduledAt: { gte: dayStart, lte: dayEnd },
-        },
-        select: { id: true },
-      });
-      if (existing) {
-        skipped++;
-        diagnostics.push({
-          scheduleId: s.id,
-          siteName,
-          kind: s.kind,
-          dayOfWeek: s.dayOfWeek,
-          status: "exists",
+      // One visit per configured time. Post-midnight times roll to the next
+      // calendar day but stay grouped under the night they started. Dedup is
+      // on the exact scheduledAt so re-runs (and the today/tomorrow overlap)
+      // never double up.
+      const slots = resolvePatrolSlots(target, s.kind, s.timesOfDay, s.timeOfDay);
+      let createdHere = 0;
+      let existedHere = 0;
+      for (const slot of slots) {
+        const existing = await prisma.patrolVisit.findFirst({
+          where: { patrolScheduleId: s.id, scheduledAt: slot.scheduledAt },
+          select: { id: true },
         });
-        continue;
+        if (existing) {
+          existedHere++;
+          continue;
+        }
+        await prisma.patrolVisit.create({
+          data: {
+            siteId: s.siteId,
+            patrolScheduleId: s.id,
+            officerId: s.assignedOfficerId,
+            scheduledAt: slot.scheduledAt,
+            scheduleDate: slot.scheduleDate,
+            status: "PENDING",
+          },
+        });
+        createdHere++;
       }
-
-      await prisma.patrolVisit.create({
-        data: {
-          siteId: s.siteId,
-          patrolScheduleId: s.id,
-          officerId: s.assignedOfficerId,
-          scheduledAt: defaultScheduledAt(target, s.kind, s.timeOfDay),
-          status: "PENDING",
-        },
-      });
-      created++;
+      created += createdHere;
+      skipped += existedHere;
       diagnostics.push({
         scheduleId: s.id,
         siteName,
         kind: s.kind,
         dayOfWeek: s.dayOfWeek,
-        status: "created",
+        status: createdHere > 0 ? "created" : "exists",
+        reason:
+          slots.length > 1
+            ? `${createdHere} created, ${existedHere} already there (${slots.length} patrols)`
+            : undefined,
       });
     }
 
