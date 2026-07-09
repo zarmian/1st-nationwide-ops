@@ -161,6 +161,77 @@ export function defaultScheduledAt(
   return ukWallClockToUtc(year, month, day, defaultHour, 0);
 }
 
+export type PatrolSlot = {
+  /** The actual visit time (may roll to the next calendar day). */
+  scheduledAt: Date;
+  /** UK midnight of the night/day the visit is grouped under. */
+  scheduleDate: Date;
+};
+
+const TIME_RE = /^(\d{1,2}):(\d{2})$/;
+
+/** Ordered, validated time list — falls back to the single timeOfDay, then
+ *  the kind default, so legacy schedules keep working. */
+export function normalisePatrolTimes(
+  timesOfDay: string[] | null | undefined,
+  timeOfDay: string | null | undefined,
+  kind: string,
+): string[] {
+  const list = (timesOfDay ?? []).filter((t) => TIME_RE.test(t.trim())).map((t) => t.trim());
+  if (list.length) return list;
+  if (timeOfDay && TIME_RE.test(timeOfDay.trim())) return [timeOfDay.trim()];
+  return [kind === "VPI" ? "09:00" : "22:00"];
+}
+
+/**
+ * Expand a schedule's time list into concrete visit slots for a matched UK
+ * day. Times run in list order; when a time is earlier than the previous one
+ * it is treated as crossing midnight — it (and everything after) lands on the
+ * next calendar day, but every slot's scheduleDate stays the matched day, so
+ * a "Friday night" block of 22:00/01:00/04:00 groups under Friday even though
+ * two of the visits happen on Saturday.
+ */
+export function resolvePatrolSlots(
+  forDate: Date,
+  kind: string,
+  timesOfDay: string[] | null | undefined,
+  timeOfDay?: string | null,
+): PatrolSlot[] {
+  const list = normalisePatrolTimes(timesOfDay, timeOfDay, kind);
+  const y = forDate.getUTCFullYear();
+  const mo = forDate.getUTCMonth() + 1;
+  const d = forDate.getUTCDate();
+  const scheduleDate = ukWallClockToUtc(y, mo, d, 0, 0);
+
+  const slots: PatrolSlot[] = [];
+  let dayOffset = 0;
+  let prevMinutes = -1;
+  for (const t of list) {
+    const m = t.match(TIME_RE);
+    if (!m) continue;
+    const hh = Number(m[1]);
+    const mm = Number(m[2]);
+    if (hh > 23 || mm > 59) continue;
+    const minutes = hh * 60 + mm;
+    if (prevMinutes >= 0 && minutes < prevMinutes) dayOffset += 1;
+    prevMinutes = minutes;
+
+    // Roll the calendar date forward for post-midnight slots (handles
+    // month/year boundaries via Date arithmetic), then interpret hh:mm as UK
+    // wall-clock on that date.
+    const rolled = new Date(Date.UTC(y, mo - 1, d + dayOffset));
+    const scheduledAt = ukWallClockToUtc(
+      rolled.getUTCFullYear(),
+      rolled.getUTCMonth() + 1,
+      rolled.getUTCDate(),
+      hh,
+      mm,
+    );
+    slots.push({ scheduledAt, scheduleDate });
+  }
+  return slots;
+}
+
 function startOfDayUtc(d: Date): Date {
   const x = new Date(d);
   x.setUTCHours(0, 0, 0, 0);

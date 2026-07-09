@@ -64,6 +64,14 @@ export default async function EditSitePage({
     dayOfWeek: s.dayOfWeek,
     frequency: s.frequency,
     timeOfDay: s.timeOfDay ?? undefined,
+    // Prefer the stored list; fall back to the legacy single time so schedules
+    // created before multi-times still populate the editor.
+    times:
+      s.timesOfDay && s.timesOfDay.length > 0
+        ? s.timesOfDay
+        : s.timeOfDay
+          ? [s.timeOfDay]
+          : [],
     startsOn: toIso(s.startsOn),
     endsOn: toIso(s.endsOn),
     assignedOfficerId: s.assignedOfficerId ?? undefined,

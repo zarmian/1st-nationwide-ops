@@ -95,12 +95,19 @@ const IsoDate = z
 const ScheduleDay = z.object({
   dayOfWeek: z.enum(DAYS),
   frequency: z.enum(FREQUENCIES).default("WEEKLY"),
+  // Legacy single time — still accepted from older payloads.
   timeOfDay: z
     .string()
     .trim()
     .regex(/^\d{2}:\d{2}$/, "Time must be HH:MM")
     .optional()
     .nullable(),
+  // Ordered list of patrol times for the day. One visit is created per time;
+  // times earlier than the previous one roll past midnight (see
+  // resolvePatrolSlots). Empty → falls back to timeOfDay / the kind default.
+  times: z
+    .array(z.string().trim().regex(/^\d{2}:\d{2}$/, "Time must be HH:MM"))
+    .default([]),
   startsOn: IsoDate.optional().nullable(),
   endsOn: IsoDate.optional().nullable(),
   assignedOfficerId: z
@@ -180,12 +187,20 @@ function scheduleRowFromInput(
   kind: "PATROL" | "VPI",
   p: z.infer<typeof ScheduleDay>,
 ) {
+  // Prefer the times list; fall back to the legacy single time. Keep
+  // timeOfDay in sync with times[0] for any old readers.
+  const times = p.times && p.times.length > 0
+    ? p.times
+    : p.timeOfDay
+      ? [p.timeOfDay]
+      : [];
   return {
     siteId,
     kind: kind as any,
     dayOfWeek: p.dayOfWeek as any,
     frequency: p.frequency as any,
-    timeOfDay: p.timeOfDay ?? null,
+    timeOfDay: times[0] ?? p.timeOfDay ?? null,
+    timesOfDay: times,
     startsOn: p.startsOn ? new Date(`${p.startsOn}T00:00:00Z`) : null,
     endsOn: p.endsOn ? new Date(`${p.endsOn}T23:59:59Z`) : null,
     assignedOfficerId:
