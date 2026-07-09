@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { BarList } from "@/components/BarList";
 import { TrendChart } from "@/components/TrendChart";
-import { CancelJobButton } from "./_components/CancelJobButton";
+import { CancelActivityButton } from "./_components/CancelActivityButton";
 import { CloseActivityButton } from "./_components/CloseActivityButton";
 import { ReassignOfficer } from "./_components/ReassignOfficer";
 import { EditIconLink } from "./_components/EditIconLink";
@@ -994,10 +994,11 @@ export default async function DispatchPage({
                             size="small"
                           />
                         )}
-                        {!isVisit && !isClosed && (
-                          <CancelJobButton
-                            jobId={j.id}
-                            jobLabel={activityLabel}
+                        {!isClosed && !j.handledByPartner && (
+                          <CancelActivityButton
+                            kind={isVisit ? "visit" : "job"}
+                            id={isVisit ? j.__visitId! : j.id}
+                            label={activityLabel}
                             size="small"
                           />
                         )}

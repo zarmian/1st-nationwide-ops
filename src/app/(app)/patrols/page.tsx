@@ -41,6 +41,7 @@ const STATUS_TONE: Record<string, string> = {
   COMPLETED: "chip-mint",
   LATE: "chip-amber",
   MISSED: "chip-red",
+  CANCELLED: "chip-red",
 };
 
 function fmt(d: Date): string {

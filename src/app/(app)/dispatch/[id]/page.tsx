@@ -4,8 +4,8 @@ import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
 import { reassignJob } from "../../patrols/_actions";
 import { QuickReassignJob } from "../../patrols/_components/QuickReassign";
-import { CancelJobButton } from "../_components/CancelJobButton";
-import { RestoreJobButton } from "../_components/RestoreJobButton";
+import { CancelActivityButton } from "../_components/CancelActivityButton";
+import { RestoreActivityButton } from "../_components/RestoreActivityButton";
 import { CloseActivityButton } from "../_components/CloseActivityButton";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -154,9 +154,10 @@ export default async function JobDetailPage({
         actions={
           <>
             {me.role === "ADMIN" && job.status === "CANCELLED" && (
-              <RestoreJobButton
-                jobId={job.id}
-                jobLabel={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+              <RestoreActivityButton
+                kind="job"
+                id={job.id}
+                label={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
               />
             )}
             {/* Edit allowed for dispatcher + admin — the form doesn't
@@ -180,9 +181,10 @@ export default async function JobDetailPage({
               />
             )}
             {!isClosed && (
-              <CancelJobButton
-                jobId={job.id}
-                jobLabel={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+              <CancelActivityButton
+                kind="job"
+                id={job.id}
+                label={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
               />
             )}
           </>

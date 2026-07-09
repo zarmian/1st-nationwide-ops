@@ -108,6 +108,7 @@ enum VisitStatus {
   COMPLETED
   LATE
   MISSED
+  CANCELLED
 }
 
 /// Rota half-day. DAY = 06:00-18:00 UK, NIGHT = 18:00-06:00 UK (next
@@ -688,6 +689,11 @@ model PatrolVisit {
   // under. For overnight patrols the after-midnight visits carry the date of
   // the evening they started, so client reports group them under that night.
   scheduleDate       DateTime?
+  // Cancellation audit (mirrors Job). statusBeforeCancel lets Restore return
+  // the visit to where it was. cancelledByUserId is a plain audit stamp.
+  cancelledAt        DateTime?
+  cancelledByUserId  String?         @db.Uuid
+  statusBeforeCancel VisitStatus?
   arrivedAt          DateTime?
   departedAt         DateTime?
   status             VisitStatus     @default(PENDING)

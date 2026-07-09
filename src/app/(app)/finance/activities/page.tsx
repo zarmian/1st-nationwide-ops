@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
-import { RestoreJobButton } from "../../dispatch/_components/RestoreJobButton";
+import { RestoreActivityButton } from "../../dispatch/_components/RestoreActivityButton";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -833,9 +833,10 @@ export default async function ActivitiesPage({
                         {isAdmin &&
                           r.source === "JOB" &&
                           r.status === "CANCELLED" && (
-                            <RestoreJobButton
-                              jobId={r.id.replace(/^j:/, "")}
-                              jobLabel={`${r.kindLabel} @ ${r.siteName ?? "site"}`}
+                            <RestoreActivityButton
+                              kind="job"
+                              id={r.id.replace(/^j:/, "")}
+                              label={`${r.kindLabel} @ ${r.siteName ?? "site"}`}
                               size="small"
                             />
                           )}

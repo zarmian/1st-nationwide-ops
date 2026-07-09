@@ -289,3 +289,109 @@ export async function closePatrolVisit(
   if (visit.siteId) revalidatePath(`/sites/${visit.siteId}`);
   return { ok: true };
 }
+
+/**
+ * Cancel a patrol/VPI visit (e.g. the client stood the patrol down, or a
+ * one-off shouldn't happen). Mirrors cancelJob: keeps the record marked
+ * CANCELLED for audit, reverses any billing + officer pay, and stamps who/
+ * when. Because the materialiser de-dupes on the exact scheduledAt, a
+ * cancelled visit won't be re-created by the nightly sync.
+ */
+export async function cancelPatrolVisit(
+  visitId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const me = await requireStaff();
+  const visit = await prisma.patrolVisit.findUnique({
+    where: { id: visitId },
+    select: { id: true, status: true, siteId: true },
+  });
+  if (!visit) return { ok: false, error: "Visit not found." };
+  if (visit.status === "CANCELLED") return { ok: true };
+
+  await prisma.patrolVisit.update({
+    where: { id: visitId },
+    data: {
+      status: "CANCELLED" as any,
+      cancelledAt: new Date(),
+      cancelledByUserId: me.id,
+      statusBeforeCancel: visit.status as any,
+      billedAmount: null,
+      billedCurrency: null,
+      billedAt: null,
+      paidAmount: null,
+      paidCurrency: null,
+      paidAt: null,
+    },
+  });
+
+  revalidatePath("/dispatch");
+  revalidatePath("/patrols");
+  revalidatePath(`/patrols/visits/${visitId}`);
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  if (visit.siteId) revalidatePath(`/sites/${visit.siteId}`);
+  return { ok: true };
+}
+
+/**
+ * Restore a cancelled visit to its pre-cancel status. Admin only (mirrors
+ * restoreJob). Re-snapshots billing + pay only when it comes back as a
+ * completed visit — a restored PENDING visit will bill when it's actually
+ * completed, exactly like a fresh one.
+ */
+export async function restorePatrolVisit(
+  visitId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  const visit = await prisma.patrolVisit.findUnique({
+    where: { id: visitId },
+    select: {
+      id: true,
+      status: true,
+      statusBeforeCancel: true,
+      siteId: true,
+      officerId: true,
+      arrivedAt: true,
+      departedAt: true,
+      patrolSchedule: { select: { kind: true } },
+    },
+  });
+  if (!visit) return { ok: false, error: "Visit not found." };
+  if (visit.status !== "CANCELLED") {
+    return { ok: false, error: "Visit isn't cancelled." };
+  }
+  const next = visit.statusBeforeCancel ?? ("PENDING" as any);
+
+  await prisma.patrolVisit.update({
+    where: { id: visitId },
+    data: {
+      status: next,
+      cancelledAt: null,
+      cancelledByUserId: null,
+      statusBeforeCancel: null,
+    },
+  });
+
+  if (next === "COMPLETED" && visit.siteId) {
+    const rateService = jobTypeToRateService(
+      visit.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
+    );
+    if (rateService) {
+      const dur = durationMinutes(visit.arrivedAt, visit.departedAt);
+      const bill = await billForSite(visit.siteId, rateService, dur);
+      await applyBillingToVisit(visitId, bill);
+      if (visit.officerId) {
+        const pay = await payForOfficer(visit.officerId, rateService, dur);
+        await applyPayToVisit(visitId, pay);
+      }
+    }
+  }
+
+  revalidatePath("/dispatch");
+  revalidatePath("/patrols");
+  revalidatePath(`/patrols/visits/${visitId}`);
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  if (visit.siteId) revalidatePath(`/sites/${visit.siteId}`);
+  return { ok: true };
+}
