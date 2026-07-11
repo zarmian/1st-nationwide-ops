@@ -75,6 +75,8 @@ export default async function EditSitePage({
     startsOn: toIso(s.startsOn),
     endsOn: toIso(s.endsOn),
     assignedOfficerId: s.assignedOfficerId ?? undefined,
+    handledByPartnerId: s.handledByPartnerId ?? undefined,
+    partnerFillsOwnApp: s.partnerFillsOwnApp,
     intervalWeeks: s.intervalWeeks ?? undefined,
     exceptionDates: s.exceptionDates ?? [],
   });

@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
+    "@react-pdf/renderer": "^4.5.1",
     "@sentry/nextjs": "^10.52.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
