@@ -7,6 +7,11 @@ import { prisma } from "@/lib/db";
 import { evaluateGeofence, roundMeters } from "@/lib/geo";
 import { logActivity } from "@/lib/audit";
 import {
+  computeCheckSlots,
+  openSlotAt,
+  nextSlotAfter,
+} from "@/lib/shiftChecks";
+import {
   applyBillingToShift,
   applyPayToShift,
   billForSite,
@@ -33,7 +38,18 @@ export type DutyResult = {
   radiusM?: number;
   /** Set when end is blocked pending a late reason. */
   needsLateReason?: boolean;
+  /** Set when a check-in was rejected because it's outside the time window. */
+  checkNotOpen?: boolean;
 };
+
+function ukTime(d: Date): string {
+  return d.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 async function loadByToken(token: string) {
   if (!token) return null;
@@ -178,6 +194,47 @@ export async function checkInDuty(input: {
     return { ok: false, error: "Take a photo to complete the check-in." };
   }
 
+  // Time window: a check-in is only accepted from 10 min before it's due
+  // until the grace buffer runs out. This is the authoritative check — the
+  // duty page also enforces it client-side, but never trust the client.
+  const now = new Date();
+  const slots = computeCheckSlots({
+    startBasis: shift.actualStartedAt ?? shift.scheduledStartsAt,
+    endBasis: shift.scheduledEndsAt,
+    intervalMin: shift.checkIntervalMin,
+    graceMin: shift.graceMinutes,
+  });
+  const openSlot = openSlotAt(slots, now);
+  if (!openSlot) {
+    const next = nextSlotAfter(slots, now);
+    return {
+      ok: false,
+      checkNotOpen: true,
+      error: next
+        ? `It's not check-in time yet. The next check-in opens at ${ukTime(next.opensAt)}.`
+        : "No more check-ins are due for this shift.",
+    };
+  }
+  // One check-in per slot.
+  const already = await prisma.formSubmission.findFirst({
+    where: {
+      shiftId: shift.id,
+      form: "SHIFT_CHECK",
+      payload: { path: ["slotIndex"], equals: openSlot.index },
+    },
+    select: { id: true },
+  });
+  if (already) {
+    const next = nextSlotAfter(slots, now);
+    return {
+      ok: false,
+      checkNotOpen: true,
+      error: next
+        ? `Already checked in for this window. The next opens at ${ukTime(next.opensAt)}.`
+        : "Already checked in for the final window.",
+    };
+  }
+
   const geo = geofenceFor(shift, input.gps);
   const blocked = outOfRange(geo);
   if (blocked) return blocked;
@@ -191,6 +248,8 @@ export async function checkInDuty(input: {
       officerNameRaw: knownName(shift),
       payload: {
         kind: "hourly_check",
+        slotIndex: openSlot.index,
+        dueAt: openSlot.dueAt.toISOString(),
         gps: {
           lat: input.gps.lat,
           lng: input.gps.lng,
