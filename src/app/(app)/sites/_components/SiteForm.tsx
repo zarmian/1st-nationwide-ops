@@ -1309,15 +1309,19 @@ function ScheduleSection({
                               </option>
                             ))}
                           </optgroup>
-                          {partners.length > 0 && (
-                            <optgroup label="Partners (subcontract)">
-                              {partners.map((p) => (
+                          <optgroup label="Partners (subcontract)">
+                            {partners.length > 0 ? (
+                              partners.map((p) => (
                                 <option key={p.id} value={`p:${p.id}`}>
                                   {p.name}
                                 </option>
-                              ))}
-                            </optgroup>
-                          )}
+                              ))
+                            ) : (
+                              <option value="" disabled>
+                                Add partners in Admin → Partners first
+                              </option>
+                            )}
+                          </optgroup>
                         </select>
                       </div>
                       <div>
