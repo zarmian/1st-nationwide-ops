@@ -67,7 +67,7 @@ export default async function DutyPage({
       formSubmissions: {
         where: { form: "SHIFT_CHECK" },
         orderBy: { submittedAt: "asc" },
-        select: { id: true, submittedAt: true },
+        select: { id: true, submittedAt: true, payload: true },
       },
     },
   });
@@ -96,6 +96,14 @@ export default async function DutyPage({
 
   const siteHasCoords = shift.site.lat != null && shift.site.lng != null;
 
+  // Which check-in slots have been done (from the stamped slotIndex).
+  const doneSlotIndices = shift.formSubmissions
+    .map((s) => {
+      const p = s.payload as { slotIndex?: unknown } | null;
+      return typeof p?.slotIndex === "number" ? p.slotIndex : null;
+    })
+    .filter((n): n is number => n != null);
+
   return (
     <Shell>
       <DutyRunner
@@ -116,6 +124,10 @@ export default async function DutyPage({
         scheduledStartLabel={fmt(shift.scheduledStartsAt)}
         scheduledEndLabel={fmt(shift.scheduledEndsAt)}
         checkIntervalMin={shift.checkIntervalMin}
+        graceMinutes={shift.graceMinutes}
+        shiftStartIso={(shift.actualStartedAt ?? shift.scheduledStartsAt).toISOString()}
+        shiftEndIso={shift.scheduledEndsAt.toISOString()}
+        doneSlotIndices={doneSlotIndices}
         assignedName={assignedName}
         checkInCount={shift.formSubmissions.length}
       />

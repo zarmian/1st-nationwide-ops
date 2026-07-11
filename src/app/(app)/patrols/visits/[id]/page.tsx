@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
 import { CloseActivityButton } from "../../../dispatch/_components/CloseActivityButton";
+import { CancelActivityButton } from "../../../dispatch/_components/CancelActivityButton";
+import { RestoreActivityButton } from "../../../dispatch/_components/RestoreActivityButton";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +39,7 @@ const STATUS_TONE: Record<string, string> = {
   LATE: "chip-amber",
   COMPLETED: "chip-mint",
   MISSED: "chip-red",
+  CANCELLED: "chip-red",
 };
 
 export default async function PatrolVisitDetailPage({
@@ -115,14 +118,32 @@ export default async function PatrolVisitDetailPage({
         actions={
           (me.role === "ADMIN" || me.role === "DISPATCHER") ? (
             <>
-              <Link
-                href={`/patrols/visits/${visit.id}/edit`}
-                className="btn-secondary text-sm"
-              >
-                Edit
-              </Link>
-              {visit.status !== "COMPLETED" && (
+              {visit.status !== "CANCELLED" && (
+                <Link
+                  href={`/patrols/visits/${visit.id}/edit`}
+                  className="btn-secondary text-sm"
+                >
+                  Edit
+                </Link>
+              )}
+              {visit.status !== "COMPLETED" && visit.status !== "CANCELLED" && (
                 <CloseActivityButton
+                  kind="visit"
+                  id={visit.id}
+                  label={`${visit.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol"} visit @ ${visit.site?.name ?? "site"}`}
+                  size="default"
+                />
+              )}
+              {visit.status !== "COMPLETED" && visit.status !== "CANCELLED" && (
+                <CancelActivityButton
+                  kind="visit"
+                  id={visit.id}
+                  label={`${visit.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol"} visit @ ${visit.site?.name ?? "site"}`}
+                  size="default"
+                />
+              )}
+              {me.role === "ADMIN" && visit.status === "CANCELLED" && (
+                <RestoreActivityButton
                   kind="visit"
                   id={visit.id}
                   label={`${visit.patrolSchedule?.kind === "VPI" ? "VPI" : "Patrol"} visit @ ${visit.site?.name ?? "site"}`}

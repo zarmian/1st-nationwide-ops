@@ -6,9 +6,9 @@ import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
-import { RestoreJobButton } from "../dispatch/_components/RestoreJobButton";
+import { RestoreActivityButton } from "../dispatch/_components/RestoreActivityButton";
 import { CloseActivityButton } from "../dispatch/_components/CloseActivityButton";
-import { CancelJobButton } from "../dispatch/_components/CancelJobButton";
+import { CancelActivityButton } from "../dispatch/_components/CancelActivityButton";
 import { ReassignOfficer } from "../dispatch/_components/ReassignOfficer";
 import { EditIconLink } from "../dispatch/_components/EditIconLink";
 
@@ -892,7 +892,9 @@ export default async function ActivitiesPage({
                   const canEdit =
                     isStaff && r.status !== "CANCELLED" && r.source !== "SHIFT";
                   const canClose = isStaff && isJobOrVisit && notDone;
-                  const canCancel = isStaff && r.source === "JOB" && notDone;
+                  const canCancel = isStaff && isJobOrVisit && notDone;
+                  const canRestore =
+                    isAdmin && isJobOrVisit && r.status === "CANCELLED";
                   return (
                     <tr key={r.id}>
                       <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
@@ -942,15 +944,14 @@ export default async function ActivitiesPage({
                       <td className="px-4 py-2 text-slate-600 text-xs">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <ActivityStatus status={r.status} />
-                          {isAdmin &&
-                            r.source === "JOB" &&
-                            r.status === "CANCELLED" && (
-                              <RestoreJobButton
-                                jobId={rawId}
-                                jobLabel={activityLabel}
-                                size="small"
-                              />
-                            )}
+                          {canRestore && (
+                            <RestoreActivityButton
+                              kind={r.source === "VISIT" ? "visit" : "job"}
+                              id={rawId}
+                              label={activityLabel}
+                              size="small"
+                            />
+                          )}
                           {canEdit && (
                             <EditIconLink href={`${r.href}/edit`} size="small" />
                           )}
@@ -963,9 +964,10 @@ export default async function ActivitiesPage({
                             />
                           )}
                           {canCancel && (
-                            <CancelJobButton
-                              jobId={rawId}
-                              jobLabel={activityLabel}
+                            <CancelActivityButton
+                              kind={r.source === "VISIT" ? "visit" : "job"}
+                              id={rawId}
+                              label={activityLabel}
                               size="small"
                             />
                           )}

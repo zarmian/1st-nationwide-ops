@@ -1,10 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { haversineMeters } from "@/lib/geo";
+import {
+  computeCheckSlots,
+  openSlotAt,
+  nextSlotAfter,
+} from "@/lib/shiftChecks";
 import { CameraCapture } from "./CameraCapture";
 import { startDuty, checkInDuty, endDuty, type GpsInput } from "./_actions";
+
+function ukTime(d: Date): string {
+  return d.toLocaleTimeString("en-GB", {
+    timeZone: "Europe/London",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
 
 type SiteInfo = {
   id: string;
@@ -54,6 +68,10 @@ export function DutyRunner({
   scheduledStartLabel,
   scheduledEndLabel,
   checkIntervalMin,
+  graceMinutes,
+  shiftStartIso,
+  shiftEndIso,
+  doneSlotIndices,
   assignedName,
   checkInCount,
 }: {
@@ -64,6 +82,10 @@ export function DutyRunner({
   scheduledStartLabel: string;
   scheduledEndLabel: string;
   checkIntervalMin: number;
+  graceMinutes: number;
+  shiftStartIso: string;
+  shiftEndIso: string;
+  doneSlotIndices: number[];
   assignedName: string | null;
   checkInCount: number;
 }) {
@@ -76,6 +98,31 @@ export function DutyRunner({
   const [needLate, setNeedLate] = useState(false);
   const [lateReason, setLateReason] = useState("");
   const [lastDistance, setLastDistance] = useState<number | null>(null);
+
+  // Ticking clock — client-only (null on first render) to avoid a hydration
+  // mismatch, then refreshed every 20s to drive the check-in window.
+  const [nowMs, setNowMs] = useState<number | null>(null);
+  useEffect(() => {
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 20_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const slots = useMemo(
+    () =>
+      computeCheckSlots({
+        startBasis: new Date(shiftStartIso),
+        endBasis: new Date(shiftEndIso),
+        intervalMin: checkIntervalMin,
+        graceMin: graceMinutes,
+      }),
+    [shiftStartIso, shiftEndIso, checkIntervalMin, graceMinutes],
+  );
+  const doneSet = useMemo(() => new Set(doneSlotIndices), [doneSlotIndices]);
+  const nowDate = nowMs != null ? new Date(nowMs) : null;
+  const openSlot = nowDate ? openSlotAt(slots, nowDate) : null;
+  const nextSlot = nowDate ? nextSlotAfter(slots, nowDate) : null;
+  const openAndPending = openSlot != null && !doneSet.has(openSlot.index);
 
   const mapsHref =
     site.lat != null && site.lng != null
@@ -298,27 +345,63 @@ export function DutyRunner({
       {isRunning && (
         <>
           <div className="card p-4 space-y-3">
-            <h2 className="font-semibold text-brand-navy">Hourly check-in</h2>
-            <p className="text-xs text-slate-500">
-              Every {checkIntervalMin} min: take a photo on site and submit.
-              {checkInCount > 0
-                ? ` ${checkInCount} done so far.`
-                : ""}
-            </p>
-            <CameraCapture
-              key={camKey}
-              siteId={site.id}
-              onCaptured={setPhotoUrl}
-              disabled={busy}
-            />
-            <button
-              type="button"
-              onClick={handleCheckIn}
-              disabled={busy || !photoUrl}
-              className="btn-primary w-full"
-            >
-              {busy ? "Submitting…" : "Submit check-in"}
-            </button>
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="font-semibold text-brand-navy">Check-in</h2>
+              <span className="text-xs text-slate-500 tabular-nums">
+                {checkInCount}
+                {slots.length ? ` / ${slots.length}` : ""} done
+              </span>
+            </div>
+
+            {nowDate == null ? (
+              <p className="text-xs text-slate-500">Checking the schedule…</p>
+            ) : openAndPending && openSlot ? (
+              <>
+                <p className="text-sm text-brand-navy">
+                  Check-in due now — take a photo on site. Window closes{" "}
+                  <span className="font-medium tabular-nums">
+                    {ukTime(openSlot.closesAt)}
+                  </span>
+                  .
+                </p>
+                <CameraCapture
+                  key={camKey}
+                  siteId={site.id}
+                  onCaptured={setPhotoUrl}
+                  disabled={busy}
+                />
+                <button
+                  type="button"
+                  onClick={handleCheckIn}
+                  disabled={busy || !photoUrl}
+                  className="btn-primary w-full"
+                >
+                  {busy ? "Submitting…" : "Submit check-in"}
+                </button>
+              </>
+            ) : openSlot ? (
+              <p className="text-sm text-slate-600">
+                Checked in for this window ✓
+                {nextSlot ? `. Next opens ${ukTime(nextSlot.opensAt)}.` : "."}
+              </p>
+            ) : nextSlot ? (
+              <div className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">
+                Next check-in opens at{" "}
+                <span className="font-medium tabular-nums">
+                  {ukTime(nextSlot.opensAt)}
+                </span>
+                .
+                <div className="text-xs text-slate-500 mt-0.5">
+                  Check-ins open 10 min before they&apos;re due (every{" "}
+                  {checkIntervalMin} min).
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-600">
+                All check-ins done for this shift. You can end it when your
+                shift finishes.
+              </p>
+            )}
           </div>
 
           <div className="card p-4 space-y-3">
