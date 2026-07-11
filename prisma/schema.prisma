@@ -664,6 +664,14 @@ model PatrolSchedule {
   exceptionDates    String[]        @default([])
   assignedOfficerId String?         @db.Uuid
   assignedOfficer   User?           @relation(fields: [assignedOfficerId], references: [id])
+  /// Subcontracted patrols: assign the schedule to a partner instead of an
+  /// internal officer (mutually exclusive with assignedOfficerId in the UI).
+  handledByPartnerId String?        @db.Uuid
+  handledByPartner   Partner?       @relation("PatrolSchedulePartner", fields: [handledByPartnerId], references: [id])
+  /// When partner-handled: true = the partner records in THEIR own app (we
+  /// keep a stub, no /submit or ClientReport); false = the partner fills OUR
+  /// form. Copied onto each materialised visit.
+  partnerFillsOwnApp Boolean        @default(false)
   active            Boolean         @default(true)
   startsOn          DateTime?
   endsOn            DateTime?
@@ -673,6 +681,7 @@ model PatrolSchedule {
 
   @@index([siteId])
   @@index([assignedOfficerId])
+  @@index([handledByPartnerId])
   @@index([kind])
 }
 
@@ -684,6 +693,11 @@ model PatrolVisit {
   patrolSchedule     PatrolSchedule? @relation(fields: [patrolScheduleId], references: [id])
   officerId          String?         @db.Uuid
   officer            User?           @relation(fields: [officerId], references: [id])
+  /// Subcontracted visit: the partner who ran it (copied from the schedule).
+  handledByPartnerId String?         @db.Uuid
+  handledByPartner   Partner?        @relation("PatrolVisitPartner", fields: [handledByPartnerId], references: [id])
+  /// Partner recorded it in their own app — no /submit, no ClientReport.
+  reportedViaPartnerApp Boolean      @default(false)
   scheduledAt        DateTime
   // UK calendar date (at UK midnight) of the night/day this visit is grouped
   // under. For overnight patrols the after-midnight visits carry the date of
@@ -715,6 +729,7 @@ model PatrolVisit {
 
   @@index([siteId, scheduledAt])
   @@index([officerId, scheduledAt])
+  @@index([handledByPartnerId])
   @@index([status])
 }
 
@@ -804,6 +819,8 @@ model Partner {
   jobs            Job[]
   handledJobs     Job[]           @relation("JobHandlerPartner")
   handledShifts   Shift[]         @relation("ShiftHandlerPartner")
+  handledPatrolSchedules PatrolSchedule[] @relation("PatrolSchedulePartner")
+  handledPatrolVisits    PatrolVisit[]    @relation("PatrolVisitPartner")
   sites           Site[]          @relation("PartnerSites")
   formTemplates   FormTemplate[]
   /// Login seats — one per partner today (single shared login, Q1=a)

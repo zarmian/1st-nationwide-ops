@@ -187,7 +187,13 @@ export async function materializePatrolVisits(opts: {
           data: {
             siteId: s.siteId,
             patrolScheduleId: s.id,
-            officerId: s.assignedOfficerId,
+            // Partner-handled patrols carry the partner (and no internal
+            // officer); officer-handled carry the officer.
+            officerId: s.handledByPartnerId ? null : s.assignedOfficerId,
+            handledByPartnerId: s.handledByPartnerId,
+            reportedViaPartnerApp: s.handledByPartnerId
+              ? s.partnerFillsOwnApp
+              : false,
             scheduledAt: slot.scheduledAt,
             scheduleDate: slot.scheduleDate,
             status: "PENDING",

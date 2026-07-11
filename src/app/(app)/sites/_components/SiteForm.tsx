@@ -106,6 +106,8 @@ export type ScheduleDay = {
   startsOn?: string;        // "YYYY-MM-DD" anchor
   endsOn?: string;          // "YYYY-MM-DD" stop date
   assignedOfficerId?: string; // per-day officer
+  handledByPartnerId?: string; // per-day partner (subcontracted)
+  partnerFillsOwnApp?: boolean; // partner records in their own app
   intervalWeeks?: number;   // overrides frequency: "every N weeks"
   exceptionDates?: string[]; // YYYY-MM-DD skips
 };
@@ -607,6 +609,7 @@ export function SiteForm({
           days={patrolDays}
           setDays={setPatrolDays}
           officers={officers}
+          partners={partners}
           allowMultipleTimes
         />
       )}
@@ -619,6 +622,7 @@ export function SiteForm({
           days={vpiDays}
           setDays={setVpiDays}
           officers={officers}
+          partners={partners}
         />
       )}
 
@@ -1040,6 +1044,7 @@ function ScheduleSection({
   days,
   setDays,
   officers,
+  partners,
   allowMultipleTimes = false,
 }: {
   anchorId: string;
@@ -1048,6 +1053,7 @@ function ScheduleSection({
   days: ScheduleDay[];
   setDays: React.Dispatch<React.SetStateAction<ScheduleDay[]>>;
   officers: Lookup[];
+  partners: Lookup[];
   allowMultipleTimes?: boolean;
 }) {
   const selectedDays = useMemo(() => days.map((d) => d.dayOfWeek), [days]);
@@ -1093,7 +1099,33 @@ function ScheduleSection({
   function setOfficer(day: string, id: string) {
     setDays((rows) =>
       rows.map((r) =>
-        r.dayOfWeek === day ? { ...r, assignedOfficerId: id || undefined } : r,
+        r.dayOfWeek === day
+          ? { ...r, assignedOfficerId: id || undefined, handledByPartnerId: undefined }
+          : r,
+      ),
+    );
+  }
+
+  function setPartner(day: string, id: string) {
+    setDays((rows) =>
+      rows.map((r) =>
+        r.dayOfWeek === day
+          ? {
+              ...r,
+              handledByPartnerId: id || undefined,
+              // Partner and officer are mutually exclusive.
+              assignedOfficerId: id ? undefined : r.assignedOfficerId,
+              partnerFillsOwnApp: id ? r.partnerFillsOwnApp : undefined,
+            }
+          : r,
+      ),
+    );
+  }
+
+  function setPartnerFillsOwnApp(day: string, v: boolean) {
+    setDays((rows) =>
+      rows.map((r) =>
+        r.dayOfWeek === day ? { ...r, partnerFillsOwnApp: v } : r,
       ),
     );
   }
@@ -1247,21 +1279,45 @@ function ScheduleSection({
                       <span></span>
                       <div>
                         <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-0.5">
-                          Officer
+                          Assigned to
                         </label>
                         <select
                           className="input"
-                          value={d.assignedOfficerId ?? ""}
-                          onChange={(e) =>
-                            setOfficer(d.dayOfWeek, e.target.value)
+                          value={
+                            d.handledByPartnerId
+                              ? `p:${d.handledByPartnerId}`
+                              : d.assignedOfficerId
+                                ? `o:${d.assignedOfficerId}`
+                                : ""
                           }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (v.startsWith("p:")) {
+                              setPartner(d.dayOfWeek, v.slice(2));
+                            } else if (v.startsWith("o:")) {
+                              setOfficer(d.dayOfWeek, v.slice(2));
+                            } else {
+                              setOfficer(d.dayOfWeek, "");
+                            }
+                          }}
                         >
                           <option value="">— unassigned —</option>
-                          {officers.map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.name}
-                            </option>
-                          ))}
+                          <optgroup label="Our officers">
+                            {officers.map((o) => (
+                              <option key={o.id} value={`o:${o.id}`}>
+                                {o.name}
+                              </option>
+                            ))}
+                          </optgroup>
+                          {partners.length > 0 && (
+                            <optgroup label="Partners (subcontract)">
+                              {partners.map((p) => (
+                                <option key={p.id} value={`p:${p.id}`}>
+                                  {p.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
                         </select>
                       </div>
                       <div>
@@ -1298,6 +1354,30 @@ function ScheduleSection({
                         <div />
                       )}
                     </div>
+
+                    {d.handledByPartnerId && (
+                      <div className="mt-3 grid grid-cols-[80px_1fr] items-start gap-3 text-sm">
+                        <span></span>
+                        <label className="flex items-start gap-2 text-slate-700">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5 h-4 w-4"
+                            checked={d.partnerFillsOwnApp ?? false}
+                            onChange={(e) =>
+                              setPartnerFillsOwnApp(d.dayOfWeek, e.target.checked)
+                            }
+                          />
+                          <span>
+                            Partner records in{" "}
+                            <span className="font-medium">their own app</span> — we
+                            keep a stub for tracking, no report on our side.
+                            <span className="block text-xs text-slate-500">
+                              Leave unticked if the partner fills in our form.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+                    )}
 
                     <div className="mt-3 grid grid-cols-[80px_1fr] items-start gap-3 text-sm">
                       <span></span>

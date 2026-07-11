@@ -75,6 +75,7 @@ export default async function PatrolScheduleDetailPage({
         },
       },
       assignedOfficer: { select: { id: true, name: true } },
+      handledByPartner: { select: { id: true, name: true } },
       visits: {
         select: {
           id: true,
@@ -149,9 +150,21 @@ export default async function PatrolScheduleDetailPage({
 
         <div className="card p-4 space-y-2">
           <h2 className="font-semibold text-brand-navy text-sm uppercase tracking-wider">
-            Assigned officer
+            Assigned to
           </h2>
-          {schedule.assignedOfficer ? (
+          {schedule.handledByPartner ? (
+            <div>
+              <span className="chip-amber text-[10px]">PARTNER</span>{" "}
+              <span className="font-medium text-brand-navy">
+                {schedule.handledByPartner.name}
+              </span>
+              <p className="text-xs text-slate-500 mt-1">
+                {schedule.partnerFillsOwnApp
+                  ? "Records in their own app (stub kept for tracking)."
+                  : "Fills in our form."}
+              </p>
+            </div>
+          ) : schedule.assignedOfficer ? (
             <Link
               href={`/officers/${schedule.assignedOfficer.id}/edit`}
               className="font-medium text-brand-navy hover:text-brand-blue-dark"

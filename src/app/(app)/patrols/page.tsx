@@ -133,6 +133,7 @@ export default async function PatrolsPage({
             },
           },
           assignedOfficer: { select: { id: true, name: true } },
+          handledByPartner: { select: { id: true, name: true } },
         },
       }),
       prisma.patrolVisit.findMany({
@@ -383,12 +384,21 @@ export default async function PatrolsPage({
                     })()}
                   </td>
                   <td className="px-4 py-2">
-                    <QuickReassignSchedule
-                      scheduleId={s.id}
-                      currentOfficerId={s.assignedOfficerId}
-                      officers={officers}
-                      reassign={reassignSchedule}
-                    />
+                    {s.handledByPartner ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="chip-amber text-[10px]">PARTNER</span>
+                        <span className="text-slate-700">
+                          {s.handledByPartner.name}
+                        </span>
+                      </span>
+                    ) : (
+                      <QuickReassignSchedule
+                        scheduleId={s.id}
+                        currentOfficerId={s.assignedOfficerId}
+                        officers={officers}
+                        reassign={reassignSchedule}
+                      />
+                    )}
                   </td>
                   <td className="px-4 py-2">
                     <ToggleActive

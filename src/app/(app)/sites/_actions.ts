@@ -116,6 +116,14 @@ const ScheduleDay = z.object({
     .or(z.literal(""))
     .optional()
     .nullable(),
+  // Subcontract the schedule to a partner instead of an officer.
+  handledByPartnerId: z
+    .string()
+    .uuid()
+    .or(z.literal(""))
+    .optional()
+    .nullable(),
+  partnerFillsOwnApp: z.boolean().default(false),
   intervalWeeks: z.number().int().min(1).max(52).optional().nullable(),
   exceptionDates: z.array(IsoDate).default([]),
 });
@@ -194,6 +202,15 @@ function scheduleRowFromInput(
     : p.timeOfDay
       ? [p.timeOfDay]
       : [];
+  // Partner assignment wins over officer (mutually exclusive in the UI).
+  const partnerId =
+    p.handledByPartnerId && p.handledByPartnerId !== ""
+      ? p.handledByPartnerId
+      : null;
+  const officerId =
+    !partnerId && p.assignedOfficerId && p.assignedOfficerId !== ""
+      ? p.assignedOfficerId
+      : null;
   return {
     siteId,
     kind: kind as any,
@@ -203,10 +220,9 @@ function scheduleRowFromInput(
     timesOfDay: times,
     startsOn: p.startsOn ? new Date(`${p.startsOn}T00:00:00Z`) : null,
     endsOn: p.endsOn ? new Date(`${p.endsOn}T23:59:59Z`) : null,
-    assignedOfficerId:
-      p.assignedOfficerId && p.assignedOfficerId !== ""
-        ? p.assignedOfficerId
-        : null,
+    assignedOfficerId: officerId,
+    handledByPartnerId: partnerId,
+    partnerFillsOwnApp: partnerId ? p.partnerFillsOwnApp : false,
     intervalWeeks: p.intervalWeeks ?? null,
     exceptionDates: p.exceptionDates ?? [],
     active: true,
