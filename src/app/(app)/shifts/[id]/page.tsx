@@ -161,6 +161,14 @@ export default async function ShiftDetailPage({
         }
         actions={
           <>
+            <a
+              href={`/api/shifts/${shift.id}/report`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-secondary"
+            >
+              Download report (PDF)
+            </a>
             <Link href={`/shifts/${shift.id}/edit`} className="btn-secondary">
               Edit
             </Link>
