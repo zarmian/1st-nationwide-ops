@@ -95,7 +95,15 @@ export async function recalculateBilling(
       ...(to ? { lte: to } : {}),
     };
   }
-  if (scope === "missing") jobWhere.billedAmount = null;
+  // "missing" = unbilled OR (attended by an officer but unpaid). The second
+  // case is the payroll gap: jobs billed at creation but never given an
+  // officer-pay snapshot on completion.
+  if (scope === "missing") {
+    jobWhere.OR = [
+      { billedAmount: null },
+      { assignedToUserId: { not: null }, paidAmount: null },
+    ];
+  }
 
   const jobs = await prisma.job.findMany({
     where: jobWhere,
@@ -227,6 +235,7 @@ export async function recalculateBilling(
     id: string;
     bill: ReturnType<typeof calculateBilling>;
     pay: ReturnType<typeof calculatePay> | null;
+    at: Date | null;
   };
   const visitUpdates: VisitUpdate[] = [];
   for (const v of visits) {
@@ -242,7 +251,7 @@ export async function recalculateBilling(
       const merged = [...officerSpecific, ...companyRates];
       pay = calculatePay(merged, v.officerId, rateService, duration);
     }
-    visitUpdates.push({ id: v.id, bill, pay });
+    visitUpdates.push({ id: v.id, bill, pay, at: v.departedAt });
   }
 
   type JobUpdate = {
@@ -251,6 +260,7 @@ export async function recalculateBilling(
     pay: ReturnType<typeof calculatePay> | null;
     backfillCustomerId: string | null;
     backfillPartnerId: string | null;
+    at: Date | null;
   };
   const jobUpdates: JobUpdate[] = [];
   let jobsAccountBackfilled = 0;
@@ -279,6 +289,7 @@ export async function recalculateBilling(
       pay,
       backfillCustomerId,
       backfillPartnerId,
+      at: j.completedAt,
     });
   }
 
@@ -286,6 +297,7 @@ export async function recalculateBilling(
     id: string;
     bill: ReturnType<typeof calculateBilling>;
     pay: ReturnType<typeof calculatePay> | null;
+    at: Date | null;
   };
   const shiftUpdates: ShiftUpdate[] = [];
   for (const s of shifts) {
@@ -304,7 +316,7 @@ export async function recalculateBilling(
       const merged = [...officerSpecific, ...companyRates];
       pay = calculatePay(merged, s.officerId, rateService, duration);
     }
-    shiftUpdates.push({ id: s.id, bill, pay });
+    shiftUpdates.push({ id: s.id, bill, pay, at: s.actualEndedAt });
   }
 
   // ── Write in parallel chunks ──────────────────────────────────────
@@ -315,7 +327,7 @@ export async function recalculateBilling(
       visitUpdates.slice(i, i + CHUNK).map(async (u) => {
         await prisma.patrolVisit.update({
           where: { id: u.id },
-          data: visitDataFor(u.bill, u.pay),
+          data: visitDataFor(u.bill, u.pay, u.at),
         });
         if (u.bill.ok) visitsBilled++;
       }),
@@ -329,7 +341,7 @@ export async function recalculateBilling(
         await prisma.job.update({
           where: { id: u.id },
           data: {
-            ...jobDataFor(u.bill, u.pay),
+            ...jobDataFor(u.bill, u.pay, u.at),
             ...(u.backfillCustomerId ? { customerId: u.backfillCustomerId } : {}),
             ...(u.backfillPartnerId ? { partnerId: u.backfillPartnerId } : {}),
           },
@@ -345,7 +357,7 @@ export async function recalculateBilling(
       shiftUpdates.slice(i, i + CHUNK).map(async (u) => {
         await prisma.shift.update({
           where: { id: u.id },
-          data: shiftDataFor(u.bill, u.pay),
+          data: shiftDataFor(u.bill, u.pay, u.at),
         });
         if (u.bill.ok) shiftsBilled++;
       }),
@@ -371,12 +383,16 @@ export async function recalculateBilling(
 function visitDataFor(
   bill: ReturnType<typeof calculateBilling>,
   pay: ReturnType<typeof calculatePay> | null,
+  at: Date | null,
 ): Prisma.PatrolVisitUpdateInput {
+  // Stamp the work date (departed/completed/ended), not "now", so a re-run or
+  // back-fill keeps each amount in the month the work happened.
+  const stamp = at ?? new Date();
   const data: Prisma.PatrolVisitUpdateInput = bill.ok
     ? {
         billedAmount: new Prisma.Decimal(bill.amount),
         billedCurrency: bill.currency,
-        billedAt: new Date(),
+        billedAt: stamp,
         payRateUnit: bill.unit,
       }
     : {
@@ -390,7 +406,7 @@ function visitDataFor(
   } else if (pay.ok) {
     data.paidAmount = new Prisma.Decimal(pay.amount);
     data.paidCurrency = pay.currency;
-    data.paidAt = new Date();
+    data.paidAt = stamp;
   } else {
     data.paidAmount = null;
     data.paidCurrency = null;
@@ -402,12 +418,14 @@ function visitDataFor(
 function jobDataFor(
   bill: ReturnType<typeof calculateBilling>,
   pay: ReturnType<typeof calculatePay> | null,
+  at: Date | null,
 ): Prisma.JobUncheckedUpdateInput {
+  const stamp = at ?? new Date();
   const data: Prisma.JobUncheckedUpdateInput = bill.ok
     ? {
         billedAmount: new Prisma.Decimal(bill.amount),
         billedCurrency: bill.currency,
-        billedAt: new Date(),
+        billedAt: stamp,
         payRateUnit: bill.unit,
       }
     : {
@@ -421,7 +439,7 @@ function jobDataFor(
   } else if (pay.ok) {
     data.paidAmount = new Prisma.Decimal(pay.amount);
     data.paidCurrency = pay.currency;
-    data.paidAt = new Date();
+    data.paidAt = stamp;
   } else {
     data.paidAmount = null;
     data.paidCurrency = null;
@@ -433,12 +451,14 @@ function jobDataFor(
 function shiftDataFor(
   bill: ReturnType<typeof calculateBilling>,
   pay: ReturnType<typeof calculatePay> | null,
+  at: Date | null,
 ): Prisma.ShiftUncheckedUpdateInput {
+  const stamp = at ?? new Date();
   const data: Prisma.ShiftUncheckedUpdateInput = bill.ok
     ? {
         billedAmount: new Prisma.Decimal(bill.amount),
         billedCurrency: bill.currency,
-        billedAt: new Date(),
+        billedAt: stamp,
         payRateUnit: bill.unit,
       }
     : {
@@ -452,7 +472,7 @@ function shiftDataFor(
   } else if (pay.ok) {
     data.paidAmount = new Prisma.Decimal(pay.amount);
     data.paidCurrency = pay.currency;
-    data.paidAt = new Date();
+    data.paidAt = stamp;
   } else {
     data.paidAmount = null;
     data.paidCurrency = null;

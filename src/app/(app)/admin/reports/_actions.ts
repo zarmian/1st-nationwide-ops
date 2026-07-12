@@ -8,6 +8,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseUkDateTimeLocal } from "@/lib/dates";
 import { notifyAlarmCustomerAck } from "@/lib/notifications";
+import { snapshotJobFinanceIfNeeded } from "@/lib/billing";
 
 const EditsInput = z.object({
   officerNameRaw: z.string().trim().min(1).max(120).optional(),
@@ -167,6 +168,16 @@ export async function approveReview(
       });
     }
   });
+
+  // Now the job is APPROVED (completed), snapshot officer pay + billing if
+  // they're still missing, so it appears in payroll. Outside the tx (does its
+  // own rate lookups + writes); stamped at the job's completion date so it
+  // lands in the right month even if approval lagged into the next one.
+  if (sub.job) {
+    await snapshotJobFinanceIfNeeded(sub.job.id).catch((e) =>
+      console.error("snapshotJobFinanceIfNeeded failed", e),
+    );
+  }
 
   // Fire alarm-response ack SMS for alarm-response jobs on opted-in
   // customers. Outside the tx so an SMS outage can't roll back the

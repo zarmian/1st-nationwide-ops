@@ -402,6 +402,73 @@ export async function applyPayToJob(
   });
 }
 
+/**
+ * Snapshot billing + officer pay onto a Job that has just been completed,
+ * filling only columns that are still null. Stamps billedAt/paidAt with the
+ * job's completion date (not "now") so the amounts land in the correct
+ * billing/payroll month even when this runs after the fact (approval lag,
+ * back-fill). Officer pay is written only for internally-attended jobs —
+ * partner-handled jobs carry their cost separately.
+ *
+ * This closes the gap where an officer completes a Job via /submit (which
+ * only snapshotted patrol visits) or an admin approves it — previously those
+ * jobs kept paidAmount = null and silently dropped out of payroll.
+ */
+export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: {
+      id: true,
+      siteId: true,
+      type: true,
+      assignedToUserId: true,
+      handledByPartnerId: true,
+      startedAt: true,
+      completedAt: true,
+      billedAmount: true,
+      paidAmount: true,
+    },
+  });
+  if (!job || !job.siteId || !job.completedAt) return;
+  const rateService = jobTypeToRateService(job.type);
+  if (!rateService) return;
+  const duration = durationMinutes(job.startedAt, job.completedAt);
+  const at = job.completedAt;
+
+  if (job.billedAmount == null) {
+    const bill = await billForSite(job.siteId, rateService, duration);
+    if (bill.ok) {
+      await prisma.job.update({
+        where: { id: jobId },
+        data: {
+          billedAmount: new Prisma.Decimal(bill.amount),
+          billedCurrency: bill.currency,
+          billedAt: at,
+          payRateUnit: bill.unit,
+        },
+      });
+    }
+  }
+
+  if (
+    job.assignedToUserId &&
+    !job.handledByPartnerId &&
+    job.paidAmount == null
+  ) {
+    const pay = await payForOfficer(job.assignedToUserId, rateService, duration);
+    if (pay.ok) {
+      await prisma.job.update({
+        where: { id: jobId },
+        data: {
+          paidAmount: new Prisma.Decimal(pay.amount),
+          paidCurrency: pay.currency,
+          paidAt: at,
+        },
+      });
+    }
+  }
+}
+
 /** Mirrors applyPayToJob — writes the officer-pay snapshot onto a Shift. */
 export async function applyPayToShift(
   shiftId: string,
