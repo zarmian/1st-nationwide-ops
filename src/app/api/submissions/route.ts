@@ -17,6 +17,7 @@ import {
   durationMinutes,
   jobTypeToRateService,
   payForOfficer,
+  snapshotJobFinanceIfNeeded,
 } from "@/lib/billing";
 
 const Body = z.object({
@@ -174,6 +175,17 @@ export async function POST(req: Request) {
             ...(startedAt ? { startedAt } : {}),
           },
     });
+
+    // Auto-approved forms go straight to APPROVED (completed) — snapshot the
+    // officer pay (+ billing) now so the job shows in payroll. Previously
+    // only patrol visits got this, so officer-completed jobs silently
+    // dropped out of an officer's pay. Reviewed (SUBMITTED) forms snapshot
+    // at admin approval instead.
+    if (autoApprove) {
+      await snapshotJobFinanceIfNeeded(data.jobId).catch((e) =>
+        console.error("snapshotJobFinanceIfNeeded failed", e),
+      );
+    }
   }
 
   // If this submission completes a patrol visit, mark it COMPLETED with the
