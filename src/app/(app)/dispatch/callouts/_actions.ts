@@ -173,11 +173,14 @@ export async function recordDispatcherCallout(
   // Officer pay only when WE attended.
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
+    // Retrospective callout — no schedule, so the accounting date is when it
+    // was completed.
+    const at = completedAt;
     const bill = await billForSite(d.siteId, rateService);
-    if (bill.ok) await applyBillingToJob(created.id, bill);
+    if (bill.ok) await applyBillingToJob(created.id, bill, at);
     if (officerId) {
       const pay = await payForOfficer(officerId, rateService);
-      if (pay.ok) await applyPayToJob(created.id, pay);
+      if (pay.ok) await applyPayToJob(created.id, pay, at);
     }
   }
 

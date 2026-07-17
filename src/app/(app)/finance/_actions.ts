@@ -74,6 +74,8 @@ export async function recalculateBilling(
       id: true,
       siteId: true,
       officerId: true,
+      scheduleDate: true,
+      scheduledAt: true,
       arrivedAt: true,
       departedAt: true,
       formSubmissions: {
@@ -112,6 +114,7 @@ export async function recalculateBilling(
       siteId: true,
       type: true,
       assignedToUserId: true,
+      scheduledFor: true,
       startedAt: true,
       completedAt: true,
       customerId: true,
@@ -142,6 +145,7 @@ export async function recalculateBilling(
       type: true,
       officerId: true,
       handledByPartnerId: true,
+      scheduledStartsAt: true,
       actualStartedAt: true,
       actualEndedAt: true,
     },
@@ -251,7 +255,12 @@ export async function recalculateBilling(
       const merged = [...officerSpecific, ...companyRates];
       pay = calculatePay(merged, v.officerId, rateService, duration);
     }
-    visitUpdates.push({ id: v.id, bill, pay, at: v.departedAt });
+    visitUpdates.push({
+      id: v.id,
+      bill,
+      pay,
+      at: v.scheduleDate ?? v.scheduledAt,
+    });
   }
 
   type JobUpdate = {
@@ -289,7 +298,7 @@ export async function recalculateBilling(
       pay,
       backfillCustomerId,
       backfillPartnerId,
-      at: j.completedAt,
+      at: j.scheduledFor ?? j.completedAt,
     });
   }
 
@@ -316,7 +325,7 @@ export async function recalculateBilling(
       const merged = [...officerSpecific, ...companyRates];
       pay = calculatePay(merged, s.officerId, rateService, duration);
     }
-    shiftUpdates.push({ id: s.id, bill, pay, at: s.actualEndedAt });
+    shiftUpdates.push({ id: s.id, bill, pay, at: s.scheduledStartsAt });
   }
 
   // ── Write in parallel chunks ──────────────────────────────────────

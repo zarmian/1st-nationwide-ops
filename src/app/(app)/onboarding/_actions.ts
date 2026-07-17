@@ -159,11 +159,12 @@ export async function addSetupJob(
   // simply leave the snapshot empty.
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
+    const at = parseUkDateTimeLocal(d.scheduledFor);
     const bill = await billForSite(pipeline.siteId, rateService);
-    if (bill.ok) await applyBillingToJob(job.id, bill);
+    if (bill.ok) await applyBillingToJob(job.id, bill, at);
     if (d.assignedToUserId) {
       const pay = await payForOfficer(d.assignedToUserId, rateService);
-      if (pay.ok) await applyPayToJob(job.id, pay);
+      if (pay.ok) await applyPayToJob(job.id, pay, at);
     }
   }
 

@@ -402,6 +402,7 @@ export async function endShift(
       officerId: true,
       type: true,
       status: true,
+      scheduledStartsAt: true,
       actualStartedAt: true,
     },
   });
@@ -423,12 +424,13 @@ export async function endShift(
   // internal officer attended.
   const rateService = jobTypeToRateService(shift.type);
   if (rateService) {
+    const at = shift.scheduledStartsAt;
     const dur = durationMinutes(shift.actualStartedAt, endedAt);
     const bill = await billForSite(shift.siteId, rateService, dur);
-    await applyBillingToShift(shift.id, bill);
+    await applyBillingToShift(shift.id, bill, at);
     if (shift.officerId) {
       const pay = await payForOfficer(shift.officerId, rateService, dur);
-      await applyPayToShift(shift.id, pay);
+      await applyPayToShift(shift.id, pay, at);
     }
   }
 
@@ -581,12 +583,14 @@ export async function recordCompletedShift(
   // partner's chargeToUs which they enter on their portal.
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
+    // Accounting date = the shift's scheduled start (= start for this
+    // recorded-after-the-fact shift).
     const dur = durationMinutes(start, end);
     const bill = await billForSite(d.siteId, rateService, dur);
-    await applyBillingToShift(created.id, bill);
+    await applyBillingToShift(created.id, bill, start);
     if (d.handlerKind === "officer" && d.officerId) {
       const pay = await payForOfficer(d.officerId, rateService, dur);
-      await applyPayToShift(created.id, pay);
+      await applyPayToShift(created.id, pay, start);
     }
   }
 

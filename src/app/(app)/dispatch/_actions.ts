@@ -226,11 +226,14 @@ export async function createJob(
   // partner is tracked separately).
   const rateService = jobTypeToRateService(d.type);
   if (rateService) {
+    // Accounting date = the scheduled date (falls back to "now" in apply*
+    // when it's an ad-hoc job with no schedule).
+    const at = parseUkDateTimeLocal(d.scheduledFor);
     const bill = await billForSite(d.siteId, rateService);
-    if (bill.ok) await applyBillingToJob(created.id, bill);
+    if (bill.ok) await applyBillingToJob(created.id, bill, at);
     if (assignedToUserId) {
       const pay = await payForOfficer(assignedToUserId, rateService);
-      if (pay.ok) await applyPayToJob(created.id, pay);
+      if (pay.ok) await applyPayToJob(created.id, pay, at);
     }
   }
 
@@ -267,6 +270,7 @@ export async function closeJob(
       status: true,
       siteId: true,
       type: true,
+      scheduledFor: true,
       startedAt: true,
       completedAt: true,
       assignedToUserId: true,
@@ -306,19 +310,21 @@ export async function closeJob(
   });
 
   // Run billing + officer pay snapshot if we haven't already. Matches
-  // the recordDispatcherCallout and restoreJob behaviour.
+  // the recordDispatcherCallout and restoreJob behaviour. Accounting date =
+  // scheduled date, else the completion time we just stamped.
+  const at = job.scheduledFor ?? job.completedAt ?? closedAt;
   if (job.siteId && job.billedAmount == null) {
     const rateService = jobTypeToRateService(job.type);
     if (rateService) {
       const bill = await billForSite(job.siteId, rateService);
-      if (bill.ok) await applyBillingToJob(jobId, bill);
+      if (bill.ok) await applyBillingToJob(jobId, bill, at);
     }
   }
   if (job.assignedToUserId && !job.handledByPartnerId && job.paidAmount == null) {
     const rateService = jobTypeToRateService(job.type);
     if (rateService) {
       const pay = await payForOfficer(job.assignedToUserId, rateService);
-      if (pay.ok) await applyPayToJob(jobId, pay);
+      if (pay.ok) await applyPayToJob(jobId, pay, at);
     }
   }
 
@@ -398,6 +404,8 @@ export async function restoreJob(
       siteId: true,
       assignedToUserId: true,
       type: true,
+      scheduledFor: true,
+      completedAt: true,
     },
   });
   if (!job) return { ok: false, error: "Job not found" };
@@ -423,15 +431,17 @@ export async function restoreJob(
 
   // Re-snapshot the billing + pay from live rates. Same logic as
   // createJob's tail. Officer pay only when the job is internally
-  // attended; partner-handled stays unpaid.
+  // attended; partner-handled stays unpaid. Accounting date = scheduled
+  // date, else completion.
   if (job.siteId) {
+    const at = job.scheduledFor ?? job.completedAt ?? null;
     const rateService = jobTypeToRateService(job.type);
     if (rateService) {
       const bill = await billForSite(job.siteId, rateService);
-      if (bill.ok) await applyBillingToJob(jobId, bill);
+      if (bill.ok) await applyBillingToJob(jobId, bill, at);
       if (job.assignedToUserId) {
         const pay = await payForOfficer(job.assignedToUserId, rateService);
-        if (pay.ok) await applyPayToJob(jobId, pay);
+        if (pay.ok) await applyPayToJob(jobId, pay, at);
       }
     }
   }

@@ -192,9 +192,34 @@ export async function billForSite(
  * Apply the result of calculateBilling to a PatrolVisit row. Idempotent —
  * recalculation is fine to re-run; we always overwrite the snapshot.
  */
+/**
+ * Accounting date — the day an activity's billing + pay is attributed to, and
+ * therefore which month it lands in on finance + payroll. We anchor on the
+ * SCHEDULED date (the rota), falling back to when the work actually finished
+ * only when there's no schedule (e.g. a reactive alarm response). So a job /
+ * patrol / shift scheduled for the 30th but finished on the 1st still counts
+ * in the scheduled month. Callers pass the result into the apply* snapshots.
+ */
+export function jobAccountingDate(j: {
+  scheduledFor: Date | null;
+  completedAt: Date | null;
+}): Date | null {
+  return j.scheduledFor ?? j.completedAt ?? null;
+}
+export function visitAccountingDate(v: {
+  scheduleDate: Date | null;
+  scheduledAt: Date;
+}): Date {
+  return v.scheduleDate ?? v.scheduledAt;
+}
+export function shiftAccountingDate(s: { scheduledStartsAt: Date }): Date {
+  return s.scheduledStartsAt;
+}
+
 export async function applyBillingToVisit(
   visitId: string,
   result: BillingResult,
+  at: Date | null,
 ): Promise<void> {
   if (!result.ok) {
     await prisma.patrolVisit.update({
@@ -213,7 +238,7 @@ export async function applyBillingToVisit(
     data: {
       billedAmount: new Prisma.Decimal(result.amount),
       billedCurrency: result.currency,
-      billedAt: new Date(),
+      billedAt: at ?? new Date(),
       payRateUnit: result.unit,
     },
   });
@@ -222,6 +247,7 @@ export async function applyBillingToVisit(
 export async function applyBillingToJob(
   jobId: string,
   result: BillingResult,
+  at: Date | null,
 ): Promise<void> {
   if (!result.ok) {
     await prisma.job.update({
@@ -240,7 +266,7 @@ export async function applyBillingToJob(
     data: {
       billedAmount: new Prisma.Decimal(result.amount),
       billedCurrency: result.currency,
-      billedAt: new Date(),
+      billedAt: at ?? new Date(),
       payRateUnit: result.unit,
     },
   });
@@ -250,6 +276,7 @@ export async function applyBillingToJob(
 export async function applyBillingToShift(
   shiftId: string,
   result: BillingResult,
+  at: Date | null,
 ): Promise<void> {
   if (!result.ok) {
     await prisma.shift.update({
@@ -268,7 +295,7 @@ export async function applyBillingToShift(
     data: {
       billedAmount: new Prisma.Decimal(result.amount),
       billedCurrency: result.currency,
-      billedAt: new Date(),
+      billedAt: at ?? new Date(),
       payRateUnit: result.unit,
     },
   });
@@ -363,6 +390,7 @@ export async function payForOfficer(
 export async function applyPayToVisit(
   visitId: string,
   result: BillingResult,
+  at: Date | null,
 ): Promise<void> {
   if (!result.ok) {
     await prisma.patrolVisit.update({
@@ -376,7 +404,7 @@ export async function applyPayToVisit(
     data: {
       paidAmount: new Prisma.Decimal(result.amount),
       paidCurrency: result.currency,
-      paidAt: new Date(),
+      paidAt: at ?? new Date(),
     },
   });
 }
@@ -384,6 +412,7 @@ export async function applyPayToVisit(
 export async function applyPayToJob(
   jobId: string,
   result: BillingResult,
+  at: Date | null,
 ): Promise<void> {
   if (!result.ok) {
     await prisma.job.update({
@@ -397,7 +426,7 @@ export async function applyPayToJob(
     data: {
       paidAmount: new Prisma.Decimal(result.amount),
       paidCurrency: result.currency,
-      paidAt: new Date(),
+      paidAt: at ?? new Date(),
     },
   });
 }
@@ -405,9 +434,10 @@ export async function applyPayToJob(
 /**
  * Snapshot billing + officer pay onto a Job that has just been completed,
  * filling only columns that are still null. Stamps billedAt/paidAt with the
- * job's completion date (not "now") so the amounts land in the correct
- * billing/payroll month even when this runs after the fact (approval lag,
- * back-fill). Officer pay is written only for internally-attended jobs —
+ * job's ACCOUNTING date (scheduled date, else completion) so the amounts land
+ * in the correct billing/payroll month even when this runs after the fact
+ * (approval lag, back-fill) or the job finished in a later month than it was
+ * scheduled. Officer pay is written only for internally-attended jobs —
  * partner-handled jobs carry their cost separately.
  *
  * This closes the gap where an officer completes a Job via /submit (which
@@ -423,6 +453,7 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
       type: true,
       assignedToUserId: true,
       handledByPartnerId: true,
+      scheduledFor: true,
       startedAt: true,
       completedAt: true,
       billedAmount: true,
@@ -433,7 +464,7 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
   const rateService = jobTypeToRateService(job.type);
   if (!rateService) return;
   const duration = durationMinutes(job.startedAt, job.completedAt);
-  const at = job.completedAt;
+  const at = jobAccountingDate(job) ?? new Date();
 
   if (job.billedAmount == null) {
     const bill = await billForSite(job.siteId, rateService, duration);
@@ -473,6 +504,7 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
 export async function applyPayToShift(
   shiftId: string,
   result: BillingResult,
+  at: Date | null,
 ): Promise<void> {
   if (!result.ok) {
     await prisma.shift.update({
@@ -486,7 +518,7 @@ export async function applyPayToShift(
     data: {
       paidAmount: new Prisma.Decimal(result.amount),
       paidCurrency: result.currency,
-      paidAt: new Date(),
+      paidAt: at ?? new Date(),
     },
   });
 }

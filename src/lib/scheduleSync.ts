@@ -276,11 +276,12 @@ async function maybeCreateLockUnlock(args: {
   });
 
   const rateService = args.type === "LOCK" ? "LOCKUP" : "UNLOCK";
+  // Accounting date = the scheduled day this lock/unlock is for.
   const bill = await billForSite(args.siteId, rateService as any);
-  if (bill.ok) await applyBillingToJob(job.id, bill);
+  if (bill.ok) await applyBillingToJob(job.id, bill, scheduledFor);
   if (args.officerId) {
     const pay = await payForOfficer(args.officerId, rateService as any);
-    if (pay.ok) await applyPayToJob(job.id, pay);
+    if (pay.ok) await applyPayToJob(job.id, pay, scheduledFor);
   }
 
   return true;

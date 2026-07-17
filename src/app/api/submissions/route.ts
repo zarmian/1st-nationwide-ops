@@ -199,6 +199,8 @@ export async function POST(req: Request) {
         status: true,
         siteId: true,
         officerId: true,
+        scheduleDate: true,
+        scheduledAt: true,
       },
     });
     const departed = data.departedAt ? new Date(data.departedAt) : new Date();
@@ -223,6 +225,9 @@ export async function POST(req: Request) {
     // source. Best-effort: a missing rate leaves the visit unbilled rather
     // than failing the submission.
     if (visit?.siteId) {
+      // Accounting date = the scheduled night, so overnight patrols count in
+      // the month they were scheduled for, not the calendar day of check-out.
+      const at = visit.scheduleDate ?? visit.scheduledAt;
       const rateService = jobTypeToRateService(data.form);
       const duration = durationMinutes(arrived, departed);
       if (rateService) {
@@ -231,7 +236,7 @@ export async function POST(req: Request) {
           rateService,
           duration,
         );
-        await applyBillingToVisit(data.patrolVisitId, billResult);
+        await applyBillingToVisit(data.patrolVisitId, billResult, at);
 
         // Officer pay snapshot — only meaningful when we know who attended.
         const attendingOfficerId =
@@ -243,7 +248,7 @@ export async function POST(req: Request) {
             rateService,
             duration,
           );
-          await applyPayToVisit(data.patrolVisitId, payResult);
+          await applyPayToVisit(data.patrolVisitId, payResult, at);
         }
       }
     }
