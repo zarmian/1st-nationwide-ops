@@ -234,6 +234,8 @@ export async function closePatrolVisit(
       status: true,
       siteId: true,
       officerId: true,
+      scheduleDate: true,
+      scheduledAt: true,
       arrivedAt: true,
       departedAt: true,
       notes: true,
@@ -265,18 +267,20 @@ export async function closePatrolVisit(
   });
 
   // Snapshot billing + officer pay — mirror the /api/submissions path so
-  // finance treats this the same as an officer-completed visit.
+  // finance treats this the same as an officer-completed visit. Accounting
+  // date = the scheduled night, so overnight patrols count in the right month.
   if (visit.siteId && visit.billedAmount == null) {
+    const at = visit.scheduleDate ?? visit.scheduledAt;
     const rateService = jobTypeToRateService(
       visit.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
     );
     if (rateService) {
       const dur = durationMinutes(arrived, departed);
       const bill = await billForSite(visit.siteId, rateService, dur);
-      await applyBillingToVisit(visitId, bill);
+      await applyBillingToVisit(visitId, bill, at);
       if (visit.officerId && visit.paidAmount == null) {
         const pay = await payForOfficer(visit.officerId, rateService, dur);
-        await applyPayToVisit(visitId, pay);
+        await applyPayToVisit(visitId, pay, at);
       }
     }
   }
@@ -351,6 +355,8 @@ export async function restorePatrolVisit(
       statusBeforeCancel: true,
       siteId: true,
       officerId: true,
+      scheduleDate: true,
+      scheduledAt: true,
       arrivedAt: true,
       departedAt: true,
       patrolSchedule: { select: { kind: true } },
@@ -373,16 +379,17 @@ export async function restorePatrolVisit(
   });
 
   if (next === "COMPLETED" && visit.siteId) {
+    const at = visit.scheduleDate ?? visit.scheduledAt;
     const rateService = jobTypeToRateService(
       visit.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
     );
     if (rateService) {
       const dur = durationMinutes(visit.arrivedAt, visit.departedAt);
       const bill = await billForSite(visit.siteId, rateService, dur);
-      await applyBillingToVisit(visitId, bill);
+      await applyBillingToVisit(visitId, bill, at);
       if (visit.officerId) {
         const pay = await payForOfficer(visit.officerId, rateService, dur);
-        await applyPayToVisit(visitId, pay);
+        await applyPayToVisit(visitId, pay, at);
       }
     }
   }

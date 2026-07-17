@@ -318,11 +318,13 @@ export async function endDuty(input: {
   // (partner cost is tracked separately on the partner portal).
   const rateService = jobTypeToRateService(shift.type);
   if (rateService) {
+    // Accounting date = the shift's scheduled start (its rota date).
+    const at = shift.scheduledStartsAt;
     const bill = await billForSite(shift.siteId, rateService, worked);
-    await applyBillingToShift(shift.id, bill);
+    await applyBillingToShift(shift.id, bill, at);
     if (shift.officerId) {
       const pay = await payForOfficer(shift.officerId, rateService, payable);
-      await applyPayToShift(shift.id, pay);
+      await applyPayToShift(shift.id, pay, at);
     }
   }
 
