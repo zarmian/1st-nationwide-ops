@@ -38,6 +38,23 @@ export default async function OperationsHubPage() {
     }),
   ]);
 
+  // Shurgard jobs completed so far today — the daily report card stat.
+  const reportShurgard = await prisma.customer.findFirst({
+    where: { name: { contains: "Shurgard", mode: "insensitive" } },
+    select: { id: true },
+  });
+  const reportDayStart = new Date();
+  reportDayStart.setHours(0, 0, 0, 0);
+  const todayReportJobs = reportShurgard
+    ? await prisma.job.count({
+        where: {
+          site: { is: { customerId: reportShurgard.id } },
+          status: { not: "CANCELLED" },
+          completedAt: { gte: reportDayStart },
+        },
+      })
+    : 0;
+
   const cards = [
     {
       href: "/patrols",
@@ -101,6 +118,14 @@ export default async function OperationsHubPage() {
         "Calls from the bOnline phone webhook. Missed calls alert dispatch by SMS.",
       stat: missedCallsWeek,
       statLabel: "missed / 7 days",
+    },
+    {
+      href: "/reports",
+      title: "Daily report",
+      blurb:
+        "Shurgard callouts + lock-ups and static guarding (Shurgard & Access Storage) for a day. Nexus-run sites tagged.",
+      stat: todayReportJobs,
+      statLabel: "Shurgard today",
     },
   ];
 
