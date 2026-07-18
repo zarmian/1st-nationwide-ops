@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isAuthorisedCron } from "@/lib/cronAuth";
 import { notifyOfficerPaySummary } from "@/lib/notifications";
+import {
+  jobScheduledRange,
+  visitScheduledRange,
+  shiftScheduledRange,
+} from "@/lib/activityWhen";
 
 /**
  * Month-end officer pay summary SMS.
@@ -66,7 +71,7 @@ export async function GET(req: Request) {
         where: {
           officerId: o.id,
           status: "COMPLETED",
-          departedAt: { gte: monthStart, lte: monthEnd },
+          ...visitScheduledRange(monthStart, monthEnd),
         },
         _sum: { paidAmount: true },
         _count: { _all: true },
@@ -75,7 +80,8 @@ export async function GET(req: Request) {
         where: {
           assignedToUserId: o.id,
           status: { not: "CANCELLED" },
-          completedAt: { gte: monthStart, lte: monthEnd },
+          completedAt: { not: null },
+          ...jobScheduledRange(monthStart, monthEnd),
         },
         _sum: { paidAmount: true },
         _count: { _all: true },
@@ -84,7 +90,7 @@ export async function GET(req: Request) {
         where: {
           officerId: o.id,
           status: "COMPLETED",
-          actualEndedAt: { gte: monthStart, lte: monthEnd },
+          ...shiftScheduledRange(monthStart, monthEnd),
         },
         _sum: { paidAmount: true },
         _count: { _all: true },

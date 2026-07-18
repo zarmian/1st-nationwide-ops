@@ -8,6 +8,11 @@ import { Sparkline } from "@/components/Sparkline";
 import { PageHeader } from "@/components/PageHeader";
 import { TrendChart } from "@/components/TrendChart";
 import { BarList } from "@/components/BarList";
+import {
+  jobScheduledRange,
+  visitScheduledRange,
+  shiftScheduledRange,
+} from "@/lib/activityWhen";
 
 export const dynamic = "force-dynamic";
 
@@ -133,23 +138,23 @@ export default async function FinancePage({
         _sum: { billedAmount: true },
         where: {
           status: "COMPLETED",
-          departedAt: { gte: from, lte: to },
+          ...visitScheduledRange(from, to),
         },
       }),
       prisma.job.aggregate({
         _sum: { billedAmount: true },
         where: {
-          completedAt: { gte: from, lte: to },
+          // Only work actually done, attributed to its scheduled month.
+          completedAt: { not: null },
           status: { not: "CANCELLED" },
+          ...jobScheduledRange(from, to),
         },
       }),
-      // Shifts (Phase 4 finance integration) — anchor on actualEndedAt
-      // so a shift that spans midnight bills to the day it finished.
       prisma.shift.aggregate({
         _sum: { billedAmount: true },
         where: {
           status: "COMPLETED",
-          actualEndedAt: { gte: from, lte: to },
+          ...shiftScheduledRange(from, to),
         },
       }),
     ]);
@@ -272,7 +277,7 @@ export default async function FinancePage({
     prisma.patrolVisit.findMany({
       where: {
         status: "COMPLETED",
-        departedAt: { gte: fromDate, lte: toDate },
+        ...visitScheduledRange(fromDate, toDate),
       },
       select: {
         billedAmount: true,
@@ -298,8 +303,9 @@ export default async function FinancePage({
     }),
     prisma.job.findMany({
       where: {
-        completedAt: { gte: fromDate, lte: toDate },
+        completedAt: { not: null },
         status: { not: "CANCELLED" },
+        ...jobScheduledRange(fromDate, toDate),
       },
       select: {
         billedAmount: true,
@@ -338,7 +344,7 @@ export default async function FinancePage({
     prisma.shift.findMany({
       where: {
         status: "COMPLETED",
-        actualEndedAt: { gte: fromDate, lte: toDate },
+        ...shiftScheduledRange(fromDate, toDate),
       },
       select: {
         billedAmount: true,

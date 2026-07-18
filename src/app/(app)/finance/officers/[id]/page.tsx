@@ -139,10 +139,17 @@ export default async function OfficerFinancePage({
   if (regionId != null) siteWhereExtras.regionId = regionId;
   const hasSiteFilter = Object.keys(siteWhereExtras).length > 0;
 
+  // Date window is on the SCHEDULED (accounting) date so activities scheduled
+  // late in a month but completed in the next still land in the scheduled
+  // month — matching how they're billed/paid. Fall back to completion only
+  // when there's no schedule.
   const visitWhere: any = {
     officerId: params.id,
     status: "COMPLETED",
-    departedAt: { gte: fromDate, lte: toDate },
+    OR: [
+      { scheduleDate: { gte: fromDate, lte: toDate } },
+      { scheduleDate: null, scheduledAt: { gte: fromDate, lte: toDate } },
+    ],
     ...(visitKindFilter
       ? { patrolSchedule: { kind: visitKindFilter } }
       : {}),
@@ -151,14 +158,17 @@ export default async function OfficerFinancePage({
   const jobWhere: any = {
     assignedToUserId: params.id,
     status: { in: ["APPROVED", "CLOSED", "SENT_TO_CLIENT", "SUBMITTED"] },
-    completedAt: { gte: fromDate, lte: toDate },
+    OR: [
+      { scheduledFor: { gte: fromDate, lte: toDate } },
+      { scheduledFor: null, completedAt: { gte: fromDate, lte: toDate } },
+    ],
     ...(jobTypeFilter ? { type: jobTypeFilter as any } : {}),
     ...(hasSiteFilter ? { site: { is: siteWhereExtras } } : {}),
   };
   const shiftWhere: any = {
     officerId: params.id,
     status: "COMPLETED",
-    actualEndedAt: { gte: fromDate, lte: toDate },
+    scheduledStartsAt: { gte: fromDate, lte: toDate },
     ...(shiftTypeFilter ? { type: shiftTypeFilter } : {}),
     ...(hasSiteFilter ? { site: { is: siteWhereExtras } } : {}),
   };
