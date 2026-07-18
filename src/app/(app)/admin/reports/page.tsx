@@ -4,6 +4,22 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
+// The scheduled date of the activity the submission is for (else when it was
+// submitted, for orphan submissions).
+function scheduledWhen(sub: {
+  submittedAt: Date;
+  job?: { scheduledFor: Date | null } | null;
+  patrolVisit?: { scheduledAt: Date } | null;
+  shift?: { scheduledStartsAt: Date } | null;
+}): Date {
+  return (
+    sub.job?.scheduledFor ??
+    sub.patrolVisit?.scheduledAt ??
+    sub.shift?.scheduledStartsAt ??
+    sub.submittedAt
+  );
+}
+
 function fmtUk(d: Date): string {
   // Show submitted timestamps in UK wall-clock, not raw UTC. Was
   // .toISOString().slice(0,16).replace("T"," ") which displayed
@@ -31,6 +47,8 @@ export default async function AdminReportsPage() {
               partner: { select: { name: true } },
             },
           },
+          patrolVisit: { select: { scheduledAt: true } },
+          shift: { select: { scheduledStartsAt: true } },
         },
       },
     },
@@ -56,7 +74,7 @@ export default async function AdminReportsPage() {
         <table className="table-default">
           <thead>
             <tr>
-              <th>Submitted</th>
+              <th>Scheduled</th>
               <th>Form</th>
               <th>Site</th>
               <th>Customer</th>
@@ -69,7 +87,7 @@ export default async function AdminReportsPage() {
             {queue.map((r) => (
               <tr key={r.id}>
                 <td className="text-slate-500 whitespace-nowrap">
-                  {fmtUk(r.submission.submittedAt)}
+                  {fmtUk(scheduledWhen(r.submission))}
                 </td>
                 <td>
                   <span className="chip-slate">
@@ -131,7 +149,7 @@ export default async function AdminReportsPage() {
                   {r.submission.site?.name ?? "—"}
                 </div>
                 <div className="text-xs text-slate-500">
-                  {fmtUk(r.submission.submittedAt)} ·{" "}
+                  {fmtUk(scheduledWhen(r.submission))} ·{" "}
                   {r.submission.site?.postcodeFormatted}
                 </div>
               </div>
