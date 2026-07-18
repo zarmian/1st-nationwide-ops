@@ -14,7 +14,7 @@ export default async function EditVisitPage({
 }) {
   await requireStaff();
 
-  const [visit, officers] = await Promise.all([
+  const [visit, officers, partners] = await Promise.all([
     prisma.patrolVisit.findUnique({
       where: { id: params.id },
       include: {
@@ -34,6 +34,11 @@ export default async function EditVisitPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    prisma.partner.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
 
   if (!visit || !visit.site) notFound();
@@ -45,6 +50,8 @@ export default async function EditVisitPage({
     departedAt: visit.departedAt?.toISOString() ?? null,
     status: visit.status,
     officerId: visit.officerId,
+    handledByPartnerId: visit.handledByPartnerId,
+    reportedViaPartnerApp: visit.reportedViaPartnerApp,
     notes: visit.notes,
     siteName: visit.site.name,
     siteCode: visit.site.code,
@@ -66,6 +73,7 @@ export default async function EditVisitPage({
       <EditVisitForm
         visit={editableVisit}
         officers={officers}
+        partners={partners}
         action={boundAction}
       />
     </div>
