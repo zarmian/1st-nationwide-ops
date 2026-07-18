@@ -38,6 +38,7 @@ function parseForm(formData: FormData) {
   return CalloutInput.safeParse({
     siteId: formData.get("siteId")?.toString() ?? "",
     type: formData.get("type")?.toString() ?? "ALARM_RESPONSE",
+    typeLabel: formData.get("typeLabel")?.toString() || null,
     source: formData.get("source")?.toString() ?? "ALARM",
     handlerKind: formData.get("handlerKind")?.toString() ?? "officer",
     officerId: formData.get("officerId")?.toString() || null,
@@ -147,6 +148,7 @@ export async function recordDispatcherCallout(
   const created = await prisma.job.create({
     data: {
       type: d.type as any,
+      typeLabel: d.typeLabel ?? null,
       source: d.source as any,
       status: "APPROVED" as any,
       siteId: d.siteId,

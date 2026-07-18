@@ -904,6 +904,10 @@ model PartnerContact {
 model Job {
   id                    String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   type                  JobType
+  /// The specific sub-type label the operator picked (e.g. "Intruder alarm",
+  /// "Camera activation") when the JobType code has several option aliases.
+  /// Null = use the canonical label for `type`.
+  typeLabel             String?
   source                JobSource
   status                JobStatus     @default(OPEN)
   priority              AlarmPriority @default(MEDIUM)

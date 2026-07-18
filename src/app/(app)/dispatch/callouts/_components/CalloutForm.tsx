@@ -46,6 +46,16 @@ export function CalloutForm({
   const [handlerKind, setHandlerKind] = useState<"officer" | "partner">(
     "officer",
   );
+  // Track the picked type OPTION by its unique id — several options can share
+  // a code (e.g. "Intruder alarm" / "Camera activation" both ALARM_RESPONSE),
+  // so we can't key the <select> on the code or they'd be indistinguishable.
+  const [typeId, setTypeId] = useState(
+    () =>
+      jobTypes.find((t) => t.code === "ALARM_RESPONSE")?.id ??
+      jobTypes[0]?.id ??
+      "",
+  );
+  const selectedType = jobTypes.find((t) => t.id === typeId);
 
   // Default times: callout typically just finished. Pre-fill end=now,
   // start = 30 minutes ago — dispatcher tweaks both.
@@ -81,20 +91,22 @@ export function CalloutForm({
             </label>
             <select
               id="type"
-              name="type"
               className="input"
-              defaultValue={
-                jobTypes.find((t) => t.code === "ALARM_RESPONSE")?.code ??
-                jobTypes[0]?.code ??
-                ""
-              }
+              value={typeId}
+              onChange={(e) => setTypeId(e.target.value)}
             >
               {jobTypes.map((t) => (
-                <option key={t.id} value={t.code}>
+                <option key={t.id} value={t.id}>
                   {t.label}
                 </option>
               ))}
             </select>
+            <input type="hidden" name="type" value={selectedType?.code ?? ""} />
+            <input
+              type="hidden"
+              name="typeLabel"
+              value={selectedType?.label ?? ""}
+            />
             {fe.type?.[0] && <p className="text-xs text-red-600 mt-1">{fe.type[0]}</p>}
           </div>
 
