@@ -57,6 +57,7 @@ const NewJobInput = z
   .object({
     siteId: z.string().uuid("Pick a site"),
     type: z.enum(JOB_TYPES),
+    typeLabel: z.string().trim().max(120).optional().nullable(),
     source: z.enum(JOB_SOURCES),
     priority: z.enum(PRIORITIES).default("MEDIUM"),
     scheduledFor: z.string().optional().nullable(),
@@ -100,6 +101,7 @@ function parseForm(formData: FormData) {
   const raw = {
     siteId: formData.get("siteId")?.toString() ?? "",
     type: formData.get("type")?.toString() ?? "ADHOC",
+    typeLabel: formData.get("typeLabel")?.toString() || null,
     source: formData.get("source")?.toString() ?? "CUSTOMER_REQUEST",
     priority: formData.get("priority")?.toString() ?? "MEDIUM",
     scheduledFor: formData.get("scheduledFor")?.toString() || null,
@@ -199,6 +201,7 @@ export async function createJob(
   const created = await prisma.job.create({
     data: {
       type: d.type as any,
+      typeLabel: d.typeLabel ?? null,
       source: d.source as any,
       status,
       priority: d.priority as any,
@@ -471,6 +474,7 @@ export async function restoreJob(
 const EditJobInput = z
   .object({
     type: z.enum(JOB_TYPES),
+    typeLabel: z.string().trim().max(120).optional().nullable(),
     source: z.enum(JOB_SOURCES),
     priority: z.enum(PRIORITIES),
     scheduledFor: z.string().optional().nullable(),
@@ -512,6 +516,7 @@ export type EditJobState = {
 function parseEditForm(formData: FormData) {
   return EditJobInput.safeParse({
     type: formData.get("type")?.toString() ?? "",
+    typeLabel: formData.get("typeLabel")?.toString() || null,
     source: formData.get("source")?.toString() ?? "",
     priority: formData.get("priority")?.toString() ?? "MEDIUM",
     scheduledFor: formData.get("scheduledFor")?.toString() || null,
@@ -585,6 +590,7 @@ export async function updateJob(
     where: { id: jobId },
     data: {
       type: d.type as any,
+      typeLabel: d.typeLabel ?? null,
       source: d.source as any,
       priority: d.priority as any,
       scheduledFor: parseUkDateTimeLocal(d.scheduledFor),

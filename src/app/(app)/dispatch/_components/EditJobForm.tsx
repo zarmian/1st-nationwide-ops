@@ -18,6 +18,7 @@ const PRIORITIES = [
 export type EditableJob = {
   id: string;
   type: string;
+  typeLabel: string | null;
   source: string;
   priority: string;
   status: string;
@@ -68,6 +69,18 @@ export function EditJobForm({
   const [handlerKind, setHandlerKind] = useState<"officer" | "partner">(
     initialHandlerKind,
   );
+  // Key the type picker on the option id (several share a code). Default to
+  // the option matching the job's saved code + sub-type label.
+  const [typeId, setTypeId] = useState(
+    () =>
+      jobTypes.find(
+        (t) => t.code === job.type && (!job.typeLabel || t.label === job.typeLabel),
+      )?.id ??
+      jobTypes.find((t) => t.code === job.type)?.id ??
+      jobTypes[0]?.id ??
+      "",
+  );
+  const selectedType = jobTypes.find((t) => t.id === typeId);
 
   return (
     <form action={formAction} className="space-y-6 max-w-3xl">
@@ -96,16 +109,22 @@ export function EditJobForm({
             <label className="label" htmlFor="type">Type</label>
             <select
               id="type"
-              name="type"
-              defaultValue={job.type}
+              value={typeId}
+              onChange={(e) => setTypeId(e.target.value)}
               className="input"
             >
               {jobTypes.map((t) => (
-                <option key={t.id} value={t.code}>
+                <option key={t.id} value={t.id}>
                   {t.label}
                 </option>
               ))}
             </select>
+            <input type="hidden" name="type" value={selectedType?.code ?? ""} />
+            <input
+              type="hidden"
+              name="typeLabel"
+              value={selectedType?.label ?? ""}
+            />
           </div>
           <div>
             <label className="label" htmlFor="source">Source</label>

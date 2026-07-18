@@ -130,7 +130,7 @@ export default async function JobDetailPage({
   return (
     <div className="space-y-4 max-w-4xl">
       <PageHeader
-        title={`${job.type.replace(/_/g, " ")}${job.site ? ` @ ${job.site.name}` : ""}`}
+        title={`${(job.typeLabel ?? job.type.replace(/_/g, " "))}${job.site ? ` @ ${job.site.name}` : ""}`}
         backHref="/dispatch"
         backLabel="Dispatch"
         subtitle={
@@ -157,7 +157,7 @@ export default async function JobDetailPage({
               <RestoreActivityButton
                 kind="job"
                 id={job.id}
-                label={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+                label={`${(job.typeLabel ?? job.type.replace(/_/g, " "))} @ ${job.site?.name ?? "site"}`}
               />
             )}
             {/* Edit allowed for dispatcher + admin — the form doesn't
@@ -176,7 +176,7 @@ export default async function JobDetailPage({
               <CloseActivityButton
                 kind="job"
                 id={job.id}
-                label={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+                label={`${(job.typeLabel ?? job.type.replace(/_/g, " "))} @ ${job.site?.name ?? "site"}`}
                 size="default"
               />
             )}
@@ -184,7 +184,7 @@ export default async function JobDetailPage({
               <CancelActivityButton
                 kind="job"
                 id={job.id}
-                label={`${job.type.replace(/_/g, " ")} @ ${job.site?.name ?? "site"}`}
+                label={`${(job.typeLabel ?? job.type.replace(/_/g, " "))} @ ${job.site?.name ?? "site"}`}
               />
             )}
           </>

@@ -42,6 +42,8 @@ export const CalloutInput = z
   .object({
     siteId: z.string().uuid("Pick a site"),
     type: z.enum(CALLOUT_JOB_TYPES),
+    // The specific sub-type label picked in the UI (e.g. "Intruder alarm").
+    typeLabel: z.string().trim().max(120).optional().nullable(),
     source: z.enum(CALLOUT_SOURCES),
     handlerKind: z.enum(HANDLER_KINDS).default("officer"),
     officerId: z.string().trim().optional().nullable(),

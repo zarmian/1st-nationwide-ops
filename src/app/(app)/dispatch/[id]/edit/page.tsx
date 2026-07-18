@@ -55,6 +55,7 @@ export default async function EditJobPage({
   const editableJob = {
     id: job.id,
     type: job.type,
+    typeLabel: job.typeLabel,
     source: job.source,
     priority: job.priority,
     status: job.status,

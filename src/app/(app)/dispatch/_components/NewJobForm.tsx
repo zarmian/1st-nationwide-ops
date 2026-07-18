@@ -43,16 +43,17 @@ export function NewJobForm({
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
-  const defaultType =
-    jobTypes.find((t) => t.code === "ADHOC")?.code ??
-    jobTypes[0]?.code ??
-    "ADHOC";
-  const [type, setType] = useState(defaultType);
+  // Key the picker on the option id — several options can share a code, so
+  // keying on the code makes them indistinguishable in the <select>.
+  const defaultTypeId =
+    jobTypes.find((t) => t.code === "ADHOC")?.id ?? jobTypes[0]?.id ?? "";
+  const [typeId, setTypeId] = useState(defaultTypeId);
+  const selectedType = jobTypes.find((t) => t.id === typeId);
   const [handlerKind, setHandlerKind] = useState<"officer" | "partner">(
     "officer",
   );
   const [siteSearch, setSiteSearch] = useState("");
-  const wantsAlarm = type === "ALARM_RESPONSE";
+  const wantsAlarm = selectedType?.code === "ALARM_RESPONSE";
 
   const filteredSites = siteSearch
     ? sites.filter((s) =>
@@ -76,17 +77,22 @@ export function NewJobForm({
             </label>
             <select
               id="type"
-              name="type"
-              value={type}
-              onChange={(e) => setType(e.target.value)}
+              value={typeId}
+              onChange={(e) => setTypeId(e.target.value)}
               className="input"
             >
               {jobTypes.map((t) => (
-                <option key={t.id} value={t.code}>
+                <option key={t.id} value={t.id}>
                   {t.label}
                 </option>
               ))}
             </select>
+            <input type="hidden" name="type" value={selectedType?.code ?? ""} />
+            <input
+              type="hidden"
+              name="typeLabel"
+              value={selectedType?.label ?? ""}
+            />
           </div>
           <div>
             <label className="label" htmlFor="source">
@@ -97,7 +103,7 @@ export function NewJobForm({
               name="source"
               defaultValue={wantsAlarm ? "ALARM" : "CUSTOMER_REQUEST"}
               className="input"
-              key={type}
+              key={typeId}
             >
               {jobSources.map((s) => (
                 <option key={s.id} value={s.code}>
