@@ -193,6 +193,16 @@ export default async function ReportsPage({
         subtitle={
           <>Shurgard callouts &amp; lock-ups · static guarding (Shurgard &amp; Access Storage) · {longDate(day)}</>
         }
+        actions={
+          <a
+            href={`/api/reports/shurgard?date=${ymd(day)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="btn-primary text-sm"
+          >
+            Download PDF
+          </a>
+        }
       />
 
       {/* Date navigation */}
