@@ -6,6 +6,11 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { FilterPanel } from "@/components/FilterPanel";
 import { FinanceAccountFilters } from "../../_components/FinanceAccountFilters";
+import {
+  jobScheduledRange,
+  visitScheduledRange,
+  shiftScheduledRange,
+} from "@/lib/activityWhen";
 
 export const dynamic = "force-dynamic";
 
@@ -157,7 +162,7 @@ export default async function PartnerFinancePage({
       ? prisma.patrolVisit.findMany({
           where: {
             status: "COMPLETED",
-            departedAt: { gte: fromDate, lte: toDate },
+            ...visitScheduledRange(fromDate, toDate),
             site: { is: visitSiteWhere },
             ...(visitKindFilter
               ? { patrolSchedule: { kind: visitKindFilter } }
@@ -182,7 +187,8 @@ export default async function PartnerFinancePage({
           where: {
             partnerId: params.id,
             status: { not: "CANCELLED" },
-            completedAt: { gte: fromDate, lte: toDate },
+            completedAt: { not: null },
+            ...jobScheduledRange(fromDate, toDate),
             ...(jobTypeFilter ? { type: jobTypeFilter as any } : {}),
             ...(jobHasSiteFilter ? { site: { is: jobSiteWhere } } : {}),
           },
@@ -208,7 +214,8 @@ export default async function PartnerFinancePage({
           where: {
             handledByPartnerId: params.id,
             status: { not: "CANCELLED" },
-            completedAt: { gte: fromDate, lte: toDate },
+            completedAt: { not: null },
+            ...jobScheduledRange(fromDate, toDate),
             ...(jobTypeFilter ? { type: jobTypeFilter as any } : {}),
             ...(jobHasSiteFilter ? { site: { is: jobSiteWhere } } : {}),
           },
@@ -234,7 +241,7 @@ export default async function PartnerFinancePage({
       ? prisma.shift.findMany({
           where: {
             status: "COMPLETED",
-            actualEndedAt: { gte: fromDate, lte: toDate },
+            ...shiftScheduledRange(fromDate, toDate),
             site: { is: visitSiteWhere },
             ...(shiftTypeFilter ? { type: shiftTypeFilter } : {}),
           },
@@ -257,7 +264,7 @@ export default async function PartnerFinancePage({
           where: {
             handledByPartnerId: params.id,
             status: "COMPLETED",
-            actualEndedAt: { gte: fromDate, lte: toDate },
+            ...shiftScheduledRange(fromDate, toDate),
             ...(shiftTypeFilter ? { type: shiftTypeFilter } : {}),
             ...(jobHasSiteFilter ? { site: { is: jobSiteWhere } } : {}),
           },

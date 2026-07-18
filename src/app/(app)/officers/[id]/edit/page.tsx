@@ -52,6 +52,11 @@ export default async function EditOfficerPage({
           form: true,
           submittedAt: true,
           site: { select: { name: true } },
+          // Show the SCHEDULED date of the underlying activity, not when the
+          // paperwork was submitted.
+          job: { select: { scheduledFor: true } },
+          patrolVisit: { select: { scheduledAt: true } },
+          shift: { select: { scheduledStartsAt: true } },
         },
       }),
     ]);
@@ -174,7 +179,13 @@ export default async function EditOfficerPage({
                       {s.form.replace(/_/g, " ").toLowerCase()}
                     </div>
                     <div className="text-xs text-slate-500">
-                      {s.site?.name ?? "—"} · {fmt(s.submittedAt)}
+                      {s.site?.name ?? "—"} ·{" "}
+                      {fmt(
+                        s.job?.scheduledFor ??
+                          s.patrolVisit?.scheduledAt ??
+                          s.shift?.scheduledStartsAt ??
+                          s.submittedAt,
+                      )}
                     </div>
                   </li>
                 ))}

@@ -567,7 +567,7 @@ export default async function DispatchPage({
     recentRows.push({
       id: `j:${j.id}`,
       href: `/dispatch/${j.id}`,
-      at: j.completedAt,
+      at: j.scheduledFor ?? j.completedAt,
       typeLabel: jobTypeLabels[j.type] ?? j.type.replace(/_/g, " "),
       siteId: j.site?.id ?? null,
       siteName: j.site?.name ?? null,
@@ -581,7 +581,7 @@ export default async function DispatchPage({
     recentRows.push({
       id: `v:${v.id}`,
       href: `/patrols/visits/${v.id}`,
-      at: v.departedAt,
+      at: v.scheduledAt ?? v.departedAt,
       typeLabel: v.patrolSchedule?.kind === "VPI" ? "VPI visit" : "Patrol visit",
       siteId: v.site?.id ?? null,
       siteName: v.site?.name ?? null,
