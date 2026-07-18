@@ -142,6 +142,8 @@ const VisitStatuses = [
 const EditVisitInput = z
   .object({
     officerId: z.string().uuid().or(z.literal("")).optional().nullable(),
+    handledByPartnerId: z.string().uuid().or(z.literal("")).optional().nullable(),
+    partnerFillsOwnApp: z.boolean().optional().default(false),
     scheduledAt: z.string().min(1, "Scheduled time is required"),
     arrivedAt: z.string().optional().nullable(),
     departedAt: z.string().optional().nullable(),
@@ -175,6 +177,8 @@ export async function updatePatrolVisit(
   await requireStaff();
   const parsed = EditVisitInput.safeParse({
     officerId: formData.get("officerId")?.toString() || null,
+    handledByPartnerId: formData.get("handledByPartnerId")?.toString() || null,
+    partnerFillsOwnApp: formData.get("partnerFillsOwnApp") === "on",
     scheduledAt: formData.get("scheduledAt")?.toString() ?? "",
     arrivedAt: formData.get("arrivedAt")?.toString() || null,
     departedAt: formData.get("departedAt")?.toString() || null,
@@ -195,10 +199,19 @@ export async function updatePatrolVisit(
   });
   if (!existing) return { error: "Visit not found." };
 
+  // Officer and partner are mutually exclusive. A partner-handled visit
+  // carries no internal officer; the flag records whether the partner uses
+  // their own app or fills in ours.
+  const partnerId =
+    d.handledByPartnerId && d.handledByPartnerId !== ""
+      ? d.handledByPartnerId
+      : null;
   await prisma.patrolVisit.update({
     where: { id: visitId },
     data: {
-      officerId: d.officerId || null,
+      officerId: partnerId ? null : d.officerId || null,
+      handledByPartnerId: partnerId,
+      reportedViaPartnerApp: partnerId ? d.partnerFillsOwnApp : false,
       scheduledAt: parseUkDateTimeLocal(d.scheduledAt) ?? new Date(d.scheduledAt),
       arrivedAt: parseUkDateTimeLocal(d.arrivedAt),
       departedAt: parseUkDateTimeLocal(d.departedAt),

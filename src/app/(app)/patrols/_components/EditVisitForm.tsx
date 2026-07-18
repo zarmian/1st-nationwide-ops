@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { FormError } from "@/components/FormError";
 import { formatUkDateTimeLocal } from "@/lib/dates";
@@ -21,6 +22,8 @@ export type EditableVisit = {
   departedAt: string | null;
   status: string;
   officerId: string | null;
+  handledByPartnerId: string | null;
+  reportedViaPartnerApp: boolean;
   notes: string | null;
   siteName: string;
   siteCode: string | null;
@@ -31,14 +34,30 @@ export type EditableVisit = {
 export function EditVisitForm({
   visit,
   officers,
+  partners,
   action,
 }: {
   visit: EditableVisit;
   officers: { id: string; name: string }[];
+  partners: { id: string; name: string }[];
   action: (state: EditVisitState, fd: FormData) => Promise<EditVisitState>;
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
+
+  // Assigned to = an officer OR a partner (mutually exclusive). Key on a
+  // prefixed id so both can live in one <select>.
+  const [assignId, setAssignId] = useState(
+    visit.handledByPartnerId
+      ? `p:${visit.handledByPartnerId}`
+      : visit.officerId
+        ? `o:${visit.officerId}`
+        : "",
+  );
+  const [fillsOwnApp, setFillsOwnApp] = useState(visit.reportedViaPartnerApp);
+  const isPartner = assignId.startsWith("p:");
+  const officerVal = assignId.startsWith("o:") ? assignId.slice(2) : "";
+  const partnerVal = isPartner ? assignId.slice(2) : "";
 
   return (
     <form action={formAction} className="space-y-6 max-w-3xl">
@@ -60,18 +79,44 @@ export function EditVisitForm({
 
         <div className="grid md:grid-cols-2 gap-4">
           <div>
-            <label className="label" htmlFor="officerId">Officer</label>
+            <label className="label" htmlFor="assign">Assigned to</label>
             <select
-              id="officerId"
-              name="officerId"
-              defaultValue={visit.officerId ?? ""}
+              id="assign"
+              value={assignId}
+              onChange={(e) => setAssignId(e.target.value)}
               className="input"
             >
               <option value="">— unassigned —</option>
-              {officers.map((o) => (
-                <option key={o.id} value={o.id}>{o.name}</option>
-              ))}
+              <optgroup label="Our officers">
+                {officers.map((o) => (
+                  <option key={o.id} value={`o:${o.id}`}>{o.name}</option>
+                ))}
+              </optgroup>
+              {partners.length > 0 && (
+                <optgroup label="Partners (subcontract)">
+                  {partners.map((p) => (
+                    <option key={p.id} value={`p:${p.id}`}>{p.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+            <input type="hidden" name="officerId" value={officerVal} />
+            <input type="hidden" name="handledByPartnerId" value={partnerVal} />
+            {isPartner && (
+              <label className="flex items-start gap-2 mt-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  name="partnerFillsOwnApp"
+                  checked={fillsOwnApp}
+                  onChange={(e) => setFillsOwnApp(e.target.checked)}
+                  className="mt-0.5 h-4 w-4"
+                />
+                <span>
+                  Partner records in their own app — we keep a stub, no
+                  check-ins on our side.
+                </span>
+              </label>
+            )}
           </div>
           <div>
             <label className="label" htmlFor="status">Status</label>
