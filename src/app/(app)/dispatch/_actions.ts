@@ -13,6 +13,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { notifyAlarmReceived } from "@/lib/notifications";
+import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
 import { parseUkDateTimeLocal } from "@/lib/dates";
 import {
   materializeLockUnlockJobs,
@@ -243,6 +244,13 @@ export async function createJob(
   if (alarmEventId) {
     notifyAlarmReceived(alarmEventId).catch((e) =>
       console.error("notifyAlarmReceived failed", e),
+    );
+  }
+
+  // Ping the assignee on Telegram if they've linked it (no-op otherwise).
+  if (assignedToUserId) {
+    notifyAssignedOfficerOfJob(created.id).catch((e) =>
+      console.error("notifyAssignedOfficerOfJob failed", e),
     );
   }
 
