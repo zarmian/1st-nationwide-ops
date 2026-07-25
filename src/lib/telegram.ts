@@ -88,6 +88,56 @@ export function botUsername(): string | null {
   return process.env.TELEGRAM_BOT_USERNAME ?? null;
 }
 
+/**
+ * Point Telegram at our webhook. One-time setup (or after the URL/secret
+ * changes). Uses the same TELEGRAM_WEBHOOK_SECRET the webhook checks, so
+ * Telegram echoes it back in every update. Returns a flat ok/error.
+ */
+export async function setWebhook(
+  url: string,
+  secret: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const res = await call("setWebhook", {
+    url,
+    secret_token: secret,
+    // Drop any updates queued while the webhook was unset/misconfigured.
+    drop_pending_updates: true,
+    allowed_updates: ["message", "callback_query"],
+  });
+  return res?.ok
+    ? { ok: true }
+    : { ok: false, error: res?.description ?? res?.error ?? "Telegram rejected the request" };
+}
+
+/** Read back Telegram's current webhook registration (for a status check). */
+export async function getWebhookInfo(): Promise<{
+  ok: boolean;
+  url?: string;
+  pendingUpdateCount?: number;
+  lastErrorMessage?: string;
+  error?: string;
+}> {
+  const res = await call("getWebhookInfo", {});
+  if (!res?.ok) {
+    return { ok: false, error: res?.description ?? res?.error ?? "unknown" };
+  }
+  return {
+    ok: true,
+    url: res.result?.url || "",
+    pendingUpdateCount: res.result?.pending_update_count,
+    lastErrorMessage: res.result?.last_error_message,
+  };
+}
+
+/**
+ * The public URL Telegram should POST updates to. Derived from NEXTAUTH_URL
+ * (already set to the live origin) so we never hardcode the deploy domain.
+ */
+export function webhookUrl(): string | null {
+  const base = process.env.NEXTAUTH_URL?.replace(/\/$/, "");
+  return base ? `${base}/api/telegram/webhook` : null;
+}
+
 /** Escape user-supplied text for HTML parse mode. */
 export function escapeHtml(s: string): string {
   return s
