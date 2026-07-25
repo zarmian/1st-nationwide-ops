@@ -138,6 +138,22 @@ export function webhookUrl(): string | null {
   return base ? `${base}/api/telegram/webhook` : null;
 }
 
+/** Commands shown in Telegram's "/" menu. */
+export const BOT_COMMANDS: { command: string; description: string }[] = [
+  { command: "today", description: "Today's schedule" },
+  { command: "yesterday", description: "Yesterday's activities" },
+  { command: "tomorrow", description: "Tomorrow's schedule" },
+  { command: "whoami", description: "Show my linked account" },
+];
+
+/** Publish the slash-command menu. Best-effort — safe to call on setup. */
+export async function setMyCommands(
+  commands = BOT_COMMANDS,
+): Promise<{ ok: boolean }> {
+  const res = await call("setMyCommands", { commands });
+  return { ok: Boolean(res?.ok) };
+}
+
 /** Escape user-supplied text for HTML parse mode. */
 export function escapeHtml(s: string): string {
   return s

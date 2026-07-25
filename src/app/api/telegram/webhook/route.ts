@@ -12,9 +12,11 @@ import {
   calloutCancelData,
   calloutConfirmData,
   decodeCalloutAction,
-  parseCalloutText,
+  matchSite,
   resolveCallout,
+  routeMessage,
 } from "@/lib/telegramCallout";
+import { dayRundownMessage } from "@/lib/dayActivities";
 
 /**
  * Telegram bot webhook. Telegram POSTs every update here.
@@ -109,10 +111,10 @@ function looksLikeCallout(text: string): boolean {
 }
 
 /**
- * Turn a dispatcher's message into a callout draft + confirmation card.
- * Only reached for linked ADMIN/DISPATCHER users.
+ * Route a linked staff member's free text: either list a day's activities or
+ * draft a new callout for confirmation. Only reached for ADMIN/DISPATCHER.
  */
-async function handleCalloutMessage(
+async function handleFreeText(
   chat: string,
   who: { id: string },
   text: string,
@@ -120,7 +122,7 @@ async function handleCalloutMessage(
   if (!isAnthropicConfigured()) {
     await sendTelegramMessage(
       chat,
-      "Message-to-callout isn't switched on yet (it needs the AI key). You can still add callouts in the app.",
+      "Plain-English requests aren't switched on yet (they need the AI key). For schedules use /today, /yesterday or /tomorrow. Add callouts in the app for now.",
     );
     return;
   }
@@ -143,27 +145,48 @@ async function handleCalloutMessage(
     }),
   ]);
 
-  const parsed = await parseCalloutText(text, {
+  const siteCtx = sites.map((s) => ({
+    id: s.id,
+    name: s.name,
+    code: s.code,
+    postcode: s.postcodeFormatted,
+  }));
+
+  const routed = await routeMessage(text, {
     officers,
     partners,
     nowUk: ukNowString(),
   });
-  if (!parsed.ok) {
-    console.error("telegram callout parse error", parsed.error);
+  if (routed.kind === "error") {
+    console.error("telegram route error", routed.error);
     await sendTelegramMessage(
       chat,
-      "Sorry — I couldn't read that just now. Try again in a moment, or add it in the app.",
+      "Sorry — I couldn't read that just now. Try again in a moment, or use /today for the schedule.",
     );
     return;
   }
 
-  const resolved = resolveCallout(parsed.parsed, {
-    sites: sites.map((s) => ({
-      id: s.id,
-      name: s.name,
-      code: s.code,
-      postcode: s.postcodeFormatted,
-    })),
+  // "What's on today?" style question → list the day's activities.
+  if (routed.kind === "list") {
+    let siteId: string | undefined;
+    let siteNote: string | undefined;
+    if (routed.siteQuery) {
+      const m = matchSite(routed.siteQuery, siteCtx);
+      if (m.kind === "one") {
+        siteId = m.site.id;
+        siteNote = `at ${m.site.name}`;
+      } else {
+        siteNote = `(couldn't match “${routed.siteQuery}” — showing all sites)`;
+      }
+    }
+    const msg = await dayRundownMessage(routed.day, { siteId, siteNote });
+    await sendTelegramMessage(chat, msg);
+    return;
+  }
+
+  // Otherwise it's a new callout to create.
+  const resolved = resolveCallout(routed.parsed, {
+    sites: siteCtx,
     officers,
     partners,
   });
@@ -345,7 +368,7 @@ export async function POST(req: Request) {
         await sendTelegramMessage(
           chat,
           who
-            ? `Hi ${escapeHtml(who.name)} — you're connected. ${isStaff(who.role as Role) ? "Message me a callout, e.g. “Alarm at Neasden, send John”." : "Try /whoami."}`
+            ? `Hi ${escapeHtml(who.name)} — you're connected. ${isStaff(who.role as Role) ? "Ask me /today, /yesterday or /tomorrow for the schedule, or message me a callout like “Alarm at Neasden, send John”." : "Try /whoami."}`
             : "Welcome to the 1st Nationwide bot. To connect your account, open the app → <b>Connect Telegram</b> and tap the link there.",
         );
       }
@@ -363,7 +386,37 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Any other text: for linked staff, treat it as a callout to create.
+    // Day rundown commands — /today, /yesterday, /tomorrow (with or without
+    // the leading slash, and tolerating a @botname suffix in groups). These
+    // are deterministic and need no AI, so they work even before the key is
+    // set.
+    const firstWord = text
+      .split(/\s+/)[0]
+      .toLowerCase()
+      .replace(/^\//, "")
+      .replace(/@.*/, "");
+    if (
+      firstWord === "today" ||
+      firstWord === "yesterday" ||
+      firstWord === "tomorrow"
+    ) {
+      const who = await linkedUser(chat);
+      if (!who) {
+        await sendTelegramMessage(
+          chat,
+          "This chat isn't linked yet. Open the app → Connect Telegram.",
+        );
+        return NextResponse.json({ ok: true });
+      }
+      if (!isStaff(who.role as Role)) {
+        await sendTelegramMessage(chat, "Schedules are for dispatch/admin.");
+        return NextResponse.json({ ok: true });
+      }
+      await sendTelegramMessage(chat, await dayRundownMessage(firstWord));
+      return NextResponse.json({ ok: true });
+    }
+
+    // Any other text: for linked staff, route it (list a day or new callout).
     const who = await linkedUser(chat);
     if (!who) {
       await sendTelegramMessage(
@@ -375,18 +428,18 @@ export async function POST(req: Request) {
     if (!isStaff(who.role as Role)) {
       await sendTelegramMessage(
         chat,
-        "You're connected. Creating callouts by message is for dispatch/admin — you'll get your alerts here.",
+        "You're connected. Creating callouts and viewing schedules is for dispatch/admin — you'll get your alerts here.",
       );
       return NextResponse.json({ ok: true });
     }
     if (!looksLikeCallout(text)) {
       await sendTelegramMessage(
         chat,
-        "Tell me the site and who to send, e.g. “Alarm at Neasden, send John” or “Lock-up Norbury, give to Nexus”.",
+        "Ask me a schedule (/today, /yesterday, /tomorrow) or add a callout, e.g. “Alarm at Neasden, send John”.",
       );
       return NextResponse.json({ ok: true });
     }
-    await handleCalloutMessage(chat, who, text);
+    await handleFreeText(chat, who, text);
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("telegram webhook error", e);

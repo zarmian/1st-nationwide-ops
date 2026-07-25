@@ -14,7 +14,7 @@
  * matching + summary logic is unit-tested without a database or API key.
  */
 import { formatDateTime, parseUkDateTimeLocal } from "@/lib/dates";
-import { extractWithTool, type JsonSchema } from "@/lib/anthropic";
+import { extractWithTools, type JsonSchema, type ToolDef } from "@/lib/anthropic";
 import {
   BOT_CALLOUT_SOURCES,
   BOT_CALLOUT_TYPES,
@@ -378,6 +378,35 @@ const CALLOUT_TOOL_SCHEMA: JsonSchema = {
   required: ["siteQuery", "type", "handlerKind"],
 };
 
+const LIST_ACTIVITIES_TOOL: ToolDef = {
+  name: "list_activities",
+  description:
+    "List what's scheduled or was done on a given day (patrols, lock-ups, unlocks, static shifts, callouts). Use this when the dispatcher is ASKING about a day rather than creating a new callout.",
+  schema: {
+    type: "object",
+    properties: {
+      day: {
+        type: "string",
+        enum: ["today", "yesterday", "tomorrow"],
+        description: "Which day they're asking about. Default today.",
+      },
+      siteQuery: {
+        type: "string",
+        description:
+          "Optional site name to narrow the list to, if they named one.",
+      },
+    },
+    required: ["day"],
+  },
+};
+
+const CREATE_CALLOUT_TOOL: ToolDef = {
+  name: "create_callout",
+  description:
+    "Record the structured details of a NEW callout the dispatcher wants created and assigned.",
+  schema: CALLOUT_TOOL_SCHEMA,
+};
+
 function buildSystemPrompt(
   officers: PersonCandidate[],
   partners: PersonCandidate[],
@@ -385,10 +414,9 @@ function buildSystemPrompt(
 ): string {
   return [
     "You are the dispatch assistant for 1st Nationwide, a UK security firm.",
-    "A dispatcher will describe a callout in plain English. Extract the fields for the create_callout tool.",
+    "A dispatcher will either (a) describe a NEW callout to create and assign, or (b) ASK what's scheduled or was done on a day. Choose the matching tool: create_callout for (a), list_activities for (b).",
     `The current date and time in the UK is ${nowUk}. Resolve relative times ('tonight', 'in an hour', '9pm') against it and return UK local wall-clock 'YYYY-MM-DDTHH:MM'.`,
-    "Only set handlerKind='partner' when the dispatcher clearly wants the job given to a partner company; otherwise it's an internal officer.",
-    "Copy the site reference verbatim into siteQuery — do not guess a full site name.",
+    "For create_callout: only set handlerKind='partner' when the dispatcher clearly wants the job given to a partner company; otherwise it's an internal officer. Copy the site reference verbatim into siteQuery — do not guess a full site name.",
     officers.length
       ? `Known officers: ${officers.map((o) => o.name).join(", ")}.`
       : "No officers are on file.",
@@ -398,20 +426,37 @@ function buildSystemPrompt(
   ].join("\n");
 }
 
-export async function parseCalloutText(
+export type RoutedMessage =
+  | { kind: "create"; parsed: ParsedCallout }
+  | { kind: "list"; day: string; siteQuery: string | null }
+  | { kind: "error"; error: string };
+
+/**
+ * Classify a free-text message and pull its fields in one model call: is the
+ * dispatcher creating a callout, or asking for a day's activities?
+ */
+export async function routeMessage(
   text: string,
   opts: { officers: PersonCandidate[]; partners: PersonCandidate[]; nowUk: string },
-): Promise<{ ok: true; parsed: ParsedCallout } | { ok: false; error: string }> {
-  const res = await extractWithTool<ParsedCallout>({
+): Promise<RoutedMessage> {
+  const res = await extractWithTools({
     system: buildSystemPrompt(opts.officers, opts.partners, opts.nowUk),
     userText: text,
-    toolName: "create_callout",
-    toolDescription:
-      "Record the structured details of the callout the dispatcher described.",
-    schema: CALLOUT_TOOL_SCHEMA,
+    tools: [CREATE_CALLOUT_TOOL, LIST_ACTIVITIES_TOOL],
   });
-  if (!res.ok) return { ok: false, error: res.error };
-  return { ok: true, parsed: res.data };
+  if (!res.ok) return { kind: "error", error: res.error };
+  if (res.name === "list_activities") {
+    const d = res.data ?? {};
+    return {
+      kind: "list",
+      day: typeof d.day === "string" ? d.day : "today",
+      siteQuery:
+        typeof d.siteQuery === "string" && d.siteQuery.trim()
+          ? d.siteQuery.trim()
+          : null,
+    };
+  }
+  return { kind: "create", parsed: (res.data ?? {}) as ParsedCallout };
 }
 
 // ── Inline-button callback_data (≤64 bytes) ────────────────────────────────
