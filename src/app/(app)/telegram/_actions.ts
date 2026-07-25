@@ -9,6 +9,7 @@ import { prisma } from "@/lib/db";
 import {
   botUsername,
   getWebhookInfo,
+  setMyCommands,
   setWebhook,
   webhookUrl,
 } from "@/lib/telegram";
@@ -75,7 +76,10 @@ export async function registerTelegramWebhook(): Promise<{
     };
   }
   const res = await setWebhook(url, secret);
-  return res.ok ? { ok: true, url } : { ok: false, error: res.error };
+  if (!res.ok) return { ok: false, error: res.error };
+  // Publish the slash-command menu too (best-effort — don't fail setup on it).
+  await setMyCommands().catch(() => {});
+  return { ok: true, url };
 }
 
 /** Read back Telegram's current webhook registration (admin-only). */
