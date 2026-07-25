@@ -156,6 +156,6 @@ export const config = {
     // rate-limit validation; it never relied on a session). `api/webhooks`
     // is excluded so external providers (bOnline calls) can POST in — those
     // routes verify their own shared secret.
-    "/((?!api/auth|api/blob|api/webhooks|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
+    "/((?!api/auth|api/blob|api/webhooks|api/telegram|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
   ],
 };
