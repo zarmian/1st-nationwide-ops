@@ -427,6 +427,7 @@ model User {
   /// 1:1 back-relation — set when role=PARTNER_OFFICER, points to the
   /// roster row this login backs.
   partnerOfficerSeat       PartnerOfficer?     @relation("PartnerOfficerLogin")
+  telegramCalloutDrafts    TelegramCalloutDraft[] @relation("TelegramDraftCreatedBy")
 
   @@index([regionId, role])
   @@index([partnerId])
@@ -1163,6 +1164,33 @@ model Notification {
   @@index([recipientUserId])
   @@index([eventEntity, eventEntityId])
   @@index([kind])
+}
+
+/// A parsed-but-unconfirmed callout from the Telegram bot. The dispatcher
+/// messages the bot; we AI-parse + resolve it against the real roster and
+/// stash the ready-to-create payload here, then show a Confirm/Cancel card.
+/// Tapping Confirm creates the Job from `payload`; nothing is written to the
+/// live board until then. Rows are short-lived (expire in minutes) and keyed
+/// by an id that rides in the button callback_data.
+model TelegramCalloutDraft {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatId          String
+  createdByUserId String   @db.Uuid
+  createdBy       User     @relation("TelegramDraftCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  /// The resolved BotCalloutData (see src/lib/callouts.ts), ready to create.
+  payload         Json
+  /// Human-readable summary shown on the confirmation card.
+  summary         String
+  /// PENDING → CONFIRMED | CANCELLED. Terminal states are kept briefly for
+  /// idempotency (a double-tap on Confirm/Cancel is a no-op).
+  status          String   @default("PENDING")
+  /// The confirmation message we sent, so we can edit it in place on action.
+  messageId       Int?
+  createdAt       DateTime @default(now())
+  expiresAt       DateTime
+
+  @@index([chatId, status])
+  @@index([expiresAt])
 }
 
 /// Call events posted by the phone provider (bOnline) webhook. We always
