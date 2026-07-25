@@ -65,3 +65,106 @@ export async function notifyAssignedOfficerOfJob(jobId: string): Promise<void> {
 
   await sendTelegramMessage(chatId, lines.join("\n"));
 }
+
+// ── Dispatch broadcasts (missed calls, no-shows, overdue check-ins) ─────────
+//
+// These DM every linked ADMIN/DISPATCHER. Dedupe is the caller's job — each
+// is fired from a point that already gates (the CallEvent.alerted flag, or
+// the shift-checks cron's per-window checks) so the same alert goes once.
+
+/** DM every linked staff member. Returns how many were reached. */
+async function broadcastToLinkedStaff(text: string): Promise<number> {
+  if (!isTelegramConfigured()) return 0;
+  const staff = await prisma.user.findMany({
+    where: {
+      active: true,
+      role: { in: ["ADMIN", "DISPATCHER"] },
+      NOT: { telegramChatId: null },
+    },
+    select: { telegramChatId: true },
+  });
+  let sent = 0;
+  await Promise.all(
+    staff.map(async (s) => {
+      if (!s.telegramChatId) return;
+      const r = await sendTelegramMessage(s.telegramChatId, text).catch(() => ({
+        ok: false as const,
+      }));
+      if (r.ok) sent += 1;
+    }),
+  );
+  return sent;
+}
+
+/** Missed inbound call → alert dispatch on Telegram. */
+export async function alertMissedCallTelegram(
+  callEventId: string,
+): Promise<number> {
+  const call = await prisma.callEvent.findUnique({
+    where: { id: callEventId },
+    select: { fromNumber: true, toNumber: true, occurredAt: true },
+  });
+  if (!call) return 0;
+  const from = call.fromNumber ?? "withheld / unknown number";
+  const when = call.occurredAt ? formatDateTime(call.occurredAt) : "just now";
+  const onLine = call.toNumber ? ` on ${escapeHtml(call.toNumber)}` : "";
+  return broadcastToLinkedStaff(
+    `📞 <b>Missed call</b>\nFrom ${escapeHtml(from)}${onLine}\n${escapeHtml(when)} — please call back.`,
+  );
+}
+
+/** Overdue shift check-in → alert dispatch on Telegram. */
+export async function alertShiftCheckOverdueTelegram(
+  shiftId: string,
+): Promise<number> {
+  const s = await prisma.shift.findUnique({
+    where: { id: shiftId },
+    select: {
+      checkIntervalMin: true,
+      site: { select: { name: true } },
+      officer: { select: { name: true } },
+    },
+  });
+  if (!s) return 0;
+  return broadcastToLinkedStaff(
+    `⚠️ <b>Check-in overdue</b>\n${escapeHtml(s.officer?.name ?? "Officer")} at ${escapeHtml(s.site?.name ?? "site")} — no check-in (expected every ${s.checkIntervalMin} min).`,
+  );
+}
+
+/** Officer no-show on a shift/job → alert dispatch on Telegram. */
+export async function alertNoShowTelegram(
+  entity: "Shift" | "Job",
+  entityId: string,
+): Promise<number> {
+  if (entity === "Shift") {
+    const s = await prisma.shift.findUnique({
+      where: { id: entityId },
+      select: {
+        type: true,
+        scheduledStartsAt: true,
+        site: { select: { name: true } },
+        officer: { select: { name: true } },
+      },
+    });
+    if (!s) return 0;
+    const kind = s.type === "STATIC_GUARDING" ? "static" : "dog";
+    return broadcastToLinkedStaff(
+      `🔴 <b>No-show</b>\n${escapeHtml(s.officer?.name ?? "Officer")} hasn't started the ${kind} shift at ${escapeHtml(s.site?.name ?? "site")} (scheduled ${escapeHtml(formatDateTime(s.scheduledStartsAt))}).`,
+    );
+  }
+  const j = await prisma.job.findUnique({
+    where: { id: entityId },
+    select: {
+      type: true,
+      scheduledFor: true,
+      site: { select: { name: true } },
+      assignedTo: { select: { name: true } },
+    },
+  });
+  if (!j) return 0;
+  const what = JOB_TYPE_LABELS[j.type] || j.type.replace(/_/g, " ").toLowerCase();
+  const when = j.scheduledFor ? formatDateTime(j.scheduledFor) : "—";
+  return broadcastToLinkedStaff(
+    `🔴 <b>No-show</b>\n${escapeHtml(j.assignedTo?.name ?? "Officer")} not on site for ${escapeHtml(what)} at ${escapeHtml(j.site?.name ?? "site")} (scheduled ${escapeHtml(when)}).`,
+  );
+}

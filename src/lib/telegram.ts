@@ -140,6 +140,7 @@ export function webhookUrl(): string | null {
 
 /** Commands shown in Telegram's "/" menu. */
 export const BOT_COMMANDS: { command: string; description: string }[] = [
+  { command: "now", description: "What's on right now" },
   { command: "today", description: "Today's schedule" },
   { command: "yesterday", description: "Yesterday's activities" },
   { command: "tomorrow", description: "Tomorrow's schedule" },

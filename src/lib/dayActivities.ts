@@ -6,10 +6,11 @@
  * if it was closed later.
  */
 import { prisma } from "@/lib/db";
-import { ukWallClockToUtc } from "@/lib/dates";
+import { ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
 import {
   ACTIVITY_KIND_LABEL,
   formatDayActivitiesMessage,
+  formatNowMessage,
   resolveDayTarget,
   type DayActivity,
   type DayTarget,
@@ -152,4 +153,176 @@ export async function dayRundownMessage(
   }
   const rows = await loadDayActivities(target, { siteId: opts?.siteId });
   return formatDayActivitiesMessage(rows, target.label, opts?.siteNote);
+}
+
+/**
+ * The live "on now" snapshot: activities in progress right now, plus those
+ * overdue / not started (scoped to today). Shifts count as "in progress"
+ * while now sits inside their window.
+ */
+export async function loadNowSnapshot(
+  now: Date = new Date(),
+): Promise<{ active: DayActivity[]; overdue: DayActivity[] }> {
+  const t = ukDayPlus(now, 0);
+  const todayStart = ukWallClockToUtc(t.year, t.month, t.day, 0, 0, 0);
+  const pastToday = { gte: todayStart, lt: now };
+
+  const [
+    activeShifts,
+    inProgressJobs,
+    activeVisits,
+    overdueJobs,
+    overdueVisits,
+    missedShifts,
+  ] = await prisma.$transaction([
+    prisma.shift.findMany({
+      where: {
+        status: { in: ["PENDING", "IN_PROGRESS"] },
+        scheduledStartsAt: { lte: now },
+        scheduledEndsAt: { gte: now },
+      },
+      select: {
+        type: true,
+        scheduledStartsAt: true,
+        scheduledEndsAt: true,
+        status: true,
+        site: { select: { name: true } },
+        officer: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+      },
+      take: 200,
+    }),
+    prisma.job.findMany({
+      where: { status: "IN_PROGRESS" },
+      select: {
+        type: true,
+        typeLabel: true,
+        scheduledFor: true,
+        startedAt: true,
+        status: true,
+        site: { select: { name: true } },
+        assignedTo: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+      },
+      take: 200,
+    }),
+    prisma.patrolVisit.findMany({
+      where: { status: { in: ["IN_PROGRESS", "LATE"] } },
+      select: {
+        scheduledAt: true,
+        arrivedAt: true,
+        status: true,
+        site: { select: { name: true } },
+        officer: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+        patrolSchedule: { select: { kind: true } },
+      },
+      take: 200,
+    }),
+    prisma.job.findMany({
+      where: { status: { in: ["OPEN", "ASSIGNED"] }, scheduledFor: pastToday },
+      select: {
+        type: true,
+        typeLabel: true,
+        scheduledFor: true,
+        startedAt: true,
+        status: true,
+        site: { select: { name: true } },
+        assignedTo: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+      },
+      take: 200,
+    }),
+    prisma.patrolVisit.findMany({
+      where: { status: { in: ["PENDING", "MISSED"] }, scheduledAt: pastToday },
+      select: {
+        scheduledAt: true,
+        arrivedAt: true,
+        status: true,
+        site: { select: { name: true } },
+        officer: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+        patrolSchedule: { select: { kind: true } },
+      },
+      take: 200,
+    }),
+    prisma.shift.findMany({
+      where: { status: "MISSED", scheduledStartsAt: pastToday },
+      select: {
+        type: true,
+        scheduledStartsAt: true,
+        scheduledEndsAt: true,
+        status: true,
+        site: { select: { name: true } },
+        officer: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+      },
+      take: 200,
+    }),
+  ]);
+
+  const shiftRow = (s: (typeof activeShifts)[number]): DayActivity => ({
+    at: s.scheduledStartsAt,
+    endsAt: s.scheduledEndsAt ?? null,
+    kindLabel:
+      ACTIVITY_KIND_LABEL[
+        s.type === "DOG_HANDLER" ? "DOG_HANDLER_SHIFT" : "STATIC_GUARDING_SHIFT"
+      ] ?? "Shift",
+    siteName: s.site?.name ?? "—",
+    who: whoLabel(s.officer?.name, s.handledByPartner?.name),
+    status: s.status,
+    source: "SHIFT",
+  });
+  const visitRow = (v: (typeof activeVisits)[number]): DayActivity => ({
+    at: v.arrivedAt ?? v.scheduledAt,
+    endsAt: null,
+    kindLabel:
+      ACTIVITY_KIND_LABEL[
+        v.patrolSchedule?.kind === "VPI" ? "VISIT_VPI" : "VISIT_PATROL"
+      ] ?? "Patrol",
+    siteName: v.site?.name ?? "—",
+    who: whoLabel(v.officer?.name, v.handledByPartner?.name),
+    status: v.status,
+    source: "VISIT",
+  });
+  const jobRow = (j: (typeof inProgressJobs)[number]): DayActivity => ({
+    at: j.startedAt ?? j.scheduledFor ?? todayStart,
+    endsAt: null,
+    kindLabel: j.typeLabel?.trim() || ACTIVITY_KIND_LABEL[j.type] || j.type,
+    siteName: j.site?.name ?? "—",
+    who: whoLabel(j.assignedTo?.name, j.handledByPartner?.name),
+    status: j.status,
+    source: "JOB",
+  });
+
+  const byTime = (a: DayActivity, b: DayActivity) =>
+    a.at.getTime() - b.at.getTime();
+
+  const active = [
+    ...inProgressJobs.map(jobRow),
+    ...activeVisits.map(visitRow),
+    ...activeShifts.map(shiftRow),
+  ].sort(byTime);
+  const overdue = [
+    ...overdueJobs.map(jobRow),
+    ...overdueVisits.map(visitRow),
+    ...missedShifts.map(shiftRow),
+  ].sort(byTime);
+
+  return { active, overdue };
+}
+
+/** Live "on now" snapshot as a Telegram message. */
+export async function nowMessage(now: Date = new Date()): Promise<string> {
+  const snap = await loadNowSnapshot(now);
+  const nowLabel = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(now);
+  return formatNowMessage(snap.active, snap.overdue, nowLabel);
 }

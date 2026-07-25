@@ -381,14 +381,15 @@ const CALLOUT_TOOL_SCHEMA: JsonSchema = {
 const LIST_ACTIVITIES_TOOL: ToolDef = {
   name: "list_activities",
   description:
-    "List what's scheduled or was done on a given day (patrols, lock-ups, unlocks, static shifts, callouts). Use this when the dispatcher is ASKING about a day rather than creating a new callout.",
+    "List what's scheduled or was done (patrols, lock-ups, unlocks, static shifts, callouts). Use this when the dispatcher is ASKING about activities rather than creating a new callout. Use day='now' for 'what's happening right now / on now / who's on duty'.",
   schema: {
     type: "object",
     properties: {
       day: {
         type: "string",
-        enum: ["today", "yesterday", "tomorrow"],
-        description: "Which day they're asking about. Default today.",
+        enum: ["now", "today", "yesterday", "tomorrow"],
+        description:
+          "Which window they're asking about. 'now' = live snapshot of what's in progress/overdue. Default today.",
       },
       siteQuery: {
         type: "string",
