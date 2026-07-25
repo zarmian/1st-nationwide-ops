@@ -23,6 +23,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { notifyAlarmReceived } from "@/lib/notifications";
+import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
 import type { BotCalloutData } from "@/lib/calloutTypes";
 
 // Re-export the shared callout types/enums so existing importers can keep
@@ -162,6 +163,13 @@ export async function createBotCallout(
   if (alarmEventId) {
     notifyAlarmReceived(alarmEventId).catch((e) =>
       console.error("notifyAlarmReceived failed", e),
+    );
+  }
+
+  // Ping the assignee on Telegram if they've linked it (no-op otherwise).
+  if (assignedToUserId) {
+    notifyAssignedOfficerOfJob(created.id).catch((e) =>
+      console.error("notifyAssignedOfficerOfJob failed", e),
     );
   }
 

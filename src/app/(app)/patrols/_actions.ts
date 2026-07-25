@@ -14,6 +14,7 @@ import {
   jobTypeToRateService,
   payForOfficer,
 } from "@/lib/billing";
+import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),
@@ -118,6 +119,12 @@ export async function reassignJob(
       }),
     },
   });
+  // Ping the new assignee on Telegram if they've linked it (no-op otherwise).
+  if (nextOfficer) {
+    notifyAssignedOfficerOfJob(jobId).catch((e) =>
+      console.error("notifyAssignedOfficerOfJob failed", e),
+    );
+  }
   revalidatePath("/patrols");
   revalidatePath("/dispatch");
   revalidatePath("/activities");
