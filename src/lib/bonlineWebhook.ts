@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { parseBonlineCall } from "@/lib/bonline";
 import { notifyMissedCall } from "@/lib/notifications";
+import { alertMissedCallTelegram } from "@/lib/telegramNotify";
 
 /**
  * Shared bOnline webhook logic, used by both URL shapes:
@@ -127,7 +128,13 @@ export async function ingestBonline(req: Request): Promise<NextResponse> {
       console.error("notifyMissedCall failed", e);
       return 0;
     });
-    if (queued > 0) {
+    // Telegram alert to any linked dispatch/admin — independent of SMS
+    // recipients, so a Telegram-only team still gets the heads-up.
+    const tg = await alertMissedCallTelegram(callEventId).catch((e) => {
+      console.error("alertMissedCallTelegram failed", e);
+      return 0;
+    });
+    if (queued > 0 || tg > 0) {
       await prisma.callEvent.update({
         where: { id: callEventId },
         data: { alerted: true },

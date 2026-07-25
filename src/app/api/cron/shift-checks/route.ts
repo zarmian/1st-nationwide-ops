@@ -5,6 +5,10 @@ import {
   notifyShiftCheckOverdue,
   notifyOfficerNoShow,
 } from "@/lib/notifications";
+import {
+  alertNoShowTelegram,
+  alertShiftCheckOverdueTelegram,
+} from "@/lib/telegramNotify";
 
 /**
  * 15-min sweep that does two things:
@@ -43,6 +47,11 @@ export async function GET(req: Request) {
     await notifyOfficerNoShow({ entity: "Shift", entityId: s.id }).catch((e) =>
       console.error("notifyOfficerNoShow (shift) failed", e),
     );
+    // Telegram alert to dispatch. The status flip below means this shift
+    // drops out of the query next run, so the alert goes exactly once.
+    await alertNoShowTelegram("Shift", s.id).catch((e) =>
+      console.error("alertNoShowTelegram (shift) failed", e),
+    );
     await prisma.shift.update({
       where: { id: s.id },
       data: { status: "MISSED" },
@@ -77,6 +86,13 @@ export async function GET(req: Request) {
       console.error("notifyOfficerNoShow (job) failed", e);
       return 0;
     });
+    // Only alert Telegram when the SMS was freshly queued (n > 0), so the
+    // queueSmsOnce dedupe keeps the Telegram alert to once per job too.
+    if (n > 0) {
+      await alertNoShowTelegram("Job", j.id).catch((e) =>
+        console.error("alertNoShowTelegram (job) failed", e),
+      );
+    }
     jobNoShowQueued += n;
   }
 
@@ -121,9 +137,18 @@ export async function GET(req: Request) {
     });
     if (recentNotif) continue;
 
-    await notifyShiftCheckOverdue(s.id).catch((e) =>
-      console.error("notifyShiftCheckOverdue failed", e),
-    );
+    const queued = await notifyShiftCheckOverdue(s.id).catch((e) => {
+      console.error("notifyShiftCheckOverdue failed", e);
+      return 0;
+    });
+    // Fire the Telegram alert alongside; recentNotif above already gates
+    // this to once per overdue window (queued > 0 avoids re-firing when the
+    // WhatsApp marker couldn't be written).
+    if (queued > 0) {
+      await alertShiftCheckOverdueTelegram(s.id).catch((e) =>
+        console.error("alertShiftCheckOverdueTelegram failed", e),
+      );
+    }
     flagged++;
   }
 

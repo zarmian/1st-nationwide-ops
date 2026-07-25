@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatDayActivitiesMessage,
+  formatNowMessage,
   resolveDayTarget,
   type DayActivity,
 } from "./dayActivitiesFormat";
@@ -111,5 +112,42 @@ describe("formatDayActivitiesMessage", () => {
       "at Shurgard Neasden",
     );
     expect(msg).toContain("at Shurgard Neasden");
+  });
+});
+
+describe("formatNowMessage", () => {
+  const row = (over: Partial<DayActivity> = {}): DayActivity => ({
+    at: new Date("2026-07-25T08:30:00Z"),
+    endsAt: null,
+    kindLabel: "Alarm response",
+    siteName: "Shurgard Neasden",
+    who: "John Smith",
+    status: "IN_PROGRESS",
+    source: "JOB",
+    ...over,
+  });
+
+  it("says all quiet when nothing is active or overdue", () => {
+    const msg = formatNowMessage([], [], "Sat 26 Jul, 22:31");
+    expect(msg).toContain("On now");
+    expect(msg).toContain("All quiet");
+  });
+
+  it("shows in-progress and overdue sections with counts", () => {
+    const msg = formatNowMessage(
+      [row()],
+      [row({ kindLabel: "Lock-up", siteName: "Shurgard Norbury", status: "ASSIGNED" })],
+      "Sat 26 Jul, 22:31",
+    );
+    expect(msg).toContain("In progress (1)");
+    expect(msg).toContain("Overdue / not started (1)");
+    expect(msg).toContain("Shurgard Neasden");
+    expect(msg).toContain("Shurgard Norbury");
+  });
+
+  it("omits the overdue section when there's nothing overdue", () => {
+    const msg = formatNowMessage([row()], [], "Sat 26 Jul, 22:31");
+    expect(msg).toContain("In progress (1)");
+    expect(msg).not.toContain("Overdue");
   });
 });

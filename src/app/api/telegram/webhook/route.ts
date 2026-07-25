@@ -16,7 +16,7 @@ import {
   resolveCallout,
   routeMessage,
 } from "@/lib/telegramCallout";
-import { dayRundownMessage } from "@/lib/dayActivities";
+import { dayRundownMessage, nowMessage } from "@/lib/dayActivities";
 
 /**
  * Telegram bot webhook. Telegram POSTs every update here.
@@ -166,8 +166,13 @@ async function handleFreeText(
     return;
   }
 
-  // "What's on today?" style question → list the day's activities.
+  // "What's on today?" / "on now?" style question → list activities.
   if (routed.kind === "list") {
+    // "now" is a live cross-site snapshot; a site filter doesn't apply.
+    if (routed.day === "now") {
+      await sendTelegramMessage(chat, await nowMessage());
+      return;
+    }
     let siteId: string | undefined;
     let siteNote: string | undefined;
     if (routed.siteQuery) {
@@ -368,7 +373,7 @@ export async function POST(req: Request) {
         await sendTelegramMessage(
           chat,
           who
-            ? `Hi ${escapeHtml(who.name)} — you're connected. ${isStaff(who.role as Role) ? "Ask me /today, /yesterday or /tomorrow for the schedule, or message me a callout like “Alarm at Neasden, send John”." : "Try /whoami."}`
+            ? `Hi ${escapeHtml(who.name)} — you're connected. ${isStaff(who.role as Role) ? "Ask me /now, /today, /yesterday or /tomorrow, or message me a callout like “Alarm at Neasden, send John”." : "Try /whoami."}`
             : "Welcome to the 1st Nationwide bot. To connect your account, open the app → <b>Connect Telegram</b> and tap the link there.",
         );
       }
@@ -386,7 +391,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Day rundown commands — /today, /yesterday, /tomorrow (with or without
+    // Rundown commands — /now, /today, /yesterday, /tomorrow (with or without
     // the leading slash, and tolerating a @botname suffix in groups). These
     // are deterministic and need no AI, so they work even before the key is
     // set.
@@ -396,6 +401,7 @@ export async function POST(req: Request) {
       .replace(/^\//, "")
       .replace(/@.*/, "");
     if (
+      firstWord === "now" ||
       firstWord === "today" ||
       firstWord === "yesterday" ||
       firstWord === "tomorrow"
@@ -412,7 +418,11 @@ export async function POST(req: Request) {
         await sendTelegramMessage(chat, "Schedules are for dispatch/admin.");
         return NextResponse.json({ ok: true });
       }
-      await sendTelegramMessage(chat, await dayRundownMessage(firstWord));
+      const msg =
+        firstWord === "now"
+          ? await nowMessage()
+          : await dayRundownMessage(firstWord);
+      await sendTelegramMessage(chat, msg);
       return NextResponse.json({ ok: true });
     }
 

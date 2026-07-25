@@ -152,3 +152,35 @@ export function formatDayActivitiesMessage(
   }
   return lines.join("\n");
 }
+
+function nowLine(r: DayActivity): string {
+  const time = r.endsAt
+    ? `${timeLabel(r.at)}–${timeLabel(r.endsAt)}`
+    : timeLabel(r.at);
+  return `• <b>${escapeHtml(time)}</b> · ${escapeHtml(r.kindLabel)} — ${escapeHtml(r.siteName)} · ${escapeHtml(r.who)}`;
+}
+
+/**
+ * Render the live "on now" snapshot: what's in progress right now, and what's
+ * overdue / not started. `nowLabel` is the current time, already formatted.
+ */
+export function formatNowMessage(
+  active: DayActivity[],
+  overdue: DayActivity[],
+  nowLabel: string,
+): string {
+  const head = `<b>On now</b> · ${escapeHtml(nowLabel)}`;
+  if (active.length === 0 && overdue.length === 0) {
+    return `${head}\n\n✅ All quiet — nothing in progress or overdue right now.`;
+  }
+  const lines = [head];
+  if (active.length > 0) {
+    lines.push("", `🔵 <b>In progress (${active.length})</b>`);
+    for (const r of active.slice(0, MAX_ROWS)) lines.push(nowLine(r));
+  }
+  if (overdue.length > 0) {
+    lines.push("", `🔴 <b>Overdue / not started (${overdue.length})</b>`);
+    for (const r of overdue.slice(0, MAX_ROWS)) lines.push(nowLine(r));
+  }
+  return lines.join("\n");
+}
