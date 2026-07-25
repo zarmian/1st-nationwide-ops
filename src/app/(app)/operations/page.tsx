@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
+import { getSessionUser } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,20 @@ export default async function OperationsHubPage() {
         },
       })
     : 0;
+
+  // Whether the person viewing this hub has linked their own Telegram —
+  // the card reflects their personal connection state, not a global one.
+  const viewer = await getSessionUser();
+  const telegramLinked = viewer
+    ? Boolean(
+        (
+          await prisma.user.findUnique({
+            where: { id: viewer.id },
+            select: { telegramChatId: true },
+          })
+        )?.telegramChatId,
+      )
+    : false;
 
   const cards = [
     {
@@ -126,6 +141,14 @@ export default async function OperationsHubPage() {
         "Shurgard callouts + lock-ups and static guarding (Shurgard & Access Storage) for a day. Nexus-run sites tagged.",
       stat: todayReportJobs,
       statLabel: "Shurgard today",
+    },
+    {
+      href: "/telegram",
+      title: "Telegram",
+      blurb:
+        "Link your Telegram to get ops alerts — and soon create callouts by messaging the bot.",
+      stat: telegramLinked ? 1 : 0,
+      statLabel: telegramLinked ? "connected" : "not linked",
     },
   ];
 

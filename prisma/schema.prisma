@@ -385,6 +385,14 @@ model User {
   lastLat       Float?
   lastLng       Float?
   lastSeenAt    DateTime?
+  /// ── Telegram bot link ────────────────────────────────────────────────
+  /// The user's Telegram chat id once they've connected the bot. Used to DM
+  /// them alerts/duty and to authorise inbound commands.
+  telegramChatId       String?  @unique
+  /// One-time code the user generates in-app and sends to the bot (via a
+  /// t.me deep link) to link their account. Cleared once linked.
+  telegramLinkCode     String?  @unique
+  telegramLinkExpires  DateTime?
   /// Partner-portal scope. Only set when role = PARTNER (and future
   /// PARTNER_OFFICER). The portal hard-locks every query to this id.
   partnerId     String?  @db.Uuid
