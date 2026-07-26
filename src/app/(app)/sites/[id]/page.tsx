@@ -6,6 +6,12 @@ import { SiteHeader } from "./_components/SiteHeader";
 import { Tabs, type TabKey } from "./_components/Tabs";
 import { ActivityFeed } from "./_components/ActivityFeed";
 import { loadActivity } from "./_lib/activity";
+import {
+  SiteRatesEditor,
+  type EffectiveRateRow,
+} from "./_components/SiteRatesEditor";
+import { upsertSiteRate, deleteSiteRate } from "./_actions";
+import { RATE_SERVICES } from "@/lib/rateMeta";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +43,7 @@ export default async function SiteDetailPage({
   const site = await prisma.site.findUnique({
     where: { id: params.id },
     include: {
-      customer: { include: { contacts: true } },
+      customer: { include: { contacts: true, rates: true } },
       partner: true,
       region: true,
       keys: { orderBy: [{ status: "asc" }, { internalNo: "asc" }] },
@@ -506,28 +512,6 @@ function pickKeyTone(keys: { status: string }[]): string {
 
 // ── Finance ──────────────────────────────────────────────────────────────
 
-const RATE_LABEL: Record<string, string> = {
-  ALARM_RESPONSE: "Alarm response",
-  KEYHOLDING: "Keyholding",
-  LOCKUP: "Lock-up",
-  UNLOCK: "Unlock",
-  VPI: "VPI",
-  PATROL: "Patrol",
-  STATIC_GUARDING: "Static guarding",
-  DOG_HANDLER: "Dog handler",
-  ADHOC: "Ad-hoc",
-  ANNUAL_SUBSCRIPTION: "Annual subscription",
-  SITE_SETUP: "Site setup",
-};
-
-const UNIT_LABEL: Record<string, string> = {
-  PER_VISIT: "per visit",
-  PER_HOUR: "per hour",
-  PER_MONTH: "per month",
-  PER_YEAR: "per year",
-  FIXED: "fixed",
-};
-
 function fmtMoney(amount: unknown, currency: string): string {
   const n = typeof amount === "number" ? amount : Number(amount);
   if (!Number.isFinite(n)) return "—";
@@ -544,11 +528,28 @@ function fmtDate(d: Date | null): string {
 }
 
 function FinanceTab({ site }: { site: SiteWithRelations }) {
-  const annual = site.rates.find((r) => r.service === "ANNUAL_SUBSCRIPTION");
-  const setup = site.rates.find((r) => r.service === "SITE_SETUP");
-  const variable = site.rates.filter(
-    (r) => r.service !== "ANNUAL_SUBSCRIPTION" && r.service !== "SITE_SETUP",
-  );
+  const customerRates = site.customer?.rates ?? [];
+  // Effective rate per service = the site's own rate, else the customer's
+  // default, else unset. Powers both the headline cards and the editor table.
+  const effective: EffectiveRateRow[] = RATE_SERVICES.map((svc) => {
+    const s = site.rates.find((r) => r.service === svc);
+    const c = customerRates.find((r) => r.service === svc);
+    const e = s ?? c ?? null;
+    return {
+      service: svc,
+      amount: e ? Number(e.amount) : null,
+      currency: e?.currency ?? "GBP",
+      unit: e?.unit ?? null,
+      source: s ? "site" : c ? "customer" : "none",
+      overrideId: s?.id,
+    };
+  });
+  const annual =
+    site.rates.find((r) => r.service === "ANNUAL_SUBSCRIPTION") ??
+    customerRates.find((r) => r.service === "ANNUAL_SUBSCRIPTION");
+  const setup =
+    site.rates.find((r) => r.service === "SITE_SETUP") ??
+    customerRates.find((r) => r.service === "SITE_SETUP");
 
   return (
     <div className="section">
@@ -593,61 +594,15 @@ function FinanceTab({ site }: { site: SiteWithRelations }) {
         </div>
       </div>
 
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100">
-          <h2 className="font-semibold text-brand-navy">Variable rates</h2>
-          <p className="text-xs text-slate-500">
-            What we charge per visit / hour for this site. Source columns from
-            the Nexus CSV map directly to these.
-          </p>
-        </div>
-        {variable.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-slate-500 text-center">
-            No variable rates set. Run{" "}
-            <code className="text-xs bg-slate-100 px-1 rounded">
-              npm run db:import:nexus
-            </code>{" "}
-            with the latest CSV to populate.
-          </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Service
-                </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Rate
-                </th>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Unit
-                </th>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Source
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {variable.map((r) => (
-                <tr key={r.id}>
-                  <td className="px-4 py-2 text-slate-700">
-                    {RATE_LABEL[r.service] ?? r.service}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums font-medium text-brand-navy">
-                    {fmtMoney(r.amount, r.currency)}
-                  </td>
-                  <td className="px-4 py-2 text-slate-500">
-                    {UNIT_LABEL[r.unit] ?? r.unit}
-                  </td>
-                  <td className="px-4 py-2 text-slate-500 text-xs">
-                    {r.source ?? "manual"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <SiteRatesEditor
+        effective={effective}
+        upsert={upsertSiteRate.bind(null, site.id)}
+        remove={deleteSiteRate}
+        customerName={site.customer?.name ?? null}
+        customerRatesHref={
+          site.customer ? `/admin/customers/${site.customer.id}/rates` : null
+        }
+      />
 
       <div className="card p-4">
         <h2 className="font-semibold text-brand-navy mb-3">
@@ -759,7 +714,7 @@ async function loadSite(id: string) {
   return prisma.site.findUnique({
     where: { id },
     include: {
-      customer: { include: { contacts: true } },
+      customer: { include: { contacts: true, rates: true } },
       partner: true,
       region: true,
       keys: true,
