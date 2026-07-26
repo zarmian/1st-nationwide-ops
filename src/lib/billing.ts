@@ -107,6 +107,22 @@ function round2(n: number): number {
 }
 
 /**
+ * Merge a customer's default rate card with a site's own rates. The site
+ * wins per service (an explicit site rate overrides the customer default);
+ * services only the customer prices are inherited. Pure — mirrors the
+ * officer-pay "specific beats default" rule in calculatePay.
+ */
+export function mergeRates(
+  siteRates: RateWithExcess[],
+  customerRates: RateWithExcess[],
+): RateWithExcess[] {
+  const byService = new Map<RateService, RateWithExcess>();
+  for (const r of customerRates) byService.set(r.service, r);
+  for (const r of siteRates) byService.set(r.service, r); // site overrides
+  return Array.from(byService.values());
+}
+
+/**
  * Map an internal JobType / form type to the corresponding RateService.
  * Returned `null` means "this activity type isn't priced" (e.g. SURVEY).
  */
@@ -165,27 +181,44 @@ export function roundUpToHalfHour(minutes: number | null): number | null {
 // ── DB helpers ────────────────────────────────────────────────────────────
 
 /**
- * Load active rates for a site and apply calculateBilling. Convenience for
- * the call sites in /api/submissions and the job-creation actions.
+ * Resolve the customer-facing rate for a site + service and apply
+ * calculateBilling. The site's own rates take precedence; anything the site
+ * doesn't price falls back to the customer's default rate card. Convenience
+ * for the call sites in /api/submissions and the job-creation actions.
  */
 export async function billForSite(
   siteId: string,
   service: RateService,
   durationMinutes: number | null = null,
 ): Promise<BillingResult> {
-  const rates = await prisma.siteRate.findMany({
-    where: { siteId },
-    select: {
-      id: true,
-      service: true,
-      amount: true,
-      currency: true,
-      unit: true,
-      includedMinutes: true,
-      excessRatePerMin: true,
-    },
+  const rateSelect = {
+    id: true,
+    service: true,
+    amount: true,
+    currency: true,
+    unit: true,
+    includedMinutes: true,
+    excessRatePerMin: true,
+  } as const;
+
+  const site = await prisma.site.findUnique({
+    where: { id: siteId },
+    select: { customerId: true, rates: { select: rateSelect } },
   });
-  return calculateBilling(rates, service, durationMinutes);
+  if (!site) return { ok: false, reason: "no_rate", service };
+
+  const customerRates = site.customerId
+    ? await prisma.customerRate.findMany({
+        where: { customerId: site.customerId },
+        select: rateSelect,
+      })
+    : [];
+
+  return calculateBilling(
+    mergeRates(site.rates, customerRates),
+    service,
+    durationMinutes,
+  );
 }
 
 /**

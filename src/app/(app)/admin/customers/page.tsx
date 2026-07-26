@@ -79,7 +79,13 @@ export default async function CustomersAdminPage() {
                 <td className="px-4 py-2.5 text-right tabular-nums">
                   {c._count.contacts}
                 </td>
-                <td className="px-4 py-2.5 text-right">
+                <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                  <Link
+                    href={`/admin/customers/${c.id}/rates`}
+                    className="btn-ghost text-sm"
+                  >
+                    Rates
+                  </Link>
                   <Link
                     href={`/admin/customers/${c.id}/edit`}
                     className="btn-ghost text-sm"

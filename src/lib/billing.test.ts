@@ -5,6 +5,7 @@ import {
   calculatePay,
   durationMinutes,
   jobTypeToRateService,
+  mergeRates,
   roundUpToHalfHour,
 } from "./billing";
 
@@ -270,5 +271,52 @@ describe("roundUpToHalfHour", () => {
     expect(roundUpToHalfHour(null)).toBeNull();
     expect(roundUpToHalfHour(0)).toBe(0);
     expect(roundUpToHalfHour(-5)).toBe(0);
+  });
+});
+
+describe("mergeRates (customer defaults + site overrides)", () => {
+  const rate = (
+    service: string,
+    amount: number,
+    over: Record<string, unknown> = {},
+  ) => ({
+    id: `${service}-${amount}`,
+    service: service as any,
+    amount: new Prisma.Decimal(amount),
+    currency: "GBP",
+    unit: "PER_VISIT" as const,
+    ...over,
+  });
+
+  it("inherits customer rates a site doesn't set", () => {
+    const merged = mergeRates([], [rate("ALARM_RESPONSE", 50)]);
+    const bill = calculateBilling(merged, "ALARM_RESPONSE" as any);
+    expect(bill.ok && bill.amount).toBe(50);
+  });
+
+  it("lets a site rate override the customer default for that service", () => {
+    const merged = mergeRates(
+      [rate("ALARM_RESPONSE", 75)], // site
+      [rate("ALARM_RESPONSE", 50)], // customer default
+    );
+    const bill = calculateBilling(merged, "ALARM_RESPONSE" as any);
+    expect(bill.ok && bill.amount).toBe(75);
+    // exactly one effective rate for the service — no duplicate
+    expect(merged.filter((r) => r.service === "ALARM_RESPONSE")).toHaveLength(1);
+  });
+
+  it("keeps site-only and customer-only services side by side", () => {
+    const merged = mergeRates(
+      [rate("PATROL", 20)],
+      [rate("ALARM_RESPONSE", 50)],
+    );
+    expect(calculateBilling(merged, "PATROL" as any).ok).toBe(true);
+    expect(calculateBilling(merged, "ALARM_RESPONSE" as any).ok).toBe(true);
+  });
+
+  it("misses when neither site nor customer prices the service", () => {
+    const merged = mergeRates([rate("PATROL", 20)], [rate("LOCKUP", 10)]);
+    const bill = calculateBilling(merged, "VPI" as any);
+    expect(bill.ok).toBe(false);
   });
 });

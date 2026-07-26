@@ -456,6 +456,7 @@ model Customer {
   jobs            Job[]
   contacts        CustomerContact[]
   formTemplates   FormTemplate[]
+  rates           CustomerRate[]
 
   @@index([name])
 }
@@ -560,6 +561,32 @@ model SiteRate {
 
   @@unique([siteId, service])
   @@index([siteId])
+  @@index([service])
+}
+
+/// Customer-level default rate card. Applies to every site under the
+/// customer unless that site has its own SiteRate for the same service
+/// (site overrides win — see billForSite / mergeRates). Same shape as
+/// SiteRate so the calculator treats them identically once merged.
+model CustomerRate {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId      String       @db.Uuid
+  customer        Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  service         RateService
+  amount          Decimal      @db.Decimal(10, 2)
+  currency        String       @default("GBP")
+  unit            RateUnit     @default(PER_VISIT)
+  includedMinutes Int?
+  excessRatePerMin Decimal?    @db.Decimal(10, 4)
+  validFrom       DateTime?
+  validTo         DateTime?
+  notes           String?
+  source          String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([customerId, service])
+  @@index([customerId])
   @@index([service])
 }
 
