@@ -10,6 +10,7 @@ import {
   calculatePay,
   durationMinutes,
   jobTypeToRateService,
+  mergeRates,
 } from "@/lib/billing";
 
 export type RecalcResult = {
@@ -234,6 +235,48 @@ export async function recalculateBilling(
     siteOwners.map((s) => [s.id, { customerId: s.customerId, partnerId: s.partnerId }]),
   );
 
+  // Customer default rate cards for the sites in scope. Site rates override
+  // these per service (mergeRates), so a job at a site with no own rate still
+  // bills off its customer's card — same resolution as billForSite.
+  const customerIds = Array.from(
+    new Set(
+      siteOwners
+        .map((s) => s.customerId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const customerRates =
+    customerIds.length > 0
+      ? await prisma.customerRate.findMany({
+          where: { customerId: { in: customerIds } },
+          select: {
+            id: true,
+            customerId: true,
+            service: true,
+            amount: true,
+            currency: true,
+            unit: true,
+            includedMinutes: true,
+            excessRatePerMin: true,
+          },
+        })
+      : [];
+  const customerRatesByCustomer = new Map<string, typeof customerRates>();
+  for (const r of customerRates) {
+    const list = customerRatesByCustomer.get(r.customerId) ?? [];
+    list.push(r);
+    customerRatesByCustomer.set(r.customerId, list);
+  }
+
+  /** Effective rates for a site: its own overrides merged over the customer
+   *  default card (site wins per service). */
+  const effectiveRatesForSite = (siteId: string) => {
+    const own = siteRatesByKey.get(siteId) ?? [];
+    const custId = siteOwnerById.get(siteId)?.customerId;
+    const cust = custId ? customerRatesByCustomer.get(custId) ?? [] : [];
+    return mergeRates(own, cust);
+  };
+
   // ── Build per-row update payloads (sync) ───────────────────────────
   type VisitUpdate = {
     id: string;
@@ -247,7 +290,7 @@ export async function recalculateBilling(
     const rateService = jobTypeToRateService(form) as RateService | null;
     if (!rateService) continue;
     const duration = durationMinutes(v.arrivedAt, v.departedAt);
-    const rates = siteRatesByKey.get(v.siteId) ?? [];
+    const rates = effectiveRatesForSite(v.siteId);
     const bill = calculateBilling(rates, rateService, duration);
     let pay = null;
     if (v.officerId) {
@@ -278,7 +321,7 @@ export async function recalculateBilling(
     const rateService = jobTypeToRateService(j.type) as RateService | null;
     if (!rateService) continue;
     const duration = durationMinutes(j.startedAt, j.completedAt);
-    const rates = siteRatesByKey.get(j.siteId) ?? [];
+    const rates = effectiveRatesForSite(j.siteId);
     const bill = calculateBilling(rates, rateService, duration);
     let pay = null;
     if (j.assignedToUserId) {
@@ -314,7 +357,7 @@ export async function recalculateBilling(
     const rateService = jobTypeToRateService(s.type) as RateService | null;
     if (!rateService) continue;
     const duration = durationMinutes(s.actualStartedAt, s.actualEndedAt);
-    const rates = siteRatesByKey.get(s.siteId) ?? [];
+    const rates = effectiveRatesForSite(s.siteId);
     const bill = calculateBilling(rates, rateService, duration);
     // Only officer-handled shifts get a pay snapshot — partner-handled
     // shifts carry their cost on `partnerChargeToUsAmount` instead, set
