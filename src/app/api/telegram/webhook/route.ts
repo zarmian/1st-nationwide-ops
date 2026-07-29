@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/db";
 import {
   answerCallbackQuery,
@@ -8,15 +9,22 @@ import {
 } from "@/lib/telegram";
 import { isAnthropicConfigured } from "@/lib/anthropic";
 import { createBotCallout, type BotCalloutData } from "@/lib/callouts";
+import { snapshotJobFinanceIfNeeded } from "@/lib/billing";
 import {
   calloutCancelData,
   calloutConfirmData,
   decodeCalloutAction,
+  decodeJobAction,
+  jobActionData,
   matchSite,
   resolveCallout,
   routeMessage,
 } from "@/lib/telegramCallout";
-import { dayRundownMessage, nowMessage } from "@/lib/dayActivities";
+import {
+  dayRundownMessage,
+  myDayMessage,
+  nowMessage,
+} from "@/lib/dayActivities";
 
 /**
  * Telegram bot webhook. Telegram POSTs every update here.
@@ -338,6 +346,124 @@ async function handleCalloutCallback(cbq: any): Promise<void> {
   await answerCallbackQuery(cbq.id, "Done ✅");
 }
 
+/** Handle an officer's "On site" / "Complete" tap on an assignment ping. */
+async function handleJobActionCallback(cbq: any): Promise<void> {
+  const chatId = cbq?.message?.chat?.id;
+  const messageId: number | undefined = cbq?.message?.message_id;
+  const decoded = decodeJobAction(String(cbq?.data ?? ""));
+  if (!chatId || !decoded) {
+    await answerCallbackQuery(cbq.id);
+    return;
+  }
+  const chat = String(chatId);
+  const who = await linkedUser(chat);
+  if (!who) {
+    await answerCallbackQuery(cbq.id, "Link your account first.");
+    return;
+  }
+
+  const job = await prisma.job.findUnique({
+    where: { id: decoded.jobId },
+    select: {
+      id: true,
+      status: true,
+      assignedToUserId: true,
+      startedAt: true,
+      notes: true,
+      site: { select: { name: true } },
+    },
+  });
+  if (!job) {
+    await answerCallbackQuery(cbq.id, "Job not found.");
+    return;
+  }
+  // Only the assignee (or staff) may act on it.
+  if (job.assignedToUserId !== who.id && !isStaff(who.role as Role)) {
+    await answerCallbackQuery(cbq.id, "That's not your job.");
+    return;
+  }
+  if (job.status === "CANCELLED") {
+    await answerCallbackQuery(cbq.id, "This job was cancelled.");
+    return;
+  }
+  const siteName = job.site?.name ?? "site";
+  const done = ["APPROVED", "SENT_TO_CLIENT", "CLOSED"].includes(job.status);
+
+  if (decoded.action === "onsite") {
+    if (done) {
+      await answerCallbackQuery(cbq.id, "Already completed.");
+      return;
+    }
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        startedAt: job.startedAt ?? new Date(),
+        status: "IN_PROGRESS" as any,
+      },
+    });
+    revalidatePath("/dispatch");
+    revalidatePath("/activities");
+    await answerCallbackQuery(cbq.id, "Marked on site ✅");
+    if (messageId) {
+      await editTelegramMessage(
+        chat,
+        messageId,
+        `🔵 <b>On site</b> — ${escapeHtml(siteName)}\n\nTap Complete when you're done.`,
+        [
+          [
+            {
+              text: "🏁 Complete",
+              callback_data: jobActionData("complete", job.id),
+            },
+          ],
+        ],
+      );
+    }
+    return;
+  }
+
+  // Complete.
+  if (done) {
+    await answerCallbackQuery(cbq.id, "Already completed.");
+    if (messageId) {
+      await editTelegramMessage(
+        chat,
+        messageId,
+        `🏁 <b>Completed</b> — ${escapeHtml(siteName)}`,
+        [],
+      );
+    }
+    return;
+  }
+  const now = new Date();
+  const stamp = `Completed via Telegram by ${who.name} at ${now.toISOString()}`;
+  await prisma.job.update({
+    where: { id: job.id },
+    data: {
+      startedAt: job.startedAt ?? now,
+      completedAt: now,
+      status: "APPROVED" as any,
+      notes: job.notes ? `${job.notes}\n${stamp}` : stamp,
+    },
+  });
+  // Fill billing + officer pay for the just-completed job (no-op if already set).
+  await snapshotJobFinanceIfNeeded(job.id).catch((e) =>
+    console.error("snapshotJobFinanceIfNeeded (telegram complete) failed", e),
+  );
+  revalidatePath("/dispatch");
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  await answerCallbackQuery(cbq.id, "Completed 🏁");
+  if (messageId) {
+    await editTelegramMessage(
+      chat,
+      messageId,
+      `🏁 <b>Completed</b> — ${escapeHtml(siteName)}\n\nAdd a full report in the app if one's needed.`,
+      [],
+    );
+  }
+}
+
 export async function POST(req: Request) {
   if (!authorised(req)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
@@ -351,9 +477,14 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Button taps.
+    // Button taps — route by callback_data prefix.
     if (update?.callback_query) {
-      await handleCalloutCallback(update.callback_query);
+      const data = String(update.callback_query.data ?? "");
+      if (decodeJobAction(data)) {
+        await handleJobActionCallback(update.callback_query);
+      } else {
+        await handleCalloutCallback(update.callback_query);
+      }
       return NextResponse.json({ ok: true });
     }
 
@@ -373,7 +504,7 @@ export async function POST(req: Request) {
         await sendTelegramMessage(
           chat,
           who
-            ? `Hi ${escapeHtml(who.name)} — you're connected. ${isStaff(who.role as Role) ? "Ask me /now, /today, /yesterday or /tomorrow, or message me a callout like “Alarm at Neasden, send John”." : "Try /whoami."}`
+            ? `Hi ${escapeHtml(who.name)} — you're connected. ${isStaff(who.role as Role) ? "Ask me /now, /today, /yesterday or /tomorrow, or message me a callout like “Alarm at Neasden, send John”." : "Send /mine to see your jobs for today, and tap the buttons on jobs I send you."}`
             : "Welcome to the 1st Nationwide bot. To connect your account, open the app → <b>Connect Telegram</b> and tap the link there.",
         );
       }
@@ -400,6 +531,21 @@ export async function POST(req: Request) {
       .toLowerCase()
       .replace(/^\//, "")
       .replace(/@.*/, "");
+
+    // /mine — the sender's own jobs today. Works for any linked user.
+    if (firstWord === "mine" || firstWord === "myjobs") {
+      const who = await linkedUser(chat);
+      if (!who) {
+        await sendTelegramMessage(
+          chat,
+          "This chat isn't linked yet. Open the app → Connect Telegram.",
+        );
+        return NextResponse.json({ ok: true });
+      }
+      await sendTelegramMessage(chat, await myDayMessage(who.id));
+      return NextResponse.json({ ok: true });
+    }
+
     if (
       firstWord === "now" ||
       firstWord === "today" ||
@@ -438,7 +584,7 @@ export async function POST(req: Request) {
     if (!isStaff(who.role as Role)) {
       await sendTelegramMessage(
         chat,
-        "You're connected. Creating callouts and viewing schedules is for dispatch/admin — you'll get your alerts here.",
+        "You're connected. Send /mine for your jobs today, and tap the buttons on jobs I send you.",
       );
       return NextResponse.json({ ok: true });
     }

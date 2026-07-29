@@ -132,6 +132,11 @@ export default async function OfficerTodayPage() {
             assigned to you for the next 2 days.
           </>
         }
+        actions={
+          <Link href="/m/telegram" className="btn-ghost text-sm">
+            Telegram
+          </Link>
+        }
       />
 
       <InstallHint />

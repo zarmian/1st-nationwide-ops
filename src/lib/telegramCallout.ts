@@ -475,3 +475,18 @@ export function decodeCalloutAction(
   if (!m) return null;
   return { action: m[1] === "c" ? "confirm" : "cancel", draftId: m[2] };
 }
+
+// Officer job check-in/out buttons on the assignment ping.
+export function jobActionData(
+  action: "onsite" | "complete",
+  jobId: string,
+): string {
+  return `jc${action === "onsite" ? "o" : "d"}:${jobId}`;
+}
+export function decodeJobAction(
+  data: string,
+): { action: "onsite" | "complete"; jobId: string } | null {
+  const m = data.match(/^jc([od]):(.+)$/);
+  if (!m) return null;
+  return { action: m[1] === "o" ? "onsite" : "complete", jobId: m[2] };
+}

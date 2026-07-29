@@ -3,6 +3,8 @@ import {
   calloutCancelData,
   calloutConfirmData,
   decodeCalloutAction,
+  decodeJobAction,
+  jobActionData,
   matchPerson,
   matchSite,
   resolveCallout,
@@ -253,5 +255,30 @@ describe("callout callback_data", () => {
   it("stays within Telegram's 64-byte callback_data limit", () => {
     const id = "00000000-0000-4000-8000-000000000001";
     expect(calloutConfirmData(id).length).toBeLessThanOrEqual(64);
+  });
+});
+
+describe("job action callback_data", () => {
+  const id = "00000000-0000-4000-8000-000000000009";
+
+  it("round-trips on-site and complete", () => {
+    expect(decodeJobAction(jobActionData("onsite", id))).toEqual({
+      action: "onsite",
+      jobId: id,
+    });
+    expect(decodeJobAction(jobActionData("complete", id))).toEqual({
+      action: "complete",
+      jobId: id,
+    });
+  });
+
+  it("does not collide with callout actions", () => {
+    expect(decodeJobAction(calloutConfirmData(id))).toBeNull();
+    expect(decodeCalloutAction(jobActionData("onsite", id))).toBeNull();
+  });
+
+  it("returns null for unrelated data and stays within 64 bytes", () => {
+    expect(decodeJobAction("nope")).toBeNull();
+    expect(jobActionData("complete", id).length).toBeLessThanOrEqual(64);
   });
 });

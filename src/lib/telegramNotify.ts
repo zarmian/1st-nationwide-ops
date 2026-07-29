@@ -13,6 +13,7 @@ import {
   isTelegramConfigured,
   sendTelegramMessage,
 } from "@/lib/telegram";
+import { jobActionData } from "@/lib/telegramCallout";
 
 const JOB_TYPE_LABELS: Record<string, string> = {
   ALARM_RESPONSE: "Alarm response",
@@ -61,9 +62,14 @@ export async function notifyAssignedOfficerOfJob(jobId: string): Promise<void> {
     `When: ${escapeHtml(when)}`,
   ];
   if (job.notes) lines.push(`Notes: ${escapeHtml(job.notes)}`);
-  lines.push("", "Open the app for full details.");
+  lines.push("", "Tap below when you're on site / done, or open the app.");
 
-  await sendTelegramMessage(chatId, lines.join("\n"));
+  await sendTelegramMessage(chatId, lines.join("\n"), [
+    [
+      { text: "✅ On site", callback_data: jobActionData("onsite", jobId) },
+      { text: "🏁 Complete", callback_data: jobActionData("complete", jobId) },
+    ],
+  ]);
 }
 
 // ── Dispatch broadcasts (missed calls, no-shows, overdue check-ins) ─────────
