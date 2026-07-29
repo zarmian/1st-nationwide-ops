@@ -30,7 +30,7 @@ function whoLabel(
  */
 export async function loadDayActivities(
   target: Pick<DayTarget, "year" | "month" | "day">,
-  opts?: { siteId?: string },
+  opts?: { siteId?: string; officerId?: string },
 ): Promise<DayActivity[]> {
   const start = ukWallClockToUtc(target.year, target.month, target.day, 0, 0, 0);
   const end = ukWallClockToUtc(
@@ -43,12 +43,17 @@ export async function loadDayActivities(
   );
   const range = { gte: start, lte: end };
   const site = opts?.siteId ? { siteId: opts.siteId } : {};
+  const jobOfficer = opts?.officerId
+    ? { assignedToUserId: opts.officerId }
+    : {};
+  const officer = opts?.officerId ? { officerId: opts.officerId } : {};
 
   const [jobs, visits, shifts] = await prisma.$transaction([
     prisma.job.findMany({
       where: {
         status: { not: "CANCELLED" },
         ...site,
+        ...jobOfficer,
         OR: [
           { scheduledFor: range },
           { AND: [{ scheduledFor: null }, { createdAt: range }] },
@@ -68,7 +73,12 @@ export async function loadDayActivities(
       take: 500,
     }),
     prisma.patrolVisit.findMany({
-      where: { status: { not: "CANCELLED" }, ...site, scheduledAt: range },
+      where: {
+        status: { not: "CANCELLED" },
+        ...site,
+        ...officer,
+        scheduledAt: range,
+      },
       select: {
         scheduledAt: true,
         status: true,
@@ -80,7 +90,7 @@ export async function loadDayActivities(
       take: 500,
     }),
     prisma.shift.findMany({
-      where: { ...site, scheduledStartsAt: range },
+      where: { ...site, ...officer, scheduledStartsAt: range },
       select: {
         type: true,
         scheduledStartsAt: true,
@@ -153,6 +163,17 @@ export async function dayRundownMessage(
   }
   const rows = await loadDayActivities(target, { siteId: opts?.siteId });
   return formatDayActivitiesMessage(rows, target.label, opts?.siteNote);
+}
+
+/** One officer's own activities for a day, as a Telegram message. */
+export async function myDayMessage(
+  officerId: string,
+  dayInput = "today",
+): Promise<string> {
+  const target = resolveDayTarget(dayInput);
+  if (!target) return "Try /mine for today's jobs.";
+  const rows = await loadDayActivities(target, { officerId });
+  return formatDayActivitiesMessage(rows, `${target.label} — your jobs`);
 }
 
 /**
