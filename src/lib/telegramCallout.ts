@@ -440,6 +440,57 @@ const LOOKUP_KEY_TOOL: ToolDef = {
   },
 };
 
+const JOB_TARGET_PROPS = {
+  siteQuery: {
+    type: "string",
+    description: "The site of the existing job to act on.",
+  },
+  typeHint: {
+    type: "string",
+    description:
+      "The job kind if the dispatcher named it (alarm, lock-up, unlock, patrol, VPI). Helps pick the right one.",
+  },
+} as const;
+
+const REASSIGN_JOB_TOOL: ToolDef = {
+  name: "reassign_job",
+  description:
+    "Move an EXISTING callout/job to a different officer. Use for 'move the Neasden alarm to Jane', 'reassign X to Y'.",
+  schema: {
+    type: "object",
+    properties: {
+      ...JOB_TARGET_PROPS,
+      officerName: {
+        type: "string",
+        description: "The officer to move the job to.",
+      },
+    },
+    required: ["siteQuery", "officerName"],
+  },
+};
+
+const CANCEL_JOB_TOOL: ToolDef = {
+  name: "cancel_job",
+  description:
+    "Cancel an EXISTING callout/job. Use for 'cancel the Norbury lock-up'.",
+  schema: {
+    type: "object",
+    properties: { ...JOB_TARGET_PROPS },
+    required: ["siteQuery"],
+  },
+};
+
+const CLOSE_JOB_TOOL: ToolDef = {
+  name: "close_job",
+  description:
+    "Mark an EXISTING callout/job as done. Use for 'close the Neasden alarm', 'mark X complete'.",
+  schema: {
+    type: "object",
+    properties: { ...JOB_TARGET_PROPS },
+    required: ["siteQuery"],
+  },
+};
+
 function buildSystemPrompt(
   officers: PersonCandidate[],
   partners: PersonCandidate[],
@@ -447,7 +498,7 @@ function buildSystemPrompt(
 ): string {
   return [
     "You are the dispatch assistant for 1st Nationwide, a UK security firm.",
-    "A dispatcher will do one of: (a) describe a NEW callout to create and assign → create_callout; (b) ASK what's scheduled or done on a day → list_activities; (c) ask about ONE site's details → lookup_site; (d) ask who holds keys → lookup_key. Pick the matching tool.",
+    "Pick the matching tool for what the dispatcher wants: create a NEW callout → create_callout; ASK what's scheduled/done on a day → list_activities; ask about ONE site → lookup_site; ask who holds keys → lookup_key; move an EXISTING job to another officer → reassign_job; cancel an EXISTING job → cancel_job; mark an EXISTING job done → close_job.",
     `The current date and time in the UK is ${nowUk}. Resolve relative times ('tonight', 'in an hour', '9pm') against it and return UK local wall-clock 'YYYY-MM-DDTHH:MM'.`,
     "For create_callout: only set handlerKind='partner' when the dispatcher clearly wants the job given to a partner company; otherwise it's an internal officer. Copy the site reference verbatim into siteQuery — do not guess a full site name.",
     officers.length
@@ -464,6 +515,14 @@ export type RoutedMessage =
   | { kind: "list"; day: string; siteQuery: string | null }
   | { kind: "lookupSite"; query: string }
   | { kind: "lookupKey"; query: string }
+  | {
+      kind: "reassignJob";
+      siteQuery: string;
+      typeHint: string | null;
+      officerName: string;
+    }
+  | { kind: "cancelJob"; siteQuery: string; typeHint: string | null }
+  | { kind: "closeJob"; siteQuery: string; typeHint: string | null }
   | { kind: "error"; error: string };
 
 /**
@@ -482,9 +541,30 @@ export async function routeMessage(
       LIST_ACTIVITIES_TOOL,
       LOOKUP_SITE_TOOL,
       LOOKUP_KEY_TOOL,
+      REASSIGN_JOB_TOOL,
+      CANCEL_JOB_TOOL,
+      CLOSE_JOB_TOOL,
     ],
   });
   if (!res.ok) return { kind: "error", error: res.error };
+  const d = res.data ?? {};
+  const siteQuery = String(d.siteQuery ?? "").trim();
+  const typeHint =
+    typeof d.typeHint === "string" && d.typeHint.trim() ? d.typeHint.trim() : null;
+  if (res.name === "reassign_job") {
+    return {
+      kind: "reassignJob",
+      siteQuery,
+      typeHint,
+      officerName: String(d.officerName ?? "").trim(),
+    };
+  }
+  if (res.name === "cancel_job") {
+    return { kind: "cancelJob", siteQuery, typeHint };
+  }
+  if (res.name === "close_job") {
+    return { kind: "closeJob", siteQuery, typeHint };
+  }
   if (res.name === "lookup_site") {
     return { kind: "lookupSite", query: String(res.data?.query ?? "").trim() };
   }

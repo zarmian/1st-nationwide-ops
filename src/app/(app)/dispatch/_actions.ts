@@ -14,6 +14,7 @@ import {
 } from "@/lib/billing";
 import { notifyAlarmReceived } from "@/lib/notifications";
 import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
+import { cancelJobCore, closeJobCore } from "@/lib/jobActions";
 import { parseUkDateTimeLocal } from "@/lib/dates";
 import {
   materializeLockUnlockJobs,
@@ -274,76 +275,20 @@ export async function closeJob(
   opts?: { closedAt?: Date | null; notes?: string | null },
 ): Promise<{ ok: boolean; error?: string }> {
   const me = await requireStaff();
-  const job = await prisma.job.findUnique({
-    where: { id: jobId },
-    select: {
-      id: true,
-      status: true,
-      siteId: true,
-      type: true,
-      scheduledFor: true,
-      startedAt: true,
-      completedAt: true,
-      assignedToUserId: true,
-      handledByPartnerId: true,
-      billedAmount: true,
-      paidAmount: true,
-      notes: true,
-    },
-  });
-  if (!job) return { ok: false, error: "Job not found." };
-  if (job.status === "CANCELLED") {
-    return { ok: false, error: "Cancelled jobs can't be closed — restore first." };
-  }
-  if (
-    job.status === "APPROVED" ||
-    job.status === "SENT_TO_CLIENT" ||
-    job.status === "CLOSED"
-  ) {
-    return { ok: true };
-  }
-
   const closedAt = opts?.closedAt ?? new Date();
   // Note appended so the audit trail captures "closed by dispatcher
   // because officer informed by phone" without a separate column.
   const closerName = me.name || me.email || me.id;
-  const extraNote = `Closed by dispatch (${closerName}) on behalf of officer at ${closedAt.toISOString()}${opts?.notes ? ` — ${opts.notes}` : ""}`;
-  const mergedNotes = job.notes ? `${job.notes}\n${extraNote}` : extraNote;
+  const note = `Closed by dispatch (${closerName}) on behalf of officer at ${closedAt.toISOString()}${opts?.notes ? ` — ${opts.notes}` : ""}`;
 
-  await prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: "APPROVED" as any,
-      startedAt: job.startedAt ?? closedAt,
-      completedAt: job.completedAt ?? closedAt,
-      notes: mergedNotes,
-    },
-  });
-
-  // Run billing + officer pay snapshot if we haven't already. Matches
-  // the recordDispatcherCallout and restoreJob behaviour. Accounting date =
-  // scheduled date, else the completion time we just stamped.
-  const at = job.scheduledFor ?? job.completedAt ?? closedAt;
-  if (job.siteId && job.billedAmount == null) {
-    const rateService = jobTypeToRateService(job.type);
-    if (rateService) {
-      const bill = await billForSite(job.siteId, rateService);
-      if (bill.ok) await applyBillingToJob(jobId, bill, at);
-    }
-  }
-  if (job.assignedToUserId && !job.handledByPartnerId && job.paidAmount == null) {
-    const rateService = jobTypeToRateService(job.type);
-    if (rateService) {
-      const pay = await payForOfficer(job.assignedToUserId, rateService);
-      if (pay.ok) await applyPayToJob(jobId, pay, at);
-    }
-  }
+  const r = await closeJobCore(jobId, { closedAt, note });
+  if (!r.ok) return { ok: false, error: r.error };
 
   revalidatePath("/dispatch");
   revalidatePath(`/dispatch/${jobId}`);
   revalidatePath("/activities");
   revalidatePath("/finance");
-  if (job.siteId) revalidatePath(`/sites/${job.siteId}`);
+  if (r.siteId) revalidatePath(`/sites/${r.siteId}`);
   return { ok: true };
 }
 
@@ -358,41 +303,13 @@ export async function cancelJob(
   jobId: string,
 ): Promise<{ ok: boolean; error?: string }> {
   const me = await requireStaff();
-  const job = await prisma.job.findUnique({
-    where: { id: jobId },
-    select: { id: true, status: true, siteId: true },
-  });
-  if (!job) return { ok: false, error: "Job not found" };
-  if (job.status === "CANCELLED") {
-    return { ok: true };
-  }
-  if (job.status === "CLOSED" || job.status === "SENT_TO_CLIENT") {
-    return { ok: false, error: "This job is already closed — can't cancel." };
-  }
-  // Reverse the billing + pay snapshots. The customer shouldn't be billed
-  // for a cancelled job and the officer shouldn't be paid. We null the
-  // amount columns (finance aggregates ignore null) but keep nothing else
-  // because Restore re-runs the rate lookup with the live rates.
-  await prisma.job.update({
-    where: { id: jobId },
-    data: {
-      status: "CANCELLED" as any,
-      cancelledAt: new Date(),
-      cancelledByUserId: me.id,
-      statusBeforeCancel: job.status as any,
-      billedAmount: null,
-      billedCurrency: null,
-      billedAt: null,
-      paidAmount: null,
-      paidCurrency: null,
-      paidAt: null,
-    },
-  });
+  const r = await cancelJobCore(jobId, me.id);
+  if (!r.ok) return { ok: false, error: r.error };
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
   revalidatePath("/activities");
   revalidatePath("/finance");
-  if (job.siteId) revalidatePath(`/sites/${job.siteId}`);
+  if (r.siteId) revalidatePath(`/sites/${r.siteId}`);
   return { ok: true };
 }
 

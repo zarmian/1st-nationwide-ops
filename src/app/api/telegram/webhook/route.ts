@@ -11,14 +11,21 @@ import { isAnthropicConfigured } from "@/lib/anthropic";
 import { createBotCallout, type BotCalloutData } from "@/lib/callouts";
 import { snapshotJobFinanceIfNeeded } from "@/lib/billing";
 import {
+  cancelJobCore,
+  closeJobCore,
+  reassignJobCore,
+} from "@/lib/jobActions";
+import {
   calloutCancelData,
   calloutConfirmData,
   decodeCalloutAction,
   decodeJobAction,
   jobActionData,
+  matchPerson,
   matchSite,
   resolveCallout,
   routeMessage,
+  type RoutedMessage,
 } from "@/lib/telegramCallout";
 import {
   dayRundownMessage,
@@ -119,6 +126,168 @@ function looksLikeCallout(text: string): boolean {
   return t.length >= 6 && /\s/.test(t);
 }
 
+const ACTIVE_JOB_STATUSES = [
+  "OPEN",
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "SUBMITTED",
+  "REVIEW_PENDING",
+] as const;
+
+/** Loose map from a spoken job kind to a JobType, for narrowing the target. */
+function mapTypeHint(hint: string | null): string | null {
+  if (!hint) return null;
+  const h = hint.toLowerCase();
+  if (h.includes("alarm")) return "ALARM_RESPONSE";
+  if (h.includes("unlock")) return "UNLOCK";
+  if (h.includes("lock")) return "LOCK";
+  if (h.includes("patrol")) return "PATROL";
+  if (h.includes("vpi")) return "VPI";
+  return null;
+}
+
+function jobDesc(
+  job: { type: string; typeLabel: string | null; assignedTo: { name: string } | null },
+  siteName: string,
+): string {
+  const kind = job.typeLabel?.trim() || job.type.replace(/_/g, " ").toLowerCase();
+  const who = job.assignedTo?.name;
+  return `${kind} at ${siteName}${who ? ` (${who})` : ""}`;
+}
+
+/** Stash a job action as a draft and send a Confirm/Cancel card. */
+async function createJobActionDraft(
+  chat: string,
+  userId: string,
+  payload: Record<string, unknown>,
+  summary: string,
+): Promise<void> {
+  const draft = await prisma.telegramCalloutDraft.create({
+    data: {
+      chatId: chat,
+      createdByUserId: userId,
+      payload: payload as any,
+      summary,
+      status: "PENDING",
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+    },
+    select: { id: true },
+  });
+  const sent = await sendTelegramMessage(
+    chat,
+    `⚠️ <b>Confirm?</b>\n\n${escapeHtml(summary)}`,
+    [
+      [
+        { text: "✅ Confirm", callback_data: calloutConfirmData(draft.id) },
+        { text: "✖️ Cancel", callback_data: calloutCancelData(draft.id) },
+      ],
+    ],
+  );
+  if (sent.messageId) {
+    await prisma.telegramCalloutDraft.update({
+      where: { id: draft.id },
+      data: { messageId: sent.messageId },
+    });
+  }
+}
+
+/**
+ * Resolve "the Neasden alarm" to a single active job, then draft a
+ * reassign / cancel / close for confirmation.
+ */
+async function handleJobActionRequest(
+  chat: string,
+  who: { id: string },
+  routed: Extract<
+    RoutedMessage,
+    { kind: "reassignJob" | "cancelJob" | "closeJob" }
+  >,
+  siteCtx: {
+    id: string;
+    name: string;
+    code: string | null;
+    postcode: string | null;
+  }[],
+  officers: { id: string; name: string }[],
+): Promise<void> {
+  const m = matchSite(routed.siteQuery, siteCtx);
+  if (m.kind !== "one") {
+    await sendTelegramMessage(
+      chat,
+      m.kind === "none"
+        ? `I couldn't find a site matching “${escapeHtml(routed.siteQuery)}”.`
+        : `“${escapeHtml(routed.siteQuery)}” matches several sites — be more specific.`,
+    );
+    return;
+  }
+
+  const type = mapTypeHint(routed.typeHint);
+  const jobs = await prisma.job.findMany({
+    where: {
+      siteId: m.site.id,
+      status: { in: ACTIVE_JOB_STATUSES as any },
+      ...(type ? { type: type as any } : {}),
+    },
+    orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
+    take: 10,
+    select: {
+      id: true,
+      type: true,
+      typeLabel: true,
+      assignedTo: { select: { name: true } },
+    },
+  });
+  if (jobs.length === 0) {
+    await sendTelegramMessage(
+      chat,
+      `No active job at ${escapeHtml(m.site.name)}${type ? " of that type" : ""}.`,
+    );
+    return;
+  }
+  if (jobs.length > 1) {
+    const list = jobs
+      .slice(0, 6)
+      .map((j) => `• ${escapeHtml(jobDesc(j, m.site.name))}`)
+      .join("\n");
+    await sendTelegramMessage(
+      chat,
+      `Several active jobs at ${escapeHtml(m.site.name)} — say the type too:\n${list}`,
+    );
+    return;
+  }
+
+  const job = jobs[0];
+  const desc = jobDesc(job, m.site.name);
+
+  if (routed.kind === "reassignJob") {
+    const pm = matchPerson(routed.officerName, officers);
+    if (pm.kind !== "one") {
+      await sendTelegramMessage(
+        chat,
+        pm.kind === "none"
+          ? `I couldn't find an officer matching “${escapeHtml(routed.officerName)}”.`
+          : `“${escapeHtml(routed.officerName)}” matches several officers — which one?`,
+      );
+      return;
+    }
+    await createJobActionDraft(
+      chat,
+      who.id,
+      { kind: "reassign", jobId: job.id, officerId: pm.person.id },
+      `Reassign: ${desc} → ${pm.person.name}`,
+    );
+    return;
+  }
+
+  const verb = routed.kind === "cancelJob" ? "Cancel" : "Close";
+  await createJobActionDraft(
+    chat,
+    who.id,
+    { kind: routed.kind === "cancelJob" ? "cancel" : "close", jobId: job.id },
+    `${verb}: ${desc}`,
+  );
+}
+
 /**
  * Route a linked staff member's free text: either list a day's activities or
  * draft a new callout for confirmation. Only reached for ADMIN/DISPATCHER.
@@ -181,6 +350,16 @@ async function handleFreeText(
   }
   if (routed.kind === "lookupKey") {
     await sendTelegramMessage(chat, await keyLookupMessage(routed.query));
+    return;
+  }
+
+  // Act on an existing job — reassign / cancel / close (confirmed).
+  if (
+    routed.kind === "reassignJob" ||
+    routed.kind === "cancelJob" ||
+    routed.kind === "closeJob"
+  ) {
+    await handleJobActionRequest(chat, who, routed, siteCtx, officers);
     return;
   }
 
@@ -319,8 +498,41 @@ async function handleCalloutCallback(cbq: any): Promise<void> {
     return;
   }
 
-  // Confirm → create the Job from the stored payload (re-hydrate the Date).
   const raw = draft.payload as any;
+
+  // Job actions (reassign / cancel / close) ride the same draft + confirm
+  // path; the payload's `kind` decides which core runs.
+  if (raw?.kind === "reassign" || raw?.kind === "cancel" || raw?.kind === "close") {
+    const r =
+      raw.kind === "reassign"
+        ? await reassignJobCore(raw.jobId, raw.officerId ?? null)
+        : raw.kind === "cancel"
+          ? await cancelJobCore(raw.jobId, who.id)
+          : await closeJobCore(raw.jobId, {
+              note: `Closed via Telegram by ${who.name}`,
+            });
+    await prisma.telegramCalloutDraft.update({
+      where: { id: draft.id },
+      data: { status: r.ok ? "CONFIRMED" : "CANCELLED" },
+    });
+    revalidatePath("/dispatch");
+    revalidatePath("/activities");
+    revalidatePath("/finance");
+    if (messageId) {
+      await editTelegramMessage(
+        chat,
+        messageId,
+        r.ok
+          ? `✅ <b>Done.</b>\n\n${escapeHtml(draft.summary)}`
+          : `⚠️ <b>Couldn't do that.</b>\n\n${escapeHtml(r.error ?? "")}\n\n${escapeHtml(draft.summary)}`,
+        [],
+      );
+    }
+    await answerCallbackQuery(cbq.id, r.ok ? "Done ✅" : "Couldn't do that.");
+    return;
+  }
+
+  // Confirm → create the Job from the stored payload (re-hydrate the Date).
   const data: BotCalloutData = {
     ...raw,
     scheduledFor: raw.scheduledFor ? new Date(raw.scheduledFor) : null,
