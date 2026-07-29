@@ -145,6 +145,8 @@ export const BOT_COMMANDS: { command: string; description: string }[] = [
   { command: "today", description: "Today's schedule" },
   { command: "yesterday", description: "Yesterday's activities" },
   { command: "tomorrow", description: "Tomorrow's schedule" },
+  { command: "site", description: "Look up a site (e.g. /site Neasden)" },
+  { command: "key", description: "Find a key holder (e.g. /key 12)" },
   { command: "whoami", description: "Show my linked account" },
 ];
 

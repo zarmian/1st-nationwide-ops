@@ -25,6 +25,7 @@ import {
   myDayMessage,
   nowMessage,
 } from "@/lib/dayActivities";
+import { keyLookupMessage, siteLookupMessage } from "@/lib/telegramLookup";
 
 /**
  * Telegram bot webhook. Telegram POSTs every update here.
@@ -171,6 +172,15 @@ async function handleFreeText(
       chat,
       "Sorry — I couldn't read that just now. Try again in a moment, or use /today for the schedule.",
     );
+    return;
+  }
+
+  if (routed.kind === "lookupSite") {
+    await sendTelegramMessage(chat, await siteLookupMessage(routed.query));
+    return;
+  }
+  if (routed.kind === "lookupKey") {
+    await sendTelegramMessage(chat, await keyLookupMessage(routed.query));
     return;
   }
 
@@ -543,6 +553,29 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       }
       await sendTelegramMessage(chat, await myDayMessage(who.id));
+      return NextResponse.json({ ok: true });
+    }
+
+    // /site <query> and /key <query> — staff lookups.
+    if (firstWord === "site" || firstWord === "key") {
+      const who = await linkedUser(chat);
+      if (!who) {
+        await sendTelegramMessage(
+          chat,
+          "This chat isn't linked yet. Open the app → Connect Telegram.",
+        );
+        return NextResponse.json({ ok: true });
+      }
+      if (!isStaff(who.role as Role)) {
+        await sendTelegramMessage(chat, "Lookups are for dispatch/admin.");
+        return NextResponse.json({ ok: true });
+      }
+      const rest = text.replace(/^\S+\s*/, "").trim();
+      const reply =
+        firstWord === "site"
+          ? await siteLookupMessage(rest)
+          : await keyLookupMessage(rest);
+      await sendTelegramMessage(chat, reply);
       return NextResponse.json({ ok: true });
     }
 

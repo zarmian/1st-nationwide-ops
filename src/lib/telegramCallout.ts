@@ -408,6 +408,38 @@ const CREATE_CALLOUT_TOOL: ToolDef = {
   schema: CALLOUT_TOOL_SCHEMA,
 };
 
+const LOOKUP_SITE_TOOL: ToolDef = {
+  name: "lookup_site",
+  description:
+    "Look up ONE site's details — address, keyholders, what's on today. Use for 'where is X', 'details for X', 'what's at X'.",
+  schema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "The site name, code, or area to look up.",
+      },
+    },
+    required: ["query"],
+  },
+};
+
+const LOOKUP_KEY_TOOL: ToolDef = {
+  name: "lookup_key",
+  description:
+    "Look up keys and who currently holds them. Use for 'who has the keys for X', 'where's key 12'.",
+  schema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "A key number, key label, or the site name.",
+      },
+    },
+    required: ["query"],
+  },
+};
+
 function buildSystemPrompt(
   officers: PersonCandidate[],
   partners: PersonCandidate[],
@@ -415,7 +447,7 @@ function buildSystemPrompt(
 ): string {
   return [
     "You are the dispatch assistant for 1st Nationwide, a UK security firm.",
-    "A dispatcher will either (a) describe a NEW callout to create and assign, or (b) ASK what's scheduled or was done on a day. Choose the matching tool: create_callout for (a), list_activities for (b).",
+    "A dispatcher will do one of: (a) describe a NEW callout to create and assign → create_callout; (b) ASK what's scheduled or done on a day → list_activities; (c) ask about ONE site's details → lookup_site; (d) ask who holds keys → lookup_key. Pick the matching tool.",
     `The current date and time in the UK is ${nowUk}. Resolve relative times ('tonight', 'in an hour', '9pm') against it and return UK local wall-clock 'YYYY-MM-DDTHH:MM'.`,
     "For create_callout: only set handlerKind='partner' when the dispatcher clearly wants the job given to a partner company; otherwise it's an internal officer. Copy the site reference verbatim into siteQuery — do not guess a full site name.",
     officers.length
@@ -430,11 +462,13 @@ function buildSystemPrompt(
 export type RoutedMessage =
   | { kind: "create"; parsed: ParsedCallout }
   | { kind: "list"; day: string; siteQuery: string | null }
+  | { kind: "lookupSite"; query: string }
+  | { kind: "lookupKey"; query: string }
   | { kind: "error"; error: string };
 
 /**
- * Classify a free-text message and pull its fields in one model call: is the
- * dispatcher creating a callout, or asking for a day's activities?
+ * Classify a free-text message and pull its fields in one model call: create
+ * a callout, list a day, look up a site, or look up keys.
  */
 export async function routeMessage(
   text: string,
@@ -443,9 +477,20 @@ export async function routeMessage(
   const res = await extractWithTools({
     system: buildSystemPrompt(opts.officers, opts.partners, opts.nowUk),
     userText: text,
-    tools: [CREATE_CALLOUT_TOOL, LIST_ACTIVITIES_TOOL],
+    tools: [
+      CREATE_CALLOUT_TOOL,
+      LIST_ACTIVITIES_TOOL,
+      LOOKUP_SITE_TOOL,
+      LOOKUP_KEY_TOOL,
+    ],
   });
   if (!res.ok) return { kind: "error", error: res.error };
+  if (res.name === "lookup_site") {
+    return { kind: "lookupSite", query: String(res.data?.query ?? "").trim() };
+  }
+  if (res.name === "lookup_key") {
+    return { kind: "lookupKey", query: String(res.data?.query ?? "").trim() };
+  }
   if (res.name === "list_activities") {
     const d = res.data ?? {};
     return {
