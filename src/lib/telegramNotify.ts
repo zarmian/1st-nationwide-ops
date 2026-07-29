@@ -79,7 +79,7 @@ export async function notifyAssignedOfficerOfJob(jobId: string): Promise<void> {
 // the shift-checks cron's per-window checks) so the same alert goes once.
 
 /** DM every linked staff member. Returns how many were reached. */
-async function broadcastToLinkedStaff(text: string): Promise<number> {
+export async function broadcastToLinkedStaff(text: string): Promise<number> {
   if (!isTelegramConfigured()) return 0;
   const staff = await prisma.user.findMany({
     where: {
@@ -116,6 +116,35 @@ export async function alertMissedCallTelegram(
   const onLine = call.toNumber ? ` on ${escapeHtml(call.toNumber)}` : "";
   return broadcastToLinkedStaff(
     `📞 <b>Missed call</b>\nFrom ${escapeHtml(from)}${onLine}\n${escapeHtml(when)} — please call back.`,
+  );
+}
+
+/** An alarm callout was logged → heads-up to all linked dispatch/admin. */
+export async function alertAlarmReceivedTelegram(
+  alarmEventId: string,
+): Promise<number> {
+  const alarm = await prisma.alarmEvent.findUnique({
+    where: { id: alarmEventId },
+    select: {
+      priority: true,
+      zone: true,
+      site: { select: { name: true } },
+    },
+  });
+  if (!alarm) return 0;
+  const job = await prisma.job.findFirst({
+    where: { alarmEventId },
+    select: {
+      assignedTo: { select: { name: true } },
+      handledByPartner: { select: { name: true } },
+    },
+  });
+  const who = job?.handledByPartner
+    ? `${job.handledByPartner.name} (partner)`
+    : (job?.assignedTo?.name ?? "unassigned");
+  const zone = alarm.zone ? ` · zone ${escapeHtml(alarm.zone)}` : "";
+  return broadcastToLinkedStaff(
+    `🚨 <b>Alarm logged</b>\n${escapeHtml(alarm.site?.name ?? "site")} — ${escapeHtml(alarm.priority)}${zone}\nHandling: ${escapeHtml(who)}`,
   );
 }
 
