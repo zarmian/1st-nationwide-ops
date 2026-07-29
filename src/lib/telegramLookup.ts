@@ -32,7 +32,14 @@ export async function siteLookupMessage(query: string): Promise<string> {
   const sites = await prisma.site.findMany({
     where: { active: true },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, code: true, postcodeFormatted: true },
+    select: {
+      id: true,
+      name: true,
+      code: true,
+      postcodeFormatted: true,
+      addressLine: true,
+      city: true,
+    },
   });
   const m = matchSite(
     q,
@@ -41,14 +48,23 @@ export async function siteLookupMessage(query: string): Promise<string> {
       name: s.name,
       code: s.code,
       postcode: s.postcodeFormatted,
+      address: [s.addressLine, s.city].filter(Boolean).join(" "),
     })),
   );
   if (m.kind === "none") return `No site matches “${escapeHtml(q)}”.`;
   if (m.kind === "many") {
-    return `“${escapeHtml(q)}” matches several: ${m.sites
-      .slice(0, 8)
-      .map((s) => escapeHtml(s.name))
-      .join(", ")}. Be more specific.`;
+    const list = m.sites
+      .slice(0, 10)
+      .map(
+        (s) =>
+          `• ${escapeHtml(s.name)}${s.postcode ? ` — ${escapeHtml(s.postcode)}` : ""}`,
+      )
+      .join("\n");
+    const more =
+      m.sites.length > 10
+        ? `\n…and ${m.sites.length - 10} more — add more detail`
+        : "";
+    return `🔎 <b>${m.sites.length} sites match “${escapeHtml(q)}”</b>\n${list}${more}\n\nReply with the name or postcode of the one you want.`;
   }
 
   const site = await prisma.site.findUnique({

@@ -45,6 +45,8 @@ export type SiteCandidate = {
   name: string;
   code: string | null;
   postcode: string | null;
+  /// Street + town, so search covers the address, not just the name.
+  address?: string | null;
 };
 
 export type ResolveContext = {
@@ -99,32 +101,54 @@ type SiteMatch =
  * Returns "many" (with candidates) when a short query hits several sites so
  * the caller can ask the dispatcher to be specific.
  */
+/** Everything about a site we search over, normalised. Includes the postcode
+ *  both spaced and un-spaced so "br1" and "br13ab" both hit. */
+function siteHaystack(s: SiteCandidate): string {
+  const pc = s.postcode
+    ? `${s.postcode} ${s.postcode.replace(/\s+/g, "")}`
+    : "";
+  return norm(`${s.name} ${s.code ?? ""} ${s.address ?? ""} ${pc}`);
+}
+
+/** Order a multi-match list so name hits come before address-only hits. */
+function sortForDisplay(sites: SiteCandidate[], tokens: string[]): SiteCandidate[] {
+  return [...sites].sort((a, b) => {
+    const aName = tokens.filter((t) => norm(a.name).includes(t)).length;
+    const bName = tokens.filter((t) => norm(b.name).includes(t)).length;
+    if (aName !== bName) return bName - aName;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/**
+ * Fuzzy site search across name, code, address and postcode. Multi-word
+ * queries score by how many of their words appear anywhere in the site
+ * (so "tesco downham" and "tesco br1" both land the right branch), and the
+ * best-scoring sites win — every remaining tie is returned as "many" for the
+ * caller to list. Exact code / name still short-circuit to a single hit.
+ */
 export function matchSite(query: string, sites: SiteCandidate[]): SiteMatch {
   const q = norm(query);
   if (!q) return { kind: "none" };
 
   const exactCode = sites.filter((s) => s.code && norm(s.code) === q);
   if (exactCode.length === 1) return { kind: "one", site: exactCode[0] };
-
   const exactName = sites.filter((s) => norm(s.name) === q);
   if (exactName.length === 1) return { kind: "one", site: exactName[0] };
-  if (exactName.length > 1) return { kind: "many", sites: exactName };
 
-  const substr = sites.filter((s) => {
-    const n = norm(s.name);
-    return n.includes(q) || q.includes(n);
+  const tokens = q.split(" ").filter(Boolean);
+  let best = 0;
+  const scored = sites.map((s) => {
+    const hay = siteHaystack(s);
+    const score = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
+    if (score > best) best = score;
+    return { s, score };
   });
-  if (substr.length === 1) return { kind: "one", site: substr[0] };
-  if (substr.length > 1) return { kind: "many", sites: substr };
+  if (best === 0) return { kind: "none" };
 
-  const qNoSpace = q.replace(/ /g, "");
-  const byPostcode = sites.filter(
-    (s) => s.postcode && norm(s.postcode).replace(/ /g, "").includes(qNoSpace),
-  );
-  if (byPostcode.length === 1) return { kind: "one", site: byPostcode[0] };
-  if (byPostcode.length > 1) return { kind: "many", sites: byPostcode };
-
-  return { kind: "none" };
+  const top = scored.filter((x) => x.score === best).map((x) => x.s);
+  if (top.length === 1) return { kind: "one", site: top[0] };
+  return { kind: "many", sites: sortForDisplay(top, tokens) };
 }
 
 type PersonMatch =
@@ -411,13 +435,14 @@ const CREATE_CALLOUT_TOOL: ToolDef = {
 const LOOKUP_SITE_TOOL: ToolDef = {
   name: "lookup_site",
   description:
-    "Look up ONE site's details — address, keyholders, what's on today. Use for 'where is X', 'details for X', 'what's at X'.",
+    "Search sites by name, address, or postcode and show matches. Use for a bare site query ('tesco downham', 'tesco br1'), 'where is X', 'what's at X'. Lists every site that matches.",
   schema: {
     type: "object",
     properties: {
       query: {
         type: "string",
-        description: "The site name, code, or area to look up.",
+        description:
+          "The words to search on — any mix of site name, street/area, or postcode.",
       },
     },
     required: ["query"],
@@ -491,14 +516,21 @@ const CLOSE_JOB_TOOL: ToolDef = {
   },
 };
 
+const HELP_TOOL: ToolDef = {
+  name: "smalltalk_or_help",
+  description:
+    "Use for greetings, thanks, small talk, 'what can you do', or anything that isn't one of the other actions. The bot replies conversationally.",
+  schema: { type: "object", properties: {} },
+};
+
 function buildSystemPrompt(
   officers: PersonCandidate[],
   partners: PersonCandidate[],
   nowUk: string,
 ): string {
   return [
-    "You are the dispatch assistant for 1st Nationwide, a UK security firm.",
-    "Pick the matching tool for what the dispatcher wants: create a NEW callout → create_callout; ASK what's scheduled/done on a day → list_activities; ask about ONE site → lookup_site; ask who holds keys → lookup_key; move an EXISTING job to another officer → reassign_job; cancel an EXISTING job → cancel_job; mark an EXISTING job done → close_job.",
+    "You are the dispatch assistant for 1st Nationwide, a UK security firm. Be warm and natural.",
+    "Pick the matching tool: create a NEW callout → create_callout; ASK what's scheduled/done on a day → list_activities; SEARCH or ask about sites (a bare query like 'tesco downham' or 'tesco br1' counts) → lookup_site; ask who holds keys → lookup_key; move an EXISTING job to another officer → reassign_job; cancel an EXISTING job → cancel_job; mark an EXISTING job done → close_job; greetings / thanks / 'what can you do' / anything else → smalltalk_or_help.",
     `The current date and time in the UK is ${nowUk}. Resolve relative times ('tonight', 'in an hour', '9pm') against it and return UK local wall-clock 'YYYY-MM-DDTHH:MM'.`,
     "For create_callout: only set handlerKind='partner' when the dispatcher clearly wants the job given to a partner company; otherwise it's an internal officer. Copy the site reference verbatim into siteQuery — do not guess a full site name.",
     officers.length
@@ -523,6 +555,7 @@ export type RoutedMessage =
     }
   | { kind: "cancelJob"; siteQuery: string; typeHint: string | null }
   | { kind: "closeJob"; siteQuery: string; typeHint: string | null }
+  | { kind: "help" }
   | { kind: "error"; error: string };
 
 /**
@@ -544,9 +577,11 @@ export async function routeMessage(
       REASSIGN_JOB_TOOL,
       CANCEL_JOB_TOOL,
       CLOSE_JOB_TOOL,
+      HELP_TOOL,
     ],
   });
   if (!res.ok) return { kind: "error", error: res.error };
+  if (res.name === "smalltalk_or_help") return { kind: "help" };
   const d = res.data ?? {};
   const siteQuery = String(d.siteQuery ?? "").trim();
   const typeHint =
