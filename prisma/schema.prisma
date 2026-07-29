@@ -393,6 +393,9 @@ model User {
   /// t.me deep link) to link their account. Cleared once linked.
   telegramLinkCode     String?  @unique
   telegramLinkExpires  DateTime?
+  /// Job the officer is being asked to share a Telegram location for, set
+  /// when they tap On-site/Complete and cleared once they share (or skip).
+  pendingLocationJobId String?  @db.Uuid
   /// Partner-portal scope. Only set when role = PARTNER (and future
   /// PARTNER_OFFICER). The portal hard-locks every query to this id.
   partnerId     String?  @db.Uuid
@@ -746,6 +749,10 @@ model PatrolVisit {
   statusBeforeCancel VisitStatus?
   arrivedAt          DateTime?
   departedAt         DateTime?
+  /// Officer location when the visit was submitted (optional).
+  lat                Float?
+  lng                Float?
+  locatedAt          DateTime?
   status             VisitStatus     @default(PENDING)
   gpsLat             Float?
   gpsLng             Float?
@@ -997,6 +1004,11 @@ model Job {
   scheduledFor          DateTime?
   startedAt             DateTime?
   completedAt           DateTime?
+  /// Where the officer was when the activity was submitted / completed
+  /// (web geolocation or a Telegram location share). Optional.
+  lat                   Float?
+  lng                   Float?
+  locatedAt             DateTime?
 
   cancelledAt           DateTime?
   cancelledByUserId     String?       @db.Uuid
@@ -1268,6 +1280,10 @@ model Shift {
   scheduledEndsAt    DateTime
   actualStartedAt    DateTime?
   actualEndedAt      DateTime?
+  /// Officer location when the shift was submitted (optional).
+  lat                Float?
+  lng                Float?
+  locatedAt          DateTime?
   status             ShiftStatus  @default(PENDING)
   checkIntervalMin   Int          @default(60)
   graceMinutes       Int          @default(15)

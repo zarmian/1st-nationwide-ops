@@ -105,6 +105,22 @@ export function SubmitForm({
     setSubmitting(true);
     setError(null);
     setFieldErrors({});
+    // Best-effort location — bounded so a denied/slow prompt never blocks the
+    // submission. Attached to the activity so the report shows where it was.
+    const coords = await new Promise<{ lat: number; lng: number } | null>(
+      (resolve) => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (pos) =>
+            resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 },
+        );
+      },
+    );
     try {
       const res = await fetch("/api/submissions", {
         method: "POST",
@@ -119,6 +135,8 @@ export function SubmitForm({
           officerNameRaw: name,
           arrivedAt: arrivedAt ? new Date(arrivedAt).toISOString() : null,
           departedAt: departedAt ? new Date(departedAt).toISOString() : null,
+          lat: coords?.lat ?? null,
+          lng: coords?.lng ?? null,
           payload: values,
         }),
       });

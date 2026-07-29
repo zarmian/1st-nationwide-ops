@@ -72,6 +72,39 @@ export async function editTelegramMessage(
   });
 }
 
+/** Prompt the user with a one-tap "Share location" reply keyboard. */
+export async function requestLocation(
+  chatId: string | number,
+  text: string,
+): Promise<void> {
+  await call("sendMessage", {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    reply_markup: {
+      keyboard: [
+        [{ text: "📍 Share location", request_location: true }],
+        [{ text: "Skip" }],
+      ],
+      one_time_keyboard: true,
+      resize_keyboard: true,
+    },
+  });
+}
+
+/** Send a message and clear any reply keyboard. */
+export async function sendAndClearKeyboard(
+  chatId: string | number,
+  text: string,
+): Promise<void> {
+  await call("sendMessage", {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    reply_markup: { remove_keyboard: true },
+  });
+}
+
 /** Acknowledge a button tap so Telegram stops the spinner. */
 export async function answerCallbackQuery(
   callbackQueryId: string,

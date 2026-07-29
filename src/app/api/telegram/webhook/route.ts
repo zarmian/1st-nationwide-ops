@@ -5,6 +5,8 @@ import {
   answerCallbackQuery,
   editTelegramMessage,
   escapeHtml,
+  requestLocation,
+  sendAndClearKeyboard,
   sendTelegramMessage,
 } from "@/lib/telegram";
 import { isAnthropicConfigured } from "@/lib/anthropic";
@@ -593,6 +595,59 @@ async function handleCalloutCallback(cbq: any): Promise<void> {
   await answerCallbackQuery(cbq.id, "Done ✅");
 }
 
+/** Remember which job the officer is sharing a location for, and ask. */
+async function promptForLocation(
+  chat: string,
+  userId: string,
+  jobId: string,
+): Promise<void> {
+  await prisma.user
+    .update({ where: { id: userId }, data: { pendingLocationJobId: jobId } })
+    .catch(() => {});
+  await requestLocation(
+    chat,
+    "📍 Optional — tap to share your location for the record.",
+  );
+}
+
+/** A shared Telegram location → stamp it on the job the officer just acted on. */
+async function handleLocationShare(
+  chat: string,
+  location: { latitude: number; longitude: number },
+): Promise<void> {
+  const who = await prisma.user.findFirst({
+    where: { telegramChatId: chat, active: true },
+    select: { id: true, pendingLocationJobId: true },
+  });
+  if (!who?.pendingLocationJobId) {
+    await sendAndClearKeyboard(chat, "Thanks — nothing's waiting on a location.");
+    return;
+  }
+  const job = await prisma.job.findUnique({
+    where: { id: who.pendingLocationJobId },
+    select: { id: true, assignedToUserId: true },
+  });
+  await prisma.user.update({
+    where: { id: who.id },
+    data: { pendingLocationJobId: null },
+  });
+  if (job && job.assignedToUserId === who.id) {
+    await prisma.job.update({
+      where: { id: job.id },
+      data: {
+        lat: location.latitude,
+        lng: location.longitude,
+        locatedAt: new Date(),
+      },
+    });
+    revalidatePath("/dispatch");
+    revalidatePath("/activities");
+    await sendAndClearKeyboard(chat, "📍 Location saved — thanks!");
+  } else {
+    await sendAndClearKeyboard(chat, "📍 Got it.");
+  }
+}
+
 /** Handle an officer's "On site" / "Complete" tap on an assignment ping. */
 async function handleJobActionCallback(cbq: any): Promise<void> {
   const chatId = cbq?.message?.chat?.id;
@@ -666,6 +721,9 @@ async function handleJobActionCallback(cbq: any): Promise<void> {
         ],
       );
     }
+    if (job.assignedToUserId === who.id) {
+      await promptForLocation(chat, who.id, job.id);
+    }
     return;
   }
 
@@ -709,6 +767,9 @@ async function handleJobActionCallback(cbq: any): Promise<void> {
       [],
     );
   }
+  if (job.assignedToUserId === who.id) {
+    await promptForLocation(chat, who.id, job.id);
+  }
 }
 
 export async function POST(req: Request) {
@@ -737,9 +798,26 @@ export async function POST(req: Request) {
 
     const msg = update?.message;
     const chatId = msg?.chat?.id;
+    // A shared location arrives as a location message (no text).
+    if (chatId && msg?.location) {
+      await handleLocationShare(String(chatId), msg.location);
+      return NextResponse.json({ ok: true });
+    }
     const text: string = (msg?.text ?? "").trim();
     if (!chatId || !text) return NextResponse.json({ ok: true });
     const chat = String(chatId);
+
+    // "Skip" from the location keyboard — only when a prompt is pending.
+    if (text.toLowerCase() === "skip") {
+      const cleared = await prisma.user.updateMany({
+        where: { telegramChatId: chat, NOT: { pendingLocationJobId: null } },
+        data: { pendingLocationJobId: null },
+      });
+      if (cleared.count > 0) {
+        await sendAndClearKeyboard(chat, "No problem.");
+        return NextResponse.json({ ok: true });
+      }
+    }
 
     if (text.startsWith("/start")) {
       const code = text.split(/\s+/)[1];

@@ -58,6 +58,12 @@ export function statusLabel(status: string): string {
   return STATUS_LABEL[status] ?? status;
 }
 
+/** Format captured coordinates as a compact "lat, lng" string, or null. */
+function loc(lat: unknown, lng: unknown): string | null {
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}
+
 export type ActivityReportRow = {
   at: Date;
   kind: string;
@@ -294,7 +300,7 @@ export async function loadActivitiesReportRows(
       billed: v.billedAmount != null ? Number(v.billedAmount) : null,
       paid: v.paidAmount != null ? Number(v.paidAmount) : null,
       status: v.status,
-      location: null,
+      location: loc(v.lat, v.lng),
     });
   }
   for (const j of jobs) {
@@ -312,7 +318,7 @@ export async function loadActivitiesReportRows(
       billed: j.billedAmount != null ? Number(j.billedAmount) : null,
       paid: j.paidAmount != null ? Number(j.paidAmount) : null,
       status: j.status,
-      location: null,
+      location: loc(j.lat, j.lng),
     });
   }
   for (const sh of shifts) {
@@ -330,7 +336,7 @@ export async function loadActivitiesReportRows(
       billed: sh.billedAmount != null ? Number(sh.billedAmount) : null,
       paid: sh.paidAmount != null ? Number(sh.paidAmount) : null,
       status: sh.status,
-      location: null,
+      location: loc(sh.lat, sh.lng),
     });
   }
 

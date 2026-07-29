@@ -40,6 +40,8 @@ const Body = z.object({
   officerNameRaw: z.string().min(1).max(120),
   arrivedAt: z.string().datetime().nullable().optional(),
   departedAt: z.string().datetime().nullable().optional(),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
   payload: z.record(z.any()).optional(),
 });
 
@@ -69,6 +71,14 @@ export async function POST(req: Request) {
     );
   }
   const data = parsed.data;
+
+  // Officer location at submission (browser geolocation). Optional — stamped
+  // onto whichever activity this submission completes so it's consistent with
+  // the Telegram capture.
+  const loc =
+    data.lat != null && data.lng != null
+      ? { lat: data.lat, lng: data.lng, locatedAt: new Date() }
+      : null;
 
   const site = await prisma.site.findFirst({
     where: { id: data.siteId, active: true },
@@ -169,10 +179,12 @@ export async function POST(req: Request) {
             // Only overwrite startedAt if the officer actually entered
             // one — preserves a cron-set value if the form left it blank.
             ...(startedAt ? { startedAt } : {}),
+            ...(loc ?? {}),
           }
         : {
             status: "SUBMITTED",
             ...(startedAt ? { startedAt } : {}),
+            ...(loc ?? {}),
           },
     });
 
@@ -213,6 +225,7 @@ export async function POST(req: Request) {
         status: "COMPLETED",
         departedAt: departed,
         arrivedAt: arrived,
+        ...(loc ?? {}),
       },
     });
     if (visit?.status !== "COMPLETED") {
@@ -252,6 +265,14 @@ export async function POST(req: Request) {
         }
       }
     }
+  }
+
+  // SHIFT_CHECK (and any shift-linked) submission → record where the officer
+  // was for this check-in. Last one wins, which is fine for "where they are".
+  if (data.shiftId && loc) {
+    await prisma.shift
+      .update({ where: { id: data.shiftId }, data: loc })
+      .catch(() => {});
   }
 
   return NextResponse.json({ ok: true, id: submitted.id });
