@@ -684,12 +684,20 @@ export default async function ActivitiesPage({
           </>
         }
         actions={
-          <Link
-            href={`/api/activities/export${exportParams.toString() ? `?${exportParams}` : ""}`}
-            className="btn-secondary text-sm"
-          >
-            Export CSV
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href={`/api/reports/activities${exportParams.toString() ? `?${exportParams}` : ""}`}
+              className="btn-secondary text-sm"
+            >
+              PDF
+            </Link>
+            <Link
+              href={`/api/activities/export${exportParams.toString() ? `?${exportParams}` : ""}`}
+              className="btn-ghost text-sm"
+            >
+              CSV
+            </Link>
+          </div>
         }
       />
 
