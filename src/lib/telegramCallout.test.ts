@@ -12,13 +12,40 @@ import {
 } from "./telegramCallout";
 
 const SITES = [
-  { id: "s1", name: "Shurgard Neasden", code: "SHU-NEAS", postcode: "NW10 1AB" },
-  { id: "s2", name: "Shurgard Norbury", code: "SHU-NORB", postcode: "SW16 4AB" },
+  {
+    id: "s1",
+    name: "Shurgard Neasden",
+    code: "SHU-NEAS",
+    postcode: "NW10 1AB",
+    address: "Great Central Way, London",
+  },
+  {
+    id: "s2",
+    name: "Shurgard Norbury",
+    code: "SHU-NORB",
+    postcode: "SW16 4AB",
+    address: "London Road, Norbury",
+  },
   {
     id: "s3",
     name: "Access Storage Croydon",
     code: "ACC-CROY",
     postcode: "CR0 2AB",
+    address: "Purley Way, Croydon",
+  },
+  {
+    id: "s4",
+    name: "Tesco Extra",
+    code: "TES-DOWN",
+    postcode: "BR1 3AB",
+    address: "Downham Way, Bromley",
+  },
+  {
+    id: "s5",
+    name: "Tesco Superstore",
+    code: "TES-BROM",
+    postcode: "BR2 9XY",
+    address: "High Street, Bromley",
   },
 ];
 
@@ -70,6 +97,40 @@ describe("matchSite", () => {
 
   it("returns none for an empty query", () => {
     expect(matchSite("   ", SITES).kind).toBe("none");
+  });
+
+  it("matches name + area across fields (tesco downham)", () => {
+    const m = matchSite("tesco downham", SITES);
+    expect(m.kind).toBe("one");
+    if (m.kind === "one") expect(m.site.id).toBe("s4");
+  });
+
+  it("matches name + postcode across fields (tesco br1)", () => {
+    const m = matchSite("tesco br1", SITES);
+    expect(m.kind).toBe("one");
+    if (m.kind === "one") expect(m.site.id).toBe("s4");
+  });
+
+  it("lists both when the query is just the shared name (tesco)", () => {
+    const m = matchSite("tesco", SITES);
+    expect(m.kind).toBe("many");
+    if (m.kind === "many") expect(m.sites.map((s) => s.id).sort()).toEqual([
+      "s4",
+      "s5",
+    ]);
+  });
+
+  it("matches on the address alone (downham)", () => {
+    const m = matchSite("downham", SITES);
+    expect(m.kind).toBe("one");
+    if (m.kind === "one") expect(m.site.id).toBe("s4");
+  });
+
+  it("ignores words that don't appear rather than failing (extra words)", () => {
+    // 'alarm' isn't a site field — the site words still win.
+    const m = matchSite("shurgard neasden alarm", SITES);
+    expect(m.kind).toBe("one");
+    if (m.kind === "one") expect(m.site.id).toBe("s1");
   });
 });
 

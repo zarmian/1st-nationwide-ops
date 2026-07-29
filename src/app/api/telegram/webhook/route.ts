@@ -120,10 +120,10 @@ function ukNowString(): string {
   }).format(new Date());
 }
 
-/** A phrase worth attempting to parse — filters out "hi" / "ok" chatter. */
-function looksLikeCallout(text: string): boolean {
-  const t = text.trim();
-  return t.length >= 6 && /\s/.test(t);
+/** Anything with real content is worth routing — the AI classifies it
+ *  (including greetings, which get a friendly help reply). */
+function worthRouting(text: string): boolean {
+  return text.trim().length >= 2;
 }
 
 const ACTIVE_JOB_STATUSES = [
@@ -207,6 +207,7 @@ async function handleJobActionRequest(
     name: string;
     code: string | null;
     postcode: string | null;
+    address?: string | null;
   }[],
   officers: { id: string; name: string }[],
 ): Promise<void> {
@@ -319,7 +320,14 @@ async function handleFreeText(
     prisma.site.findMany({
       where: { active: true },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, code: true, postcodeFormatted: true },
+      select: {
+        id: true,
+        name: true,
+        code: true,
+        postcodeFormatted: true,
+        addressLine: true,
+        city: true,
+      },
     }),
   ]);
 
@@ -328,6 +336,7 @@ async function handleFreeText(
     name: s.name,
     code: s.code,
     postcode: s.postcodeFormatted,
+    address: [s.addressLine, s.city].filter(Boolean).join(" "),
   }));
 
   const routed = await routeMessage(text, {
@@ -340,6 +349,22 @@ async function handleFreeText(
     await sendTelegramMessage(
       chat,
       "Sorry — I couldn't read that just now. Try again in a moment, or use /today for the schedule.",
+    );
+    return;
+  }
+
+  if (routed.kind === "help") {
+    await sendTelegramMessage(
+      chat,
+      [
+        "Hi 👋 I'm the 1st Nationwide dispatch bot. You can just talk to me — a few things I can do:",
+        "",
+        "• <b>Add a callout</b> — “Alarm at Neasden, send John”",
+        "• <b>Find a site</b> — “tesco downham”, “tesco br1” (name, address or postcode)",
+        "• <b>What's on</b> — /now, /today, /yesterday, /tomorrow",
+        "• <b>Keys</b> — “who has the keys for Norbury”",
+        "• <b>Change a job</b> — “move the Neasden alarm to Jane”, “cancel the Norbury lock-up”",
+      ].join("\n"),
     );
     return;
   }
@@ -833,11 +858,8 @@ export async function POST(req: Request) {
       );
       return NextResponse.json({ ok: true });
     }
-    if (!looksLikeCallout(text)) {
-      await sendTelegramMessage(
-        chat,
-        "Ask me a schedule (/today, /yesterday, /tomorrow) or add a callout, e.g. “Alarm at Neasden, send John”.",
-      );
+    if (!worthRouting(text)) {
+      await sendTelegramMessage(chat, "👋 Say a bit more and I'll help.");
       return NextResponse.json({ ok: true });
     }
     await handleFreeText(chat, who, text);
