@@ -6,7 +6,16 @@
  * logic in one place stops the UI and the bot from drifting apart.
  */
 import { prisma } from "@/lib/db";
-import { snapshotJobFinanceIfNeeded } from "@/lib/billing";
+import {
+  applyBillingToVisit,
+  applyPayToVisit,
+  billForSite,
+  durationMinutes,
+  jobTypeToRateService,
+  payForOfficer,
+  snapshotJobFinanceIfNeeded,
+} from "@/lib/billing";
+import { notifyVisitCompleted } from "@/lib/notifications";
 import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
 
 export type JobActionResult = {
@@ -137,4 +146,58 @@ export async function closeJobCore(
     console.error("snapshotJobFinanceIfNeeded (close) failed", e),
   );
   return { ok: true, siteId: job.siteId };
+}
+
+/**
+ * Complete a patrol / VPI visit — the same terminal state the /submit flow
+ * uses. Stamps departure, snapshots billing + officer pay on the visit
+ * (anchored on the scheduled night), and pings staff. Already-done = no-op.
+ */
+export async function completeVisitCore(
+  visitId: string,
+): Promise<JobActionResult> {
+  const visit = await prisma.patrolVisit.findUnique({
+    where: { id: visitId },
+    select: {
+      id: true,
+      status: true,
+      siteId: true,
+      officerId: true,
+      arrivedAt: true,
+      scheduleDate: true,
+      scheduledAt: true,
+      patrolSchedule: { select: { kind: true } },
+    },
+  });
+  if (!visit) return { ok: false, error: "Visit not found." };
+  if (visit.status === "CANCELLED") {
+    return { ok: false, error: "Cancelled visits can't be closed — restore first." };
+  }
+  if (visit.status === "COMPLETED") return { ok: true, siteId: visit.siteId };
+
+  const now = new Date();
+  const arrived = visit.arrivedAt ?? now;
+  await prisma.patrolVisit.update({
+    where: { id: visitId },
+    data: { status: "COMPLETED", departedAt: now, arrivedAt: arrived },
+  });
+  notifyVisitCompleted(visitId).catch((e) =>
+    console.error("notifyVisitCompleted failed", e),
+  );
+
+  if (visit.siteId) {
+    const at = visit.scheduleDate ?? visit.scheduledAt;
+    const kind = visit.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL";
+    const rateService = jobTypeToRateService(kind);
+    const duration = durationMinutes(arrived, now);
+    if (rateService) {
+      const bill = await billForSite(visit.siteId, rateService, duration);
+      await applyBillingToVisit(visitId, bill, at);
+      if (visit.officerId) {
+        const pay = await payForOfficer(visit.officerId, rateService, duration);
+        await applyPayToVisit(visitId, pay, at);
+      }
+    }
+  }
+  return { ok: true, siteId: visit.siteId };
 }

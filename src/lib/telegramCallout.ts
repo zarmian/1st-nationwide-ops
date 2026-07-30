@@ -559,7 +559,7 @@ const CANCEL_JOB_TOOL: ToolDef = {
 const CLOSE_JOB_TOOL: ToolDef = {
   name: "close_job",
   description:
-    "Mark an EXISTING callout/job as done. Use for 'close the Neasden alarm', 'mark X complete'.",
+    "Mark an EXISTING scheduled activity (lock-up, unlock, patrol, VPI, alarm) as DONE. Use for any report that it happened — 'close the Neasden alarm', 'mark X complete', and crucially a bare past-tense statement like 'Norbury unlocked', 'Neasden locked', 'Croydon patrolled', 'Aegis House done'. Put the activity word in typeHint (lock / unlock / patrol / VPI / alarm).",
   schema: {
     type: "object",
     properties: { ...JOB_TARGET_PROPS },
