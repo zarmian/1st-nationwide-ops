@@ -8,8 +8,14 @@ import {
   matchPerson,
   matchSite,
   resolveCallout,
+  resolveScope,
   type ResolveContext,
 } from "./telegramCallout";
+
+const CUSTOMERS = [
+  { id: "c1", name: "Shurgard" },
+  { id: "c2", name: "Aegis" },
+];
 
 const SITES = [
   {
@@ -131,6 +137,39 @@ describe("matchSite", () => {
     const m = matchSite("shurgard neasden alarm", SITES);
     expect(m.kind).toBe("one");
     if (m.kind === "one") expect(m.site.id).toBe("s1");
+  });
+});
+
+describe("resolveScope", () => {
+  const ctx = { sites: SITES, customers: CUSTOMERS, partners: PARTNERS };
+
+  it("resolves a specific site (Shurgard Neasden → site)", () => {
+    const r = resolveScope("Shurgard Neasden", ctx);
+    expect(r.kind).toBe("site");
+    if (r.kind === "site") expect(r.id).toBe("s1");
+  });
+
+  it("resolves an account-level name to the customer (Shurgard → customer)", () => {
+    const r = resolveScope("Shurgard", ctx);
+    expect(r.kind).toBe("customer");
+    if (r.kind === "customer") expect(r.id).toBe("c1");
+  });
+
+  it("resolves a site by its own name (Neasden → site)", () => {
+    const r = resolveScope("Neasden", ctx);
+    expect(r.kind).toBe("site");
+    if (r.kind === "site") expect(r.id).toBe("s1");
+  });
+
+  it("falls to a partner when it's not a site or customer (Nexus)", () => {
+    const r = resolveScope("Nexus", ctx);
+    expect(r.kind).toBe("partner");
+    if (r.kind === "partner") expect(r.id).toBe("p1");
+  });
+
+  it("returns none for a stray word / person's name (Zaryab)", () => {
+    expect(resolveScope("Zaryab", ctx).kind).toBe("none");
+    expect(resolveScope("", ctx).kind).toBe("none");
   });
 });
 

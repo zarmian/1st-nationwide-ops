@@ -26,6 +26,7 @@ import {
   matchPerson,
   matchSite,
   resolveCallout,
+  resolveScope,
   routeMessage,
   type RoutedMessage,
 } from "@/lib/telegramCallout";
@@ -308,7 +309,7 @@ async function handleFreeText(
     return;
   }
 
-  const [officers, partners, sites] = await prisma.$transaction([
+  const [officers, partners, sites, customers] = await prisma.$transaction([
     prisma.user.findMany({
       where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
       orderBy: { name: "asc" },
@@ -330,6 +331,11 @@ async function handleFreeText(
         addressLine: true,
         city: true,
       },
+    }),
+    prisma.customer.findMany({
+      where: { active: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
     }),
   ]);
 
@@ -390,26 +396,38 @@ async function handleFreeText(
     return;
   }
 
-  // "What's on today?" / "on now?" style question → list activities.
+  // "What's on today?" / "Shurgard yesterday" / "schedule" → list activities.
   if (routed.kind === "list") {
-    // "now" is a live cross-site snapshot; a site filter doesn't apply.
+    // "now" is a live cross-site snapshot; a scope filter doesn't apply.
     if (routed.day === "now") {
       await sendTelegramMessage(chat, await nowMessage());
       return;
     }
-    let siteId: string | undefined;
-    let siteNote: string | undefined;
-    if (routed.siteQuery) {
-      const m = matchSite(routed.siteQuery, siteCtx);
-      if (m.kind === "one") {
-        siteId = m.site.id;
-        siteNote = `at ${m.site.name}`;
-      } else {
-        siteNote = `(couldn't match “${routed.siteQuery}” — showing all sites)`;
+    const opts: {
+      siteId?: string;
+      customerId?: string;
+      partnerId?: string;
+      scopeNote?: string;
+    } = {};
+    if (routed.scopeQuery) {
+      const scope = resolveScope(routed.scopeQuery, {
+        sites: siteCtx,
+        customers,
+        partners,
+      });
+      if (scope.kind === "site") {
+        opts.siteId = scope.id;
+        opts.scopeNote = `· ${scope.label}`;
+      } else if (scope.kind === "customer") {
+        opts.customerId = scope.id;
+        opts.scopeNote = `· ${scope.label}`;
+      } else if (scope.kind === "partner") {
+        opts.partnerId = scope.id;
+        opts.scopeNote = `· ${scope.label}`;
       }
+      // scope.kind === "none" → no filter; a stray greeting/name is ignored.
     }
-    const msg = await dayRundownMessage(routed.day, { siteId, siteNote });
-    await sendTelegramMessage(chat, msg);
+    await sendTelegramMessage(chat, await dayRundownMessage(routed.day, opts));
     return;
   }
 

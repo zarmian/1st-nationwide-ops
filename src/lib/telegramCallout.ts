@@ -183,6 +183,57 @@ function listNames(items: { name: string }[], max = 6): string {
   return names.join(", ") + (extra > 0 ? `, and ${extra} more` : "");
 }
 
+export type ScopeMatch =
+  | { kind: "site"; id: string; label: string }
+  | { kind: "customer"; id: string; label: string }
+  | { kind: "partner"; id: string; label: string }
+  | { kind: "none" };
+
+function matchAccount(
+  query: string,
+  accounts: PersonCandidate[],
+): PersonCandidate | null {
+  const nq = norm(query);
+  if (!nq) return null;
+  const hits = accounts.filter((a) => {
+    const n = norm(a.name);
+    return n.includes(nq) || nq.includes(n);
+  });
+  if (hits.length === 0) return null;
+  // Prefer the shortest name — the base account ("Shurgard") over a longer
+  // variant — breaking ties alphabetically.
+  return [...hits].sort(
+    (a, b) => a.name.length - b.name.length || a.name.localeCompare(b.name),
+  )[0];
+}
+
+/**
+ * Resolve a free-text scope to a customer, partner or site. A specific site
+ * wins ("Shurgard Neasden"); an account-level name falls to the customer or
+ * partner ("Shurgard"); anything else (a greeting, a person's name) → none,
+ * so the caller shows the whole schedule.
+ */
+export function resolveScope(
+  query: string,
+  ctx: {
+    sites: SiteCandidate[];
+    customers: PersonCandidate[];
+    partners: PersonCandidate[];
+  },
+): ScopeMatch {
+  const q = query.trim();
+  if (!q) return { kind: "none" };
+  const site = matchSite(q, ctx.sites);
+  if (site.kind === "one") {
+    return { kind: "site", id: site.site.id, label: site.site.name };
+  }
+  const cust = matchAccount(q, ctx.customers);
+  if (cust) return { kind: "customer", id: cust.id, label: cust.name };
+  const part = matchAccount(q, ctx.partners);
+  if (part) return { kind: "partner", id: part.id, label: part.name };
+  return { kind: "none" };
+}
+
 // ── Resolution (pure) ──────────────────────────────────────────────────────
 
 /**
@@ -405,7 +456,7 @@ const CALLOUT_TOOL_SCHEMA: JsonSchema = {
 const LIST_ACTIVITIES_TOOL: ToolDef = {
   name: "list_activities",
   description:
-    "List what's scheduled or was done (patrols, lock-ups, unlocks, static shifts, callouts). Use this when the dispatcher is ASKING about activities rather than creating a new callout. Use day='now' for 'what's happening right now / on now / who's on duty'.",
+    "List the schedule / activities (patrols, lock-ups, unlocks, static shifts, callouts). Use for ANY ask about what's on or what was done — including a bare 'schedule', 'X schedule', 'what's on', or a customer/site name paired with a day ('Shurgard yesterday'). day='now' = live snapshot of what's in progress/overdue.",
   schema: {
     type: "object",
     properties: {
@@ -413,12 +464,12 @@ const LIST_ACTIVITIES_TOOL: ToolDef = {
         type: "string",
         enum: ["now", "today", "yesterday", "tomorrow"],
         description:
-          "Which window they're asking about. 'now' = live snapshot of what's in progress/overdue. Default today.",
+          "Which window. 'now' = live snapshot. Default to 'today' when unspecified (e.g. a bare 'schedule').",
       },
-      siteQuery: {
+      scopeQuery: {
         type: "string",
         description:
-          "Optional site name to narrow the list to, if they named one.",
+          "Optional — narrow to a customer, partner or site if one is named (e.g. 'Shurgard', 'Neasden'). OMIT for the whole schedule, or when the leading word is just a greeting or a person's name (e.g. 'Zaryab schedule').",
       },
     },
     required: ["day"],
@@ -529,8 +580,14 @@ function buildSystemPrompt(
   nowUk: string,
 ): string {
   return [
-    "You are the dispatch assistant for 1st Nationwide, a UK security firm. Be warm and natural.",
-    "Pick the matching tool: create a NEW callout → create_callout; ASK what's scheduled/done on a day → list_activities; SEARCH or ask about sites (a bare query like 'tesco downham' or 'tesco br1' counts) → lookup_site; ask who holds keys → lookup_key; move an EXISTING job to another officer → reassign_job; cancel an EXISTING job → cancel_job; mark an EXISTING job done → close_job; greetings / thanks / 'what can you do' / anything else → smalltalk_or_help.",
+    "You are the dispatch assistant for 1st Nationwide, a UK security firm. Be warm and natural, and generalise — the phrasings below are examples, not the only wording.",
+    "Pick the matching tool:",
+    "• create a NEW callout → create_callout",
+    "• the schedule / what's on / what was done — ANY wording, including a bare 'schedule', 'X schedule' (X is often just a greeting or a person's name — ignore it), or a customer/site with a day like 'Shurgard yesterday' → list_activities (set scopeQuery only to a real customer/partner/site)",
+    "• SEARCH sites by name/address/postcode with NO day word ('tesco downham', 'tesco br1') → lookup_site",
+    "• who holds keys → lookup_key",
+    "• move an EXISTING job to another officer → reassign_job; cancel one → cancel_job; mark one done → close_job",
+    "• greetings / thanks / 'what can you do' / anything else → smalltalk_or_help",
     `The current date and time in the UK is ${nowUk}. Resolve relative times ('tonight', 'in an hour', '9pm') against it and return UK local wall-clock 'YYYY-MM-DDTHH:MM'.`,
     "For create_callout: only set handlerKind='partner' when the dispatcher clearly wants the job given to a partner company; otherwise it's an internal officer. Copy the site reference verbatim into siteQuery — do not guess a full site name.",
     officers.length
@@ -544,7 +601,7 @@ function buildSystemPrompt(
 
 export type RoutedMessage =
   | { kind: "create"; parsed: ParsedCallout }
-  | { kind: "list"; day: string; siteQuery: string | null }
+  | { kind: "list"; day: string; scopeQuery: string | null }
   | { kind: "lookupSite"; query: string }
   | { kind: "lookupKey"; query: string }
   | {
@@ -607,13 +664,13 @@ export async function routeMessage(
     return { kind: "lookupKey", query: String(res.data?.query ?? "").trim() };
   }
   if (res.name === "list_activities") {
-    const d = res.data ?? {};
+    const ld = res.data ?? {};
     return {
       kind: "list",
-      day: typeof d.day === "string" ? d.day : "today",
-      siteQuery:
-        typeof d.siteQuery === "string" && d.siteQuery.trim()
-          ? d.siteQuery.trim()
+      day: typeof ld.day === "string" ? ld.day : "today",
+      scopeQuery:
+        typeof ld.scopeQuery === "string" && ld.scopeQuery.trim()
+          ? ld.scopeQuery.trim()
           : null,
     };
   }
