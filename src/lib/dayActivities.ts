@@ -30,7 +30,12 @@ function whoLabel(
  */
 export async function loadDayActivities(
   target: Pick<DayTarget, "year" | "month" | "day">,
-  opts?: { siteId?: string; officerId?: string },
+  opts?: {
+    siteId?: string;
+    officerId?: string;
+    customerId?: string;
+    partnerId?: string;
+  },
 ): Promise<DayActivity[]> {
   const start = ukWallClockToUtc(target.year, target.month, target.day, 0, 0, 0);
   const end = ukWallClockToUtc(
@@ -47,6 +52,18 @@ export async function loadDayActivities(
     ? { assignedToUserId: opts.officerId }
     : {};
   const officer = opts?.officerId ? { officerId: opts.officerId } : {};
+  // Account (customer/partner) scope. Jobs carry the account directly; visits
+  // and shifts inherit it through their site.
+  const jobAccount = opts?.customerId
+    ? { customerId: opts.customerId }
+    : opts?.partnerId
+      ? { partnerId: opts.partnerId }
+      : {};
+  const siteAccount = opts?.customerId
+    ? { site: { is: { customerId: opts.customerId } } }
+    : opts?.partnerId
+      ? { site: { is: { partnerId: opts.partnerId } } }
+      : {};
 
   const [jobs, visits, shifts] = await prisma.$transaction([
     prisma.job.findMany({
@@ -54,6 +71,7 @@ export async function loadDayActivities(
         status: { not: "CANCELLED" },
         ...site,
         ...jobOfficer,
+        ...jobAccount,
         OR: [
           { scheduledFor: range },
           { AND: [{ scheduledFor: null }, { createdAt: range }] },
@@ -77,6 +95,7 @@ export async function loadDayActivities(
         status: { not: "CANCELLED" },
         ...site,
         ...officer,
+        ...siteAccount,
         scheduledAt: range,
       },
       select: {
@@ -90,7 +109,7 @@ export async function loadDayActivities(
       take: 500,
     }),
     prisma.shift.findMany({
-      where: { ...site, ...officer, scheduledStartsAt: range },
+      where: { ...site, ...officer, ...siteAccount, scheduledStartsAt: range },
       select: {
         type: true,
         scheduledStartsAt: true,
@@ -155,14 +174,23 @@ export async function loadDayActivities(
  */
 export async function dayRundownMessage(
   dayInput: string,
-  opts?: { siteId?: string; siteNote?: string },
+  opts?: {
+    siteId?: string;
+    customerId?: string;
+    partnerId?: string;
+    scopeNote?: string;
+  },
 ): Promise<string> {
   const target = resolveDayTarget(dayInput);
   if (!target) {
     return "I can show <b>today</b>, <b>yesterday</b> or <b>tomorrow</b> — try /today or /yesterday.";
   }
-  const rows = await loadDayActivities(target, { siteId: opts?.siteId });
-  return formatDayActivitiesMessage(rows, target.label, opts?.siteNote);
+  const rows = await loadDayActivities(target, {
+    siteId: opts?.siteId,
+    customerId: opts?.customerId,
+    partnerId: opts?.partnerId,
+  });
+  return formatDayActivitiesMessage(rows, target.label, opts?.scopeNote);
 }
 
 /** One officer's own activities for a day, as a Telegram message. */
