@@ -15,6 +15,7 @@ import { snapshotJobFinanceIfNeeded } from "@/lib/billing";
 import {
   cancelJobCore,
   closeJobCore,
+  completeVisitCore,
   reassignJobCore,
 } from "@/lib/jobActions";
 import {
@@ -198,6 +199,75 @@ async function createJobActionDraft(
  * Resolve "the Neasden alarm" to a single active job, then draft a
  * reassign / cancel / close for confirmation.
  */
+const OPEN_VISIT_STATUSES = ["PENDING", "IN_PROGRESS", "LATE"] as const;
+
+type CloseTarget = { kind: "job" | "visit"; id: string; desc: string };
+
+/**
+ * Everything still open to close at a site — jobs (lock/unlock/alarm/etc.) and
+ * patrol/VPI visits. `type` narrows by activity; `ownerOfficerId` narrows to
+ * one officer's own work (used for the officer self-report path).
+ */
+async function findCloseTargets(
+  siteId: string,
+  siteName: string,
+  opts: { type: string | null; ownerOfficerId?: string },
+): Promise<CloseTarget[]> {
+  const { type, ownerOfficerId } = opts;
+  const jobs = await prisma.job.findMany({
+    where: {
+      siteId,
+      status: { in: ACTIVE_JOB_STATUSES as any },
+      ...(type ? { type: type as any } : {}),
+      ...(ownerOfficerId ? { assignedToUserId: ownerOfficerId } : {}),
+    },
+    orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
+    take: 10,
+    select: {
+      id: true,
+      type: true,
+      typeLabel: true,
+      assignedTo: { select: { name: true } },
+    },
+  });
+  // Patrols/VPIs live as visits, not jobs — include them unless the type
+  // clearly points at a job kind (lock/unlock/alarm).
+  const wantVisits = type === null || type === "PATROL" || type === "VPI";
+  const visits = wantVisits
+    ? await prisma.patrolVisit.findMany({
+        where: {
+          siteId,
+          status: { in: OPEN_VISIT_STATUSES as any },
+          ...(ownerOfficerId ? { officerId: ownerOfficerId } : {}),
+          ...(type === "VPI"
+            ? { patrolSchedule: { is: { kind: "VPI" } } }
+            : type === "PATROL"
+              ? { patrolSchedule: { is: { kind: "PATROL" } } }
+              : {}),
+        },
+        orderBy: [{ scheduledAt: "desc" }],
+        take: 10,
+        select: {
+          id: true,
+          officer: { select: { name: true } },
+          patrolSchedule: { select: { kind: true } },
+        },
+      })
+    : [];
+  return [
+    ...jobs.map((j) => ({
+      kind: "job" as const,
+      id: j.id,
+      desc: jobDesc(j, siteName),
+    })),
+    ...visits.map((v) => ({
+      kind: "visit" as const,
+      id: v.id,
+      desc: `${v.patrolSchedule?.kind === "VPI" ? "VPI" : "patrol"} at ${siteName}${v.officer?.name ? ` (${v.officer.name})` : ""}`,
+    })),
+  ];
+}
+
 async function handleJobActionRequest(
   chat: string,
   who: { id: string },
@@ -226,6 +296,39 @@ async function handleJobActionRequest(
   }
 
   const type = mapTypeHint(routed.typeHint);
+
+  // Close covers jobs AND patrol/VPI visits.
+  if (routed.kind === "closeJob") {
+    const targets = await findCloseTargets(m.site.id, m.site.name, { type });
+    if (targets.length === 0) {
+      await sendTelegramMessage(
+        chat,
+        `Nothing open to close at ${escapeHtml(m.site.name)}${type ? " of that type" : ""}.`,
+      );
+      return;
+    }
+    if (targets.length > 1) {
+      const list = targets
+        .slice(0, 6)
+        .map((t) => `• ${escapeHtml(t.desc)}`)
+        .join("\n");
+      await sendTelegramMessage(
+        chat,
+        `Several open at ${escapeHtml(m.site.name)} — say the type too:\n${list}`,
+      );
+      return;
+    }
+    const t = targets[0];
+    await createJobActionDraft(
+      chat,
+      who.id,
+      { kind: "close", targetKind: t.kind, id: t.id },
+      `Close: ${t.desc}`,
+    );
+    return;
+  }
+
+  // Reassign / cancel act on jobs only.
   const jobs = await prisma.job.findMany({
     where: {
       siteId: m.site.id,
@@ -283,22 +386,89 @@ async function handleJobActionRequest(
     return;
   }
 
-  const verb = routed.kind === "cancelJob" ? "Cancel" : "Close";
   await createJobActionDraft(
     chat,
     who.id,
-    { kind: routed.kind === "cancelJob" ? "cancel" : "close", jobId: job.id },
-    `${verb}: ${desc}`,
+    { kind: "cancel", jobId: job.id },
+    `Cancel: ${desc}`,
   );
 }
 
 /**
- * Route a linked staff member's free text: either list a day's activities or
- * draft a new callout for confirmation. Only reached for ADMIN/DISPATCHER.
+ * Officer self-report: "Norbury unlocked" / "Croydon patrolled" → complete
+ * THEIR own open activity at that site, no confirm card (it's their report).
+ */
+async function handleOfficerCompletion(
+  chat: string,
+  who: { id: string; name: string },
+  routed: Extract<RoutedMessage, { kind: "closeJob" }>,
+  siteCtx: {
+    id: string;
+    name: string;
+    code: string | null;
+    postcode: string | null;
+    address?: string | null;
+  }[],
+): Promise<void> {
+  const m = matchSite(routed.siteQuery, siteCtx);
+  if (m.kind !== "one") {
+    await sendTelegramMessage(
+      chat,
+      m.kind === "none"
+        ? `I couldn't find a site matching “${escapeHtml(routed.siteQuery)}”.`
+        : `“${escapeHtml(routed.siteQuery)}” matches several sites — which one?`,
+    );
+    return;
+  }
+  const type = mapTypeHint(routed.typeHint);
+  const targets = await findCloseTargets(m.site.id, m.site.name, {
+    type,
+    ownerOfficerId: who.id,
+  });
+  if (targets.length === 0) {
+    await sendTelegramMessage(
+      chat,
+      `Nothing open for you to close at ${escapeHtml(m.site.name)}${type ? " of that type" : ""}.`,
+    );
+    return;
+  }
+  if (targets.length > 1) {
+    const list = targets
+      .slice(0, 6)
+      .map((t) => `• ${escapeHtml(t.desc)}`)
+      .join("\n");
+    await sendTelegramMessage(
+      chat,
+      `You've got a few open at ${escapeHtml(m.site.name)} — which?\n${list}`,
+    );
+    return;
+  }
+  const t = targets[0];
+  const r =
+    t.kind === "visit"
+      ? await completeVisitCore(t.id)
+      : await closeJobCore(t.id, {
+          note: `Completed via Telegram by ${who.name}`,
+        });
+  revalidatePath("/dispatch");
+  revalidatePath("/activities");
+  revalidatePath("/finance");
+  await sendTelegramMessage(
+    chat,
+    r.ok
+      ? `✅ Marked done — ${escapeHtml(t.desc)}.`
+      : `⚠️ Couldn't: ${escapeHtml(r.error ?? "")}`,
+  );
+}
+
+/**
+ * Route a linked user's free text. Staff (ADMIN/DISPATCHER) get the full set;
+ * officers get a scoped surface — complete their own activities, see their own
+ * day, and help.
  */
 async function handleFreeText(
   chat: string,
-  who: { id: string },
+  who: { id: string; name: string; role: Role },
   text: string,
 ): Promise<void> {
   if (!isAnthropicConfigured()) {
@@ -373,6 +543,24 @@ async function handleFreeText(
         "• <b>Keys</b> — “who has the keys for Norbury”",
         "• <b>Change a job</b> — “move the Neasden alarm to Jane”, “cancel the Norbury lock-up”",
       ].join("\n"),
+    );
+    return;
+  }
+
+  // Officer surface: report their own activity done, see their own day, help.
+  if (!isStaff(who.role)) {
+    if (routed.kind === "closeJob") {
+      await handleOfficerCompletion(chat, who, routed, siteCtx);
+      return;
+    }
+    if (routed.kind === "list") {
+      const day = routed.day === "now" ? "today" : routed.day;
+      await sendTelegramMessage(chat, await myDayMessage(who.id, day));
+      return;
+    }
+    await sendTelegramMessage(
+      chat,
+      "You're connected. Send /mine for your jobs, tap the buttons on a job I send you, or tell me when one's done (e.g. “Norbury unlocked”). Other actions are for dispatch.",
     );
     return;
   }
@@ -553,9 +741,11 @@ async function handleCalloutCallback(cbq: any): Promise<void> {
         ? await reassignJobCore(raw.jobId, raw.officerId ?? null)
         : raw.kind === "cancel"
           ? await cancelJobCore(raw.jobId, who.id)
-          : await closeJobCore(raw.jobId, {
-              note: `Closed via Telegram by ${who.name}`,
-            });
+          : raw.targetKind === "visit"
+            ? await completeVisitCore(raw.id)
+            : await closeJobCore(raw.id, {
+                note: `Closed via Telegram by ${who.name}`,
+              });
     await prisma.telegramCalloutDraft.update({
       where: { id: draft.id },
       data: { status: r.ok ? "CONFIRMED" : "CANCELLED" },
@@ -938,7 +1128,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    // Any other text: for linked staff, route it (list a day or new callout).
+    // Any other text → route it. Staff get the full set; officers get a
+    // scoped surface (complete own work, own day, help) inside handleFreeText.
     const who = await linkedUser(chat);
     if (!who) {
       await sendTelegramMessage(
@@ -947,18 +1138,15 @@ export async function POST(req: Request) {
       );
       return NextResponse.json({ ok: true });
     }
-    if (!isStaff(who.role as Role)) {
-      await sendTelegramMessage(
-        chat,
-        "You're connected. Send /mine for your jobs today, and tap the buttons on jobs I send you.",
-      );
-      return NextResponse.json({ ok: true });
-    }
     if (!worthRouting(text)) {
       await sendTelegramMessage(chat, "👋 Say a bit more and I'll help.");
       return NextResponse.json({ ok: true });
     }
-    await handleFreeText(chat, who, text);
+    await handleFreeText(
+      chat,
+      { id: who.id, name: who.name, role: who.role as Role },
+      text,
+    );
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("telegram webhook error", e);
