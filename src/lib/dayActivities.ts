@@ -8,6 +8,11 @@
 import { prisma } from "@/lib/db";
 import { ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
 import {
+  jobScheduledRange,
+  shiftScheduledRange,
+  visitScheduledRange,
+} from "@/lib/activityWhen";
+import {
   ACTIVITY_KIND_LABEL,
   formatDayActivitiesMessage,
   formatNowMessage,
@@ -72,10 +77,9 @@ export async function loadDayActivities(
         ...site,
         ...jobOfficer,
         ...jobAccount,
-        OR: [
-          { scheduledFor: range },
-          { AND: [{ scheduledFor: null }, { createdAt: range }] },
-        ],
+        // Anchor on the scheduled date (else completion), never createdAt —
+        // a backdated entry belongs to the day it was for, not the day typed.
+        ...jobScheduledRange(start, end),
       },
       select: {
         type: true,
@@ -96,7 +100,7 @@ export async function loadDayActivities(
         ...site,
         ...officer,
         ...siteAccount,
-        scheduledAt: range,
+        ...visitScheduledRange(start, end),
       },
       select: {
         scheduledAt: true,
@@ -109,7 +113,12 @@ export async function loadDayActivities(
       take: 500,
     }),
     prisma.shift.findMany({
-      where: { ...site, ...officer, ...siteAccount, scheduledStartsAt: range },
+      where: {
+        ...site,
+        ...officer,
+        ...siteAccount,
+        ...shiftScheduledRange(start, end),
+      },
       select: {
         type: true,
         scheduledStartsAt: true,

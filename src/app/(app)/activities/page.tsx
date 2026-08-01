@@ -6,6 +6,11 @@ import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
+import {
+  jobScheduledRange,
+  shiftScheduledRange,
+  visitScheduledRange,
+} from "@/lib/activityWhen";
 import { RestoreActivityButton } from "../dispatch/_components/RestoreActivityButton";
 import { CloseActivityButton } from "../dispatch/_components/CloseActivityButton";
 import { CancelActivityButton } from "../dispatch/_components/CancelActivityButton";
@@ -213,18 +218,11 @@ export default async function ActivitiesPage({
   // Rows with no scheduled date fall back to createdAt so ad-hoc jobs
   // logged from /submit don't disappear.
   const dateInRange = { gte: fromDate, lte: toDate };
-  // PatrolVisit.scheduledAt is a required column, so every visit has one —
-  // anchor the window directly on it. (Filtering it by null is an invalid
-  // Prisma filter and was crashing the page.)
-  const visitWhere: any = { scheduledAt: dateInRange };
-  // Job.scheduledFor is nullable, so keep the createdAt fallback for ad-hoc
-  // jobs that were logged without a scheduled time.
-  const jobWhere: any = {
-    OR: [
-      { scheduledFor: dateInRange },
-      { AND: [{ scheduledFor: null }, { createdAt: dateInRange }] },
-    ],
-  };
+  // Every source is anchored on its SCHEDULED date (else completion for a
+  // job with no schedule) — never createdAt, so a backdated entry lands on
+  // the day it was for, not the day it was typed in.
+  const visitWhere: any = { ...visitScheduledRange(fromDate, toDate) };
+  const jobWhere: any = { ...jobScheduledRange(fromDate, toDate) };
 
   if (officerIds.length) {
     visitWhere.officerId = { in: officerIds };
@@ -293,9 +291,7 @@ export default async function ActivitiesPage({
   // Shift where clause — anchor on the scheduled start. Cancelled
   // shifts use status=MISSED/ABANDONED (no CANCELLED in the enum) so
   // no cancel-status branch here.
-  const shiftWhere: any = {
-    scheduledStartsAt: dateInRange,
-  };
+  const shiftWhere: any = { ...shiftScheduledRange(fromDate, toDate) };
   if (officerIds.length) shiftWhere.officerId = { in: officerIds };
   if (siteIds.length) shiftWhere.siteId = { in: siteIds };
   if (customerIds.length) shiftWhere.site = { ...(shiftWhere.site ?? {}), customerId: { in: customerIds } };
@@ -493,10 +489,11 @@ export default async function ActivitiesPage({
       kind: j.type,
       kindLabel: KIND_LABEL[j.type] ?? j.type,
       at:
-        // Same anchor as visits — scheduled / started / created, not
-        // completedAt.
+        // Scheduled → started → completed → created (last resort). The work
+        // date, never the day the record was typed.
         j.scheduledFor ??
         j.startedAt ??
+        j.completedAt ??
         j.createdAt ??
         new Date(),
       status: j.status,

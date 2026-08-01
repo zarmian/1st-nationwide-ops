@@ -24,6 +24,7 @@ import type {
 } from "@/components/map/MapInner";
 import { siteOwner } from "@/lib/entityColor";
 import { daysFromTodayUk, ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
+import { jobScheduledRange, visitScheduledRange } from "@/lib/activityWhen";
 import { getJobSourceLabels, getJobTypeLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -411,23 +412,26 @@ export default async function DispatchPage({
     getJobTypeLabels(),
     getJobSourceLabels(),
     prisma.job.findMany({
-      where: { completedAt: { gte: recentSince, lte: now } },
+      // Recently-completed work, windowed by the SCHEDULED date (else
+      // completion) — a job scheduled for the 2nd but closed on the 4th
+      // belongs to the 2nd, not the 4th.
+      where: { completedAt: { not: null }, ...jobScheduledRange(recentSince, now) },
       include: {
         site: { select: { id: true, name: true } },
         assignedTo: { select: { name: true } },
         handledByPartner: { select: { name: true } },
       },
-      orderBy: { completedAt: "desc" },
+      orderBy: [{ scheduledFor: "desc" }, { completedAt: "desc" }],
       take: 100,
     }),
     prisma.patrolVisit.findMany({
-      where: { departedAt: { gte: recentSince, lte: now } },
+      where: { departedAt: { not: null }, ...visitScheduledRange(recentSince, now) },
       include: {
         site: { select: { id: true, name: true } },
         officer: { select: { name: true } },
         patrolSchedule: { select: { kind: true } },
       },
-      orderBy: { departedAt: "desc" },
+      orderBy: [{ scheduledAt: "desc" }],
       take: 100,
     }),
     // ── Analytics: last-7-day completed jobs (type mix + response time) ──
