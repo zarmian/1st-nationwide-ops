@@ -4,6 +4,11 @@
  * CSV route and the PDF report render off one source of truth.
  */
 import { prisma } from "@/lib/db";
+import {
+  jobScheduledRange,
+  shiftScheduledRange,
+  visitScheduledRange,
+} from "@/lib/activityWhen";
 
 const KIND_LABEL: Record<string, string> = {
   ALARM_RESPONSE: "Alarm response",
@@ -151,15 +156,11 @@ export function parseActivitiesQuery(url: URL): ActivityReportParams {
 export async function loadActivitiesReportRows(
   params: ActivityReportParams,
 ): Promise<ActivityReportRow[]> {
-  const dateInRange = { gte: params.from, lte: params.to };
-  const visitWhere: any = { scheduledAt: dateInRange };
-  const jobWhere: any = {
-    OR: [
-      { scheduledFor: dateInRange },
-      { AND: [{ scheduledFor: null }, { createdAt: dateInRange }] },
-    ],
-  };
-  const shiftWhere: any = { scheduledStartsAt: dateInRange };
+  // Anchor every source on its scheduled date (else completion for jobs) —
+  // never createdAt — so a backdated entry lands on the day it was for.
+  const visitWhere: any = { ...visitScheduledRange(params.from, params.to) };
+  const jobWhere: any = { ...jobScheduledRange(params.from, params.to) };
+  const shiftWhere: any = { ...shiftScheduledRange(params.from, params.to) };
 
   if (params.officerIds.length) {
     visitWhere.officerId = { in: params.officerIds };
@@ -305,7 +306,7 @@ export async function loadActivitiesReportRows(
   }
   for (const j of jobs) {
     rows.push({
-      at: j.scheduledFor ?? j.startedAt ?? j.createdAt ?? new Date(),
+      at: j.scheduledFor ?? j.startedAt ?? j.completedAt ?? j.createdAt ?? new Date(),
       kind: KIND_LABEL[j.type] ?? j.type,
       siteCode: j.site?.code ?? null,
       siteName: j.site?.name ?? null,
