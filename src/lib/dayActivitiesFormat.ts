@@ -43,24 +43,79 @@ export type DayTarget = {
   label: string;
 };
 
+const MONTHS: Record<string, number> = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3, apr: 4, april: 4,
+  may: 5, jun: 6, june: 6, jul: 7, july: 7, aug: 8, august: 8, sep: 9,
+  sept: 9, september: 9, oct: 10, october: 10, nov: 11, november: 11,
+  dec: 12, december: 12,
+};
+
+type Ymd = { year: number; month: number; day: number };
+
+/** A real calendar date, or null. Round-trips to reject e.g. 31 Feb. */
+function validYmd(year: number, month: number, day: number): Ymd | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const dt = new Date(Date.UTC(year, month - 1, day, 12));
+  if (
+    dt.getUTCFullYear() !== year ||
+    dt.getUTCMonth() !== month - 1 ||
+    dt.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return { year, month, day };
+}
+
 /**
- * Resolve a day keyword ("today"/"yesterday"/"tomorrow") or an ISO
- * "YYYY-MM-DD" into a UK calendar target + a human label. Returns null for
- * anything else so the caller can nudge the user to a valid choice.
+ * Parse an explicit date in the formats a UK dispatcher actually types:
+ * ISO (2026-08-03), day-first numeric (3/8, 03-08-2026), and spoken
+ * ("3 August", "3rd aug 2025", "august 3"). Missing year → the current UK
+ * year. Returns null when it isn't a date.
+ */
+function parseUkDateString(key: string, now: Date): Ymd | null {
+  const s = key.trim().toLowerCase();
+  const curYear = ukDayPlus(now, 0).year;
+  const fullYear = (y: string | undefined): number => {
+    if (!y) return curYear;
+    const n = Number(y);
+    return n < 100 ? 2000 + n : n;
+  };
+
+  // ISO: YYYY-MM-DD
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return validYmd(+m[1], +m[2], +m[3]);
+
+  // Day-first numeric: DD/MM[/YYYY] with / . or - separators
+  m = s.match(/^(\d{1,2})[/.\-](\d{1,2})(?:[/.\-](\d{2,4}))?$/);
+  if (m) return validYmd(fullYear(m[3]), +m[2], +m[1]);
+
+  // Spoken, ordinals stripped ("3rd" → "3")
+  const t = s.replace(/(\d+)(st|nd|rd|th)\b/g, "$1");
+  // "3 august [2026]"
+  m = t.match(/^(\d{1,2})\s+([a-z]+)\.?(?:\s+(\d{2,4}))?$/);
+  if (m && MONTHS[m[2]]) return validYmd(fullYear(m[3]), MONTHS[m[2]], +m[1]);
+  // "august 3 [2026]"
+  m = t.match(/^([a-z]+)\.?\s+(\d{1,2})(?:\s+(\d{2,4}))?$/);
+  if (m && MONTHS[m[1]]) return validYmd(fullYear(m[3]), MONTHS[m[1]], +m[2]);
+
+  return null;
+}
+
+/**
+ * Resolve a day keyword ("today"/"yesterday"/"tomorrow") or an explicit date
+ * (ISO, day-first numeric, or spoken like "3 August") into a UK calendar
+ * target + a human label. Returns null when it isn't a day/date.
  */
 export function resolveDayTarget(
   input: string,
   now: Date = new Date(),
 ): DayTarget | null {
   const key = input.trim().toLowerCase();
-  let ymd: { year: number; month: number; day: number } | null = null;
+  let ymd: Ymd | null = null;
   if (key === "today" || key === "") ymd = ukDayPlus(now, 0);
   else if (key === "yesterday") ymd = ukDayPlus(now, -1);
   else if (key === "tomorrow") ymd = ukDayPlus(now, 1);
-  else {
-    const m = key.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (m) ymd = { year: +m[1], month: +m[2], day: +m[3] };
-  }
+  else ymd = parseUkDateString(key, now);
   if (!ymd) return null;
   return { ...ymd, label: dayLabel(ymd) };
 }

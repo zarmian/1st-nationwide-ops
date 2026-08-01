@@ -33,6 +33,48 @@ describe("resolveDayTarget", () => {
     });
   });
 
+  it("accepts day-first numeric dates (UK order)", () => {
+    expect(resolveDayTarget("3/8", NOW)).toMatchObject({
+      year: 2026,
+      month: 8,
+      day: 3,
+    });
+    expect(resolveDayTarget("03-08-2025", NOW)).toMatchObject({
+      year: 2025,
+      month: 8,
+      day: 3,
+    });
+    expect(resolveDayTarget("3.8.25", NOW)).toMatchObject({
+      year: 2025,
+      month: 8,
+      day: 3,
+    });
+  });
+
+  it("accepts spoken dates with month names and ordinals", () => {
+    expect(resolveDayTarget("3 August", NOW)).toMatchObject({
+      year: 2026,
+      month: 8,
+      day: 3,
+    });
+    expect(resolveDayTarget("3rd Aug 2025", NOW)).toMatchObject({
+      year: 2025,
+      month: 8,
+      day: 3,
+    });
+    expect(resolveDayTarget("August 3", NOW)).toMatchObject({
+      year: 2026,
+      month: 8,
+      day: 3,
+    });
+  });
+
+  it("rejects impossible dates", () => {
+    expect(resolveDayTarget("31 February", NOW)).toBeNull();
+    expect(resolveDayTarget("2026-13-01", NOW)).toBeNull();
+    expect(resolveDayTarget("45/8", NOW)).toBeNull();
+  });
+
   it("is case-insensitive", () => {
     expect(resolveDayTarget("YESTERDAY", NOW)).toMatchObject({ day: 24 });
   });
