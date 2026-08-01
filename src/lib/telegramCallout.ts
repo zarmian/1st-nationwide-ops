@@ -462,9 +462,8 @@ const LIST_ACTIVITIES_TOOL: ToolDef = {
     properties: {
       day: {
         type: "string",
-        enum: ["now", "today", "yesterday", "tomorrow"],
         description:
-          "Which window. 'now' = live snapshot. Default to 'today' when unspecified (e.g. a bare 'schedule').",
+          "Which day. Keywords: 'now' (live snapshot), 'today', 'yesterday', 'tomorrow'; OR a specific date. For any explicit or spoken date ('3 August', 'the 5th', '3/8', '3rd Aug 2025'), output it as an ISO date YYYY-MM-DD — resolve the month name / ordinal and the year against the current UK date. Default 'today'.",
       },
       scopeQuery: {
         type: "string",
@@ -583,7 +582,7 @@ function buildSystemPrompt(
     "You are the dispatch assistant for 1st Nationwide, a UK security firm. Be warm and natural, and generalise — the phrasings below are examples, not the only wording.",
     "Pick the matching tool:",
     "• create a NEW callout → create_callout",
-    "• the schedule / what's on / what was done — ANY wording, including a bare 'schedule', 'X schedule' (X is often just a greeting or a person's name — ignore it), or a customer/site with a day like 'Shurgard yesterday' → list_activities (set scopeQuery only to a real customer/partner/site)",
+    "• the schedule / what's on / what was done — ANY wording, incl. a bare 'schedule', 'X schedule' (X is often just a greeting or a person's name — ignore it), a customer/site with a day ('Shurgard yesterday'), or a specific date ('Shurgard 3 August', 'activities on the 5th') → list_activities. For an explicit date, set day to an ISO date YYYY-MM-DD resolved against the current UK date; set scopeQuery only to a real customer/partner/site.",
     "• SEARCH sites by name/address/postcode with NO day word ('tesco downham', 'tesco br1') → lookup_site",
     "• who holds keys → lookup_key",
     "• move an EXISTING job to another officer → reassign_job; cancel one → cancel_job; mark one done → close_job",

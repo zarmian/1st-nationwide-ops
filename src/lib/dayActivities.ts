@@ -183,7 +183,7 @@ export async function dayRundownMessage(
 ): Promise<string> {
   const target = resolveDayTarget(dayInput);
   if (!target) {
-    return "I can show <b>today</b>, <b>yesterday</b> or <b>tomorrow</b> — try /today or /yesterday.";
+    return "I can show <b>today</b>, <b>yesterday</b>, <b>tomorrow</b>, or a date like <b>3 Aug</b> — which day?";
   }
   const rows = await loadDayActivities(target, {
     siteId: opts?.siteId,
