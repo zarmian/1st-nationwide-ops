@@ -2,25 +2,9 @@ import "./live.css";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getServerSession } from "next-auth";
-import { Fira_Sans, Fira_Code } from "next/font/google";
 import { authOptions } from "@/lib/auth";
 import { AutoRefresh } from "../(app)/m/today/_components/AutoRefresh";
 import { TopBar, initialsOf } from "./_ui";
-
-// Fira for the data-dense "control room" look, self-hosted via next/font
-// (same approach as the app's Inter) so it renders on first paint.
-const firaSans = Fira_Sans({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600", "700"],
-  display: "swap",
-  variable: "--font-fira-sans",
-});
-const firaCode = Fira_Code({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  display: "swap",
-  variable: "--font-fira-code",
-});
 
 // Always render against live data — never statically cached.
 export const dynamic = "force-dynamic";
@@ -43,7 +27,14 @@ export default async function CommandCenterLayout({
   const name = session.user.name ?? session.user.email ?? "User";
 
   return (
-    <div className={`ccx ${firaSans.variable} ${firaCode.variable}`}>
+    <div className="ccx">
+      {/* Fira loaded at runtime via <link> (not next/font) so the production
+          build never depends on a Google Fonts fetch. Degrades to Inter/
+          system fonts via the CSS fallback stack if the request is blocked. */}
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+      />
       {/* Real-time: refresh server data every 30s while the tab is visible. */}
       <AutoRefresh intervalMs={30_000} />
       <TopBar active={pathname} initials={initialsOf(name)} role={role} now={new Date()} />

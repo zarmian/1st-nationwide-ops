@@ -16,8 +16,8 @@
   --slate:#94A3B8; --slate-soft:rgba(148,163,184,.12);
   --violet:#A78BFA; --violet-soft:rgba(167,139,250,.14);
   --radius:14px;
-  --mono:var(--font-fira-code),'Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace;
-  --sans:var(--font-fira-sans),'Fira Sans',Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --mono:'Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:'Fira Sans',Inter,ui-sans-serif,system-ui,-apple-system,sans-serif;
   min-height:100vh;
   background:radial-gradient(1100px 520px at 78% -180px,rgba(59,130,246,.10),transparent 70%),var(--bg);
   color:var(--text);font-family:var(--sans);line-height:1.45;-webkit-font-smoothing:antialiased;
