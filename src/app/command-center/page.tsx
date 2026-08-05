@@ -72,7 +72,6 @@ export default async function CommandCenterPage() {
       select: {
         id: true,
         type: true,
-        typeLabel: true,
         status: true,
         reportedViaPartnerApp: true,
         site: { select: { name: true } },
@@ -240,7 +239,7 @@ export default async function CommandCenterPage() {
                     </Badge>
                     <div className="who">
                       <div className="t">
-                        {j.site?.name ?? "—"} — {j.typeLabel ?? TYPE_LABEL[j.type] ?? j.type}
+                        {j.site?.name ?? "—"} — {TYPE_LABEL[j.type] ?? j.type}
                       </div>
                       <div className="s">{j.assignedTo?.name ?? "Unassigned"}</div>
                     </div>

@@ -17,11 +17,9 @@ export default async function CommandCenterLayout({
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  // Staff-only surface. Officers and partner seats have their own homes.
+  // Staff-only surface. Officers have their own mobile home.
   const role = session.user.role;
   if (role === "OFFICER") redirect("/m/today");
-  if (role === "PARTNER") redirect("/partner");
-  if (role === "PARTNER_OFFICER") redirect("/partner/m/today");
 
   const pathname = headers().get("x-pathname") ?? "/command-center";
   const name = session.user.name ?? session.user.email ?? "User";

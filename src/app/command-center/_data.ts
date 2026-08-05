@@ -151,7 +151,6 @@ export async function getLiveBoard(limit: number): Promise<BoardRow[]> {
       select: {
         id: true,
         type: true,
-        typeLabel: true,
         status: true,
         priority: true,
         scheduledFor: true,
@@ -172,10 +171,8 @@ export async function getLiveBoard(limit: number): Promise<BoardRow[]> {
         id: true,
         status: true,
         scheduledAt: true,
-        reportedViaPartnerApp: true,
         patrolSchedule: { select: { kind: true } },
         officer: { select: { name: true } },
-        handledByPartner: { select: { name: true } },
         site: {
           select: {
             name: true,
@@ -207,7 +204,7 @@ export async function getLiveBoard(limit: number): Promise<BoardRow[]> {
       id: j.id,
       kind: "job",
       typeRaw: j.type,
-      typeLabel: j.typeLabel ?? TYPE_LABEL[j.type] ?? j.type,
+      typeLabel: TYPE_LABEL[j.type] ?? j.type,
       status: jobStatusView(j.status, j.reportedViaPartnerApp),
       sourceKind: src.sourceKind,
       ownerName: src.ownerName,
@@ -220,11 +217,13 @@ export async function getLiveBoard(limit: number): Promise<BoardRow[]> {
   });
 
   const visitRows: BoardRow[] = visits.map((v) => {
+    // PatrolVisits in this schema have no partner-app/subcontractor fields of
+    // their own — a visit's mode follows the site's owner.
     const src = classifySource({
-      reportedViaPartnerApp: v.reportedViaPartnerApp,
+      reportedViaPartnerApp: false,
       customer: v.site?.customer ?? null,
       partner: v.site?.partner ?? null,
-      handledByPartner: v.handledByPartner,
+      handledByPartner: null,
     });
     return {
       id: v.id,
@@ -234,7 +233,7 @@ export async function getLiveBoard(limit: number): Promise<BoardRow[]> {
       status: visitStatusView(v.status),
       sourceKind: src.sourceKind,
       ownerName: src.ownerName,
-      responder: v.officer?.name ?? (v.handledByPartner ? `${v.handledByPartner.name} officer` : "Unassigned"),
+      responder: v.officer?.name ?? "Unassigned",
       priority: "MEDIUM",
       scheduledFor: v.scheduledAt,
       siteName: v.site?.name ?? "—",
