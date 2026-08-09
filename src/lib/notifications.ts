@@ -16,6 +16,7 @@
  */
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
+import { notifyDispatchTelegram } from "@/lib/telegramNotify";
 
 const TZ = "Europe/London";
 
@@ -70,6 +71,12 @@ type QueueArgs = {
 };
 
 async function queueAll(args: QueueArgs): Promise<number> {
+  // Mirror every WhatsApp-planned event to all linked dispatch on Telegram,
+  // whether or not any WhatsApp recipients are configured. Fire-and-forget so
+  // a Telegram hiccup never blocks the queue write.
+  notifyDispatchTelegram(args.kind, args.bodyPreview).catch((e) =>
+    console.error("notifyDispatchTelegram failed", e),
+  );
   if (args.recipients.length === 0) return 0;
   const data = args.recipients.map((r) => ({
     kind: args.kind,

@@ -5,10 +5,7 @@ import {
   notifyShiftCheckOverdue,
   notifyOfficerNoShow,
 } from "@/lib/notifications";
-import {
-  alertNoShowTelegram,
-  alertShiftCheckOverdueTelegram,
-} from "@/lib/telegramNotify";
+import { alertNoShowTelegram } from "@/lib/telegramNotify";
 
 /**
  * 15-min sweep that does two things:
@@ -141,13 +138,25 @@ export async function GET(req: Request) {
       console.error("notifyShiftCheckOverdue failed", e);
       return 0;
     });
-    // Fire the Telegram alert alongside; recentNotif above already gates
-    // this to once per overdue window (queued > 0 avoids re-firing when the
-    // WhatsApp marker couldn't be written).
-    if (queued > 0) {
-      await alertShiftCheckOverdueTelegram(s.id).catch((e) =>
-        console.error("alertShiftCheckOverdueTelegram failed", e),
-      );
+    // notifyShiftCheckOverdue also broadcasts to all linked dispatch on
+    // Telegram (via queueAll). When no WhatsApp recipients are configured it
+    // writes no queue row, so the recentNotif gate above would re-broadcast
+    // every sweep — drop a SKIPPED marker to hold it to once per overdue
+    // window. (When queued > 0 the PENDING WhatsApp rows serve as the marker.)
+    if (queued === 0) {
+      await prisma.notification
+        .create({
+          data: {
+            kind: "SHIFT_CHECK_OVERDUE",
+            channel: "WHATSAPP",
+            status: "SKIPPED",
+            templateName: "shift_check_overdue",
+            bodyPreview: "Telegram-only overdue check-in marker",
+            eventEntity: "Shift",
+            eventEntityId: s.id,
+          },
+        })
+        .catch((e) => console.error("overdue dedup marker failed", e));
     }
     flagged++;
   }

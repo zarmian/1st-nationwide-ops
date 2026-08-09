@@ -72,11 +72,12 @@ export async function notifyAssignedOfficerOfJob(jobId: string): Promise<void> {
   ]);
 }
 
-// ── Dispatch broadcasts (missed calls, no-shows, overdue check-ins) ─────────
+// ── Dispatch broadcasts (missed calls, no-shows, domain events) ─────────────
 //
 // These DM every linked ADMIN/DISPATCHER. Dedupe is the caller's job — each
-// is fired from a point that already gates (the CallEvent.alerted flag, or
-// the shift-checks cron's per-window checks) so the same alert goes once.
+// is fired from a point that already gates (the CallEvent.alerted flag, the
+// shift-checks cron's per-window checks, or a status flip) so the same alert
+// goes once.
 
 /** DM every linked staff member. Returns how many were reached. */
 export async function broadcastToLinkedStaff(text: string): Promise<number> {
@@ -102,6 +103,37 @@ export async function broadcastToLinkedStaff(text: string): Promise<number> {
   return sent;
 }
 
+/**
+ * Emoji + heading for each domain event, so the Telegram broadcast reads at a
+ * glance. Keyed by NotificationKind; anything unmapped falls back to a bell.
+ */
+const DISPATCH_ALERT_META: Record<string, { emoji: string; title: string }> = {
+  VISIT_STARTED: { emoji: "🟢", title: "Patrol started" },
+  VISIT_COMPLETED: { emoji: "✅", title: "Patrol completed" },
+  VISIT_LATE: { emoji: "🟠", title: "Patrol running late" },
+  VISIT_MISSED: { emoji: "🔴", title: "Patrol missed" },
+  ALARM_RECEIVED: { emoji: "🚨", title: "Alarm received" },
+  SHIFT_CHECK_OVERDUE: { emoji: "⚠️", title: "Check-in overdue" },
+  KEY_HANDOVER: { emoji: "🔑", title: "Key handover" },
+};
+
+/**
+ * Broadcast a domain event to every linked dispatcher/admin on Telegram.
+ * The single Telegram funnel for everything that used to be WhatsApp-only —
+ * called from lib/notifications' queueAll so each event reaches Telegram
+ * regardless of whether any WhatsApp recipients are configured. `body` is the
+ * same human-readable line the WhatsApp queue stores as bodyPreview.
+ */
+export async function notifyDispatchTelegram(
+  kind: string,
+  body: string,
+): Promise<number> {
+  if (!isTelegramConfigured()) return 0;
+  const meta = DISPATCH_ALERT_META[kind] ?? { emoji: "🔔", title: "Update" };
+  const text = `${meta.emoji} <b>${meta.title}</b>\n${escapeHtml(body)}`;
+  return broadcastToLinkedStaff(text);
+}
+
 /** Missed inbound call → alert dispatch on Telegram. */
 export async function alertMissedCallTelegram(
   callEventId: string,
@@ -116,53 +148,6 @@ export async function alertMissedCallTelegram(
   const onLine = call.toNumber ? ` on ${escapeHtml(call.toNumber)}` : "";
   return broadcastToLinkedStaff(
     `📞 <b>Missed call</b>\nFrom ${escapeHtml(from)}${onLine}\n${escapeHtml(when)} — please call back.`,
-  );
-}
-
-/** An alarm callout was logged → heads-up to all linked dispatch/admin. */
-export async function alertAlarmReceivedTelegram(
-  alarmEventId: string,
-): Promise<number> {
-  const alarm = await prisma.alarmEvent.findUnique({
-    where: { id: alarmEventId },
-    select: {
-      priority: true,
-      zone: true,
-      site: { select: { name: true } },
-    },
-  });
-  if (!alarm) return 0;
-  const job = await prisma.job.findFirst({
-    where: { alarmEventId },
-    select: {
-      assignedTo: { select: { name: true } },
-      handledByPartner: { select: { name: true } },
-    },
-  });
-  const who = job?.handledByPartner
-    ? `${job.handledByPartner.name} (partner)`
-    : (job?.assignedTo?.name ?? "unassigned");
-  const zone = alarm.zone ? ` · zone ${escapeHtml(alarm.zone)}` : "";
-  return broadcastToLinkedStaff(
-    `🚨 <b>Alarm logged</b>\n${escapeHtml(alarm.site?.name ?? "site")} — ${escapeHtml(alarm.priority)}${zone}\nHandling: ${escapeHtml(who)}`,
-  );
-}
-
-/** Overdue shift check-in → alert dispatch on Telegram. */
-export async function alertShiftCheckOverdueTelegram(
-  shiftId: string,
-): Promise<number> {
-  const s = await prisma.shift.findUnique({
-    where: { id: shiftId },
-    select: {
-      checkIntervalMin: true,
-      site: { select: { name: true } },
-      officer: { select: { name: true } },
-    },
-  });
-  if (!s) return 0;
-  return broadcastToLinkedStaff(
-    `⚠️ <b>Check-in overdue</b>\n${escapeHtml(s.officer?.name ?? "Officer")} at ${escapeHtml(s.site?.name ?? "site")} — no check-in (expected every ${s.checkIntervalMin} min).`,
   );
 }
 
