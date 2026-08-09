@@ -23,10 +23,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { notifyAlarmReceived } from "@/lib/notifications";
-import {
-  alertAlarmReceivedTelegram,
-  notifyAssignedOfficerOfJob,
-} from "@/lib/telegramNotify";
+import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
 import type { BotCalloutData } from "@/lib/calloutTypes";
 
 // Re-export the shared callout types/enums so existing importers can keep
@@ -164,12 +161,9 @@ export async function createBotCallout(
   }
 
   if (alarmEventId) {
+    // Queues WhatsApp and broadcasts to all linked dispatch on Telegram.
     notifyAlarmReceived(alarmEventId).catch((e) =>
       console.error("notifyAlarmReceived failed", e),
-    );
-    // Heads-up to all linked dispatch/admin on Telegram.
-    alertAlarmReceivedTelegram(alarmEventId).catch((e) =>
-      console.error("alertAlarmReceivedTelegram failed", e),
     );
   }
 
