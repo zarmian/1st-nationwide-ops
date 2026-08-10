@@ -123,6 +123,7 @@ export default async function PatrolsPage({
       prisma.patrolSchedule.findMany({
         where: scheduleWhere,
         orderBy: [{ active: "desc" }, { kind: "asc" }, { dayOfWeek: "asc" }],
+        take: 200,
         include: {
           site: {
             select: {
@@ -149,6 +150,7 @@ export default async function PatrolsPage({
       prisma.lockUnlockSchedule.findMany({
         where: lockUnlockWhere,
         orderBy: { siteId: "asc" },
+        take: 200,
         include: {
           site: {
             select: {

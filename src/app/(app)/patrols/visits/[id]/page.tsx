@@ -6,6 +6,7 @@ import { CloseActivityButton } from "../../../dispatch/_components/CloseActivity
 import { CancelActivityButton } from "../../../dispatch/_components/CancelActivityButton";
 import { RestoreActivityButton } from "../../../dispatch/_components/RestoreActivityButton";
 import { PageHeader } from "@/components/PageHeader";
+import { formatMoney } from "@/lib/numbers";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,7 @@ function moneyOrNull(
   if (amount == null) return null;
   const n = Number(amount.toString());
   if (!Number.isFinite(n)) return null;
-  const sym = currency === "GBP" ? "£" : (currency ?? "");
-  return `${sym}${n.toFixed(2)}`;
+  return formatMoney(n, { currency: currency ?? "GBP" });
 }
 
 const STATUS_TONE: Record<string, string> = {

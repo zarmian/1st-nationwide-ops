@@ -41,8 +41,12 @@ export function LoginForm() {
         </label>
         <input
           id="email"
+          name="email"
           type="email"
           autoComplete="email"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
           required
           className="input"
           value={email}
@@ -55,6 +59,7 @@ export function LoginForm() {
         </label>
         <input
           id="password"
+          name="password"
           type="password"
           autoComplete="current-password"
           required
@@ -65,7 +70,10 @@ export function LoginForm() {
       </div>
 
       {error && (
-        <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+        <div
+          role="alert"
+          className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700"
+        >
           {error}
         </div>
       )}

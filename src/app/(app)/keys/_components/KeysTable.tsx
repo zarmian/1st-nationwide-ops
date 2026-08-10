@@ -104,14 +104,18 @@ function SetRowView({ row }: { row: SetRow }) {
   return (
     <>
       <tr className="border-t border-slate-200 hover:bg-slate-50">
-        <td
-          className="px-3 py-3 text-slate-400 text-center cursor-pointer"
-          onClick={() => setOpen((v) => !v)}
-        >
-          <span aria-hidden>{open ? "▾" : "▸"}</span>
-          <span className="sr-only">
-            {open ? "Collapse" : "Expand"} set
-          </span>
+        <td className="px-3 py-3 text-slate-400 text-center">
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            className="inline-grid place-items-center min-h-[2.75rem] min-w-[2.75rem] md:min-h-0 md:min-w-0 rounded hover:bg-slate-100"
+          >
+            <span aria-hidden>{open ? "▾" : "▸"}</span>
+            <span className="sr-only">
+              {open ? "Collapse" : "Expand"} set
+            </span>
+          </button>
         </td>
         <td
           className="px-3 py-3 font-mono text-xs text-slate-600 cursor-pointer"

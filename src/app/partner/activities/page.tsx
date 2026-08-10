@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePartner } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
+import { formatMoney } from "@/lib/numbers";
 
 export const dynamic = "force-dynamic";
 
@@ -296,9 +297,7 @@ export default async function PartnerActivitiesPage({
                       )}
                     </td>
                     <td className="text-right tabular-nums">
-                      {r.chargeToUs != null
-                        ? `£${r.chargeToUs.toFixed(2)}`
-                        : "—"}
+                      {r.chargeToUs != null ? formatMoney(r.chargeToUs) : "—"}
                     </td>
                     <td className="text-right">
                       {r.source === "we-logged-shift" ||

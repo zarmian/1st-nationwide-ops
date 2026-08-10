@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatNumber } from "@/lib/numbers";
 
 /**
  * Horizontal bar list — the data-dense dashboard staple for ranking a
@@ -64,7 +65,7 @@ export function BarList({
               style={{ width: `${pct}%` }}
               aria-hidden="true"
             />
-            <span className="relative truncate text-sm font-medium text-brand-navy">
+            <span className="relative min-w-0 truncate text-sm font-medium text-brand-navy">
               {item.label}
               {item.hint && (
                 <span className="ml-1.5 text-xs font-normal text-slate-500">
@@ -73,7 +74,7 @@ export function BarList({
               )}
             </span>
             <span className="relative shrink-0 text-sm font-semibold tabular-nums text-brand-navy">
-              {item.display ?? item.value.toLocaleString("en-GB")}
+              {item.display ?? formatNumber(item.value)}
             </span>
           </div>
         );

@@ -137,7 +137,9 @@ export function CalloutForm({
         </div>
 
         <div>
-          <label className="label">Site</label>
+          <label className="label" htmlFor="calloutSiteId">
+            Site
+          </label>
           <input
             type="search"
             placeholder="Search code, name, or postcode…"
@@ -147,6 +149,7 @@ export function CalloutForm({
             aria-label="Search sites"
           />
           <select
+            id="calloutSiteId"
             name="siteId"
             className="input"
             defaultValue={defaultSiteId ?? ""}

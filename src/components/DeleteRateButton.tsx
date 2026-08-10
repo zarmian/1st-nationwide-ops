@@ -42,9 +42,10 @@ export function DeleteRateButton({
       type="button"
       onClick={onClick}
       disabled={pending}
+      aria-busy={pending}
       className="btn-ghost text-xs text-red-600"
     >
-      {pending ? "…" : label}
+      {pending ? "Deleting…" : label}
     </button>
   );
 }

@@ -74,7 +74,7 @@ export function FilterPills({
               aria-pressed={active}
               className={active ? "pill-active" : "pill-idle"}
             >
-              {Icon && <Icon size={12} />}
+              {Icon && <Icon size={12} aria-hidden />}
               {o.label}
             </button>
           );

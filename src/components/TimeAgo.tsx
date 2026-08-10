@@ -23,7 +23,11 @@ export function TimeAgo({
   }, []);
 
   return (
-    <span className={className} title={formatDateTime(date)}>
+    <span
+      className={className}
+      title={formatDateTime(date)}
+      suppressHydrationWarning
+    >
       {formatTimeAgo(date, now)}
     </span>
   );

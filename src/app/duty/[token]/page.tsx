@@ -26,7 +26,7 @@ function fmt(d: Date): string {
 function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-brand-navy text-white px-4 py-3">
+      <header className="bg-brand-navy text-white px-4 pb-3 pt-safe-4">
         <div className="max-w-lg mx-auto flex items-center gap-2">
           <BrandLogo showWordmark={false} />
           <div className="leading-tight">

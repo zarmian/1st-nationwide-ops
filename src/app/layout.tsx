@@ -35,11 +35,16 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#3B82F6",
+  // Match the light page background rather than a saturated blue chrome.
+  themeColor: "#F8FAFC",
+  colorScheme: "light",
   width: "device-width",
   initialScale: 1,
   // Avoid the iOS keyboard scaling the page out from under the user.
   maximumScale: 5,
+  // Extend under the notch / home indicator so env(safe-area-inset-*)
+  // resolves to real values; full-bleed bars pad with the pt-safe helpers.
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

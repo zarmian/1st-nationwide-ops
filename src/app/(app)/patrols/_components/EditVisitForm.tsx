@@ -182,7 +182,9 @@ export function EditVisitForm({
       </div>
 
       <div className="card p-5 space-y-4">
-        <h2 className="font-semibold text-brand-navy">Notes</h2>
+        <h2 className="font-semibold text-brand-navy" id="visit-notes-label">
+          Notes
+        </h2>
         <textarea
           name="notes"
           rows={4}
@@ -190,6 +192,7 @@ export function EditVisitForm({
           className="input"
           maxLength={2000}
           placeholder="Anything noteworthy about this visit."
+          aria-labelledby="visit-notes-label"
         />
       </div>
 

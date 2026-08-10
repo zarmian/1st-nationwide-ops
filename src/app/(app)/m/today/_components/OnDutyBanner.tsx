@@ -145,7 +145,7 @@ export function OnDutyBanner({
             {onDuty ? "On duty" : "Off duty"}
           </span>
         </div>
-        <p className="text-xs text-slate-600 mt-1">
+        <p className="text-xs text-slate-600 mt-1" aria-live="polite">
           {onDuty ? <LocationLine state={loc} /> : "Tap the button when you're ready to start your shift."}
         </p>
       </div>
@@ -153,9 +153,16 @@ export function OnDutyBanner({
         type="button"
         onClick={() => toggle(!onDuty)}
         disabled={pending}
+        aria-busy={pending}
         className={onDuty ? "btn-secondary text-sm" : "btn-primary text-sm"}
       >
-        {pending ? "…" : onDuty ? "End shift" : "Start shift"}
+        {pending
+          ? onDuty
+            ? "Ending…"
+            : "Starting…"
+          : onDuty
+            ? "End shift"
+            : "Start shift"}
       </button>
     </div>
   );

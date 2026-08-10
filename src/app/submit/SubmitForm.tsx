@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FieldDef } from "@/lib/formTemplates";
 import { SignaturePad } from "./_components/SignaturePad";
 import { PhotoGrid, type Photo } from "./_components/PhotoGrid";
@@ -73,6 +73,28 @@ export function SubmitForm({
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [dirty, setDirty] = useState(false);
+
+  // Warn before navigating away with unsaved input — a long report is easy
+  // to lose to an accidental back-swipe.
+  useEffect(() => {
+    if (!dirty || submitted) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty, submitted]);
+
+  // After a failed submit, move focus to the first invalid field so the
+  // officer is taken straight to what needs fixing.
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length === 0) return;
+    const el = document.querySelector<HTMLElement>('[aria-invalid="true"]');
+    el?.focus();
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [fieldErrors]);
 
   const filteredSites = siteSearch
     ? sites.filter(
@@ -88,6 +110,7 @@ export function SubmitForm({
   );
 
   function setField(key: string, v: unknown) {
+    setDirty(true);
     setValues((prev) => ({ ...prev, [key]: v }));
     if (fieldErrors[key]) {
       const next = { ...fieldErrors };
@@ -205,8 +228,11 @@ export function SubmitForm({
       ) : (
         <>
           <div>
-            <label className="label">Type of job</label>
+            <label className="label" htmlFor="jobType">
+              Type of job
+            </label>
             <select
+              id="jobType"
               value={formType}
               onChange={(e) => {
                 setFormType(e.target.value);
@@ -224,21 +250,27 @@ export function SubmitForm({
           </div>
 
           <div>
-            <label className="label">Site</label>
+            <label className="label" htmlFor="siteSelect">
+              Site
+            </label>
             <input
               type="search"
               placeholder="Search site name or postcode…"
               value={siteSearch}
               onChange={(e) => setSiteSearch(e.target.value)}
               className="input mb-2"
+              aria-label="Search sites"
               autoCapitalize="none"
               autoCorrect="off"
+              spellCheck={false}
               inputMode="search"
               enterKeyHint="search"
             />
             <select
+              id="siteSelect"
               value={siteId}
               onChange={(e) => {
+                setDirty(true);
                 setSiteId(e.target.value);
                 setValues({});
                 setFieldErrors({});
@@ -259,12 +291,18 @@ export function SubmitForm({
       )}
 
       <div>
-        <label className="label">Your name</label>
+        <label className="label" htmlFor="officerName">
+          Your name
+        </label>
         <input
+          id="officerName"
           type="text"
           value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Full name"
+          onChange={(e) => {
+            setDirty(true);
+            setName(e.target.value);
+          }}
+          placeholder="e.g. Jordan Smith"
           className="input"
           required
           readOnly={isInternal && !!officerName}
@@ -282,8 +320,11 @@ export function SubmitForm({
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="label">Arrived</label>
+          <label className="label" htmlFor="arrivedAt">
+            Arrived
+          </label>
           <input
+            id="arrivedAt"
             type="datetime-local"
             value={arrivedAt}
             onChange={(e) => setArrivedAt(e.target.value)}
@@ -291,8 +332,11 @@ export function SubmitForm({
           />
         </div>
         <div>
-          <label className="label">Departed</label>
+          <label className="label" htmlFor="departedAt">
+            Departed
+          </label>
           <input
+            id="departedAt"
             type="datetime-local"
             value={departedAt}
             onChange={(e) => setDepartedAt(e.target.value)}
@@ -312,7 +356,10 @@ export function SubmitForm({
       )}
 
       {error && (
-        <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+        <div
+          role="alert"
+          className="rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700"
+        >
           {error}
         </div>
       )}
@@ -320,7 +367,8 @@ export function SubmitForm({
       <button
         type="submit"
         className="btn-primary w-full"
-        disabled={submitting || !siteId}
+        disabled={submitting}
+        aria-busy={submitting}
       >
         {submitting ? "Submitting…" : "Submit report"}
       </button>
@@ -428,7 +476,7 @@ function FieldInput({
                   type="button"
                   onClick={() => onChange(opt.v)}
                   className={
-                    "rounded-xl border px-3 py-2 text-sm font-medium transition " +
+                    "min-h-[2.75rem] rounded-xl border px-3 py-2 text-sm font-medium transition " +
                     (selected
                       ? "border-brand-blue bg-brand-blue-light text-brand-blue-dark"
                       : "border-slate-200 bg-white text-slate-600 hover:border-slate-300")
@@ -541,6 +589,7 @@ function FieldInput({
             onChange={(e) => onChange(e.target.value)}
             className="input min-h-[100px]"
             required={field.required}
+            aria-invalid={error ? true : undefined}
           />
           {helpEl}
           {errorEl}
@@ -556,6 +605,7 @@ function FieldInput({
             onChange={(e) => onChange(e.target.value)}
             className="input"
             required={field.required}
+            aria-invalid={error ? true : undefined}
           >
             <option value="">— select —</option>
             {field.options?.map((o) => (
@@ -575,10 +625,12 @@ function FieldInput({
           <input
             id={id}
             type="number"
+            inputMode="decimal"
             value={(value as string) ?? ""}
             onChange={(e) => onChange(e.target.value)}
             className="input"
             required={field.required}
+            aria-invalid={error ? true : undefined}
           />
           {helpEl}
           {errorEl}
@@ -597,6 +649,7 @@ function FieldInput({
             onChange={(e) => onChange(e.target.value)}
             className="input"
             required={field.required}
+            aria-invalid={error ? true : undefined}
           />
           {helpEl}
           {errorEl}
@@ -644,6 +697,7 @@ function FieldInput({
             onChange={(e) => onChange(e.target.value)}
             className="input"
             required={field.required}
+            aria-invalid={error ? true : undefined}
           />
           {helpEl}
           {errorEl}

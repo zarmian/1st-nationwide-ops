@@ -56,7 +56,7 @@ export function PartnerOfficerTopNav({
                     : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-navy")
                 }
               >
-                <Icon size={14} />
+                <Icon size={14} aria-hidden />
                 <span>{item.label}</span>
               </Link>
             );
@@ -73,9 +73,10 @@ export function PartnerOfficerTopNav({
             type="button"
             onClick={() => signOut({ callbackUrl: "/login" })}
             className="btn-ghost text-xs inline-flex items-center gap-1"
+            aria-label="Sign out"
             title="Sign out"
           >
-            <LogOut size={13} />
+            <LogOut size={13} aria-hidden />
             <span className="hidden sm:inline">Sign out</span>
           </button>
         </div>

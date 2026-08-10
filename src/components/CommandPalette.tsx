@@ -197,9 +197,10 @@ export function CommandPalette({ role }: { role?: string } = {}) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4 bg-slate-900/40 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-[10vh] px-4 bg-slate-900/40 backdrop-blur-sm overscroll-contain"
       role="dialog"
       aria-modal="true"
+      aria-label="Command palette"
       onClick={(e) => {
         if (e.target === e.currentTarget) setOpen(false);
       }}
@@ -209,6 +210,7 @@ export function CommandPalette({ role }: { role?: string } = {}) {
           <span className="text-slate-400 text-sm pr-2" aria-hidden>⌘K</span>
           <input
             ref={inputRef}
+            type="search"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -216,7 +218,9 @@ export function CommandPalette({ role }: { role?: string } = {}) {
             }}
             onKeyDown={onKeyInput}
             placeholder="Find a site, officer, job, or jump to a page…"
-            className="w-full py-3 text-base focus:outline-none placeholder:text-slate-400"
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full py-3 text-base bg-transparent rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/30 placeholder:text-slate-400"
             aria-label="Search"
           />
           {loading && (
@@ -224,7 +228,7 @@ export function CommandPalette({ role }: { role?: string } = {}) {
           )}
         </div>
 
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60vh] overflow-y-auto overscroll-contain">
           {items.length === 0 ? (
             <div className="py-8 text-center text-sm text-slate-400">
               {query.trim().length < 2
@@ -255,7 +259,7 @@ export function CommandPalette({ role }: { role?: string } = {}) {
                       onClick={() => go(item.href)}
                       onMouseEnter={() => setActive(idx)}
                     >
-                      <span className="truncate">{item.label}</span>
+                      <span className="min-w-0 truncate">{item.label}</span>
                       {item.hint && (
                         <span className="text-xs text-slate-400 font-mono shrink-0">
                           {item.hint}
