@@ -115,15 +115,19 @@ export function NewJobForm({
         </div>
 
         <div>
-          <label className="label">Site</label>
+          <label className="label" htmlFor="siteId">
+            Site
+          </label>
           <input
             type="search"
             value={siteSearch}
             onChange={(e) => setSiteSearch(e.target.value)}
             placeholder="Search by name, code, or postcode…"
             className="input mb-2"
+            aria-label="Search sites"
           />
           <select
+            id="siteId"
             name="siteId"
             defaultValue={defaultSiteId ?? ""}
             className="input"

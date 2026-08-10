@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addSetupJob, closeSetupJob } from "../../_actions";
+import { formatDateTime } from "@/lib/dates";
 
 const SETUP_JOB_TYPES = [
   { v: "SURVEY", label: "Site survey" },
@@ -230,15 +231,13 @@ export function SetupJobs({
                   {j.scheduledFor && (
                     <>
                       {" · "}
-                      Scheduled{" "}
-                      {j.scheduledFor.toISOString().slice(0, 16).replace("T", " ")}
+                      Scheduled {formatDateTime(j.scheduledFor)}
                     </>
                   )}
                   {j.completedAt && (
                     <>
                       {" · "}
-                      Completed{" "}
-                      {j.completedAt.toISOString().slice(0, 16).replace("T", " ")}
+                      Completed {formatDateTime(j.completedAt)}
                     </>
                   )}
                 </div>

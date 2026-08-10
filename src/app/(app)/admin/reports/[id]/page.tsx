@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { approveReview, rejectReview } from "../_actions";
 import { ApproveForm, RejectForm } from "./_components/ReviewActions";
-import { formatUkDateTimeLocal } from "@/lib/dates";
+import { formatDateTime, formatUkDateTimeLocal } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +14,8 @@ function toDateTimeLocal(d: Date | null): string {
 }
 
 function fmt(d: Date | null): string {
-  if (!d) return "—";
-  return d.toISOString().slice(0, 16).replace("T", " ");
+  // UK wall-clock, not raw UTC — this used to print the stored UTC string.
+  return formatDateTime(d);
 }
 
 export default async function ReviewDetailPage({

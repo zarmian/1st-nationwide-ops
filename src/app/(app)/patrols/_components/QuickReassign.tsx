@@ -31,10 +31,11 @@ export function QuickReassignSchedule({
 
   return (
     <select
+      aria-label="Reassign officer"
       defaultValue={currentOfficerId ?? ""}
       onChange={onChange}
       disabled={pending}
-      className="input text-xs py-1"
+      className="input md:text-xs py-1"
     >
       <option value="">— Unassigned —</option>
       {officers.map((o) => (
@@ -74,10 +75,11 @@ export function QuickReassignVisit({
 
   return (
     <select
+      aria-label="Reassign officer"
       defaultValue={currentOfficerId ?? ""}
       onChange={onChange}
       disabled={pending}
-      className="input text-xs py-1"
+      className="input md:text-xs py-1"
     >
       <option value="">— Unassigned —</option>
       {officers.map((o) => (
@@ -117,10 +119,11 @@ export function QuickReassignLockUnlockSchedule({
 
   return (
     <select
+      aria-label="Reassign officer"
       defaultValue={currentOfficerId ?? ""}
       onChange={onChange}
       disabled={pending}
-      className="input text-xs py-1"
+      className="input md:text-xs py-1"
     >
       <option value="">— Unassigned —</option>
       {officers.map((o) => (
@@ -160,10 +163,11 @@ export function QuickReassignJob({
 
   return (
     <select
+      aria-label="Reassign officer"
       defaultValue={currentOfficerId ?? ""}
       onChange={onChange}
       disabled={pending}
-      className="input text-xs py-1"
+      className="input md:text-xs py-1"
     >
       <option value="">— Unassigned —</option>
       {officers.map((o) => (
