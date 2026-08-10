@@ -5,10 +5,13 @@ import {
   notifyShiftCheckOverdue,
   notifyOfficerNoShow,
 } from "@/lib/notifications";
-import { alertNoShowTelegram } from "@/lib/telegramNotify";
+import {
+  alertNoShowTelegram,
+  alertPartnerUpdateDueTelegram,
+} from "@/lib/telegramNotify";
 
 /**
- * 15-min sweep that does two things:
+ * 15-min sweep that does three things:
  *
  *   1. For PENDING shifts whose `scheduledStartsAt + graceMinutes` is in
  *      the past, flip status to MISSED. Catches shifts the officer never
@@ -18,6 +21,9 @@ import { alertNoShowTelegram } from "@/lib/telegramNotify";
  *      queue a notification — de-duped by checking whether a
  *      SHIFT_CHECK_OVERDUE notification already exists newer than the
  *      latest check submission.
+ *   3. For jobs handed to a partner (Nexus etc.) that are still open,
+ *      remind dispatch every ~15 min to chase the partner for a status —
+ *      paced by `Job.lastPartnerChaseAt`.
  */
 export async function GET(req: Request) {
   if (!isAuthorisedCron(req)) {
@@ -161,6 +167,48 @@ export async function GET(req: Request) {
     flagged++;
   }
 
+  // ── 3. Partner hand-offs awaiting an update ─────────────────────────────
+  // Jobs we've passed to a partner (Nexus etc.) have no automatic completion:
+  // their officer uses the partner's own app, not ours. Nudge dispatch every
+  // ~15 min to pull a status, until the job is closed / cancelled / completed
+  // or the partner's report reference is logged. `lastPartnerChaseAt` (stamped
+  // below) both dedupes within a run and paces the cadence across runs — a
+  // 14-min floor so the */15 cron always clears it.
+  const chaseCutoff = new Date(nowMs - 14 * 60_000);
+  const partnerJobs = await prisma.job.findMany({
+    where: {
+      handledByPartnerId: { not: null },
+      status: {
+        in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REVIEW_PENDING"],
+      },
+      completedAt: null,
+      partnerReportRef: null,
+      AND: [
+        { OR: [{ scheduledFor: null }, { scheduledFor: { lte: now } }] },
+        {
+          OR: [
+            { lastPartnerChaseAt: null },
+            { lastPartnerChaseAt: { lte: chaseCutoff } },
+          ],
+        },
+      ],
+    },
+    select: { id: true },
+    take: 100,
+  });
+  let partnerChased = 0;
+  for (const j of partnerJobs) {
+    await alertPartnerUpdateDueTelegram(j.id).catch((e) =>
+      console.error("alertPartnerUpdateDueTelegram failed", e),
+    );
+    // Stamp regardless of Telegram delivery so the cadence holds (and we don't
+    // re-hammer broadcastToLinkedStaff) even when nobody's linked yet.
+    await prisma.job
+      .update({ where: { id: j.id }, data: { lastPartnerChaseAt: now } })
+      .catch((e) => console.error("lastPartnerChaseAt update failed", e));
+    partnerChased++;
+  }
+
   return NextResponse.json({
     ok: true,
     pendingScanned: pending.length,
@@ -169,5 +217,6 @@ export async function GET(req: Request) {
     flagged,
     lateJobsScanned: lateJobs.length,
     jobNoShowQueued,
+    partnerChased,
   });
 }

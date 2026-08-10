@@ -993,6 +993,11 @@ model Job {
   /// jobs our dispatch sent the partner.
   recordedByPartner          Boolean         @default(false)
   handedOffAt           DateTime?
+  /// Last time dispatch was reminded to chase the partner for an update on
+  /// this hand-off. Drives the 15-min chase cadence in the shift-checks cron;
+  /// null until the first reminder. Chasing stops once the job is closed /
+  /// cancelled / completed, or partnerReportRef is filled in.
+  lastPartnerChaseAt    DateTime?
 
   alarmEventId          String?       @unique @db.Uuid
   alarmEvent            AlarmEvent?   @relation(fields: [alarmEventId], references: [id])
