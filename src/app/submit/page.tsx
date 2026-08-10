@@ -96,7 +96,7 @@ export default async function SubmitPage({
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200">
+      <header className="bg-white border-b border-slate-200 pt-safe">
         <div className="mx-auto max-w-2xl px-4 h-14 flex items-center justify-between">
           <BrandLogo />
           <div className="text-xs text-slate-500">Officer report</div>

@@ -273,6 +273,8 @@ export function DutyRunner({
 
       {msg && (
         <div
+          role={msg.tone === "error" ? "alert" : "status"}
+          aria-live="assertive"
           className={
             msg.tone === "error"
               ? "rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2"

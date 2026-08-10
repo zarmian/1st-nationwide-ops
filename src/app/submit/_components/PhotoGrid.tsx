@@ -71,12 +71,14 @@ export function PhotoGrid({
               <img
                 src={p.url}
                 alt={p.name ?? `Photo ${i + 1}`}
+                width={200}
+                height={200}
                 className="w-full h-full object-cover rounded-lg border border-slate-200"
               />
               <button
                 type="button"
                 onClick={() => remove(i)}
-                className="absolute top-1 right-1 bg-white/90 rounded-full w-6 h-6 grid place-items-center text-red-600 text-xs shadow"
+                className="absolute top-1 right-1 bg-white/90 rounded-full w-9 h-9 grid place-items-center text-red-600 text-base shadow"
                 aria-label="Remove photo"
               >
                 ×
