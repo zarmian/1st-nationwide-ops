@@ -112,7 +112,7 @@ export function TopNav({
             className="hidden md:flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-brand-blue-50 hover:border-brand-blue-300 hover:text-brand-blue-700 transition-colors duration-150"
             title="Search — ⌘K"
           >
-            <Search size={14} />
+            <Search size={14} aria-hidden />
             <span>Search…</span>
             <kbd className="text-[10px] bg-slate-100 px-1 rounded font-mono">
               ⌘K
@@ -126,7 +126,7 @@ export function TopNav({
             aria-label="Search"
             className="md:hidden p-2 rounded-lg text-slate-500 hover:bg-brand-blue-50 hover:text-brand-blue-700 transition-colors"
           >
-            <Search size={18} />
+            <Search size={18} aria-hidden />
           </button>
           <div className="hidden sm:flex items-center gap-2">
             <Avatar name={userName ?? ""} role={role} />
@@ -144,7 +144,7 @@ export function TopNav({
             className="btn-ghost text-sm"
             aria-label="Sign out"
           >
-            <LogOut size={14} />
+            <LogOut size={14} aria-hidden />
             <span className="hidden lg:inline">Sign out</span>
           </button>
         </div>
@@ -168,7 +168,7 @@ export function TopNav({
                       : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-blue-700")
                   }
                 >
-                  <Icon size={15} />
+                  <Icon size={15} aria-hidden />
                   {item.label}
                 </Link>
               );
@@ -195,6 +195,7 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
     >
       <Icon
         size={15}
+        aria-hidden
         className={active ? "text-brand-blue" : "text-slate-400"}
       />
       {item.label}

@@ -28,12 +28,18 @@ export function RateCardForm({
   return (
     <form action={formAction} className="card p-4 space-y-3">
       {state.error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+        >
           {state.error}
         </div>
       )}
       {state.ok && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+        <div
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800"
+        >
           Rate saved.
         </div>
       )}

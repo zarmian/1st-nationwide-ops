@@ -16,6 +16,9 @@
 :root {
   --brand-blue: #3B82F6;
   --brand-navy: #0F1929;
+  /* Light-only app — tell the UA so native controls, scrollbars and form
+     widgets render in their light variant (and don't get force-darkened). */
+  color-scheme: light;
 }
 
 html,
@@ -29,6 +32,11 @@ body {
      not a hero gradient. */
   @apply bg-ambient text-slate-900 antialiased font-sans;
   font-feature-settings: "cv11", "tnum";
+  /* Snappier taps on touch devices: drop the 300ms double-tap delay
+     (without disabling pinch-zoom) and the grey tap flash — we render our
+     own :active / focus-visible states. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 @layer components {
@@ -48,7 +56,7 @@ body {
   /* Card that scales subtly on hover — for clickable cards like the
      /operations + /admin tiles. */
   .card-hover {
-    @apply card transition-all duration-200 hover:shadow-md hover:-translate-y-0.5;
+    @apply card transition-[box-shadow,transform] duration-200 hover:shadow-md hover:-translate-y-0.5;
   }
   .section {
     @apply space-y-4;
@@ -71,9 +79,13 @@ body {
   }
 
   /* ── Buttons ───────────────────────────────────────────────────── */
+  /* min-h 44px on touch (below md) for gloved/outdoor use; natural height on
+     desktop. Transitions list explicit props — never `all`. */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
-           transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed
+           min-h-[2.75rem] md:min-h-0
+           transition-[color,background-color,border-color,box-shadow,transform] duration-150
+           disabled:opacity-50 disabled:cursor-not-allowed
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40
            focus-visible:ring-offset-2 focus-visible:ring-offset-white;
   }
@@ -100,8 +112,12 @@ body {
   }
 
   /* ── Form ──────────────────────────────────────────────────────── */
+  /* text-base (16px) on mobile prevents iOS Safari from zooming the viewport
+     when a field takes focus; drops to text-sm on md+ where it can't zoom.
+     Explicit text colour so native <select> renders dark on every platform. */
   .input {
-    @apply block w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm
+    @apply block w-full rounded-xl border border-slate-300 bg-white px-3 py-2
+           text-base md:text-sm text-slate-900
            placeholder:text-slate-400 transition-colors duration-150
            focus:border-brand-blue focus:outline-none
            focus:ring-2 focus:ring-brand-blue/30
@@ -194,6 +210,31 @@ body {
     background-size: 200% 100%;
     @apply animate-shimmer rounded;
   }
+
+  /* ── Skip link ─────────────────────────────────────────────────── */
+  /* Hidden until focused, then pins top-left so keyboard users can jump
+     straight past the nav to <main id="main">. */
+  .skip-link {
+    @apply sr-only;
+  }
+  .skip-link:focus {
+    @apply not-sr-only fixed left-4 top-4 z-[100] rounded-lg bg-white px-4 py-2
+           text-sm font-medium text-brand-navy shadow-lg outline-none
+           ring-2 ring-brand-blue;
+  }
+}
+
+@layer utilities {
+  /* Safe-area padding for full-bleed bars under a notch / home indicator.
+     Needs viewport-fit=cover (set on the root viewport). The *-4 variants
+     add the inset on top of a 1rem base so they compose with normal padding. */
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pt-safe-4 { padding-top: calc(1rem + env(safe-area-inset-top)); }
+  .pb-safe-4 { padding-bottom: calc(1rem + env(safe-area-inset-bottom)); }
+  /* Horizontal scroll container for wide tables so they never clip or push
+     the page into a horizontal scroll on mobile. */
+  .table-scroll { @apply overflow-x-auto; -webkit-overflow-scrolling: touch; }
 }
 
 @layer base {

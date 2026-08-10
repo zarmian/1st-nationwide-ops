@@ -93,16 +93,49 @@ function ConfirmDialog({
   onClose: (v: boolean) => void;
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Remember what had focus so we can restore it when the dialog closes.
+    const prevFocused = document.activeElement as HTMLElement | null;
     confirmRef.current?.focus();
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose(false);
-      if (e.key === "Enter" && document.activeElement === confirmRef.current)
+      if (e.key === "Escape") {
+        onClose(false);
+        return;
+      }
+      if (e.key === "Enter" && document.activeElement === confirmRef.current) {
         onClose(true);
+        return;
+      }
+      // Trap Tab within the dialog so focus can't wander to the page behind.
+      if (e.key === "Tab") {
+        const root = dialogRef.current;
+        if (!root) return;
+        const items = Array.from(
+          root.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => !el.hasAttribute("disabled"));
+        if (items.length === 0) return;
+        const first = items[0];
+        const last = items[items.length - 1];
+        const active = document.activeElement as HTMLElement | null;
+        if (e.shiftKey && active === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
     }
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      // Restore focus to whatever triggered the dialog.
+      prevFocused?.focus?.();
+    };
   }, [onClose]);
 
   const isDanger = opts.tone === "danger";
@@ -113,12 +146,13 @@ function ConfirmDialog({
       aria-modal="true"
       aria-labelledby="confirm-title"
       className="fixed inset-0 z-50 flex items-center justify-center p-4
-                 bg-brand-navy/50 backdrop-blur-sm animate-pop-in"
+                 bg-brand-navy/50 backdrop-blur-sm animate-pop-in overscroll-contain"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose(false);
       }}
     >
       <div
+        ref={dialogRef}
         className="card shadow-lg w-full max-w-md p-5 space-y-3 animate-pop-in"
       >
         <h2 id="confirm-title" className="text-lg font-semibold text-brand-navy">

@@ -47,15 +47,22 @@ export function MultiSelect({
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, query]);
 
-  // Close on outside click.
+  // Close on outside click or Escape.
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
       if (!wrapperRef.current) return;
       if (!wrapperRef.current.contains(e.target as Node)) setOpen(false);
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
     document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   function writeSelection(next: string[]) {
@@ -100,14 +107,13 @@ export function MultiSelect({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className="input text-left flex items-center justify-between"
-        aria-haspopup="listbox"
+        aria-haspopup="true"
         aria-expanded={open}
       >
         <span
           className={
-            selected.length === 0
-              ? "text-slate-500 truncate"
-              : "text-brand-navy truncate"
+            "min-w-0 truncate " +
+            (selected.length === 0 ? "text-slate-500" : "text-brand-navy")
           }
         >
           {buttonLabel}
@@ -120,12 +126,13 @@ export function MultiSelect({
         <div className="absolute z-20 mt-1 w-full min-w-[16rem] max-w-[28rem] bg-white border border-slate-200 rounded-lg shadow-lg p-2">
           <div className="flex items-center gap-2 mb-2">
             <input
-              autoFocus
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search…"
-              className="input text-sm flex-1"
+              autoComplete="off"
+              spellCheck={false}
+              className="input flex-1"
             />
             {selected.length > 0 && (
               <button
@@ -148,7 +155,7 @@ export function MultiSelect({
               </button>
             </div>
           )}
-          <div className="max-h-64 overflow-y-auto">
+          <div className="max-h-64 overflow-y-auto overscroll-contain">
             {filtered.length === 0 && (
               <div className="px-2 py-3 text-sm text-slate-500">
                 No matches.

@@ -35,15 +35,11 @@ export function DataTable<T extends { id?: string | number }>(props: {
   caption?: ReactNode;
   footer?: ReactNode;
 }) {
-  const {
-    columns,
-    rows,
-    rowKey = (r: T) => (r.id ?? Math.random()).toString(),
-    rowHref,
-    emptyState,
-    caption,
-    footer,
-  } = props;
+  const { columns, rows, rowKey, rowHref, emptyState, caption, footer } = props;
+  // Stable key: caller-provided, else the row id, else the positional index.
+  // Never Math.random() — that gives every row a new key each render, which
+  // remounts the whole list on any state change.
+  const keyOf = (row: T, i: number) => rowKey?.(row) ?? row.id ?? i;
 
   if (rows.length === 0) {
     return (
@@ -84,11 +80,11 @@ export function DataTable<T extends { id?: string | number }>(props: {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => {
+          {rows.map((row, index) => {
             const href = rowHref?.(row) ?? null;
             return (
               <tr
-                key={rowKey(row)}
+                key={keyOf(row, index)}
                 className={href ? "cursor-pointer" : ""}
               >
                 {desktopCols.map((c, i) => (
@@ -140,7 +136,7 @@ export function DataTable<T extends { id?: string | number }>(props: {
             {caption}
           </li>
         )}
-        {rows.map((row) => {
+        {rows.map((row, index) => {
           const href = rowHref?.(row) ?? null;
           const content = (
             <div className="px-4 py-3 space-y-1.5">
@@ -175,7 +171,7 @@ export function DataTable<T extends { id?: string | number }>(props: {
             </div>
           );
           return (
-            <li key={rowKey(row)}>
+            <li key={keyOf(row, index)}>
               {href ? (
                 <Link href={href} className="block hover:bg-slate-50">
                   {content}

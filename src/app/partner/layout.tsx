@@ -60,6 +60,9 @@ export default async function PartnerShell({
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       <RouteProgress />
       {role === "PARTNER" ? (
         <PartnerTopNav
@@ -72,7 +75,9 @@ export default async function PartnerShell({
           officerName={officerSeatName ?? "Officer"}
         />
       )}
-      <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+      <main id="main" className="mx-auto max-w-7xl px-4 py-6">
+        {children}
+      </main>
     </div>
   );
 }

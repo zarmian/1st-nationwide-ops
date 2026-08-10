@@ -49,6 +49,9 @@ export default async function AppShell({
 
   return (
     <div className="min-h-screen bg-slate-50">
+      <a href="#main" className="skip-link">
+        Skip to content
+      </a>
       <PWARegister />
       <RouteProgress />
       <CommandPalette role={session.user.role} />
@@ -56,7 +59,9 @@ export default async function AppShell({
         userName={session.user?.name ?? session.user?.email ?? "User"}
         role={session.user.role}
       />
-      <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+      <main id="main" className="mx-auto max-w-7xl px-4 py-6">
+        {children}
+      </main>
     </div>
   );
 }
