@@ -188,3 +188,44 @@ export async function alertNoShowTelegram(
     `🔴 <b>No-show</b>\n${escapeHtml(j.assignedTo?.name ?? "Officer")} not on site for ${escapeHtml(what)} at ${escapeHtml(j.site?.name ?? "site")} (scheduled ${escapeHtml(when)}).`,
   );
 }
+
+/**
+ * Chase reminder for a job we've handed to a partner (e.g. Nexus). Their
+ * officer fills in the partner's own app, so we never get an automatic
+ * completion — dispatch has to pull a status. Broadcast to every linked
+ * dispatcher/admin; the shift-checks cron re-sends every 15 min until the job
+ * is closed / cancelled, or its partner report reference is logged.
+ */
+export async function alertPartnerUpdateDueTelegram(
+  jobId: string,
+): Promise<number> {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    select: {
+      type: true,
+      typeLabel: true,
+      scheduledFor: true,
+      handedOffAt: true,
+      externalResponder: true,
+      site: { select: { name: true, code: true } },
+      handledByPartner: { select: { name: true } },
+    },
+  });
+  if (!job) return 0;
+  const partner = job.handledByPartner?.name ?? "the partner";
+  const siteLabel = job.site
+    ? `${job.site.code ? job.site.code + " · " : ""}${job.site.name}`
+    : "site";
+  const what =
+    job.typeLabel ??
+    JOB_TYPE_LABELS[job.type] ??
+    job.type.replace(/_/g, " ").toLowerCase();
+  const since = job.handedOffAt ?? job.scheduledFor;
+  const sinceBit = since ? ` — passed over ${formatDateTime(since)}` : "";
+  const theirOfficer = job.externalResponder
+    ? `\nTheir officer: ${escapeHtml(job.externalResponder)}`
+    : "";
+  return broadcastToLinkedStaff(
+    `📞 <b>Chase ${escapeHtml(partner)} for an update</b>\n${escapeHtml(what)} at ${escapeHtml(siteLabel)}${escapeHtml(sinceBit)}.${theirOfficer}\nNo outcome logged yet — get a status and close the job once confirmed.`,
+  );
+}
