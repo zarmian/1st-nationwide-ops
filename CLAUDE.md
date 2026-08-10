@@ -126,3 +126,4 @@ tailwind.config.ts         # brand tokens
 - Don't add `--accept-data-loss` to migrations once we have real data.
 - Brand voice for any user-facing copy: clear, no jargon, no security industry clichés.
 - The user is non-technical. When asking the user a question, give 2–4 concrete options rather than open-ended.
+- UI work follows Vercel's Web Interface Guidelines in `AGENTS.md` (accessibility, forms, focus states, touch targets, `Intl` dates/numbers, reduced motion, etc.). Run `/web-interface-guidelines <file>` to audit a page/component against them.
