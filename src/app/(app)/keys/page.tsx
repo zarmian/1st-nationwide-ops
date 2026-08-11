@@ -3,8 +3,11 @@ import { prisma } from "@/lib/db";
 import { FilterPanel } from "@/components/FilterPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { KeysTable, type KeyTableRow } from "./_components/KeysTable";
+import { Pagination } from "@/components/Pagination";
 
 export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 100;
 
 const STATUS_LABEL: Record<string, string> = {
   WITH_US: "With us",
@@ -17,9 +20,16 @@ const STATUS_LABEL: Record<string, string> = {
 export default async function KeysPage({
   searchParams,
 }: {
-  searchParams: { q?: string; status?: string; site?: string; holder?: string };
+  searchParams: {
+    q?: string;
+    status?: string;
+    site?: string;
+    holder?: string;
+    page?: string;
+  };
 }) {
   const q = searchParams.q?.trim() ?? "";
+  const page = Math.max(1, Number(searchParams.page) || 1);
   const statusFilter = searchParams.status ?? "";
   const siteFilter = searchParams.site ?? "";
   const holderFilter = searchParams.holder ?? "";
@@ -38,11 +48,12 @@ export default async function KeysPage({
     ];
   }
 
-  const [keys, sites, holders, totalsByStatus] = await Promise.all([
+  const [keys, sites, holders, totalsByStatus, keyTotal] = await Promise.all([
     prisma.key.findMany({
       where,
       orderBy: [{ status: "asc" }, { internalNo: "asc" }],
-      take: 200,
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
       include: {
         site: { select: { id: true, name: true, code: true } },
         currentHolder: { select: { id: true, name: true } },
@@ -66,7 +77,9 @@ export default async function KeysPage({
       by: ["status"],
       _count: { _all: true },
     }),
+    prisma.key.count({ where }),
   ]);
+  const totalPages = Math.max(1, Math.ceil(keyTotal / PAGE_SIZE));
 
   const counts: Record<string, number> = {};
   for (const t of totalsByStatus) counts[t.status] = t._count._all;
@@ -140,6 +153,7 @@ export default async function KeysPage({
           const drop = (k: string): string => {
             const sp = new URLSearchParams(searchParams as any);
             sp.delete(k);
+            sp.delete("page");
             const qs = sp.toString();
             return qs ? `/keys?${qs}` : "/keys";
           };
@@ -229,8 +243,10 @@ export default async function KeysPage({
       <KeysTable
         rows={rows}
         footer={
-          keys.length === 200
-            ? "Showing first 200 keys — narrow the filters to see more."
+          keyTotal > 0
+            ? `${keyTotal.toLocaleString("en-GB")} key${
+                keyTotal === 1 ? "" : "s"
+              } · page ${page} of ${totalPages}`
             : undefined
         }
         emptyState={
@@ -239,6 +255,17 @@ export default async function KeysPage({
             : "No keys recorded yet. Add keys per site from the site detail."
         }
       />
+
+      {totalPages > 1 && (
+        <div className="flex justify-center">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            basePath="/keys"
+            searchParams={searchParams}
+          />
+        </div>
+      )}
     </div>
   );
 }

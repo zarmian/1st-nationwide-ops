@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { requirePartner } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/numbers";
+import { Pagination } from "@/components/Pagination";
 
 export const dynamic = "force-dynamic";
 
@@ -66,9 +67,11 @@ function fmtDate(d: Date | null): string {
 export default async function PartnerActivitiesPage({
   searchParams,
 }: {
-  searchParams: { from?: string; to?: string };
+  searchParams: { from?: string; to?: string; page?: string };
 }) {
   const me = await requirePartner();
+  const PAGE_SIZE = 50;
+  const page = Math.max(1, Number(searchParams.page) || 1);
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -193,6 +196,8 @@ export default async function PartnerActivitiesPage({
     });
   }
   rows.sort((a, b) => (b.when?.getTime() ?? 0) - (a.when?.getTime() ?? 0));
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="space-y-4">
@@ -260,7 +265,7 @@ export default async function PartnerActivitiesPage({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {pageRows.map((r) => (
                   <tr key={r.encodedId}>
                     <td className="whitespace-nowrap tabular-nums">
                       {fmtDate(r.when)}
@@ -324,6 +329,17 @@ export default async function PartnerActivitiesPage({
           </div>
         )}
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex justify-center">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            basePath="/partner/activities"
+            searchParams={searchParams}
+          />
+        </div>
+      )}
     </div>
   );
 }

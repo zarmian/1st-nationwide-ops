@@ -64,7 +64,8 @@ export function KeysTable({
 
   return (
     <div className="card overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="table-scroll">
+        <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider">
           <tr>
             <th className="px-3 py-2 text-left w-8"></th>
@@ -86,7 +87,8 @@ export function KeysTable({
             ),
           )}
         </tbody>
-      </table>
+        </table>
+      </div>
       {footer && (
         <div className="border-t border-slate-200 px-3 py-2 text-xs text-slate-500">
           {footer}

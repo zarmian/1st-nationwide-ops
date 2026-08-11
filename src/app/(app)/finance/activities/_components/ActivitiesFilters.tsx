@@ -66,6 +66,11 @@ export function ActivitiesFilters({
 
   return (
     <form className="space-y-3">
+      {/* Status + Group by are driven by the pills below, which write straight
+          to the URL. Mirror them as hidden fields so submitting this form
+          preserves them instead of dropping them back to defaults. */}
+      <input type="hidden" name="status" value={initial.status} />
+      <input type="hidden" name="groupBy" value={initial.groupBy} />
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
           <label className="label" htmlFor="from">From</label>
