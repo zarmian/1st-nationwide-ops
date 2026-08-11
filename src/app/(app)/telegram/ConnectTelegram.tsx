@@ -130,11 +130,15 @@ export function ConnectTelegram({
       )}
 
       {result?.error && (
-        <p className="text-sm text-red-600">{result.error}</p>
+        <p role="alert" className="text-sm text-red-600">{result.error}</p>
       )}
 
       {result?.ok && (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2"
+        >
           {result.link ? (
             <>
               <div className="text-xs text-slate-500">

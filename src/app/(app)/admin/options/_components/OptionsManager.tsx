@@ -351,8 +351,14 @@ function EditRowForm({
     <form action={formAction} className="grid sm:grid-cols-12 gap-3 items-end">
       <FormError message={state.error} />
       <div className="sm:col-span-3">
-        <label className="label">Category</label>
-        <select name="code" className="input" defaultValue={row.code} required>
+        <label className="label" htmlFor={`opt-${row.id}-code`}>Category</label>
+        <select
+          id={`opt-${row.id}-code`}
+          name="code"
+          className="input"
+          defaultValue={row.code}
+          required
+        >
           {codes.map((c) => (
             <option key={c} value={c}>
               {HUMANISED_CODE[c] ?? c}
@@ -361,8 +367,9 @@ function EditRowForm({
         </select>
       </div>
       <div className="sm:col-span-4">
-        <label className="label">Label</label>
+        <label className="label" htmlFor={`opt-${row.id}-label`}>Label</label>
         <input
+          id={`opt-${row.id}-label`}
           name="label"
           type="text"
           className="input"
@@ -373,8 +380,9 @@ function EditRowForm({
         {fe.label?.[0] && <p className="text-xs text-red-600 mt-1">{fe.label[0]}</p>}
       </div>
       <div className="sm:col-span-2">
-        <label className="label">Sort</label>
+        <label className="label" htmlFor={`opt-${row.id}-sortOrder`}>Sort</label>
         <input
+          id={`opt-${row.id}-sortOrder`}
           name="sortOrder"
           type="number"
           className="input"

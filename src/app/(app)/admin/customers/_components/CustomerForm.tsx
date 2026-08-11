@@ -207,10 +207,11 @@ export function CustomerForm({
                 className="grid md:grid-cols-[1fr_140px_1fr_160px_auto] gap-2 items-end rounded-lg border border-slate-200 p-2 bg-slate-50/40"
               >
                 <div>
-                  <label className="label">
+                  <label className="label" htmlFor={`contact-name-${i}`}>
                     Name <span className="text-red-500">*</span>
                   </label>
                   <input
+                    id={`contact-name-${i}`}
                     className="input"
                     value={c.name}
                     onChange={(e) => update(i, { name: e.target.value })}
@@ -218,8 +219,11 @@ export function CustomerForm({
                   />
                 </div>
                 <div>
-                  <label className="label">Role</label>
+                  <label className="label" htmlFor={`contact-role-${i}`}>
+                    Role
+                  </label>
                   <input
+                    id={`contact-role-${i}`}
                     className="input"
                     value={c.role ?? ""}
                     onChange={(e) => update(i, { role: e.target.value || null })}
@@ -227,8 +231,11 @@ export function CustomerForm({
                   />
                 </div>
                 <div>
-                  <label className="label">Email</label>
+                  <label className="label" htmlFor={`contact-email-${i}`}>
+                    Email
+                  </label>
                   <input
+                    id={`contact-email-${i}`}
                     className="input"
                     type="email"
                     value={c.email ?? ""}
@@ -236,8 +243,11 @@ export function CustomerForm({
                   />
                 </div>
                 <div>
-                  <label className="label">Phone</label>
+                  <label className="label" htmlFor={`contact-phone-${i}`}>
+                    Phone
+                  </label>
                   <input
+                    id={`contact-phone-${i}`}
                     className="input"
                     value={c.phone ?? ""}
                     onChange={(e) => update(i, { phone: e.target.value || null })}

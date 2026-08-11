@@ -67,17 +67,23 @@ export function WebhookSetup({
 
       {registerResult &&
         (registerResult.ok ? (
-          <p className="text-sm text-success">
+          <p role="status" aria-live="polite" className="text-sm text-success">
             ✅ Webhook set{registerResult.url ? ` → ${registerResult.url}` : ""}.
             The bot is live.
           </p>
         ) : (
-          <p className="text-sm text-red-600">{registerResult.error}</p>
+          <p role="alert" className="text-sm text-red-600">
+            {registerResult.error}
+          </p>
         ))}
 
       {checkResult &&
         (checkResult.ok ? (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm space-y-1">
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm space-y-1"
+          >
             <div>
               <span className="text-slate-500">Registered URL:</span>{" "}
               <span className="font-mono text-xs break-all">
@@ -95,7 +101,9 @@ export function WebhookSetup({
             )}
           </div>
         ) : (
-          <p className="text-sm text-red-600">{checkResult.error}</p>
+          <p role="alert" className="text-sm text-red-600">
+            {checkResult.error}
+          </p>
         ))}
     </div>
   );

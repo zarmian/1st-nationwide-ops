@@ -122,10 +122,11 @@ export function FieldEditor({
     <div className="rounded-xl border border-slate-200 p-3 space-y-3 bg-slate-50/40">
       <div className="grid md:grid-cols-[1fr_180px_140px_120px_auto] gap-2 items-end">
         <div>
-          <label className="label">
+          <label className="label" htmlFor={`field-${fieldIndex}-label`}>
             Label <span className="text-red-500">*</span>
           </label>
           <input
+            id={`field-${fieldIndex}-label`}
             className="input"
             value={field.label}
             onChange={(e) => {
@@ -148,10 +149,11 @@ export function FieldEditor({
           )}
         </div>
         <div>
-          <label className="label">
+          <label className="label" htmlFor={`field-${fieldIndex}-key`}>
             Key <span className="text-red-500">*</span>
           </label>
           <input
+            id={`field-${fieldIndex}-key`}
             className="input font-mono text-xs"
             value={field.key}
             onChange={(e) => onChange({ key: e.target.value })}
@@ -163,8 +165,9 @@ export function FieldEditor({
           )}
         </div>
         <div>
-          <label className="label">Type</label>
+          <label className="label" htmlFor={`field-${fieldIndex}-type`}>Type</label>
           <select
+            id={`field-${fieldIndex}-type`}
             className="input"
             value={field.type}
             onChange={(e) => onChange({ type: e.target.value })}
@@ -209,10 +212,11 @@ export function FieldEditor({
 
       {field.type === "select" && (
         <div>
-          <label className="label">
+          <label className="label" htmlFor={`field-${fieldIndex}-options`}>
             Options (one per line) <span className="text-red-500">*</span>
           </label>
           <textarea
+            id={`field-${fieldIndex}-options`}
             className="input min-h-[80px]"
             value={(field.options ?? []).join("\n")}
             onChange={(e) =>
@@ -234,8 +238,11 @@ export function FieldEditor({
       {field.type === "multiphoto" && (
         <div className="grid md:grid-cols-[160px_1fr] gap-2 items-end">
           <div>
-            <label className="label">Max photos</label>
+            <label className="label" htmlFor={`field-${fieldIndex}-maxphotos`}>
+              Max photos
+            </label>
             <input
+              id={`field-${fieldIndex}-maxphotos`}
               type="number"
               min={1}
               max={20}
@@ -260,8 +267,11 @@ export function FieldEditor({
 
       <div className="grid md:grid-cols-[1fr_auto] gap-2 items-end">
         <div>
-          <label className="label">Help text</label>
+          <label className="label" htmlFor={`field-${fieldIndex}-helptext`}>
+            Help text
+          </label>
           <input
+            id={`field-${fieldIndex}-helptext`}
             className="input"
             value={field.helpText ?? ""}
             onChange={(e) => onChange({ helpText: e.target.value || null })}

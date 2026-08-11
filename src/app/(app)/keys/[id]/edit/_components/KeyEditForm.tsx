@@ -110,10 +110,12 @@ export function KeyEditForm({
       </label>
 
       {state?.error && (
-        <p className="text-sm text-red-600">{state.error}</p>
+        <p role="alert" className="text-sm text-red-600">{state.error}</p>
       )}
       {state?.ok && (
-        <p className="text-sm text-brand-blue-dark">Saved.</p>
+        <p role="status" aria-live="polite" className="text-sm text-brand-blue-dark">
+          Saved.
+        </p>
       )}
 
       <div className="flex items-center gap-2 justify-end">

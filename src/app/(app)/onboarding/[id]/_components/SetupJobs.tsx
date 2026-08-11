@@ -135,8 +135,9 @@ export function SetupJobs({
         <div className="rounded-xl border border-slate-200 p-3 space-y-3 bg-slate-50/40">
           <div className="grid md:grid-cols-2 gap-3">
             <div>
-              <label className="label">Type</label>
+              <label className="label" htmlFor="setup-job-type">Type</label>
               <select
+                id="setup-job-type"
                 value={type}
                 onChange={(e) => setType(e.target.value as any)}
                 className="input"
@@ -149,8 +150,11 @@ export function SetupJobs({
               </select>
             </div>
             <div>
-              <label className="label">Assign to</label>
+              <label className="label" htmlFor="setup-job-assignee">
+                Assign to
+              </label>
               <select
+                id="setup-job-assignee"
                 value={assignedToUserId}
                 onChange={(e) => setAssignedToUserId(e.target.value)}
                 className="input"
@@ -164,8 +168,11 @@ export function SetupJobs({
               </select>
             </div>
             <div>
-              <label className="label">Scheduled for</label>
+              <label className="label" htmlFor="setup-job-scheduled">
+                Scheduled for
+              </label>
               <input
+                id="setup-job-scheduled"
                 type="datetime-local"
                 value={scheduledFor}
                 onChange={(e) => setScheduledFor(e.target.value)}
@@ -173,8 +180,9 @@ export function SetupJobs({
               />
             </div>
             <div>
-              <label className="label">Notes</label>
+              <label className="label" htmlFor="setup-job-notes">Notes</label>
               <input
+                id="setup-job-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="input"
