@@ -121,6 +121,7 @@ export default async function KeySetPage({
                 No keys in this set yet. Add keys from the site page.
               </p>
             ) : (
+              <div className="table-scroll">
               <table className="table-default">
                 <thead>
                   <tr>
@@ -180,6 +181,7 @@ export default async function KeySetPage({
                   ))}
                 </tbody>
               </table>
+              </div>
             )}
           </div>
         </div>

@@ -341,6 +341,7 @@ export default async function PartnerFinancePage({
               No activities in range.
             </p>
           ) : (
+            <div className="table-scroll">
             <table className="table-default">
               <thead>
                 <tr>
@@ -364,6 +365,7 @@ export default async function PartnerFinancePage({
                 </tr>
               </tbody>
             </table>
+            </div>
           )}
         </div>
 

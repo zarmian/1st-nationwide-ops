@@ -78,6 +78,7 @@ export function SitesTable({
   return (
     <>
       <div className="card overflow-hidden">
+        <div className="table-scroll">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
@@ -176,6 +177,7 @@ export function SitesTable({
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {selected.size > 0 && (

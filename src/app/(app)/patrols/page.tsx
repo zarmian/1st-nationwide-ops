@@ -327,6 +327,7 @@ export default async function PatrolsPage({
               resume.
             </p>
           </div>
+          <div className="table-scroll">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
@@ -420,6 +421,7 @@ export default async function PatrolsPage({
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="card overflow-hidden">
@@ -433,6 +435,7 @@ export default async function PatrolsPage({
               attends and submits.
             </p>
           </div>
+          <div className="table-scroll">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600">
               <tr>
@@ -500,6 +503,7 @@ export default async function PatrolsPage({
               )}
             </tbody>
           </table>
+          </div>
         </div>
         </div>
 

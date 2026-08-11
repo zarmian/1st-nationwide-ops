@@ -152,6 +152,7 @@ function StageSection({
         <h2 className="font-semibold text-brand-navy">{title}</h2>
         <span className={tone}>{rows.length}</span>
       </div>
+      <div className="table-scroll">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-600">
           <tr>
@@ -221,6 +222,7 @@ function StageSection({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

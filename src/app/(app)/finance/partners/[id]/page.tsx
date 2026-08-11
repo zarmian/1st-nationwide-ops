@@ -541,6 +541,7 @@ export default async function PartnerFinancePage({
               blurb="Sites and jobs they pay us for will appear here."
             />
           ) : (
+            <div className="table-scroll">
             <table className="table-default">
               <thead>
                 <tr>
@@ -606,6 +607,7 @@ export default async function PartnerFinancePage({
                 </tr>
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </section>
@@ -629,6 +631,7 @@ export default async function PartnerFinancePage({
               blurb="Jobs they handled on our behalf will appear here."
             />
           ) : (
+            <div className="table-scroll">
             <table className="table-default">
               <thead>
                 <tr>
@@ -711,6 +714,7 @@ export default async function PartnerFinancePage({
                 </tr>
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </section>
