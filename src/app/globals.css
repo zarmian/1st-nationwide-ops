@@ -235,6 +235,19 @@ body {
   /* Horizontal scroll container for wide tables so they never clip or push
      the page into a horizontal scroll on mobile. */
   .table-scroll { @apply overflow-x-auto; -webkit-overflow-scrolling: touch; }
+
+  /* Off-screen rows in long lists skip render + layout until scrolled near.
+     A progressive enhancement — browsers without content-visibility render
+     normally. contain-intrinsic-size reserves an estimated height so the
+     scrollbar stays accurate before a row is first painted. */
+  .cv-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 44px;
+  }
+  .cv-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 76px;
+  }
 }
 
 @layer base {

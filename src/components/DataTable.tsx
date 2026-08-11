@@ -40,6 +40,9 @@ export function DataTable<T extends { id?: string | number }>(props: {
   // Never Math.random() — that gives every row a new key each render, which
   // remounts the whole list on any state change.
   const keyOf = (row: T, i: number) => rowKey?.(row) ?? row.id ?? i;
+  // Long lists: let the browser skip render + layout of off-screen rows via
+  // CSS content-visibility (see .cv-row / .cv-card in globals.css).
+  const dense = rows.length > 50;
 
   if (rows.length === 0) {
     return (
@@ -85,7 +88,9 @@ export function DataTable<T extends { id?: string | number }>(props: {
             return (
               <tr
                 key={keyOf(row, index)}
-                className={href ? "cursor-pointer" : ""}
+                className={
+                  (href ? "cursor-pointer" : "") + (dense ? " cv-row" : "")
+                }
               >
                 {desktopCols.map((c, i) => (
                   <td
@@ -171,7 +176,7 @@ export function DataTable<T extends { id?: string | number }>(props: {
             </div>
           );
           return (
-            <li key={keyOf(row, index)}>
+            <li key={keyOf(row, index)} className={dense ? "cv-card" : undefined}>
               {href ? (
                 <Link href={href} className="block hover:bg-slate-50">
                   {content}

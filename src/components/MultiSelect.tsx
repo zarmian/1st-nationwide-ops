@@ -166,7 +166,10 @@ export function MultiSelect({
               return (
                 <label
                   key={o.value}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm"
+                  className={
+                    "flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-sm" +
+                    (filtered.length > 50 ? " cv-row" : "")
+                  }
                 >
                   <input
                     type="checkbox"

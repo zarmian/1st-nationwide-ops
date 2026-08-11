@@ -45,6 +45,7 @@ export function FilterPanel({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
+          aria-controls="filter-panel-body"
           className="btn-ghost text-sm flex items-center gap-1.5"
         >
           <FilterIcon />
@@ -80,9 +81,13 @@ export function FilterPanel({
           </>
         )}
       </div>
-      {open && (
-        <div className="border-t border-slate-100 p-3">{children}</div>
-      )}
+      <div
+        id="filter-panel-body"
+        hidden={!open}
+        className="border-t border-slate-100 p-3"
+      >
+        {children}
+      </div>
     </div>
   );
 }

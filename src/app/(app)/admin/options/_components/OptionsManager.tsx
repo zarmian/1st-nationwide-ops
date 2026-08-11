@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useFormState, useFormStatus } from "react-dom";
 import { FormError } from "@/components/FormError";
 import {
@@ -56,11 +57,27 @@ export function OptionsManager({
   jobTypeCodes: string[];
   jobSourceCodes: string[];
 }) {
-  const [tab, setTab] = useState<Kind>("type");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  // Which tab is active lives in the URL (?tab=source) so it's shareable and
+  // survives a refresh; "type" is the default and needs no param.
+  const tab: Kind = searchParams.get("tab") === "source" ? "source" : "type";
+
+  function setTab(next: Kind) {
+    const sp = new URLSearchParams(Array.from(searchParams.entries()));
+    if (next === "source") sp.set("tab", "source");
+    else sp.delete("tab");
+    const qs = sp.toString();
+    router.replace(qs ? `?${qs}` : "?", { scroll: false });
+  }
 
   return (
     <div className="space-y-4">
-      <div className="border-b border-slate-200 flex gap-2">
+      <div
+        className="border-b border-slate-200 flex gap-2"
+        role="tablist"
+        aria-label="Options category"
+      >
         <TabButton active={tab === "type"} onClick={() => setTab("type")}>
           Job types ({jobTypes.filter((o) => o.active).length} active)
         </TabButton>
@@ -100,6 +117,8 @@ function TabButton({
   return (
     <button
       type="button"
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
       className={
         "px-4 py-2 text-sm font-medium transition border-b-2 -mb-px " +
