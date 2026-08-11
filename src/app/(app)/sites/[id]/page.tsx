@@ -269,6 +269,7 @@ function ScheduleSummary({
 
   return (
     <div className={compact ? "card overflow-hidden" : "card overflow-hidden"}>
+      <div className="table-scroll">
       <table className="w-full text-sm">
         <tbody className="divide-y divide-slate-100">
           {rows.map((r) => (
@@ -284,6 +285,7 @@ function ScheduleSummary({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -304,6 +306,7 @@ function KeysTab({
   }
   return (
     <div className="card overflow-hidden">
+      <div className="table-scroll">
       <table className="w-full text-sm">
         <thead className="bg-slate-50 text-slate-600">
           <tr>
@@ -342,6 +345,7 @@ function KeysTab({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

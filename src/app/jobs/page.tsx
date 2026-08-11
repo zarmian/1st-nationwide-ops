@@ -2,11 +2,19 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { BrandLogo } from "@/components/BrandLogo";
 import { getJobTypeLabels } from "@/lib/labels";
+import { Pagination } from "@/components/Pagination";
 
 export const dynamic = "force-dynamic";
 
-export default async function PublicJobsListPage() {
-  const [jobs, jobTypeLabels] = await Promise.all([
+const PAGE_SIZE = 50;
+
+export default async function PublicJobsListPage({
+  searchParams,
+}: {
+  searchParams: { page?: string };
+}) {
+  const page = Math.max(1, Number(searchParams.page) || 1);
+  const [jobs, total, jobTypeLabels] = await Promise.all([
     prisma.job.findMany({
       where: {
         status: "OPEN",
@@ -26,14 +34,23 @@ export default async function PublicJobsListPage() {
         { scheduledFor: "asc" },
         { createdAt: "asc" },
       ],
-      take: 200,
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    prisma.job.count({
+      where: {
+        status: "OPEN",
+        assignedToUserId: null,
+        externalResponder: null,
+      },
     }),
     getJobTypeLabels(),
   ]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <header className="bg-white border-b border-slate-200">
+      <header className="bg-white border-b border-slate-200 pt-safe">
         <div className="mx-auto max-w-2xl px-4 h-14 flex items-center justify-between">
           <BrandLogo />
           <div className="text-xs text-slate-500">Open jobs</div>
@@ -90,6 +107,17 @@ export default async function PublicJobsListPage() {
               </li>
             ))}
           </ul>
+        )}
+
+        {totalPages > 1 && (
+          <div className="flex justify-center">
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              basePath="/jobs"
+              searchParams={searchParams}
+            />
+          </div>
         )}
       </div>
     </main>

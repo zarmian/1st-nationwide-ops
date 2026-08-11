@@ -156,8 +156,11 @@ function EditRow({ region, onDone }: { region: RegionRow; onDone: () => void }) 
       <td colSpan={4} className="px-4 py-3">
         <form action={formAction} className="flex flex-wrap gap-2 items-end">
           <div className="min-w-[200px]">
-            <label className="label text-xs">Name</label>
+            <label className="label text-xs" htmlFor={`region-${region.id}-name`}>
+              Name
+            </label>
             <input
+              id={`region-${region.id}-name`}
               name="name"
               defaultValue={region.name}
               className="input"
@@ -170,8 +173,11 @@ function EditRow({ region, onDone }: { region: RegionRow; onDone: () => void }) 
             )}
           </div>
           <div className="flex-1 min-w-[200px]">
-            <label className="label text-xs">Notes</label>
+            <label className="label text-xs" htmlFor={`region-${region.id}-notes`}>
+              Notes
+            </label>
             <input
+              id={`region-${region.id}-notes`}
               name="notes"
               defaultValue={region.notes ?? ""}
               className="input"
@@ -211,8 +217,8 @@ function AddRow({ onDone }: { onDone: () => void }) {
   return (
     <form action={formAction} className="card p-3 flex flex-wrap gap-2 items-end">
       <div className="min-w-[200px]">
-        <label className="label text-xs">Name</label>
-        <input name="name" className="input" required autoFocus />
+        <label className="label text-xs" htmlFor="region-new-name">Name</label>
+        <input id="region-new-name" name="name" className="input" required autoFocus />
         {state.fieldErrors?.name && (
           <p className="text-xs text-red-600 mt-1">
             {state.fieldErrors.name.join(", ")}
@@ -220,8 +226,8 @@ function AddRow({ onDone }: { onDone: () => void }) {
         )}
       </div>
       <div className="flex-1 min-w-[200px]">
-        <label className="label text-xs">Notes</label>
-        <input name="notes" className="input" />
+        <label className="label text-xs" htmlFor="region-new-notes">Notes</label>
+        <input id="region-new-notes" name="notes" className="input" />
       </div>
       <SaveButton label="Add" />
       <button type="button" onClick={onDone} className="btn-ghost text-sm">

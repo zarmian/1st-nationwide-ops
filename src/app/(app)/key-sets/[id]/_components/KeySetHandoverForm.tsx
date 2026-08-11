@@ -19,12 +19,19 @@ export function KeySetHandoverForm({
   return (
     <form action={formAction} className="space-y-3">
       {state.error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <div
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
+        >
           {state.error}
         </div>
       )}
       {state.ok && (
-        <div className="rounded-xl border border-brand-blue/40 bg-brand-blue-light px-3 py-2 text-sm text-brand-blue-dark">
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-xl border border-brand-blue/40 bg-brand-blue-light px-3 py-2 text-sm text-brand-blue-dark"
+        >
           All {keyCount} key{keyCount === 1 ? "" : "s"} handed over.
         </div>
       )}

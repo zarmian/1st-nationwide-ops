@@ -132,6 +132,7 @@ export default async function KeyDetailPage({
               No movements recorded yet.
             </p>
           ) : (
+            <div className="table-scroll">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>
@@ -174,6 +175,7 @@ export default async function KeyDetailPage({
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 

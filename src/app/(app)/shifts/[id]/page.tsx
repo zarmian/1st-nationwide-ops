@@ -313,6 +313,7 @@ export default async function ShiftDetailPage({
             Each hourly check: time, location vs site, and the on-site photo.
           </p>
         </div>
+        <div className="table-scroll">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
@@ -397,6 +398,7 @@ export default async function ShiftDetailPage({
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       {shift.notes && (

@@ -66,7 +66,9 @@ export function PartnerOfficerLoginCard({
       <form action={formAction} className="space-y-3">
         <FormError message={state.error} />
         {state.success && (
-          <p className="text-sm text-success">{state.success}</p>
+          <p role="status" aria-live="polite" className="text-sm text-success">
+            {state.success}
+          </p>
         )}
         <div className="grid sm:grid-cols-2 gap-3">
           <div>

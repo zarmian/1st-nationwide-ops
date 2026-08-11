@@ -31,7 +31,9 @@ export function AssignOfficerForm({
     <form action={formAction} className="card p-5 space-y-4">
       <FormError message={state.error} />
       {state.success && (
-        <p className="text-sm text-success">{state.success}</p>
+        <p role="status" aria-live="polite" className="text-sm text-success">
+          {state.success}
+        </p>
       )}
 
       <div>

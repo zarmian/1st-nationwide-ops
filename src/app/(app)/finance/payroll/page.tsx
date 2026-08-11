@@ -138,6 +138,7 @@ export default async function PayrollPage({
       </div>
 
       <div className="card overflow-hidden">
+        <div className="table-scroll">
         <table className="table-default">
           <thead>
             <tr>
@@ -205,6 +206,7 @@ export default async function PayrollPage({
             )}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

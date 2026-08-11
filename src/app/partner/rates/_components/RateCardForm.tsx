@@ -135,7 +135,9 @@ export function RateCardForm({
       <div className="sm:col-span-5 flex items-start justify-between gap-3">
         <FormError message={state.error} />
         {state.success && (
-          <p className="text-xs text-success">{state.success}</p>
+          <p role="status" aria-live="polite" className="text-xs text-success">
+            {state.success}
+          </p>
         )}
       </div>
     </form>

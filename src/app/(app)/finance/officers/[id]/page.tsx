@@ -418,6 +418,7 @@ export default async function OfficerFinancePage({
             blurb="Try widening the date filter or jump to This month."
           />
         ) : (
+          <div className="table-scroll">
           <table className="table-default">
             <thead>
               <tr>
@@ -483,6 +484,7 @@ export default async function OfficerFinancePage({
               </tr>
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

@@ -945,6 +945,7 @@ export default async function FinancePage({
             count until it's done.
           </p>
         </div>
+        <div className="table-scroll">
         <table className="table-default">
           <thead>
             <tr>
@@ -1043,6 +1044,7 @@ export default async function FinancePage({
             )}
           </tbody>
         </table>
+        </div>
       </div>
 
       <TopSitesTables
@@ -1177,6 +1179,7 @@ function TopSitesCard({
           No site activity in this range.
         </p>
       ) : (
+        <div className="table-scroll">
         <table className="table-default">
           <thead>
             <tr>
@@ -1219,6 +1222,7 @@ function TopSitesCard({
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -1256,6 +1260,7 @@ function OfficerPnlTable({
           No officer activity in this range.
         </p>
       ) : (
+        <div className="table-scroll">
         <table className="table-default">
           <thead>
             <tr>
@@ -1286,6 +1291,7 @@ function OfficerPnlTable({
             </tr>
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );
@@ -1329,6 +1335,7 @@ function PartnerPnlTable({
           No partner activity in this range.
         </p>
       ) : (
+        <div className="table-scroll">
         <table className="table-default">
           <thead>
             <tr>
@@ -1384,6 +1391,7 @@ function PartnerPnlTable({
             </tr>
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

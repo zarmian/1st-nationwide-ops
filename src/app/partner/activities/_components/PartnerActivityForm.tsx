@@ -159,7 +159,9 @@ export function PartnerActivityForm({
     <form action={formAction} className="card p-5 space-y-5">
       <FormError message={state.error} />
       {state.success && (
-        <p className="text-sm text-success">{state.success}</p>
+        <p role="status" aria-live="polite" className="text-sm text-success">
+          {state.success}
+        </p>
       )}
 
       <input type="hidden" name="kind" value={kind} />

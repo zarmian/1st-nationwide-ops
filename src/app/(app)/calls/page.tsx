@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
+import { Pagination } from "@/components/Pagination";
 
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 200;
+const PAGE_SIZE = 50;
 
 const STATUS_TONE: Record<string, string> = {
   MISSED: "chip-red",
@@ -59,8 +60,10 @@ export default async function CallsPage({
     to?: string;
     missed?: string;
     direction?: string;
+    page?: string;
   };
 }) {
+  const page = Math.max(1, Number(searchParams.page) || 1);
   const now = new Date();
   const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
   const fromDate = parseLocalDate(searchParams.from) ?? weekAgo;
@@ -81,12 +84,14 @@ export default async function CallsPage({
   if (missedOnly) where.missed = true;
   if (direction) where.direction = direction;
 
-  const [calls, missedCount] = await prisma.$transaction([
+  const [calls, total, missedCount] = await prisma.$transaction([
     prisma.callEvent.findMany({
       where,
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
+      skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
+    prisma.callEvent.count({ where }),
     prisma.callEvent.count({
       where: {
         missed: true,
@@ -97,6 +102,7 @@ export default async function CallsPage({
       },
     }),
   ]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
     <div className="space-y-4">
@@ -111,8 +117,7 @@ export default async function CallsPage({
             In range
           </div>
           <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-            {calls.length}
-            {calls.length === PAGE_SIZE ? "+" : ""}
+            {total.toLocaleString("en-GB")}
           </div>
         </div>
         <div className="card p-4">
@@ -211,6 +216,17 @@ export default async function CallsPage({
           </table>
         </div>
       </div>
+
+      {totalPages > 1 && (
+        <div className="flex justify-center">
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            basePath="/calls"
+            searchParams={searchParams}
+          />
+        </div>
+      )}
 
       <p className="text-xs text-slate-500">
         Tip: the raw payload above is what bOnline sent. If missed calls
