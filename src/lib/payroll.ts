@@ -3,8 +3,10 @@
  * isolated so we can unit-test the formatter (csvLineFor) without a DB.
  *
  * Roll-up rules:
- *   1. Activity pay: sum of `paidAmount` across PatrolVisits + Jobs the
- *      officer attended, where `paidAt` falls in [from, to].
+ *   1. Activity pay: sum of `paidAmount` across PatrolVisits + Jobs + Shifts
+ *      the officer attended, windowed on the scheduled (accounting) date and
+ *      requiring the work to be paid. Matches the /finance officer P&L and the
+ *      pay-summary SMS, which also count all three.
  *   2. Monthly retainer: if the officer has an OfficerRate with service
  *      MONTHLY_… wait — we use service ANNUAL_SUBSCRIPTION on SiteRate as
  *      the "monthly retainer" service on OfficerRate (see migration notes).
@@ -15,7 +17,11 @@
  * so admin can see who's missing from the run.
  */
 import { prisma } from "@/lib/db";
-import { jobScheduledRange, visitScheduledRange } from "@/lib/activityWhen";
+import {
+  jobScheduledRange,
+  shiftScheduledRange,
+  visitScheduledRange,
+} from "@/lib/activityWhen";
 
 export type PayrollRow = {
   officerId: string;
@@ -140,6 +146,21 @@ export async function buildPayrollReport(
     _count: { _all: true },
     orderBy: { assignedToUserId: "asc" },
   });
+  // Static-guarding / dog shifts pay the officer too. paidAmount stays null on
+  // partner-handled shifts, and officerId is null there, so both filters keep
+  // this to our own attended, paid shifts.
+  const shiftPay = await prisma.shift.groupBy({
+    by: ["officerId"],
+    where: {
+      officerId: { not: null },
+      status: "COMPLETED",
+      paidAt: { not: null },
+      ...shiftScheduledRange(from, to),
+    },
+    _sum: { paidAmount: true },
+    _count: { _all: true },
+    orderBy: { officerId: "asc" },
+  });
   const payByOfficer = new Map<
     string,
     { amount: number; count: number; currency: string }
@@ -162,6 +183,17 @@ export async function buildPayrollReport(
     cur.amount += Number(j._sum.paidAmount ?? 0);
     cur.count += j._count._all;
     payByOfficer.set(j.assignedToUserId, cur);
+  }
+  for (const s of shiftPay) {
+    if (!s.officerId) continue;
+    const cur = payByOfficer.get(s.officerId) ?? {
+      amount: 0,
+      count: 0,
+      currency: "GBP",
+    };
+    cur.amount += Number(s._sum.paidAmount ?? 0);
+    cur.count += s._count._all;
+    payByOfficer.set(s.officerId, cur);
   }
 
   const months = monthsBetween(from, to);

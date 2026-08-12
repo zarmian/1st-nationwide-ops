@@ -4,14 +4,13 @@ import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import type { KeyUpdateState } from "../../../_actions";
 
+// Must match the KeyType enum (KEY | FOB | PADLOCK | CODE). CARD/REMOTE/OTHER
+// were offered here but aren't valid enum values — they errored on save.
 const TYPE_OPTIONS = [
   { v: "KEY", label: "Key" },
-  { v: "PADLOCK", label: "Padlock" },
   { v: "FOB", label: "Fob" },
-  { v: "CARD", label: "Card" },
+  { v: "PADLOCK", label: "Padlock" },
   { v: "CODE", label: "Code" },
-  { v: "REMOTE", label: "Remote" },
-  { v: "OTHER", label: "Other" },
 ];
 
 const STATUS_OPTIONS = [

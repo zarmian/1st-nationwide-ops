@@ -79,15 +79,10 @@ export async function handoverKey(
 
 // ── Key edit ────────────────────────────────────────────────────────────
 
-const KeyTypes = [
-  "KEY",
-  "PADLOCK",
-  "FOB",
-  "CARD",
-  "CODE",
-  "REMOTE",
-  "OTHER",
-] as const;
+// Must match the KeyType enum in schema.prisma (KEY | FOB | PADLOCK | CODE).
+// CARD/REMOTE/OTHER used to be offered here but aren't valid enum values, so
+// saving one threw a Prisma invalid-enum error at write time — removed.
+const KeyTypes = ["KEY", "FOB", "PADLOCK", "CODE"] as const;
 const KeyStatuses = [
   "WITH_US",
   "WITH_OFFICER",

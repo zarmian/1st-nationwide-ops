@@ -4,9 +4,13 @@ import { isAuthorisedCron } from "@/lib/cronAuth";
 import { notifyVisitLateOrMissed } from "@/lib/notifications";
 
 /**
- * Hourly status sweep:
+ * Hourly status sweep for OUR patrol visits:
  * - PENDING + scheduledAt + 1h ago → LATE
  * - PENDING/LATE/IN_PROGRESS + scheduledAt + 24h ago → MISSED
+ *
+ * Partner-handled visits (handledByPartnerId set) are excluded — the partner
+ * records them in their own app, so we get no attendance signal and must not
+ * mark them late/missed or fire a missed-visit alert.
  *
  * Bypassable in dev when CRON_SECRET isn't set.
  */
@@ -23,6 +27,7 @@ export async function GET(req: Request) {
   const toLate = await prisma.patrolVisit.findMany({
     where: {
       status: "PENDING",
+      handledByPartnerId: null,
       scheduledAt: { lte: lateCutoff, gt: missedCutoff },
     },
     select: { id: true },
@@ -30,6 +35,7 @@ export async function GET(req: Request) {
   const toMissed = await prisma.patrolVisit.findMany({
     where: {
       status: { in: ["PENDING", "LATE", "IN_PROGRESS"] },
+      handledByPartnerId: null,
       scheduledAt: { lte: missedCutoff },
     },
     select: { id: true },
@@ -39,6 +45,7 @@ export async function GET(req: Request) {
     prisma.patrolVisit.updateMany({
       where: {
         status: "PENDING",
+        handledByPartnerId: null,
         scheduledAt: { lte: lateCutoff, gt: missedCutoff },
       },
       data: { status: "LATE" },
@@ -46,6 +53,7 @@ export async function GET(req: Request) {
     prisma.patrolVisit.updateMany({
       where: {
         status: { in: ["PENDING", "LATE", "IN_PROGRESS"] },
+        handledByPartnerId: null,
         scheduledAt: { lte: missedCutoff },
       },
       data: { status: "MISSED" },
