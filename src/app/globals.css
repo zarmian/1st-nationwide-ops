@@ -19,6 +19,10 @@
   /* Light-only app — tell the UA so native controls, scrollbars and form
      widgets render in their light variant (and don't get force-darkened). */
   color-scheme: light;
+  /* "Settle" easing — quick out, gentle arrival (easeOutExpo). Presses,
+     hovers and material transitions use it so motion reads as physical
+     rather than linear. Spring-adjacent without a JS animation runtime. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html,
@@ -32,6 +36,9 @@ body {
      not a hero gradient. */
   @apply bg-ambient text-slate-900 antialiased font-sans;
   font-feature-settings: "cv11", "tnum";
+  /* Let the type render its size-appropriate optical variant where the font
+     ships one (harmless on static faces). */
+  font-optical-sizing: auto;
   /* Snappier taps on touch devices: drop the 300ms double-tap delay
      (without disabling pinch-zoom) and the grey tap flash — we render our
      own :active / focus-visible states. */
@@ -56,7 +63,8 @@ body {
   /* Card that scales subtly on hover — for clickable cards like the
      /operations + /admin tiles. */
   .card-hover {
-    @apply card transition-[box-shadow,transform] duration-200 hover:shadow-md hover:-translate-y-0.5;
+    @apply card transition-[box-shadow,transform] duration-200 ease-out
+           hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.99];
   }
   .section {
     @apply space-y-4;
@@ -81,11 +89,14 @@ body {
   /* ── Buttons ───────────────────────────────────────────────────── */
   /* min-h 44px on touch (below md) for gloved/outdoor use; natural height on
      desktop. Transitions list explicit props — never `all`. */
+  /* Press feedback lives on :active (fires on pointer-down, not release) so a
+     tap feels instant and physical — the element yields under the finger. */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium
            min-h-[2.75rem] md:min-h-0
-           transition-[color,background-color,border-color,box-shadow,transform] duration-150
-           disabled:opacity-50 disabled:cursor-not-allowed
+           transition-[color,background-color,border-color,box-shadow,transform] duration-150 ease-out
+           active:scale-[0.97]
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100
            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40
            focus-visible:ring-offset-2 focus-visible:ring-offset-white;
   }
@@ -140,7 +151,8 @@ body {
      active one fills with mint, others stay neutral with mint hover. */
   .pill {
     @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium
-           border transition-colors cursor-pointer select-none;
+           border transition-[color,background-color,border-color,transform] duration-150 ease-out
+           active:scale-95 cursor-pointer select-none;
   }
   .pill-idle {
     @apply pill bg-white text-slate-600 border-slate-200
@@ -222,6 +234,34 @@ body {
            text-sm font-medium text-brand-navy shadow-lg outline-none
            ring-2 ring-brand-blue;
   }
+
+  /* ── Materials — translucent chrome ────────────────────────────── */
+  /* Frosted top bar: page content scrolls *underneath* it, so the nav reads
+     as a floating functional layer rather than an opaque strip. Solid
+     fallback where the platform can't blur; the reduced-transparency and
+     high-contrast media blocks (base layer below) solidify it on request. */
+  .glass-nav {
+    background-color: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    .glass-nav {
+      background-color: rgba(255, 255, 255, 0.95);
+    }
+  }
+
+  /* ── Display type ──────────────────────────────────────────────── */
+  /* Large headings read too loose at size — negative tracking + tight
+     leading pull them together; balance avoids a ragged short last line.
+     Body text keeps ~0 tracking (set per element). */
+  .text-display {
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    text-wrap: balance;
+  }
 }
 
 @layer utilities {
@@ -263,6 +303,28 @@ body {
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
+    }
+  }
+
+  /* Less transparency requested → solidify frosted surfaces and drop every
+     backdrop blur (nav, modal scrims, popovers) so text stays crisp. */
+  @media (prefers-reduced-transparency: reduce) {
+    .glass-nav {
+      background-color: #fff;
+    }
+    *,
+    *::before,
+    *::after {
+      backdrop-filter: none !important;
+      -webkit-backdrop-filter: none !important;
+    }
+  }
+
+  /* More contrast requested → near-solid chrome with a defined border. */
+  @media (prefers-contrast: more) {
+    .glass-nav {
+      background-color: #fff;
+      border-color: rgb(51 65 85);
     }
   }
 }

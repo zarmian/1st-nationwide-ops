@@ -67,7 +67,7 @@ export function TopNav({
   const hubs = isAdmin ? [...STAFF_HUBS, ...ADMIN_HUBS] : STAFF_HUBS;
 
   return (
-    <header className="bg-white border-b border-slate-200">
+    <header className="glass-nav sticky top-0 z-40 border-b border-slate-200/70 pt-safe">
       <div className="mx-auto max-w-7xl px-4 h-14 flex items-center justify-between gap-3">
         <Link href={isStaff ? "/dispatch" : "/m/today"} aria-label="Home">
           <BrandLogo />
