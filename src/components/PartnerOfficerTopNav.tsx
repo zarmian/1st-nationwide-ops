@@ -28,7 +28,7 @@ export function PartnerOfficerTopNav({
 }) {
   const pathname = usePathname() ?? "";
   return (
-    <header className="bg-white border-b border-slate-200">
+    <header className="glass-nav sticky top-0 z-40 border-b border-slate-200/70 pt-safe">
       <div className="mx-auto max-w-7xl px-4 h-14 flex items-center justify-between gap-3">
         <Link
           href="/partner/m/today"

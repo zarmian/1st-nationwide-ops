@@ -35,7 +35,7 @@ export function PageHeader({
             ← {backLabel}
           </Link>
         )}
-        <h1 className="text-2xl font-semibold text-brand-navy tracking-tight mt-1">
+        <h1 className="text-2xl font-semibold text-brand-navy tracking-tight text-balance mt-1">
           {title}
         </h1>
         {subtitle && (
