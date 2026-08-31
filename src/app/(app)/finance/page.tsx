@@ -717,6 +717,12 @@ export default async function FinancePage({
             <Link href="/finance/payroll" className="btn-secondary text-sm">
               Payroll →
             </Link>
+            <Link
+              href={`/finance/exceptions?from=${ymd(fromDate)}&to=${ymd(toDate)}`}
+              className="btn-secondary text-sm"
+            >
+              Exceptions →
+            </Link>
             <RecalcButton
               recalc={recalculateBilling}
               from={fromDate.toISOString()}
