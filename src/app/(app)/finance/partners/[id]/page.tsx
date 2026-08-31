@@ -11,6 +11,7 @@ import {
   visitScheduledRange,
   shiftScheduledRange,
 } from "@/lib/activityWhen";
+import { toIsoDate } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -434,6 +435,16 @@ export default async function PartnerFinancePage({
             </span>{" "}
             · {fmtDate(fromDate)} → {fmtDate(toDate)}
           </>
+        }
+        actions={
+          <Link
+            href={`/finance/partners/${partner.id}/statement?from=${toIsoDate(
+              fromDate,
+            )}&to=${toIsoDate(toDate)}`}
+            className="btn-secondary text-sm"
+          >
+            Statement →
+          </Link>
         }
       />
 
