@@ -8,8 +8,8 @@
  *   net        — theyOweUs − weOweThem (positive = the partner owes us net).
  *
  * Read-only; reads the frozen snapshots, windowed on the scheduled date.
- * Note: subcontracted PATROL visits carry no partner-charge column, so the
- * "we owe them" side counts partner jobs + shifts only.
+ * Covers subcontracted jobs, shifts AND patrol visits (each carries a
+ * partnerChargeToUsAmount snapshot).
  */
 import { prisma } from "@/lib/db";
 import {
@@ -84,6 +84,7 @@ export async function loadPartnerStatement(
     owedShifts,
     oweJobs,
     oweShifts,
+    oweVisits,
   ] = await Promise.all([
     // ── They owe us (mode 2): our work on the partner's account ──
     prisma.job.findMany({
@@ -137,6 +138,18 @@ export async function loadPartnerStatement(
       },
       select: { type: true, partnerChargeToUsAmount: true },
     }),
+    prisma.patrolVisit.findMany({
+      where: {
+        status: "COMPLETED",
+        handledByPartnerId: partnerId,
+        partnerChargeToUsAmount: { not: null },
+        ...visitScheduledRange(from, to),
+      },
+      select: {
+        partnerChargeToUsAmount: true,
+        patrolSchedule: { select: { kind: true } },
+      },
+    }),
   ]);
 
   const theyOweUs = group([
@@ -162,6 +175,10 @@ export async function loadPartnerStatement(
     ...oweShifts.map((s) => ({
       label: humanize(s.type),
       amount: Number(s.partnerChargeToUsAmount ?? 0),
+    })),
+    ...oweVisits.map((v) => ({
+      label: visitLabel(v.patrolSchedule?.kind),
+      amount: Number(v.partnerChargeToUsAmount ?? 0),
     })),
   ]);
 

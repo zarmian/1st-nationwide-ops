@@ -139,6 +139,33 @@ export async function materializePatrolVisits(opts: {
 
   const out: PatrolDayResult[] = [];
 
+  // Partner charge/pay snapshot per (partner, service) — cached across the run
+  // so a subcontracted schedule costs one lookup, not one per visit.
+  const partnerRateCache = new Map<
+    string,
+    { chargeToUs: number; payToOfficer: number } | null
+  >();
+  async function partnerRateFor(
+    partnerId: string,
+    service: "PATROL" | "VPI",
+  ): Promise<{ chargeToUs: number; payToOfficer: number } | null> {
+    const key = `${partnerId}:${service}`;
+    const cached = partnerRateCache.get(key);
+    if (cached !== undefined) return cached;
+    const pr = await prisma.partnerRate.findUnique({
+      where: { partnerId_service: { partnerId, service } },
+      select: { chargeToUs: true, payToOfficer: true },
+    });
+    const val = pr
+      ? {
+          chargeToUs: Number(pr.chargeToUs),
+          payToOfficer: Number(pr.payToOfficer),
+        }
+      : null;
+    partnerRateCache.set(key, val);
+    return val;
+  }
+
   for (const offset of opts.offsets) {
     // The existing shouldCreateVisitOn / defaultScheduledAt logic compares
     // dates via getUTCDay, so we keep the UTC-day convention here too.
@@ -183,6 +210,18 @@ export async function materializePatrolVisits(opts: {
           existedHere++;
           continue;
         }
+        let partnerCharge: number | null = null;
+        let partnerPay: number | null = null;
+        if (s.handledByPartnerId) {
+          const pr = await partnerRateFor(
+            s.handledByPartnerId,
+            s.kind === "VPI" ? "VPI" : "PATROL",
+          );
+          if (pr) {
+            partnerCharge = pr.chargeToUs;
+            partnerPay = pr.payToOfficer;
+          }
+        }
         await prisma.patrolVisit.create({
           data: {
             siteId: s.siteId,
@@ -194,6 +233,8 @@ export async function materializePatrolVisits(opts: {
             reportedViaPartnerApp: s.handledByPartnerId
               ? s.partnerFillsOwnApp
               : false,
+            partnerChargeToUsAmount: partnerCharge,
+            partnerOfficerPayAmount: partnerPay,
             scheduledAt: slot.scheduledAt,
             scheduleDate: slot.scheduleDate,
             status: "PENDING",
