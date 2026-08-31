@@ -67,7 +67,14 @@ export async function recalculateBilling(
           }
         : { not: null },
   };
-  if (scope === "missing") visitWhere.billedAmount = null;
+  if (scope === "missing") {
+    // "missing" also catches subcontracted visits whose partner-charge
+    // snapshot hasn't been filled in yet, not just unbilled ones.
+    visitWhere.OR = [
+      { billedAmount: null },
+      { handledByPartnerId: { not: null }, partnerChargeToUsAmount: null },
+    ];
+  }
 
   const visits = await prisma.patrolVisit.findMany({
     where: visitWhere,
@@ -75,10 +82,12 @@ export async function recalculateBilling(
       id: true,
       siteId: true,
       officerId: true,
+      handledByPartnerId: true,
       scheduleDate: true,
       scheduledAt: true,
       arrivedAt: true,
       departedAt: true,
+      patrolSchedule: { select: { kind: true } },
       formSubmissions: {
         select: { form: true },
         orderBy: { submittedAt: "desc" },
@@ -235,6 +244,40 @@ export async function recalculateBilling(
     siteOwners.map((s) => [s.id, { customerId: s.customerId, partnerId: s.partnerId }]),
   );
 
+  // Partner rates for subcontracted patrol visits in scope — to backfill
+  // their partnerChargeToUsAmount / partnerOfficerPayAmount snapshots.
+  const partnerIds = Array.from(
+    new Set(
+      visits
+        .map((v) => v.handledByPartnerId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const partnerRates =
+    partnerIds.length > 0
+      ? await prisma.partnerRate.findMany({
+          where: {
+            partnerId: { in: partnerIds },
+            service: { in: ["PATROL", "VPI"] },
+          },
+          select: {
+            partnerId: true,
+            service: true,
+            chargeToUs: true,
+            payToOfficer: true,
+          },
+        })
+      : [];
+  const partnerRateByKey = new Map<
+    string,
+    { chargeToUs: number; payToOfficer: number }
+  >();
+  for (const r of partnerRates)
+    partnerRateByKey.set(`${r.partnerId}:${r.service}`, {
+      chargeToUs: Number(r.chargeToUs),
+      payToOfficer: Number(r.payToOfficer),
+    });
+
   // Customer default rate cards for the sites in scope. Site rates override
   // these per service (mergeRates), so a job at a site with no own rate still
   // bills off its customer's card — same resolution as billForSite.
@@ -283,6 +326,9 @@ export async function recalculateBilling(
     bill: ReturnType<typeof calculateBilling>;
     pay: ReturnType<typeof calculatePay> | null;
     at: Date | null;
+    isPartner: boolean;
+    partnerCharge: number | null;
+    partnerPay: number | null;
   };
   const visitUpdates: VisitUpdate[] = [];
   for (const v of visits) {
@@ -298,11 +344,27 @@ export async function recalculateBilling(
       const merged = [...officerSpecific, ...companyRates];
       pay = calculatePay(merged, v.officerId, rateService, duration);
     }
+    // Subcontracted visit → snapshot the partner charge/pay from PartnerRate,
+    // keyed on the schedule kind (PATROL / VPI).
+    let partnerCharge: number | null = null;
+    let partnerPay: number | null = null;
+    const isPartner = Boolean(v.handledByPartnerId);
+    if (isPartner) {
+      const svc = v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL";
+      const pr = partnerRateByKey.get(`${v.handledByPartnerId}:${svc}`);
+      if (pr) {
+        partnerCharge = pr.chargeToUs;
+        partnerPay = pr.payToOfficer;
+      }
+    }
     visitUpdates.push({
       id: v.id,
       bill,
       pay,
       at: v.scheduleDate ?? v.scheduledAt,
+      isPartner,
+      partnerCharge,
+      partnerPay,
     });
   }
 
@@ -379,7 +441,11 @@ export async function recalculateBilling(
       visitUpdates.slice(i, i + CHUNK).map(async (u) => {
         await prisma.patrolVisit.update({
           where: { id: u.id },
-          data: visitDataFor(u.bill, u.pay, u.at),
+          data: visitDataFor(u.bill, u.pay, u.at, {
+            isPartner: u.isPartner,
+            charge: u.partnerCharge,
+            pay: u.partnerPay,
+          }),
         });
         if (u.bill.ok) visitsBilled++;
       }),
@@ -436,6 +502,7 @@ function visitDataFor(
   bill: ReturnType<typeof calculateBilling>,
   pay: ReturnType<typeof calculatePay> | null,
   at: Date | null,
+  partner?: { isPartner: boolean; charge: number | null; pay: number | null },
 ): Prisma.PatrolVisitUpdateInput {
   // Stamp the work date (departed/completed/ended), not "now", so a re-run or
   // back-fill keeps each amount in the month the work happened.
@@ -463,6 +530,12 @@ function visitDataFor(
     data.paidAmount = null;
     data.paidCurrency = null;
     data.paidAt = null;
+  }
+  if (partner?.isPartner) {
+    data.partnerChargeToUsAmount =
+      partner.charge != null ? new Prisma.Decimal(partner.charge) : null;
+    data.partnerOfficerPayAmount =
+      partner.pay != null ? new Prisma.Decimal(partner.pay) : null;
   }
   return data;
 }

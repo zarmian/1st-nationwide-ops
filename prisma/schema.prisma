@@ -741,6 +741,10 @@ model PatrolVisit {
   reportedViaPartnerApp Boolean      @default(false)
   invoiceId          String?         @db.Uuid
   invoice            Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  /// Subcontracted patrol cost: what the partner charges us / pays their own
+  /// officer for this visit. Snapshotted from PartnerRate; null for our own.
+  partnerChargeToUsAmount Decimal?    @db.Decimal(10, 2)
+  partnerOfficerPayAmount Decimal?    @db.Decimal(10, 2)
   scheduledAt        DateTime
   // UK calendar date (at UK midnight) of the night/day this visit is grouped
   // under. For overnight patrols the after-midnight visits carry the date of
