@@ -6,6 +6,7 @@ import Link from "next/link";
 import { VisitCard } from "./_components/VisitCard";
 import { OnDutyBanner } from "./_components/OnDutyBanner";
 import { ShiftCard } from "./_components/ShiftCard";
+import { CalloutBriefing } from "./_components/CalloutBriefing";
 import { AutoRefresh } from "./_components/AutoRefresh";
 import { InstallHint } from "./_components/InstallHint";
 import { setMyOnDuty } from "../../officers/_actions";
@@ -209,27 +210,43 @@ export default async function OfficerTodayPage() {
           {jobs.map((j) => {
             const f = formatScheduled(j.scheduledFor);
             return (
-              <Link
-                key={j.id}
-                href={`/submit?jobId=${j.id}`}
-                className="card p-4 flex items-start justify-between hover:bg-slate-50 gap-3"
-              >
-                <div className="min-w-0">
-                  <div className="text-xs uppercase tracking-wider text-slate-500">
-                    {j.type.replace(/_/g, " ")}
-                    {f ? ` · ${f.day} · ${f.time}` : ""}
-                  </div>
-                  <div className="font-medium text-brand-navy">
-                    {j.site?.name ?? "Site TBD"}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {[j.site?.addressLine, j.site?.postcodeFormatted]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </div>
+              <div key={j.id} className="card p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <Link
+                    href={`/submit?jobId=${j.id}`}
+                    className="min-w-0 group"
+                  >
+                    <div className="text-xs uppercase tracking-wider text-slate-500">
+                      {j.type.replace(/_/g, " ")}
+                      {f ? ` · ${f.day} · ${f.time}` : ""}
+                    </div>
+                    <div className="font-medium text-brand-navy group-hover:text-brand-blue-dark">
+                      {j.site?.name ?? "Site TBD"}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {[j.site?.addressLine, j.site?.postcodeFormatted]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </div>
+                  </Link>
+                  <span className="chip-slate shrink-0">{j.status}</span>
                 </div>
-                <span className="chip-slate shrink-0">{j.status}</span>
-              </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={`/submit?jobId=${j.id}`}
+                    className="btn-primary text-sm"
+                  >
+                    Open form
+                  </Link>
+                  {j.siteId && (
+                    <CalloutBriefing
+                      siteId={j.siteId}
+                      siteName={j.site?.name ?? "Site"}
+                      notes={j.notes}
+                    />
+                  )}
+                </div>
+              </div>
             );
           })}
         </section>

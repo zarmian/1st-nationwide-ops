@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { daysFromTodayUk } from "@/lib/dates";
+import { CalloutBriefing } from "./CalloutBriefing";
 
 type Visit = {
   id: string;
@@ -134,6 +135,7 @@ export function VisitCard({ visit }: { visit: Visit }) {
         >
           Directions
         </a>
+        <CalloutBriefing siteId={visit.site.id} siteName={visit.site.name} />
         {!isOnSite && (
           <button
             type="button"

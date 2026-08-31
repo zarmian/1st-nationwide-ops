@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useConfirm } from "@/components/Confirm";
+import { CalloutBriefing } from "./CalloutBriefing";
 
 type Shift = {
   id: string;
@@ -207,6 +208,10 @@ export function ShiftCard({
             )}
           </>
         )}
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <CalloutBriefing siteId={shift.siteId} siteName={shift.siteName} />
       </div>
     </div>
   );
