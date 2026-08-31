@@ -460,6 +460,7 @@ model Customer {
   contacts        CustomerContact[]
   formTemplates   FormTemplate[]
   rates           CustomerRate[]
+  invoices        Invoice[]
 
   @@index([name])
 }
@@ -737,6 +738,8 @@ model PatrolVisit {
   handledByPartner   Partner?        @relation("PatrolVisitPartner", fields: [handledByPartnerId], references: [id])
   /// Partner recorded it in their own app — no /submit, no ClientReport.
   reportedViaPartnerApp Boolean      @default(false)
+  invoiceId          String?         @db.Uuid
+  invoice            Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   scheduledAt        DateTime
   // UK calendar date (at UK midnight) of the night/day this visit is grouped
   // under. For overnight patrols the after-midnight visits carry the date of
@@ -1025,6 +1028,9 @@ model Job {
 
   reportedViaPartnerApp Boolean       @default(false)
   partnerReportRef      String?
+
+  invoiceId             String?       @db.Uuid
+  invoice               Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   // Dispatcher-recorded callouts: bypass the /submit + review workflow.
   // recordedByUserId set means a dispatcher (or admin) typed this in
@@ -1337,6 +1343,8 @@ model Shift {
   paidCurrency       String?
   paidAt             DateTime?
   payRateUnit        String?
+  invoiceId          String?      @db.Uuid
+  invoice            Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
 
@@ -1404,4 +1412,61 @@ model JobSourceOption {
 
   @@index([code])
   @@index([active, sortOrder])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  SENT
+  PAID
+  VOID
+}
+
+/// A customer invoice for a billing period. Draft is generated from the
+/// completed, billed, not-yet-invoiced activities for the customer in the
+/// window; those activities are stamped with `invoiceId` so they can't be
+/// double-invoiced. Voiding an invoice unlinks them again.
+model Invoice {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  number          String        @unique
+  customerId      String        @db.Uuid
+  customer        Customer      @relation(fields: [customerId], references: [id])
+  status          InvoiceStatus @default(DRAFT)
+  periodFrom      DateTime
+  periodTo        DateTime
+  issuedAt        DateTime?
+  dueAt           DateTime?
+  subtotal        Decimal       @db.Decimal(12, 2)
+  /// Fractional rate, e.g. 0.2000 = 20% UK standard VAT.
+  vatRate         Decimal       @db.Decimal(5, 4)
+  vatAmount       Decimal       @db.Decimal(12, 2)
+  total           Decimal       @db.Decimal(12, 2)
+  currency        String        @default("GBP")
+  notes           String?
+  /// Plain audit stamp — no relation, to keep the User model untouched.
+  createdByUserId String?       @db.Uuid
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  lines           InvoiceLine[]
+  jobs            Job[]
+  visits          PatrolVisit[]
+  shifts          Shift[]
+
+  @@index([customerId, status])
+  @@index([status])
+}
+
+model InvoiceLine {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceId   String  @db.Uuid
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  /// The RateService this line rolls up, for reference. Free-form.
+  service     String?
+  quantity    Int     @default(1)
+  unitAmount  Decimal @db.Decimal(12, 2)
+  amount      Decimal @db.Decimal(12, 2)
+  sortOrder   Int     @default(0)
+
+  @@index([invoiceId])
 }
