@@ -717,6 +717,9 @@ export default async function FinancePage({
             <Link href="/finance/payroll" className="btn-secondary text-sm">
               Payroll →
             </Link>
+            <Link href="/finance/invoices" className="btn-secondary text-sm">
+              Invoices →
+            </Link>
             <Link
               href={`/finance/exceptions?from=${ymd(fromDate)}&to=${ymd(toDate)}`}
               className="btn-secondary text-sm"

@@ -52,10 +52,16 @@ export async function loadBillingExceptions(
       where: {
         status: { not: "CANCELLED" },
         completedAt: { not: null },
-        ...jobScheduledRange(from, to),
-        OR: [
-          { billedAmount: null, reportedViaPartnerApp: false, siteId: { not: null } },
-          { paidAmount: null, assignedToUserId: { not: null }, handledByPartnerId: null },
+        // Both fragments carry an OR — combine under AND so the date window
+        // isn't clobbered by the exception-reason OR.
+        AND: [
+          jobScheduledRange(from, to),
+          {
+            OR: [
+              { billedAmount: null, reportedViaPartnerApp: false, siteId: { not: null } },
+              { paidAmount: null, assignedToUserId: { not: null }, handledByPartnerId: null },
+            ],
+          },
         ],
       },
       select: {
@@ -84,10 +90,14 @@ export async function loadBillingExceptions(
     prisma.patrolVisit.findMany({
       where: {
         status: "COMPLETED",
-        ...visitScheduledRange(from, to),
-        OR: [
-          { billedAmount: null, reportedViaPartnerApp: false },
-          { paidAmount: null, officerId: { not: null }, handledByPartnerId: null },
+        AND: [
+          visitScheduledRange(from, to),
+          {
+            OR: [
+              { billedAmount: null, reportedViaPartnerApp: false },
+              { paidAmount: null, officerId: { not: null }, handledByPartnerId: null },
+            ],
+          },
         ],
       },
       select: {
