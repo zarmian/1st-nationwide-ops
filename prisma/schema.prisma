@@ -461,6 +461,7 @@ model Customer {
   formTemplates   FormTemplate[]
   rates           CustomerRate[]
   invoices        Invoice[]
+  recurringCharges RecurringCharge[]
 
   @@index([name])
 }
@@ -1451,6 +1452,7 @@ model Invoice {
   jobs            Job[]
   visits          PatrolVisit[]
   shifts          Shift[]
+  recurringRuns   RecurringChargeRun[]
 
   @@index([customerId, status])
   @@index([status])
@@ -1468,5 +1470,57 @@ model InvoiceLine {
   amount      Decimal @db.Decimal(12, 2)
   sortOrder   Int     @default(0)
 
+  @@index([invoiceId])
+}
+
+enum RecurringCadence {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  ONE_OFF
+}
+
+/// A standing charge billed to a customer on a cadence, independent of any
+/// callout — keyholding retainers, monitoring subscriptions, annual contract
+/// fees, one-off setup fees. Each period it's due materialises one
+/// RecurringChargeRun (so it can't be billed twice) which is picked up by the
+/// customer's next invoice.
+model RecurringCharge {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  customerId  String           @db.Uuid
+  customer    Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  description String
+  /// Free-form RateService reference (e.g. ANNUAL_SUBSCRIPTION, KEYHOLDING).
+  service     String?
+  amount      Decimal          @db.Decimal(10, 2)
+  currency    String           @default("GBP")
+  cadence     RecurringCadence @default(MONTHLY)
+  startDate   DateTime
+  endDate     DateTime?
+  active      Boolean          @default(true)
+  notes       String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  runs        RecurringChargeRun[]
+
+  @@index([customerId, active])
+}
+
+/// One occurrence of a RecurringCharge for a billing period. `periodKey` is
+/// "YYYY-MM" (monthly), "YYYY-Qn" (quarterly), "YYYY" (annual) or "ONEOFF".
+/// The unique constraint stops a period being billed twice; voiding an invoice
+/// deletes its runs so the charge frees up again.
+model RecurringChargeRun {
+  id                String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  recurringChargeId String          @db.Uuid
+  recurringCharge   RecurringCharge @relation(fields: [recurringChargeId], references: [id], onDelete: Cascade)
+  periodKey         String
+  amount            Decimal         @db.Decimal(10, 2)
+  invoiceId         String?         @db.Uuid
+  invoice           Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt         DateTime        @default(now())
+
+  @@unique([recurringChargeId, periodKey])
   @@index([invoiceId])
 }

@@ -103,20 +103,24 @@ export default async function NewInvoicePage({
       </form>
 
       {preview &&
-        (preview.activityCount === 0 ? (
+        (preview.lines.length === 0 ? (
           <div className="empty-state">
             <p className="empty-title">Nothing to invoice</p>
             <p className="empty-blurb">
-              No billed, un-invoiced activity for {preview.customerName} in this
-              period. (Work already on an invoice is skipped; run{" "}
-              <span className="font-medium">Bill missing</span> on Finance if
-              activity looks unpriced.)
+              No billed, un-invoiced activity or recurring charges for{" "}
+              {preview.customerName} in this period. (Work already on an invoice
+              is skipped; run <span className="font-medium">Bill missing</span>{" "}
+              on Finance if activity looks unpriced.)
             </p>
           </div>
         ) : (
           <div className="card p-5 space-y-4">
             <div className="text-sm text-slate-600">
-              {preview.activityCount} activities for{" "}
+              {preview.activityCount} activities
+              {preview.recurringCount > 0
+                ? ` + ${preview.recurringCount} recurring`
+                : ""}{" "}
+              for{" "}
               <span className="font-medium text-brand-navy">
                 {preview.customerName}
               </span>

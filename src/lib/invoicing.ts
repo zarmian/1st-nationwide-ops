@@ -16,6 +16,7 @@ import {
   shiftScheduledRange,
 } from "@/lib/activityWhen";
 import { COMPANY } from "@/lib/company";
+import { dueRecurringLines } from "@/lib/recurring";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const humanize = (s: string) =>
@@ -40,10 +41,22 @@ export type InvoicePreview = {
   vatAmount: number;
   total: number;
   activityCount: number;
+  recurringCount: number;
   jobIds: string[];
   visitIds: string[];
   shiftIds: string[];
 };
+
+const toPreviewLines = (
+  rec: { service: string | null; description: string; amount: number }[],
+): PreviewLine[] =>
+  rec.map((l) => ({
+    service: l.service ?? "Recurring",
+    description: l.description,
+    quantity: 1,
+    unitAmount: l.amount,
+    amount: l.amount,
+  }));
 
 type Client = Prisma.TransactionClient | typeof prisma;
 
@@ -159,8 +172,10 @@ export async function previewInvoice(
   });
   if (!customer) return null;
 
-  const gathered = await gather(prisma, customerId, from, to);
-  const { lines, jobIds, visitIds, shiftIds } = buildLines(gathered);
+  const built = buildLines(await gather(prisma, customerId, from, to));
+  const rec = await dueRecurringLines(prisma, customerId, from, to);
+  const recLines = toPreviewLines(rec.lines);
+  const lines = [...built.lines, ...recLines];
   const { subtotal, vatAmount, total } = totals(lines, vatRate);
 
   return {
@@ -173,10 +188,12 @@ export async function previewInvoice(
     vatRate,
     vatAmount,
     total,
-    activityCount: jobIds.length + visitIds.length + shiftIds.length,
-    jobIds,
-    visitIds,
-    shiftIds,
+    activityCount:
+      built.jobIds.length + built.visitIds.length + built.shiftIds.length,
+    recurringCount: recLines.length,
+    jobIds: built.jobIds,
+    visitIds: built.visitIds,
+    shiftIds: built.shiftIds,
   };
 }
 
@@ -197,12 +214,22 @@ export async function createInvoice(
   const vatRate = args.vatRate ?? COMPANY.vatRate;
   try {
     return await prisma.$transaction(async (tx) => {
-      const gathered = await gather(tx, args.customerId, args.from, args.to);
-      const { lines, jobIds, visitIds, shiftIds } = buildLines(gathered);
+      const built = buildLines(
+        await gather(tx, args.customerId, args.from, args.to),
+      );
+      const rec = await dueRecurringLines(
+        tx,
+        args.customerId,
+        args.from,
+        args.to,
+      );
+      const { jobIds, visitIds, shiftIds } = built;
+      const lines = [...built.lines, ...toPreviewLines(rec.lines)];
       if (lines.length === 0) {
         return {
           ok: false as const,
-          error: "No billed, un-invoiced activity for this customer in that period.",
+          error:
+            "No billed activity or recurring charges for this customer in that period.",
         };
       }
       const { subtotal, vatAmount, total } = totals(lines, vatRate);
@@ -254,6 +281,20 @@ export async function createInvoice(
           data: { invoiceId: invoice.id },
         });
 
+      // Materialise the recurring-charge occurrences onto this invoice. The
+      // (chargeId, periodKey) unique constraint prevents a period being billed
+      // twice — a collision aborts the transaction.
+      for (const r of rec.runs) {
+        await tx.recurringChargeRun.create({
+          data: {
+            recurringChargeId: r.chargeId,
+            periodKey: r.periodKey,
+            amount: r.amount,
+            invoiceId: invoice.id,
+          },
+        });
+      }
+
       return { ok: true as const, invoiceId: invoice.id, number: invoice.number };
     });
   } catch (e) {
@@ -283,6 +324,8 @@ export async function setInvoiceStatus(
       prisma.job.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } }),
       prisma.patrolVisit.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } }),
       prisma.shift.updateMany({ where: { invoiceId: id }, data: { invoiceId: null } }),
+      // Free the recurring occurrences so their periods can be billed again.
+      prisma.recurringChargeRun.deleteMany({ where: { invoiceId: id } }),
       prisma.invoice.update({ where: { id }, data: { status: "VOID" } }),
     ]);
     return { ok: true };
