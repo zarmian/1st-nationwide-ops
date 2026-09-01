@@ -652,30 +652,26 @@ export default async function ActivitiesPage({
         />
       </FilterPanel>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Activities
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-            {totals.count.toLocaleString("en-GB")}
-          </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="kpi">
+          <div className="kpi-label">Activities</div>
+          <div className="kpi-value">{totals.count.toLocaleString("en-GB")}</div>
+          <div className="kpi-hint">in range</div>
         </div>
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Billed
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-            {fmtMoney(totals.billed)}
-          </div>
+        <div className="card-accent p-5 flex flex-col gap-1.5">
+          <div className="kpi-label">Billed</div>
+          <div className="kpi-value">{fmtMoney(totals.billed)}</div>
+          <div className="kpi-hint">customer revenue</div>
         </div>
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Paid to officers
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-            {fmtMoney(totals.paid)}
-          </div>
+        <div className="kpi">
+          <div className="kpi-label">Paid to officers</div>
+          <div className="kpi-value">{fmtMoney(totals.paid)}</div>
+          <div className="kpi-hint">officer pay</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Margin</div>
+          <div className="kpi-value">{fmtMoney(totals.billed - totals.paid)}</div>
+          <div className="kpi-hint">billed − pay</div>
         </div>
       </div>
 
