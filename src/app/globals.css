@@ -204,6 +204,13 @@ body {
   .col-num {
     @apply text-right tabular-nums;
   }
+  /* The compound `.table-default thead th` selector (text-left) otherwise
+     out-specifies `.col-num`, leaving a numeric header left-aligned while its
+     data sits right — so the two don't line up. Re-assert right-alignment for
+     numeric headers with a selector specific enough to win. */
+  .table-default thead th.col-num {
+    @apply text-right;
+  }
 
   /* ── Empty + Loading ───────────────────────────────────────────── */
   .empty-state {
