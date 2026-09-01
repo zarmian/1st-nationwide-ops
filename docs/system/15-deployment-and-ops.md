@@ -50,6 +50,10 @@ edit → commit + push → PR → merge to main → Vercel auto-deploys
 2. Call `POST /api/admin/init` with the secret → creates the first `ADMIN` user. See [`02-access-auth-roles.md`](./02-access-auth-roles.md).
 3. Log in at `/login`.
 
+## Company / invoice details
+
+Customer invoices render from constants in **`src/lib/company.ts`** (name, registered address, **VAT number**, company number, bank details, payment terms, default VAT rate). Fill these in before issuing a real invoice — the VAT number and address are legally required, and the invoice PDF flags their absence until set. It's a code file (not env), so changing it is a commit + deploy.
+
 ## Seeding
 
 - `npm run db:seed` (`prisma/seed.ts`) — imports sites/regions/keys from `import_out/*.csv` and seeds baseline rows (the `shift-hourly-check` blueprint, the global `SHIFT_CHECK` form template, partners). Runs with `tsx`.
