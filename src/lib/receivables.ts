@@ -43,6 +43,8 @@ export type Receivable = {
   /** Whole days past the due date; ≤ 0 when not yet due. */
   daysOverdue: number;
   bucket: AgedBucket;
+  /** When the customer was last reminded about this invoice, if ever. */
+  lastRemindedAt: Date | null;
 };
 
 export type ReceivablesSummary = {
@@ -75,6 +77,7 @@ export async function loadReceivables(
     include: {
       customer: { select: { id: true, name: true } },
       payments: { select: { amount: true } },
+      reminders: { select: { sentAt: true }, orderBy: { sentAt: "desc" }, take: 1 },
     },
     orderBy: { dueAt: "asc" },
   });
@@ -123,6 +126,7 @@ export async function loadReceivables(
       balance,
       daysOverdue,
       bucket,
+      lastRemindedAt: inv.reminders[0]?.sentAt ?? null,
     });
   }
 
