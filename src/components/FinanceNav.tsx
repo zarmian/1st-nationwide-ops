@@ -8,6 +8,7 @@ import {
   Banknote,
   FileText,
   Clock,
+  CreditCard,
   ScrollText,
   FileMinus,
   Landmark,
@@ -44,6 +45,7 @@ const ITEMS: NavItem[] = [
   { href: "/finance", label: "Overview", icon: LayoutDashboard },
   { href: "/finance/invoices", label: "Invoices", icon: FileText },
   { href: "/finance/receivables", label: "Receivables", icon: Clock },
+  { href: "/finance/payables", label: "Payables", icon: CreditCard },
   {
     href: "/finance/statements",
     label: "Statements",

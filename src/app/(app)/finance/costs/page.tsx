@@ -158,6 +158,8 @@ export default async function CostsPage({
           gross: c.gross,
           reference: c.reference,
           reclaimable: c.reclaimable,
+          dueOn: c.dueOn ? c.dueOn.toISOString() : null,
+          paidOn: c.paidOn ? c.paidOn.toISOString() : null,
           notes: c.notes,
         }))}
       />

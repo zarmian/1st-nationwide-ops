@@ -34,6 +34,8 @@ export type CostRow = {
   gross: number;
   reference: string | null;
   reclaimable: boolean;
+  dueOn: Date | null;
+  paidOn: Date | null;
   notes: string | null;
 };
 
@@ -103,6 +105,8 @@ export async function loadCosts(from: Date, to: Date): Promise<CostsSummary> {
       gross: g,
       reference: c.reference,
       reclaimable: c.reclaimable,
+      dueOn: c.dueOn,
+      paidOn: c.paidOn,
       notes: c.notes,
     };
   });
