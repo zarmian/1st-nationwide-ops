@@ -32,11 +32,6 @@ export default async function ReceivablesPage() {
         backHref="/finance"
         backLabel="Finance"
         subtitle="Outstanding customer invoices, aged by how long they've been due. Overdue invoices are reminded automatically each day (once email is set up)."
-        actions={
-          <Link href="/finance/invoices" className="btn-secondary text-sm">
-            Invoices →
-          </Link>
-        }
       />
 
       {/* Ageing summary — total outstanding plus a card per bucket. */}

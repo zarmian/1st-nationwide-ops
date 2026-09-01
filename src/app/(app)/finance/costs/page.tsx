@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate, toIsoDate, parseIsoDate } from "@/lib/dates";
@@ -36,18 +35,13 @@ export default async function CostsPage({
         backLabel="Finance"
         subtitle="Bills and overheads — subcontractors, fuel, vehicles, kit, insurance. Feeds the VAT return (Box 4) and true net profit."
         actions={
-          <>
-            <Link href="/finance/vat" className="btn-secondary text-sm">
-              VAT return →
-            </Link>
-            <a
-              href={`/api/finance/export/costs?from=${fromIso}&to=${toIso}`}
-              download
-              className="btn-secondary text-sm"
-            >
-              Download CSV
-            </a>
-          </>
+          <a
+            href={`/api/finance/export/costs?from=${fromIso}&to=${toIso}`}
+            download
+            className="btn-secondary text-sm"
+          >
+            Download CSV
+          </a>
         }
       />
 
