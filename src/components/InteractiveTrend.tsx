@@ -11,22 +11,31 @@ import { useRef, useState, useId } from "react";
  * ← / → to move the readout, Home / End to jump to the ends. The peak stays
  * annotated so the chart is still readable with no interaction at all.
  *
- * Values oldest → newest; `labels` (same length) name each bucket; `format`
- * renders the tooltip + peak value.
+ * Values oldest → newest; `labels` (same length) name each bucket;
+ * `displayValues` (same length) are the pre-formatted strings shown in the
+ * tooltip and peak label.
  */
 export function InteractiveTrend({
   values,
   labels,
   height = 168,
-  format = (n) => n.toLocaleString("en-GB"),
+  displayValues,
   ariaLabel,
 }: {
   values: number[];
   labels: string[];
   height?: number;
-  format?: (n: number) => string;
+  /**
+   * Pre-formatted value strings (same length + order as `values`) for the
+   * tooltip and peak label — e.g. `values.map(fmtMoney)`. Passed as strings,
+   * not a formatter function: this is a Client Component, and functions can't
+   * cross the server→client boundary.
+   */
+  displayValues?: string[];
   ariaLabel?: string;
 }) {
+  const disp = (i: number) =>
+    displayValues?.[i] ?? values[i]?.toLocaleString("en-GB") ?? "";
   const gradId = useId().replace(/:/g, "");
   const wrapRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<number | null>(null);
@@ -178,7 +187,7 @@ export function InteractiveTrend({
               className="fill-slate-400"
               style={{ fontSize: 11, fontWeight: 600 }}
             >
-              {format(max)}
+              {disp(peakIdx)}
             </text>
           )}
 
@@ -207,7 +216,7 @@ export function InteractiveTrend({
             <div className="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shadow-md">
               <div className="text-[11px] text-slate-500">{labels[activeIdx]}</div>
               <div className="text-sm font-semibold tabular-nums text-brand-navy">
-                {format(values[activeIdx])}
+                {disp(activeIdx)}
               </div>
             </div>
           </div>
