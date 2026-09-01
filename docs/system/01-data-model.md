@@ -1,6 +1,6 @@
 # Data Model
 
-> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **42 models and 37 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
+> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **45 models and 38 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
 
 Source of truth: `prisma/schema.prisma`. This document is a reference; field-level comments in the schema carry the authoritative business semantics.
 
@@ -14,7 +14,7 @@ Source of truth: `prisma/schema.prisma`. This document is a reference; field-lev
 | **Timestamps** | `createdAt DateTime @default(now())` on nearly all models; `updatedAt DateTime @updatedAt` on mutable entities. Some rows carry domain time anchors instead of/alongside these (`KeyMovement.occurredAt`, `AlarmEvent.receivedAt`, `FormSubmission.submittedAt`, `Notification.sentAt`). Date-only columns use `@db.Date` (`OfficerAvailability.date`, `RotaAssignment.date`). |
 | **Soft delete / active flags** | No hard deletes for core entities. `active Boolean @default(true)` on `User`, `Customer`, `Site`, `KeySet`, `Partner`, `PartnerOfficer`, `PatrolSchedule`, `LockUnlockSchedule`, `FormTemplate`, `FormBlueprint`, `JobTypeOption`, `JobSourceOption`. `Key` uses `status` (KeyStatus) instead. Cancellations are reversible: `Job` and `PatrolVisit` keep `cancelledAt`, `cancelledByUserId`, and `statusBeforeCancel` so Restore returns the row to where it was. |
 | **Money** | `Decimal @db.Decimal(10,2)` for amounts; per-minute excess rates use `Decimal @db.Decimal(10,4)`. Always paired with a `currency String @default("GBP")`. Amounts are **snapshotted** onto activity rows at completion (see `09-finance-billing-pay.md`), never computed live from the rate cards. |
-| **Enums** | Native Postgres enums (35 of them). Two enums (`JobType`, `JobSource`) additionally have DB-backed label tables (`JobTypeOption`, `JobSourceOption`) so admins can rename/reorder/alias options without a deploy. |
+| **Enums** | Native Postgres enums (38 of them). Two enums (`JobType`, `JobSource`) additionally have DB-backed label tables (`JobTypeOption`, `JobSourceOption`) so admins can rename/reorder/alias options without a deploy. |
 | **JSON columns** | `Json` for flexible payloads: `FormSubmission.payload`, `FormTemplate.fields`, `FormBlueprint.fields`, `ReportReview.edits`, `ActivityLog.diff`, `Notification.templateParams`, `TelegramCalloutDraft.payload`, `CallEvent.payload`. |
 | **Case-insensitive text** | `citext` extension; `User.email` is `@db.Citext @unique` (case-insensitive login). |
 | **Encryption of codes** | `AccessInstruction.alarmCodeEnc` / `padlockCodeEnc` are `Bytes?` — AES-256-GCM ciphertext via `src/lib/crypto.ts` (`[12-byte IV][16-byte tag][ciphertext]`, key in `ENCRYPTION_KEY`, base64 32 bytes). Legacy plaintext columns `alarmCode` / `padlockCode` still exist; `decryptString` tolerates legacy plaintext during the migration window. Writing sensitive data with no key set throws (refuses to store plaintext). |
@@ -203,7 +203,7 @@ What we **pay** an officer per service. `officerId?` (null = company default), `
 Partner rate card — both sides in one row. `partnerId` (cascade), `service`, `chargeToUs Decimal(10,2)`, `payToOfficer Decimal(10,2)`, `currency`, `unit`. `@@unique([partnerId, service])`. Auto-fills partner-recorded activity finance fields (and subcontracted patrol visits, snapshotted at materialisation).
 
 #### Invoice
-A customer invoice for a period (added). `number` unique (`INV-#####`), `customerId`, `status InvoiceStatus` (DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt?`, `emailedAt?`, `dueAt?`, `subtotal`/`vatRate`/`vatAmount`/`total Decimal`, `currency`, `notes?`, `createdByUserId?` (plain scalar, no relation). Relations: `lines`, `payments`, `jobs`/`visits`/`shifts` (each links back via its own `invoiceId`, SetNull), `recurringRuns`. Indexes `[customerId, status]`, `[status]`.
+A customer invoice for a period (added). `number` unique (`INV-#####`), `customerId`, `status InvoiceStatus` (DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt?`, `emailedAt?`, `dueAt?`, `subtotal`/`vatRate`/`vatAmount`/`total Decimal`, `currency`, `notes?`, `createdByUserId?` (plain scalar, no relation). Relations: `lines`, `payments`, `reminders`, `creditNotes`, `jobs`/`visits`/`shifts` (each links back via its own `invoiceId`, SetNull), `recurringRuns`. Indexes `[customerId, status]`, `[status]`.
 
 #### InvoiceLine
 One line on an invoice, grouped by service. `invoiceId` (cascade), `description`, `service?`, `quantity Int`, `unitAmount`, `amount Decimal`, `sortOrder`.
@@ -219,6 +219,15 @@ One occurrence of a `RecurringCharge` for a billing period. `recurringChargeId` 
 
 #### PayAdjustment
 A manual pay line for an officer, dated into a payslip period (added) — bonus / expense / holiday pay / deduction / correction. `officerId` (cascade to `User`), `date`, `kind` (free label), `label`, `amount Decimal(12,2)` (**signed** — negative subtracts), `note?`, `createdByUserId?`. Index `[officerId, date]`. Flows into the officer's payslip and the payroll net total.
+
+#### SupplierCost
+A bill / overhead we've incurred (added) — the purchase side of the ledger. `date` (tax point), `supplier`, `category` (free label), `description?`, `net`/`vatRate`/`vatAmount`/`gross Decimal`, `reference?`, `reclaimable Boolean` (input VAT reclaimable?), `notes?`, `createdByUserId?`. Indexes `[date]`, `[category]`. Feeds VAT Box 4/7 and true net profit.
+
+#### InvoiceReminder
+Log of an overdue-invoice reminder email (added). `invoiceId` (cascade), `stage` (`overdue_1`/`overdue_7`/`overdue_14`/`overdue_30`, or `manual`), `sentAt`, `toEmail`. `@@unique([invoiceId, stage])` so each dunning stage fires at most once. Index `[invoiceId]`.
+
+#### CreditNote
+Reduces what a customer owes (added) — correction, dispute, goodwill. `number` unique (`CN-#####`), `customerId` (restrict), `invoiceId?` (SetNull — the invoice it credits), `status CreditNoteStatus` (ISSUED/VOID), `issuedAt`, `reason`, `subtotal`/`vatRate`/`vatAmount`/`total Decimal`, `currency`, `notes?`, `createdByUserId?`. Indexes `[customerId, status]`, `[invoiceId]`. An ISSUED note reduces the invoice's receivables balance and nets off VAT Box 1/6.
 
 ### Partners
 
@@ -364,6 +373,7 @@ FK map (model → what it points at, via which field):
 | RateService | ALARM_RESPONSE, KEYHOLDING, LOCKUP, UNLOCK, VPI, PATROL, STATIC_GUARDING, DOG_HANDLER, ADHOC, ANNUAL_SUBSCRIPTION, SITE_SETUP | The priceable service on all four rate models. |
 | RateUnit | PER_VISIT, PER_HOUR, PER_MONTH, PER_YEAR, FIXED | How a rate amount is charged. |
 | InvoiceStatus | DRAFT, SENT, PAID, VOID | Customer invoice lifecycle. |
+| CreditNoteStatus | ISSUED, VOID | Credit note lifecycle. |
 | RecurringCadence | MONTHLY, QUARTERLY, ANNUAL, ONE_OFF | Billing frequency of a RecurringCharge. |
 | NotificationChannel | WHATSAPP, EMAIL, SMS | Delivery channel for Notification. |
 | NotificationKind | VISIT_STARTED, VISIT_COMPLETED, VISIT_LATE, VISIT_MISSED, ALARM_RECEIVED, KEY_HANDOVER, SHIFT_CHECK_OVERDUE, SHIFT_REMINDER, JOB_REMINDER, OFFICER_NO_SHOW, ALARM_CUSTOMER_ACK, PAY_SUMMARY, SHIFT_LINK, MISSED_CALL | Notification event type. |

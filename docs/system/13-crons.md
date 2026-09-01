@@ -1,6 +1,6 @@
 # Scheduled jobs (crons)
 
-> Ten Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
+> Eleven Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, chase overdue invoices daily, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
 
 ## Purpose & scope
 
@@ -26,6 +26,7 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 | `/api/cron/telegram-brief` | `0 7 * * *` | daily 07:00 | Broadcast today's schedule to linked dispatch on Telegram. | Telegram DMs (no DB writes). |
 | `/api/cron/upcoming-reminders` | `*/5 * * * *` | every 5 min | Text officers about shifts/jobs starting in 30–60 min. | `SHIFT_REMINDER`/`JOB_REMINDER` SMS rows (deduped). |
 | `/api/cron/pay-summary` | `0 9 1 * *` | 1st of month 09:00 | Text each active officer their prior-month pay total. | `PAY_SUMMARY` SMS rows (one per officer/month). |
+| `/api/cron/invoice-reminders` | `0 8 * * *` | daily 08:00 | Email customers whose `SENT` invoices have crossed an overdue threshold (1/7/14/30 days), highest unsent stage only. | Reminder emails + `InvoiceReminder` rows (one per invoice/stage). No-op until email is configured. |
 
 ## Per-cron mechanics
 
