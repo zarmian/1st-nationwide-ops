@@ -1,6 +1,6 @@
 # Finance: Billing, Rates & Pay
 
-> How 1st Nationwide Ops prices each activity for the customer, pays the attending officer, snapshots both amounts onto the activity row, and rolls them up into P&L, payroll and month-end pay-summary SMS — all driven by four rate-card models and one pure calculator (`src/lib/billing.ts`).
+> How 1st Nationwide Ops prices each activity for the customer, pays the attending officer, snapshots both amounts onto the activity row, and rolls them up into P&L, payroll, the month-end pay-summary SMS, **customer invoices (with VAT), partner reconciliation statements, and recurring/subscription billing** — all driven by four rate-card models and one pure calculator (`src/lib/billing.ts`).
 
 Cross-references: activity creation/completion in `06-dispatch-jobs-alarms.md`; the three partner relationship modes in `08-partners.md`; scheduled cron jobs in `13-crons.md`.
 
@@ -16,7 +16,7 @@ Finance answers three questions for every unit of work:
 
 The unit of work is a `Job`, a `PatrolVisit`, or a `Shift`. Each carries its own **finance snapshot** — amounts are computed once and frozen on the row so later rate-card edits never rewrite history. `/finance`, `/finance/payroll`, the CSV export and the pay-summary SMS all read those snapshots; they never re-derive prices at read time.
 
-Out of scope here: VAT/invoicing (not modelled), subscription (`ANNUAL_SUBSCRIPTION`) and one-off `SITE_SETUP` billing (priceable services with no `JobType` mapping — not auto-billed from activity).
+Now **in** scope (added after the original build): **customer invoicing with VAT** (`Invoice`/`InvoiceLine`), **partner reconciliation statements**, a **billing/pay exceptions** report, and **recurring/subscription billing** (`RecurringCharge` — retainers, subscriptions, one-off setup fees; independent of any `JobType`). Still out of scope: credit notes, invoice emailing / aged-debt tracking, accounting-package export, and multi-currency (GBP is assumed in roll-ups).
 
 ---
 
@@ -33,12 +33,23 @@ Four rate models, all keyed by `RateService` + `RateUnit` (see `01-data-model.md
 
 **Snapshot columns** live on the activity rows themselves:
 
-- `Job` / `PatrolVisit` / `Shift`: `billedAmount`, `billedCurrency`, `billedAt`, `payRateUnit`, `paidAmount`, `paidCurrency`, `paidAt`.
-- `Job` / `Shift` additionally: `partnerChargeToUsAmount`, `partnerOfficerPayAmount` (partner-side cost, set directly, not via the calculator).
+- `Job` / `PatrolVisit` / `Shift`: `billedAmount`, `billedCurrency`, `billedAt`, `payRateUnit`, `paidAmount`, `paidCurrency`, `paidAt`, plus `invoiceId` (set when the row is placed on a customer invoice — stops double-invoicing).
+- `Job` / `Shift` / `PatrolVisit`: `partnerChargeToUsAmount`, `partnerOfficerPayAmount` (partner-side cost, set directly, not via the calculator — visits capture it at materialisation from `PartnerRate`, keyed on the schedule kind).
 - `Shift` additionally: `payableMinutes` (worked minutes rounded up to the next 30-min block — the pay basis).
 
 `RateService` values: `ALARM_RESPONSE, KEYHOLDING, LOCKUP, UNLOCK, VPI, PATROL, STATIC_GUARDING, DOG_HANDLER, ADHOC, ANNUAL_SUBSCRIPTION, SITE_SETUP`.
 `RateUnit` values: `PER_VISIT, PER_HOUR, PER_MONTH, PER_YEAR, FIXED`.
+
+**Invoicing & recurring** (added — see `01-data-model.md`):
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `Invoice` | A customer invoice for a period | `number` (unique `INV-#####`), `status` (`InvoiceStatus`: DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt`, `dueAt`, `subtotal`, `vatRate`, `vatAmount`, `total` |
+| `InvoiceLine` | One line, grouped by service | `description`, `service`, `quantity`, `unitAmount`, `amount` |
+| `RecurringCharge` | A standing charge on a cadence | `customerId`, `amount`, `cadence` (`RecurringCadence`: MONTHLY/QUARTERLY/ANNUAL/ONE_OFF), `startDate`, `endDate`, `active` |
+| `RecurringChargeRun` | One occurrence of a recurring charge for a period | `periodKey` (`YYYY-MM` / `YYYY-Qn` / `YYYY` / `ONEOFF`), `amount`, `invoiceId`; `@@unique([recurringChargeId, periodKey])` |
+
+Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurring occurrences via `RecurringChargeRun.invoiceId`. Voiding an invoice unlinks its activities and deletes its runs, freeing everything to bill again.
 
 ---
 
@@ -61,6 +72,10 @@ Four rate models, all keyed by `RateService` + `RateUnit` (see `01-data-model.md
 | Rate editors | `src/app/(app)/admin/customers/[id]/rates/` (customer card), `src/app/(app)/sites/[id]/_components/SiteRatesEditor.tsx` + `_actions.ts` (site overrides), `src/app/(app)/admin/officer-rates/` (officer pay), `src/components/RateCardForm.tsx` (shared form). |
 | Create-time callers | `src/lib/scheduleSync.ts`, `src/lib/callouts.ts`, `src/app/(app)/dispatch/_actions.ts`, `.../dispatch/callouts/_actions.ts`, `.../onboarding/_actions.ts`, `.../patrols/_actions.ts`, `.../shifts/_actions.ts`, `src/lib/jobActions.ts`, `src/app/api/submissions/route.ts`, `src/app/duty/[token]/_actions.ts`, `src/app/api/telegram/webhook/route.ts`. |
 | Partner-side | `src/app/partner/activities/_actions.ts` — sets partner charge/pay directly from `PartnerRate` (`getPartnerRateForType`). |
+| Exceptions | `src/lib/financeExceptions.ts` + `src/app/(app)/finance/exceptions/page.tsx` — completed work with no bill / no officer pay. |
+| Invoicing | `src/lib/invoicing.ts` (preview / create / status), `src/lib/company.ts` (supplier details — **fill in for a valid VAT invoice**), `src/app/(app)/finance/invoices/**`; PDF `src/lib/reports/InvoicePdf.tsx` + `src/app/api/invoices/[id]/pdf/route.ts`. |
+| Partner statements | `src/lib/partnerStatement.ts`, `src/app/(app)/finance/partners/[id]/statement/page.tsx`; PDF `src/lib/reports/PartnerStatementPdf.tsx` + `src/app/api/partners/[id]/statement/pdf/route.ts`. |
+| Recurring | `src/lib/recurring.ts` (`periodsDue`, `dueRecurringLines` — unit-tested), `src/app/(app)/finance/recurring/**`; wired into `invoicing.ts`. |
 
 ---
 
@@ -113,6 +128,18 @@ When an activity is created **with a fixed unit and a known account**, billing +
 - **P&L by account** (customer / partner / unassigned): `profit = billed − paid`; for shifts, `partnerChargeToUsAmount` is folded into `paid` so profit reflects real outgoings whether an officer or a subcontractor did the work. Jobs fall back to the **site's** customer/partner when the job's own column is null.
 - Officer table (pay per officer), **two-sided partner** table (`asCustomer` = billed to them; `asSubcontractor` = billed to our end customer), top sites by revenue/activity, revenue by service and by region.
 
+### 7. Billing / pay exceptions (`/finance/exceptions`)
+`loadBillingExceptions(from, to)` (`financeExceptions.ts`) scans completed work in the window and flags rows with **no customer bill** (`billedAmount` null) or **no officer pay** (own officer attended, `paidAmount` null). Partner-billed rows are excluded so the list stays actionable. Read-only — the fix is a rate + **Bill missing**.
+
+### 8. Customer invoicing (`/finance/invoices`)
+`previewInvoice` / `createInvoice` (`invoicing.ts`) gather a customer's **completed, billed, un-invoiced** activity in a period (plus any due recurring charges — §10), group it into lines by service, apply one VAT rate, and create an `Invoice` (`INV-#####`) whose creation stamps every included activity + run with `invoiceId` in a transaction. Lifecycle `DRAFT → SENT` (stamps issue + due dates from `company.ts` terms) `→ PAID`, or `VOID` (unlinks activities, deletes runs). PDF via `InvoicePdf.tsx`. Amounts read the frozen snapshots — invoicing never re-prices.
+
+### 9. Partner statements (`/finance/partners/[id]/statement`)
+`loadPartnerStatement(partnerId, from, to)` (`partnerStatement.ts`) builds a two-sided reconciliation: **they owe us** (mode-2 work we billed them, `billedAmount`) vs **we owe them** (mode-3 jobs / shifts / patrol visits at `partnerChargeToUsAmount`), plus the net position. PDF via `PartnerStatementPdf.tsx`.
+
+### 10. Recurring / subscription billing (`/finance/recurring`)
+`periodsDue(charge, from, to)` (`recurring.ts`, unit-tested) computes the period keys a `RecurringCharge` is due for (MONTHLY/QUARTERLY/ANNUAL/ONE_OFF, respecting start/end); `dueRecurringLines` returns those not yet run. The invoice flow picks these up as lines and materialises one `RecurringChargeRun` per period (unique per charge + period, so never billed twice). Voiding an invoice deletes its runs.
+
 ---
 
 ## Business rules & invariants
@@ -143,16 +170,20 @@ When an activity is created **with a fixed unit and a known account**, billing +
 | Officer / partner drill-down | `/finance/officers/[id]`, `/finance/partners/[id]` | admin |
 | Payroll | `/finance/payroll`; CSV `GET /api/payroll/export?from&to` | admin |
 | Month-end pay SMS | `GET /api/cron/pay-summary` (cron secret; `?force=YYYY-MM` to override month) | cron |
+| Billing / pay exceptions | `/finance/exceptions?from&to` | admin |
+| Invoices | `/finance/invoices` (list), `/new` (preview → create), `/[id]` (detail + status); PDF `GET /api/invoices/[id]/pdf` | admin |
+| Partner statement | `/finance/partners/[id]/statement?from&to`; PDF `GET /api/partners/[id]/statement/pdf` | admin |
+| Recurring charges | `/finance/recurring` → `addRecurringCharge` / `toggleRecurringCharge` / `deleteRecurringCharge` | admin |
 
 ---
 
 ## Extension points & gotchas
 
-- **Payroll omits shift pay.** `buildPayrollReport` sums activity pay from `PatrolVisit` + `Job` only — **not** `Shift`. Yet `/api/cron/pay-summary` *does* include `Shift.paidAmount`, and `/finance` officer P&L includes shifts. An officer paid only via shifts shows £0 activity pay in the payroll CSV but a non-zero pay-summary SMS. Reconcile these when rebuilding.
+- **Payroll includes shift pay** (fixed). `buildPayrollReport` sums `PatrolVisit` + `Job` + `Shift` `paidAmount`, matching the pay-summary SMS and the `/finance` officer P&L. (This was a real bug — payroll excluded shifts, so a shift-only officer showed £0 on the CSV but non-zero elsewhere.)
 - **Currency is assumed GBP in roll-ups.** `payByOfficer` and the P&L aggregations hard-code `"GBP"`; mixed-currency data would mis-total. Snapshots do store `billedCurrency`/`paidCurrency`, so the data is there to fix this.
-- **"They did for us" only partially modelled.** For subcontracted jobs, `billedAmount` is what we charged the end customer; what we owe the partner is captured on `partnerChargeToUsAmount` **only** when the partner records/assigns the row (Phase 2). The `/finance/partners/[id]` "They invoiced us" column shows `—` until then.
+- **"They did for us" is captured for jobs, shifts AND patrol visits.** `partnerChargeToUsAmount` is snapshotted from `PartnerRate` — visits at materialisation (`scheduleSync`, keyed on schedule kind), jobs/shifts when the partner records/assigns. **Bill missing** backfills visit partner-charges on existing rows. The partner **statement** reconciles both sides; the older `/finance/partners/[id]` "They invoiced us" column still shows `—` until the partner-side row is recorded.
 - **Mixed create-time vs completion-time snapshots.** Fixed-unit scheduled jobs are billed at creation; PER_HOUR and duration-based work must wait for completion. `snapshotJobFinanceIfNeeded` only fills nulls, so a job whose rate changed after a partial snapshot won't self-correct without a `scope="all"` recompute.
-- **`no_rate` is silent.** A site with neither a site rate nor a customer default for the service produces no snapshot and simply doesn't appear in billed totals — it isn't flagged. After importing sites, run **Bill missing** and watch for `visitsScanned`/`jobsScanned` far exceeding `…Billed`.
+- **`no_rate` is silent — but now surfaced.** A site with neither a site rate nor a customer default produces no snapshot and doesn't appear in billed totals. `/finance/exceptions` lists exactly these ("No bill"); set the rate and run **Bill missing**. Also watch `visitsScanned`/`jobsScanned` far exceeding `…Billed` on a recompute.
 - **Recompute caps at 5000 rows per type per run.** Large historical backfills need windowing by date.
-- **`ANNUAL_SUBSCRIPTION` / `SITE_SETUP` have no `JobType`.** They are priceable on the rate cards but never auto-billed from an activity — recurring subscription revenue and setup fees would need a separate billing path.
+- **Subscriptions & setup fees bill via `RecurringCharge`** (not the activity path — they still have no `JobType`). Set them at `/finance/recurring`; each due period lands on the customer's next invoice. `ANNUAL_SUBSCRIPTION` also remains a `RateService`/`OfficerRate` unit for the officer monthly retainer.
 - **Duplicate service label maps.** `SERVICE_LABEL` lives in `rateMeta.ts` but several pages (`finance/page.tsx`, `finance/activities`, officer-rates) keep their own copies with slightly different wording (e.g. `ANNUAL_SUBSCRIPTION` = "Annual subscription" vs "Monthly retainer"). Consolidate on rebuild.

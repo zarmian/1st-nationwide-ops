@@ -1,6 +1,6 @@
 # Data Model
 
-> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **36 models and 35 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
+> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **40 models and 37 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
 
 Source of truth: `prisma/schema.prisma`. This document is a reference; field-level comments in the schema carry the authoritative business semantics.
 
@@ -114,7 +114,7 @@ A materialised patrol/VPI occurrence (created nightly by cron).
 - `scheduledAt`, `scheduleDate?` (UK-midnight accounting anchor; overnight visits stay grouped under the night they started).
 - Cancellation audit: `cancelledAt?`, `cancelledByUserId?`, `statusBeforeCancel VisitStatus?`.
 - Execution: `arrivedAt?`, `departedAt?`, `lat/lng?`, `locatedAt?`, `status VisitStatus`, `gpsLat/gpsLng?`, `photoUrls String[]`, `notes?`.
-- **Finance snapshot**: `billedAmount`, `billedCurrency`, `billedAt`, `payRateUnit`, `paidAmount`, `paidCurrency`, `paidAt`.
+- **Finance snapshot**: `billedAmount/Currency/At`, `paidAmount/Currency/At`, `payRateUnit`, plus `partnerChargeToUsAmount`/`partnerOfficerPayAmount` (subcontracted visits) and `invoiceId` (once invoiced).
 - Relations: `job` (1:1 back), `formSubmissions`. Indexes on `[siteId, scheduledAt]`, `[officerId, scheduledAt]`, partner, status.
 
 #### LockUnlockSchedule
@@ -132,7 +132,7 @@ The universal unit of dispatched work — alarm response, patrol, lock/unlock, k
 - Links (each unique): `alarmEventId?`, `patrolVisitId?`; plus `shiftId?` (SetNull).
 - Lifecycle: `scheduledFor?`, `startedAt?`, `completedAt?`, `lat/lng?`, `locatedAt?`; cancel audit `cancelledAt?`/`cancelledByUserId?`/`statusBeforeCancel?`.
 - Reporting flags: `reportedViaPartnerApp Boolean` (partner-app job → no ClientReport), `partnerReportRef?`, `recordedByUserId?` (dispatcher-typed → lands APPROVED), `excludeFromClientReport Boolean`.
-- **Finance snapshot**: `billedAmount/Currency/At`, `paidAmount/Currency/At`, `payRateUnit`.
+- **Finance snapshot**: `billedAmount/Currency/At`, `paidAmount/Currency/At`, `payRateUnit`, `partnerChargeToUsAmount`/`partnerOfficerPayAmount` (partner-handled), and `invoiceId` (once invoiced).
 - Relation: `formSubmissions`. Many indexes incl. `[siteId, status]`, `[assignedToUserId, status]`, customer, partner, handler, pipeline, scheduledFor, status, shift.
 
 #### AlarmEvent
@@ -151,7 +151,7 @@ A static-guarding or dog-handler duty period (own lifecycle, its own finance sna
 - Duty link (public, login-free): `publicToken?` unique, `officerNameRaw?`, `linkPhone?`.
 - GPS at start/end: `startLat/Lng`, `startGpsAccuracy`, `startDistanceM`, `startWithinGeofence?` (+ matching `end*`).
 - `endedLate Boolean`, `lateReason?`, `payableMinutes Int?` (worked minutes rounded **up** to the next 30-min block — the pay basis).
-- **Finance snapshot**: `billedAmount/Currency/At`, `paidAmount/Currency/At`, `payRateUnit` (paid stays null for partner-handled — cost lives on `partnerChargeToUsAmount`).
+- **Finance snapshot**: `billedAmount/Currency/At`, `paidAmount/Currency/At`, `payRateUnit`, `partnerChargeToUsAmount`/`partnerOfficerPayAmount` (paid stays null for partner-handled — cost lives on the partner columns), and `invoiceId` (once invoiced).
 - Relations: `formSubmissions`, `jobs`. Indexes on `[siteId, scheduledStartsAt]`, `[officerId, scheduledStartsAt]`, partner, status.
 
 #### JobTypeOption
@@ -200,7 +200,19 @@ Customer-level **default** rate card — same shape as `SiteRate`, keyed `@@uniq
 What we **pay** an officer per service. `officerId?` (null = company default), `service`, `amount`, `unit`, `includedMinutes?`, `excessRatePerMin?`, `validFrom/To?`. `@@unique([officerId, service])`. Per-officer beats company default. A `PER_MONTH` / `ANNUAL_SUBSCRIPTION` row is treated as the monthly retainer by payroll.
 
 #### PartnerRate
-Partner rate card — both sides in one row. `partnerId` (cascade), `service`, `chargeToUs Decimal(10,2)`, `payToOfficer Decimal(10,2)`, `currency`, `unit`. `@@unique([partnerId, service])`. Auto-fills partner-recorded activity finance fields.
+Partner rate card — both sides in one row. `partnerId` (cascade), `service`, `chargeToUs Decimal(10,2)`, `payToOfficer Decimal(10,2)`, `currency`, `unit`. `@@unique([partnerId, service])`. Auto-fills partner-recorded activity finance fields (and subcontracted patrol visits, snapshotted at materialisation).
+
+#### Invoice
+A customer invoice for a period (added). `number` unique (`INV-#####`), `customerId`, `status InvoiceStatus` (DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt?`, `dueAt?`, `subtotal`/`vatRate`/`vatAmount`/`total Decimal`, `currency`, `notes?`, `createdByUserId?` (plain scalar, no relation). Relations: `lines`, `jobs`/`visits`/`shifts` (each links back via its own `invoiceId`, SetNull), `recurringRuns`. Indexes `[customerId, status]`, `[status]`.
+
+#### InvoiceLine
+One line on an invoice, grouped by service. `invoiceId` (cascade), `description`, `service?`, `quantity Int`, `unitAmount`, `amount Decimal`, `sortOrder`.
+
+#### RecurringCharge
+A standing charge billed to a customer on a cadence (added) — retainers, subscriptions, setup fees. `customerId` (cascade), `description`, `service?`, `amount Decimal(10,2)`, `currency`, `cadence RecurringCadence`, `startDate`, `endDate?`, `active`, `notes?`. Relation `runs`. Index `[customerId, active]`.
+
+#### RecurringChargeRun
+One occurrence of a `RecurringCharge` for a billing period. `recurringChargeId` (cascade), `periodKey` (`YYYY-MM` / `YYYY-Qn` / `YYYY` / `ONEOFF`), `amount`, `invoiceId?` (SetNull). `@@unique([recurringChargeId, periodKey])` — a period can never bill twice. Index `[invoiceId]`.
 
 ### Partners
 
@@ -345,6 +357,8 @@ FK map (model → what it points at, via which field):
 | AlarmOutcome | FALSE_ALARM, GENUINE, RESOLVED, ESCALATED_TO_POLICE, OTHER | How an alarm was resolved. |
 | RateService | ALARM_RESPONSE, KEYHOLDING, LOCKUP, UNLOCK, VPI, PATROL, STATIC_GUARDING, DOG_HANDLER, ADHOC, ANNUAL_SUBSCRIPTION, SITE_SETUP | The priceable service on all four rate models. |
 | RateUnit | PER_VISIT, PER_HOUR, PER_MONTH, PER_YEAR, FIXED | How a rate amount is charged. |
+| InvoiceStatus | DRAFT, SENT, PAID, VOID | Customer invoice lifecycle. |
+| RecurringCadence | MONTHLY, QUARTERLY, ANNUAL, ONE_OFF | Billing frequency of a RecurringCharge. |
 | NotificationChannel | WHATSAPP, EMAIL, SMS | Delivery channel for Notification. |
 | NotificationKind | VISIT_STARTED, VISIT_COMPLETED, VISIT_LATE, VISIT_MISSED, ALARM_RECEIVED, KEY_HANDOVER, SHIFT_CHECK_OVERDUE, SHIFT_REMINDER, JOB_REMINDER, OFFICER_NO_SHOW, ALARM_CUSTOMER_ACK, PAY_SUMMARY, SHIFT_LINK, MISSED_CALL | Notification event type. |
 | NotificationStatus | PENDING, SENT, FAILED, SKIPPED | Notification queue state. |
