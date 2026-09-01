@@ -894,7 +894,7 @@ export default async function FinancePage({
             labels={trendLabels}
             height={168}
             ariaLabel="Daily billed revenue over the last 14 days"
-            format={(n) => fmtMoney(n)}
+            displayValues={dailyBilled.map((n) => fmtMoney(n))}
           />
         </div>
       </div>
