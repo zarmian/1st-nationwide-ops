@@ -1,6 +1,6 @@
 # Data Model
 
-> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **40 models and 37 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
+> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **42 models and 37 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
 
 Source of truth: `prisma/schema.prisma`. This document is a reference; field-level comments in the schema carry the authoritative business semantics.
 
@@ -203,16 +203,22 @@ What we **pay** an officer per service. `officerId?` (null = company default), `
 Partner rate card — both sides in one row. `partnerId` (cascade), `service`, `chargeToUs Decimal(10,2)`, `payToOfficer Decimal(10,2)`, `currency`, `unit`. `@@unique([partnerId, service])`. Auto-fills partner-recorded activity finance fields (and subcontracted patrol visits, snapshotted at materialisation).
 
 #### Invoice
-A customer invoice for a period (added). `number` unique (`INV-#####`), `customerId`, `status InvoiceStatus` (DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt?`, `dueAt?`, `subtotal`/`vatRate`/`vatAmount`/`total Decimal`, `currency`, `notes?`, `createdByUserId?` (plain scalar, no relation). Relations: `lines`, `jobs`/`visits`/`shifts` (each links back via its own `invoiceId`, SetNull), `recurringRuns`. Indexes `[customerId, status]`, `[status]`.
+A customer invoice for a period (added). `number` unique (`INV-#####`), `customerId`, `status InvoiceStatus` (DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt?`, `emailedAt?`, `dueAt?`, `subtotal`/`vatRate`/`vatAmount`/`total Decimal`, `currency`, `notes?`, `createdByUserId?` (plain scalar, no relation). Relations: `lines`, `payments`, `jobs`/`visits`/`shifts` (each links back via its own `invoiceId`, SetNull), `recurringRuns`. Indexes `[customerId, status]`, `[status]`.
 
 #### InvoiceLine
 One line on an invoice, grouped by service. `invoiceId` (cascade), `description`, `service?`, `quantity Int`, `unitAmount`, `amount Decimal`, `sortOrder`.
+
+#### InvoicePayment
+A payment (or part payment) received against an invoice. `invoiceId` (cascade), `amount Decimal(12,2)`, `paidOn`, `method?`, `reference?`, `notes?`, `createdByUserId?`. Index `[invoiceId]`. The invoice auto-flips to `PAID` once its payments cover `total` (and back to `SENT` if one is deleted).
 
 #### RecurringCharge
 A standing charge billed to a customer on a cadence (added) — retainers, subscriptions, setup fees. `customerId` (cascade), `description`, `service?`, `amount Decimal(10,2)`, `currency`, `cadence RecurringCadence`, `startDate`, `endDate?`, `active`, `notes?`. Relation `runs`. Index `[customerId, active]`.
 
 #### RecurringChargeRun
 One occurrence of a `RecurringCharge` for a billing period. `recurringChargeId` (cascade), `periodKey` (`YYYY-MM` / `YYYY-Qn` / `YYYY` / `ONEOFF`), `amount`, `invoiceId?` (SetNull). `@@unique([recurringChargeId, periodKey])` — a period can never bill twice. Index `[invoiceId]`.
+
+#### PayAdjustment
+A manual pay line for an officer, dated into a payslip period (added) — bonus / expense / holiday pay / deduction / correction. `officerId` (cascade to `User`), `date`, `kind` (free label), `label`, `amount Decimal(12,2)` (**signed** — negative subtracts), `note?`, `createdByUserId?`. Index `[officerId, date]`. Flows into the officer's payslip and the payroll net total.
 
 ### Partners
 
