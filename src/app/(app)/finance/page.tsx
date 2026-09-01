@@ -723,6 +723,9 @@ export default async function FinancePage({
             <Link href="/finance/receivables" className="btn-secondary text-sm">
               Receivables →
             </Link>
+            <Link href="/finance/vat" className="btn-secondary text-sm">
+              VAT return →
+            </Link>
             <Link href="/finance/recurring" className="btn-secondary text-sm">
               Recurring →
             </Link>
