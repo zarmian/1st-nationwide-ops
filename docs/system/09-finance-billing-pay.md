@@ -1,6 +1,6 @@
 # Finance: Billing, Rates & Pay
 
-> How 1st Nationwide Ops prices each activity for the customer, pays the attending officer, snapshots both amounts onto the activity row, and rolls them up into P&L, payroll, the month-end pay-summary SMS, **customer invoices (with VAT) that can be emailed and part-paid, an aged-debt/receivables report, a VAT-return summary, partner reconciliation statements, recurring/subscription billing, officer payslips with manual pay adjustments, and CSV exports for the accountant** — all driven by four rate-card models and one pure calculator (`src/lib/billing.ts`).
+> How 1st Nationwide Ops prices each activity for the customer, pays the attending officer, snapshots both amounts onto the activity row, and rolls them up into P&L, payroll, the month-end pay-summary SMS, **customer invoices (with VAT) that can be emailed, part-paid and auto-chased, an aged-debt/receivables report, a full VAT-return summary (output _and_ input VAT), supplier-cost tracking, credit notes, customer account statements, partner reconciliation statements, recurring/subscription billing, officer payslips with manual pay adjustments, and CSV exports for the accountant** — all driven by four rate-card models and one pure calculator (`src/lib/billing.ts`).
 
 Cross-references: activity creation/completion in `06-dispatch-jobs-alarms.md`; the three partner relationship modes in `08-partners.md`; scheduled cron jobs in `13-crons.md`.
 
@@ -16,7 +16,7 @@ Finance answers three questions for every unit of work:
 
 The unit of work is a `Job`, a `PatrolVisit`, or a `Shift`. Each carries its own **finance snapshot** — amounts are computed once and frozen on the row so later rate-card edits never rewrite history. `/finance`, `/finance/payroll`, the CSV export and the pay-summary SMS all read those snapshots; they never re-derive prices at read time.
 
-Now **in** scope (added after the original build): **customer invoicing with VAT** (`Invoice`/`InvoiceLine`) that can be **emailed to the customer** and **part-paid** (`InvoicePayment`), an **aged-debt / receivables** report, a **VAT-return summary**, **partner reconciliation statements**, a **billing/pay exceptions** report, **recurring/subscription billing** (`RecurringCharge` — retainers, subscriptions, one-off setup fees; independent of any `JobType`), **officer payslips** (PDF + email) with **manual pay adjustments** (`PayAdjustment`), and **CSV exports** (sales / payments / payroll) for the accountant. Still out of scope: credit notes, purchase-side (input) VAT, and multi-currency (GBP is assumed in roll-ups).
+Now **in** scope (added after the original build): **customer invoicing with VAT** (`Invoice`/`InvoiceLine`) that can be **emailed** and **part-paid** (`InvoicePayment`) and **auto-chased when overdue** (`InvoiceReminder`, a daily cron); an **aged-debt / receivables** report; a **VAT-return summary** with both **output VAT (sales)** and **input VAT (from `SupplierCost`)**; **supplier-cost tracking** (bills/overheads → true net profit); **credit notes** (`CreditNote`); **customer account statements**; **partner reconciliation statements**; a **billing/pay exceptions** report; **recurring/subscription billing** (`RecurringCharge` — retainers, subscriptions, one-off setup fees; independent of any `JobType`); **officer payslips** (PDF + email) with **manual pay adjustments** (`PayAdjustment`); and **CSV exports** (sales / payments / costs / payroll) for the accountant. Still out of scope: supplier-payment tracking (bills are recorded, not marked paid) and multi-currency (GBP is assumed in roll-ups).
 
 ---
 
@@ -58,6 +58,14 @@ Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurrin
 | --- | --- | --- |
 | `PayAdjustment` | A manual pay line for an officer, dated into a payslip period | `officerId` (cascade), `date`, `kind` (free label — Bonus / Expense / Holiday pay / Deduction / Correction / Other), `label`, `amount` (**signed** — negative subtracts), `note` |
 
+**Costs, reminders & credit notes** (round-3 additions):
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `SupplierCost` | A bill / overhead we've incurred (purchase side) | `date` (tax point), `supplier`, `category` (free label), `net`/`vatRate`/`vatAmount`/`gross`, `reclaimable` (input VAT reclaimable?), `reference` |
+| `InvoiceReminder` | Log of an overdue-invoice reminder email | `invoiceId` (cascade), `stage` (`overdue_1/7/14/30` or `manual`), `sentAt`, `toEmail`; `@@unique([invoiceId, stage])` so each stage fires once |
+| `CreditNote` | Reduces what a customer owes | `number` (unique `CN-#####`), `customerId`, `invoiceId?` (SetNull), `status` (`CreditNoteStatus`: ISSUED/VOID), `issuedAt`, `reason`, `subtotal`/`vatRate`/`vatAmount`/`total` |
+
 ---
 
 ## Key files
@@ -72,6 +80,10 @@ Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurrin
 | `src/lib/vatReturn.ts` | `loadVatReturn` (output VAT by invoice/tax-point date → Box 1 + Box 6, by-rate split) + `calendarQuarter`/`recentQuarters` (unit-tested). |
 | `src/lib/accountingExport.ts` | Sales + payments CSV — pure row formatters (unit-tested) + loaders. |
 | `src/lib/email.ts` | Resend wrapper (`isEmailConfigured`/`sendEmail`) — no-op until `RESEND_API_KEY` is set, mirroring `sms.ts`. |
+| `src/lib/costs.ts` | `loadCosts` (period ledger + by-category) + `loadInputVat` (Box 4/7 for the VAT return). |
+| `src/lib/reminders.ts` | Dunning: `REMINDER_STAGES`, `stageForDaysOverdue` (unit-tested), `computeDueReminders`, `sendDueReminders` (cron), `sendManualReminder`. |
+| `src/lib/creditNotes.ts` | `createCreditNote`/`voidCreditNote` + PDF data loader. |
+| `src/lib/customerStatement.ts` | `loadCustomerStatement` (opening balance + running balance) + `runningBalance` (unit-tested) + `sendCustomerStatementEmail`. |
 | `src/lib/rateMeta.ts` | Canonical service/unit lists, labels (`SERVICE_LABEL`, `UNIT_LABEL`), `fmtMoney`, `RateFormState`. |
 | `src/lib/rateInput.ts` | Zod `RateCardInput` + `parseRateForm` + `rateData` — shared validation/shaping for the `SiteRate`/`CustomerRate` editors. |
 | `src/app/(app)/finance/page.tsx` | Finance dashboard — KPIs, 14-day trend, revenue by service/region, P&L by account, top sites, officer & partner tables. |
@@ -89,7 +101,11 @@ Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurrin
 | Receivables | `src/lib/receivables.ts`, `src/app/(app)/finance/receivables/page.tsx`. |
 | VAT return | `src/lib/vatReturn.ts`, `src/app/(app)/finance/vat/page.tsx`. |
 | Payslips | `src/lib/payslip.ts`, `src/app/(app)/finance/officers/[id]/payslip/**`; PDF `src/lib/reports/PayslipPdf.tsx` + `src/app/api/officers/[id]/payslip/pdf/route.ts`. |
-| Accounting export | `src/lib/accountingExport.ts`, `src/app/(app)/finance/export/page.tsx`, `src/app/api/finance/export/{invoices,payments}/route.ts`. |
+| Accounting export | `src/lib/accountingExport.ts`, `src/app/(app)/finance/export/page.tsx`, `src/app/api/finance/export/{invoices,payments,costs}/route.ts`. |
+| Supplier costs | `src/lib/costs.ts`, `src/app/(app)/finance/costs/**`. |
+| Reminders (dunning) | `src/lib/reminders.ts`, `src/app/api/cron/invoice-reminders/route.ts`; manual button `InvoiceReminderButton.tsx`. |
+| Credit notes | `src/lib/creditNotes.ts`, `src/app/(app)/finance/credit-notes/**`; PDF `src/lib/reports/CreditNotePdf.tsx` + `src/app/api/credit-notes/[id]/pdf/route.ts`. |
+| Customer statements | `src/lib/customerStatement.ts`, `src/app/(app)/finance/statements/page.tsx` + `.../customers/[id]/statement/**`; PDF `src/lib/reports/CustomerStatementPdf.tsx` + `src/app/api/customers/[id]/statement/pdf/route.ts`. |
 | Partner statements | `src/lib/partnerStatement.ts`, `src/app/(app)/finance/partners/[id]/statement/page.tsx`; PDF `src/lib/reports/PartnerStatementPdf.tsx` + `src/app/api/partners/[id]/statement/pdf/route.ts`. |
 | Recurring | `src/lib/recurring.ts` (`periodsDue`, `dueRecurringLines` — unit-tested), `src/app/(app)/finance/recurring/**`; wired into `invoicing.ts`. |
 
@@ -160,7 +176,19 @@ When an activity is created **with a fixed unit and a known account**, billing +
 `loadVatReturn(from, to)` (`vatReturn.ts`) sums **output VAT** on issued invoices by **invoice (tax-point) date** — **Box 1** (`Σ vatAmount`) and **Box 6** (`Σ subtotal`) — with a split by VAT rate and the invoice-level breakdown. Drafts and voided invoices are excluded. Calendar-quarter presets via `recentQuarters`. Output VAT only — purchase-side input VAT isn't tracked; the page says so.
 
 ### 8c. Accounting export (`/finance/export`)
-`accountingExport.ts` produces period-scoped CSVs: **sales** (one row per issued invoice by tax-point date — net/VAT/gross/paid/balance) and **payments received** (one row per `InvoicePayment` by payment date, for bank rec), alongside the existing **payroll** CSV. Every cell is quoted; dates are ISO 8601. Pure row formatters are unit-tested; loaders read frozen figures.
+`accountingExport.ts` produces period-scoped CSVs: **sales** (one row per issued invoice by tax-point date — net/VAT/gross/paid/balance), **payments received** (one row per `InvoicePayment` by payment date, for bank rec), and **supplier costs** (one row per bill, with the reclaimable flag), alongside the existing **payroll** CSV. Every cell is quoted; dates are ISO 8601. Pure row formatters are unit-tested; loaders read frozen figures.
+
+### 8d. Supplier costs + input VAT (`/finance/costs`)
+`costs.ts` records the **purchase side**: `SupplierCost` bills (subcontractors, fuel, vehicles, kit, insurance …) with net / VAT / gross, a category and a **reclaimable** flag; VAT + gross are derived from `net × rate`. `loadCosts(from, to)` totals them with a by-category split; `loadInputVat(from, to)` feeds the VAT return **Box 4** (reclaimable VAT) and **Box 7** (net purchases). The VAT return then also shows **Box 5** = Box 1 − Box 4 (net VAT to pay, or a reclaim), and `/finance` gains a true **Net profit** line = gross margin − net overheads.
+
+### 8e. Overdue-invoice reminders / dunning (`/api/cron/invoice-reminders`)
+`reminders.ts` chases unpaid invoices. The daily cron (08:00 UK) emails the customer for each `SENT` invoice with an outstanding balance that has crossed a dunning threshold (**1 / 7 / 14 / 30 days** overdue), sending only the **highest applicable unsent stage** — so a newly-tracked, already-overdue invoice gets one reminder, not a burst. `InvoiceReminder`'s `@@unique([invoiceId, stage])` guarantees one send per stage. A manual **Send reminder** button (`sendManualReminder`) chases on demand; last-reminded shows on the invoice and the receivables list. No-op until email is configured; missing customer emails are skipped.
+
+### 8f. Credit notes (`/finance/credit-notes`)
+`creditNotes.ts` issues a `CreditNote` (`CN-#####`) — a net + VAT amount with a reason, optionally linked to the invoice it credits (create it from the invoice's **Credit note** button or standalone). An ISSUED credit note **reduces the linked invoice's receivables balance** (§8a) and **nets off output VAT (Box 1) and sales (Box 6)** on the VAT return by issue date, adjusting the matching by-rate bucket. **Void** reverses both. PDF via `CreditNotePdf.tsx`.
+
+### 8g. Customer statements (`/finance/statements`)
+`customerStatement.ts` builds a per-customer **statement of account**: an opening balance (everything dated before the window) plus in-period invoices (+), payments (−) and credit notes (−) with a **running balance** (`runningBalance`, unit-tested) → closing balance, so it always reconciles. A chooser at `/finance/statements` lists customers with their outstanding balance; each statement has a period picker, PDF (`CustomerStatementPdf.tsx`) and **email to customer**.
 
 ### 9. Partner statements (`/finance/partners/[id]/statement`)
 `loadPartnerStatement(partnerId, from, to)` (`partnerStatement.ts`) builds a two-sided reconciliation: **they owe us** (mode-2 work we billed them, `billedAmount`) vs **we owe them** (mode-3 jobs / shifts / patrol visits at `partnerChargeToUsAmount`), plus the net position. PDF via `PartnerStatementPdf.tsx`.
@@ -204,7 +232,11 @@ When an activity is created **with a fixed unit and a known account**, billing +
 | Billing / pay exceptions | `/finance/exceptions?from&to` | admin |
 | Invoices | `/finance/invoices` (list), `/new` (preview → create), `/[id]` (detail + status + payments + email); PDF `GET /api/invoices/[id]/pdf` | admin |
 | Receivables (aged debt) | `/finance/receivables` | admin |
-| VAT return | `/finance/vat?from&to` | admin |
+| VAT return | `/finance/vat?from&to` (output + input VAT, Box 1/4/5/6/7) | admin |
+| Supplier costs | `/finance/costs?from&to` → `addCostAction` / `deleteCostAction` | admin |
+| Credit notes | `/finance/credit-notes` (list), `/new` (create), `/[id]` (detail + void); PDF `GET /api/credit-notes/[id]/pdf` | admin |
+| Customer statements | `/finance/statements` (chooser), `/finance/customers/[id]/statement?from&to`; PDF `GET /api/customers/[id]/statement/pdf` | admin |
+| Overdue reminders | `GET /api/cron/invoice-reminders` (cron secret; daily 08:00 UK) + manual button on a sent invoice | cron / admin |
 | Payslips | `/finance/officers/[id]/payslip?from&to` (+ add/delete adjustments, email); PDF `GET /api/officers/[id]/payslip/pdf?from&to` | admin |
 | Accounting export | `/finance/export` → CSV `GET /api/finance/export/{invoices,payments}?from&to` (+ `/api/payroll/export`) | admin |
 | Partner statement | `/finance/partners/[id]/statement?from&to`; PDF `GET /api/partners/[id]/statement/pdf` | admin |
@@ -226,3 +258,7 @@ When an activity is created **with a fixed unit and a known account**, billing +
 - **"Mark paid" vs recorded payments.** The invoice status buttons still expose a manual **Mark paid** override; using it sets `PAID` without an `InvoicePayment`, so the payments card shows a full balance while the chip says paid. Prefer **Record payment** when you want the balance and the receivables/aged-debt figures to be right.
 - **Receivables/VAT are invoice-date based, not cash.** Receivables ages by `dueAt`; the VAT return uses the invoice (tax-point) date. Businesses on the VAT cash-accounting scheme owe VAT when paid — the page flags this. The **payments** export is the cash-basis companion.
 - **Payslip reconciles with payroll by construction** — both call the same retainer + paid-activity rules. If you change one, change the other (or extract the shared roll-up).
+- **Costs use net for profit, reclaimable-only for Box 4.** `/finance` net profit deducts **net** supplier costs (VAT is passed through); the VAT return's Box 4 counts only costs flagged `reclaimable`. A cost's VAT + gross are derived from `net × rate` at save time — edit means delete + re-add.
+- **Reminders send the highest unsent stage, never a backlog.** Adding the feature to a 90-days-overdue invoice sends one `overdue_30` reminder, then stops (no threshold beyond 30). The daily cron is safe to re-run; `@@unique([invoiceId, stage])` dedupes.
+- **Credit notes and receivables/VAT.** A credit note only counts when `ISSUED`; voiding it reverses the balance reduction and the VAT net-off. The receivables `paid` column still shows payments only, so with a credit note `total − paid ≠ balance` by the credited amount — the **balance** is the correct figure.
+- **Statements are computed, never stored.** `loadCustomerStatement` derives the opening/closing balance from live invoices/payments/credit notes each time, so a back-dated edit is reflected immediately; there's no period-close snapshot.

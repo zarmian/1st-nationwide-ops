@@ -16,7 +16,7 @@ This folder (`docs/system/`) is a **module-by-module reference** written so the 
 | **Dispatch / Jobs** | One universal `Job` record for every callout, patrol, lock/unlock, VPI, alarm response. Live board + history. |
 | **Officer reports** | One permanent public URL (`/submit`); officer picks a site + job type and fills a dynamic form. |
 | **Review & client reports** | Admin reviews submissions and issues the customer report (PDF/email). |
-| **Finance** | Customer billing + officer pay, snapshotted per activity; P&L, payroll, **invoicing (VAT) with email + payments + aged debt, VAT-return summary, officer payslips + pay adjustments, partner statements, recurring billing, accounting exports** and a billing-exceptions report. |
+| **Finance** | Customer billing + officer pay, snapshotted per activity; P&L, payroll, **invoicing (VAT) with email + payments + aged debt + auto-reminders, VAT return (output + input VAT), supplier costs, credit notes, customer + partner statements, officer payslips + pay adjustments, recurring billing, accounting exports** and a billing-exceptions report. |
 | **Partners** | Three simultaneous relationship modes (see §3). |
 | **Notifications** | Unified queue → WhatsApp, SMS, and Telegram broadcast to dispatch. |
 | **Telegram bot** | Conversational dispatch assistant with an AI intent router. |
@@ -29,7 +29,7 @@ The full module map is in [`README.md`](./README.md).
 ## 2. Tech stack & architecture
 
 - **Next.js 14 (App Router) + TypeScript** — server components by default; `"use client"` only where interaction demands it; **server actions** (`_actions.ts`) for mutations.
-- **Prisma ORM** over **Postgres on Supabase** (EU-West / London). 42 models — see [`01-data-model.md`](./01-data-model.md).
+- **Prisma ORM** over **Postgres on Supabase** (EU-West / London). 45 models — see [`01-data-model.md`](./01-data-model.md).
 - **NextAuth v4** — email + password (bcrypt). Session augmented with `role` + `partnerId`. See [`02-access-auth-roles.md`](./02-access-auth-roles.md).
 - **Tailwind CSS** with brand tokens (`brand-blue` `#3B82F6`, `brand-navy` `#0F1929`) and a small primitive layer (`.btn`, `.input`, `.card`, `.table-default`…) in `src/app/globals.css`. See [`14-conventions-and-ui.md`](./14-conventions-and-ui.md).
 - **Vercel** hosting; auto-deploy from `main`. Build runs `prisma generate && prisma migrate deploy && next build`, so **every schema change needs a matching migration**. See [`15-deployment-and-ops.md`](./15-deployment-and-ops.md).
@@ -49,7 +49,7 @@ Side effects (notifications, PDFs) are fire-and-forget or queued, never block th
 
 ```
 prisma/
-├── schema.prisma            # the data model (42 models, 37 enums)
+├── schema.prisma            # the data model (45 models, 38 enums)
 ├── migrations/              # applied in order by `prisma migrate deploy`
 └── seed.ts                  # CSV import + baseline seed
 src/
