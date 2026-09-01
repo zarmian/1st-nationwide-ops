@@ -21,6 +21,8 @@ export type CostRowView = {
   gross: number;
   reference: string | null;
   reclaimable: boolean;
+  dueOn: string | null; // ISO
+  paidOn: string | null; // ISO
   notes: string | null;
 };
 
@@ -63,6 +65,7 @@ export function CostsEditor({
   const [vatRate, setVatRate] = useState(VAT_RATES[0].v);
   const [reclaimable, setReclaimable] = useState(true);
   const [reference, setReference] = useState("");
+  const [dueOn, setDueOn] = useState("");
   const [description, setDescription] = useState("");
 
   const netNum = Number(net);
@@ -90,12 +93,14 @@ export function CostsEditor({
         vatRate: Number(vatRate),
         reclaimable,
         reference,
+        dueOn: dueOn || null,
       });
       if (res.ok) {
         toast.show({ tone: "success", message: "Cost added." });
         setSupplier("");
         setNet("");
         setReference("");
+        setDueOn("");
         setDescription("");
         router.refresh();
       } else {
@@ -138,6 +143,7 @@ export function CostsEditor({
                 <th className="col-num">Net</th>
                 <th className="col-num">VAT</th>
                 <th className="col-num">Gross</th>
+                <th>Status</th>
                 <th className="w-10" aria-label="Actions"></th>
               </tr>
             </thead>
@@ -171,6 +177,15 @@ export function CostsEditor({
                     ) : null}
                   </td>
                   <td className="col-num font-medium">{formatMoney(c.gross)}</td>
+                  <td className="whitespace-nowrap">
+                    {c.paidOn ? (
+                      <span className="chip-green">Paid</span>
+                    ) : (
+                      <span className="chip-amber">
+                        Owed{c.dueOn ? ` · due ${formatDate(c.dueOn)}` : ""}
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <button
                       type="button"
@@ -283,6 +298,18 @@ export function CostsEditor({
               onChange={(e) => setReference(e.target.value)}
               className="input"
               placeholder="Supplier invoice no."
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="c-due">
+              Due date
+            </label>
+            <input
+              id="c-due"
+              type="date"
+              value={dueOn}
+              onChange={(e) => setDueOn(e.target.value)}
+              className="input"
             />
           </div>
           <div className="sm:col-span-2 lg:col-span-1">

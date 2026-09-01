@@ -1572,6 +1572,11 @@ model SupplierCost {
   gross           Decimal  @db.Decimal(12, 2)
   reference       String?
   reclaimable     Boolean  @default(true)
+  /// When this bill is due to be paid (for the payables ageing + cash-flow
+  /// forecast). Null = no due date recorded (treated as due on the bill date).
+  dueOn           DateTime?
+  /// When we actually paid it. Null = still outstanding (owed).
+  paidOn          DateTime?
   notes           String?
   createdByUserId String?  @db.Uuid
   createdAt       DateTime @default(now())
@@ -1579,6 +1584,7 @@ model SupplierCost {
 
   @@index([date])
   @@index([category])
+  @@index([paidOn])
 }
 
 model InvoiceLine {

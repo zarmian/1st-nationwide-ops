@@ -17,11 +17,13 @@ export async function addCostAction(input: {
   vatRate: number;
   reclaimable: boolean;
   reference?: string | null;
+  dueOn?: string | null;
   notes?: string | null;
 }): Promise<{ ok: boolean; error?: string }> {
   const u = await requireAdmin();
   const date = parseIsoDate(input.date);
   if (!date) return { ok: false, error: "Pick the bill date." };
+  const dueOn = input.dueOn ? parseIsoDate(input.dueOn) : null;
   const supplier = input.supplier?.trim();
   if (!supplier) return { ok: false, error: "Enter the supplier's name." };
   if (!Number.isFinite(input.net) || input.net < 0) {
@@ -45,6 +47,7 @@ export async function addCostAction(input: {
         gross,
         reference: input.reference?.trim() || null,
         reclaimable: input.reclaimable,
+        dueOn,
         notes: input.notes?.trim() || null,
         createdByUserId: u.id,
       },
@@ -55,6 +58,41 @@ export async function addCostAction(input: {
   }
   revalidatePath("/finance/costs");
   revalidatePath("/finance/vat");
+  revalidatePath("/finance/payables");
+  return { ok: true };
+}
+
+/** Mark a supplier bill paid (defaults to today) — clears it from payables. */
+export async function markCostPaidAction(
+  id: string,
+  paidOn?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  const when = (paidOn ? parseIsoDate(paidOn) : null) ?? new Date();
+  try {
+    await prisma.supplierCost.update({ where: { id }, data: { paidOn: when } });
+  } catch (e) {
+    console.error("markCostPaid failed", e);
+    return { ok: false, error: "Couldn't update the bill. Please retry." };
+  }
+  revalidatePath("/finance/payables");
+  revalidatePath("/finance/costs");
+  return { ok: true };
+}
+
+/** Mark a paid bill back to unpaid — returns it to payables. */
+export async function markCostUnpaidAction(
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  try {
+    await prisma.supplierCost.update({ where: { id }, data: { paidOn: null } });
+  } catch (e) {
+    console.error("markCostUnpaid failed", e);
+    return { ok: false, error: "Couldn't update the bill. Please retry." };
+  }
+  revalidatePath("/finance/payables");
+  revalidatePath("/finance/costs");
   return { ok: true };
 }
 
