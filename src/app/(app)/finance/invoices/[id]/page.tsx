@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/numbers";
 import { InvoiceStatusButtons } from "../_components/InvoiceStatusButtons";
 import { InvoiceEmailButton } from "../_components/InvoiceEmailButton";
+import { InvoiceReminderButton } from "../_components/InvoiceReminderButton";
 import { InvoicePayments } from "../_components/InvoicePayments";
 
 export const dynamic = "force-dynamic";
@@ -31,12 +32,14 @@ export default async function InvoiceDetailPage({
       },
       lines: { orderBy: { sortOrder: "asc" } },
       payments: { orderBy: { paidOn: "desc" } },
+      reminders: { orderBy: { sentAt: "desc" } },
       _count: { select: { jobs: true, visits: true, shifts: true } },
     },
   });
   if (!inv) notFound();
   const activityCount = inv._count.jobs + inv._count.visits + inv._count.shifts;
   const contactEmail = inv.customer.contactEmail?.trim() || null;
+  const lastReminder = inv.reminders[0] ?? null;
 
   return (
     <div className="section">
@@ -64,6 +67,9 @@ export default async function InvoiceDetailPage({
               emailed={Boolean(inv.emailedAt)}
               voided={inv.status === "VOID"}
             />
+            {inv.status === "SENT" && (
+              <InvoiceReminderButton id={inv.id} to={contactEmail} />
+            )}
           </>
         }
       />
@@ -77,6 +83,7 @@ export default async function InvoiceDetailPage({
             <span className="text-xs text-slate-500">
               Issued {formatDate(inv.issuedAt)} · Due {formatDate(inv.dueAt)}
               {inv.emailedAt ? ` · Emailed ${formatDate(inv.emailedAt)}` : ""}
+              {lastReminder ? ` · Reminded ${formatDate(lastReminder.sentAt)}` : ""}
             </span>
           </div>
           <InvoiceStatusButtons id={inv.id} status={inv.status} />

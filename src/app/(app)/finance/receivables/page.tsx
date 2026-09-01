@@ -31,7 +31,7 @@ export default async function ReceivablesPage() {
         title="Receivables"
         backHref="/finance"
         backLabel="Finance"
-        subtitle="Outstanding customer invoices, aged by how long they've been due."
+        subtitle="Outstanding customer invoices, aged by how long they've been due. Overdue invoices are reminded automatically each day (once email is set up)."
         actions={
           <Link href="/finance/invoices" className="btn-secondary text-sm">
             Invoices →
@@ -90,6 +90,7 @@ export default async function ReceivablesPage() {
                     <th className="col-num">Paid</th>
                     <th className="col-num">Balance</th>
                     <th>Age</th>
+                    <th>Reminded</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -127,6 +128,9 @@ export default async function ReceivablesPage() {
                         <span className={BUCKET_CHIP[r.bucket]}>
                           {BUCKET_LABEL[r.bucket]}
                         </span>
+                      </td>
+                      <td className="whitespace-nowrap tabular-nums text-slate-500">
+                        {r.lastRemindedAt ? formatDate(r.lastRemindedAt) : "—"}
                       </td>
                     </tr>
                   ))}

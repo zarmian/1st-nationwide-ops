@@ -1460,9 +1460,25 @@ model Invoice {
   shifts          Shift[]
   recurringRuns   RecurringChargeRun[]
   payments        InvoicePayment[]
+  reminders       InvoiceReminder[]
 
   @@index([customerId, status])
   @@index([status])
+}
+
+/// A reminder email sent to the customer about an overdue invoice. One row per
+/// invoice + `stage` (unique), so each dunning stage fires at most once.
+model InvoiceReminder {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceId String   @db.Uuid
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  /// Which dunning stage this was, e.g. "overdue_7". See lib/reminders.ts.
+  stage     String
+  sentAt    DateTime @default(now())
+  toEmail   String
+
+  @@unique([invoiceId, stage])
+  @@index([invoiceId])
 }
 
 /// A payment received against an invoice — supports part payments. The

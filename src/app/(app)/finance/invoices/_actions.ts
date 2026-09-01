@@ -12,6 +12,7 @@ import {
   sendInvoiceEmail,
   type InvoiceStatusValue,
 } from "@/lib/invoicing";
+import { sendManualReminder } from "@/lib/reminders";
 
 /** Generate a draft invoice from the preview page, then open it. */
 export async function createInvoiceAction(formData: FormData): Promise<void> {
@@ -105,6 +106,17 @@ export async function sendInvoiceEmailAction(
   const res = await sendInvoiceEmail(invoiceId);
   revalidatePath(`/finance/invoices/${invoiceId}`);
   revalidatePath("/finance/invoices");
+  revalidatePath("/finance/receivables");
+  return res;
+}
+
+/** Manually email an overdue reminder for this invoice now. */
+export async function sendReminderAction(
+  invoiceId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  const res = await sendManualReminder(invoiceId);
+  revalidatePath(`/finance/invoices/${invoiceId}`);
   revalidatePath("/finance/receivables");
   return res;
 }
