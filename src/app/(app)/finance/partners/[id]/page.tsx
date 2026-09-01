@@ -556,19 +556,17 @@ export default async function PartnerFinancePage({
             <table className="table-default">
               <thead>
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                    When
-                  </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>When</th>
+                  <th>
                     Service
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Site
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Our officer
                   </th>
-                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th className="col-num">
                     Billed
                   </th>
                 </tr>
@@ -576,10 +574,10 @@ export default async function PartnerFinancePage({
               <tbody>
                 {weDidRows.map((r) => (
                   <tr key={r.id}>
-                    <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                    <td className="text-slate-700 whitespace-nowrap">
                       {fmtDate(r.when)}
                     </td>
-                    <td className="px-4 py-2">
+                    <td>
                       <Link
                         href={r.href}
                         className="chip-slate text-[10px] hover:bg-slate-200"
@@ -587,7 +585,7 @@ export default async function PartnerFinancePage({
                         {r.kindLabel}
                       </Link>
                     </td>
-                    <td className="px-4 py-2">
+                    <td>
                       {r.siteId ? (
                         <Link
                           href={`/sites/${r.siteId}`}
@@ -600,19 +598,19 @@ export default async function PartnerFinancePage({
                         "—"
                       )}
                     </td>
-                    <td className="px-4 py-2 text-slate-600">
+                    <td className="text-slate-600">
                       {r.officer ?? "—"}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">
+                    <td className="col-num">
                       {fmtMoney(r.billed)}
                     </td>
                   </tr>
                 ))}
-                <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
-                  <td className="px-4 py-2 text-slate-600" colSpan={4}>
+                <tr className="bg-slate-50 font-medium">
+                  <td className="text-slate-600" colSpan={4}>
                     Total
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="col-num">
                     {fmtMoney(weDidTotal)}
                   </td>
                 </tr>
@@ -646,25 +644,23 @@ export default async function PartnerFinancePage({
             <table className="table-default">
               <thead>
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                    When
-                  </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>When</th>
+                  <th>
                     Service
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Site
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Our customer
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Their ref
                   </th>
-                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th className="col-num">
                     Billed to customer
                   </th>
-                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th className="col-num">
                     They invoiced us
                   </th>
                 </tr>
@@ -672,10 +668,10 @@ export default async function PartnerFinancePage({
               <tbody>
                 {theyDidRows.map((r) => (
                   <tr key={r.id}>
-                    <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                    <td className="text-slate-700 whitespace-nowrap">
                       {fmtDate(r.when)}
                     </td>
-                    <td className="px-4 py-2">
+                    <td>
                       <Link
                         href={r.href}
                         className="chip-slate text-[10px] hover:bg-slate-200"
@@ -683,7 +679,7 @@ export default async function PartnerFinancePage({
                         {r.kindLabel}
                       </Link>
                     </td>
-                    <td className="px-4 py-2">
+                    <td>
                       {r.siteId ? (
                         <Link
                           href={`/sites/${r.siteId}`}
@@ -696,30 +692,30 @@ export default async function PartnerFinancePage({
                         "—"
                       )}
                     </td>
-                    <td className="px-4 py-2 text-slate-600">
+                    <td className="text-slate-600">
                       {r.customer ?? "—"}
                     </td>
-                    <td className="px-4 py-2 text-slate-500 text-xs font-mono">
+                    <td className="text-slate-500 text-xs font-mono">
                       {r.partnerRef ?? "—"}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">
+                    <td className="col-num">
                       {fmtMoney(r.billed)}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums">
+                    <td className="col-num">
                       {r.partnerCharge != null
                         ? fmtMoney(r.partnerCharge)
                         : "—"}
                     </td>
                   </tr>
                 ))}
-                <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
-                  <td className="px-4 py-2 text-slate-600" colSpan={5}>
+                <tr className="bg-slate-50 font-medium">
+                  <td className="text-slate-600" colSpan={5}>
                     Total
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="col-num">
                     {fmtMoney(theyDidTotal)}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="col-num">
                     {fmtMoney(theyDidPartnerChargeTotal)}
                   </td>
                 </tr>

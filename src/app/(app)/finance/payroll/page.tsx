@@ -99,40 +99,37 @@ export default async function PayrollPage({
         </button>
       </form>
 
-      <div className="grid sm:grid-cols-3 gap-3">
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Total retainer
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy mt-1">
-            {fmt(report.totals.retainer, "GBP")}
-          </div>
-          <div className="text-xs text-slate-500">
-            {report.rows[0]?.retainerMonths ?? 0} month
-            {(report.rows[0]?.retainerMonths ?? 0) === 1 ? "" : "s"} ×
-            officers with a retainer rate
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="kpi">
+          <div className="kpi-label">Retainer</div>
+          <div className="kpi-value">{fmt(report.totals.retainer, "GBP")}</div>
+          <div className="kpi-hint">
+            over {report.rows[0]?.retainerMonths ?? 0} month
+            {(report.rows[0]?.retainerMonths ?? 0) === 1 ? "" : "s"}
           </div>
         </div>
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Total activity pay
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy mt-1">
-            {fmt(report.totals.activityPay, "GBP")}
-          </div>
-          <div className="text-xs text-slate-500">
-            from paid snapshots on visits + jobs
-          </div>
+        <div className="kpi">
+          <div className="kpi-label">Activity pay</div>
+          <div className="kpi-value">{fmt(report.totals.activityPay, "GBP")}</div>
+          <div className="kpi-hint">paid visits, jobs &amp; shifts</div>
         </div>
-        <div className="card p-4 bg-brand-blue-light/50">
-          <div className="text-xs uppercase tracking-wider text-brand-blue-dark">
-            Grand total
+        <div className="kpi">
+          <div className="kpi-label">Adjustments</div>
+          <div
+            className={
+              "kpi-value " + (report.totals.adjustments < 0 ? "!text-red-600" : "")
+            }
+          >
+            {fmt(report.totals.adjustments, "GBP")}
           </div>
-          <div className="text-2xl font-semibold text-brand-navy mt-1">
-            {fmt(report.totals.grand, "GBP")}
-          </div>
-          <div className="text-xs text-slate-500">
-            {report.rows.length} officer{report.rows.length === 1 ? "" : "s"}
+          <div className="kpi-hint">bonuses, expenses, deductions</div>
+        </div>
+        <div className="card-accent p-5 flex flex-col gap-1.5">
+          <div className="kpi-label">Grand total</div>
+          <div className="kpi-value">{fmt(report.totals.grand, "GBP")}</div>
+          <div className="kpi-hint">
+            net pay · {report.rows.length} officer
+            {report.rows.length === 1 ? "" : "s"}
           </div>
         </div>
       </div>
@@ -142,34 +139,20 @@ export default async function PayrollPage({
         <table className="table-default">
           <thead>
             <tr>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Officer
-              </th>
-              <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                SIA
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Retainer
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Activity pay
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Activities
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Adjustments
-              </th>
-              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                Total
-              </th>
-              <th className="px-4 py-2"></th>
+              <th>Officer</th>
+              <th>SIA</th>
+              <th className="col-num">Retainer</th>
+              <th className="col-num">Activity pay</th>
+              <th className="col-num">Activities</th>
+              <th className="col-num">Adjustments</th>
+              <th className="col-num">Total</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {report.rows.map((r) => (
               <tr key={r.officerId}>
-                <td className="px-4 py-2">
+                <td>
                   <Link
                     href={`/officers/${r.officerId}/edit`}
                     className="font-medium text-brand-navy hover:text-brand-blue-dark"
@@ -180,21 +163,19 @@ export default async function PayrollPage({
                     {r.role.toLowerCase()}
                   </div>
                 </td>
-                <td className="px-4 py-2 text-slate-600 font-mono text-xs">
+                <td className="text-slate-600 font-mono text-xs">
                   {r.siaNumber ?? "—"}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                <td className="col-num text-slate-700">
                   {fmt(r.retainerAmount, r.currency)}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                <td className="col-num text-slate-700">
                   {fmt(r.activityPay, r.currency)}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-500">
-                  {r.activityCount}
-                </td>
+                <td className="col-num text-slate-500">{r.activityCount}</td>
                 <td
                   className={
-                    "px-4 py-2 text-right tabular-nums " +
+                    "col-num " +
                     (r.adjustments < 0
                       ? "text-red-600"
                       : r.adjustments > 0
@@ -204,10 +185,10 @@ export default async function PayrollPage({
                 >
                   {r.adjustments === 0 ? "—" : fmt(r.adjustments, r.currency)}
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums font-medium text-brand-navy">
+                <td className="col-num font-medium text-brand-navy">
                   {fmt(r.total, r.currency)}
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="text-right">
                   <Link
                     href={`/finance/officers/${r.officerId}/payslip?from=${ymd(fromDate)}&to=${ymd(toDate)}`}
                     className="text-brand-blue-dark hover:underline text-sm whitespace-nowrap"

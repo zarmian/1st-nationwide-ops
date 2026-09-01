@@ -15,6 +15,7 @@ import { Sparkline } from "@/components/Sparkline";
 import { PageHeader } from "@/components/PageHeader";
 import { InteractiveTrend } from "@/components/InteractiveTrend";
 import { BarList } from "@/components/BarList";
+import { SectionHeading } from "@/components/SectionHeading";
 import {
   jobScheduledRange,
   visitScheduledRange,
@@ -1143,33 +1144,6 @@ export default async function FinancePage({
         <PartnerPnlTable rows={partnerRows} from={fromDate} to={toDate} />
         <OfficerPnlTable rows={officerRows} from={fromDate} to={toDate} />
       </div>
-    </div>
-  );
-}
-
-/**
- * A quiet group heading used to break the dashboard into scannable sections
- * (Revenue, Profit & loss, Sites, People) — an eyebrow-weight title plus an
- * optional one-line hint, with a hairline that runs to the edge.
- */
-function SectionHeading({
-  title,
-  hint,
-}: {
-  title: string;
-  hint?: string;
-}) {
-  return (
-    <div className="flex items-baseline gap-3 pt-2">
-      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 shrink-0">
-        {title}
-      </h2>
-      {hint && (
-        <p className="min-w-0 text-xs text-slate-400 truncate hidden sm:block">
-          {hint}
-        </p>
-      )}
-      <div className="flex-1 border-t border-slate-200/70" />
     </div>
   );
 }

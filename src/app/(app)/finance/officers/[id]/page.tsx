@@ -394,22 +394,16 @@ export default async function OfficerFinancePage({
         />
       </FilterPanel>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Activities
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-            {rows.length.toLocaleString("en-GB")}
-          </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="kpi">
+          <div className="kpi-label">Activities</div>
+          <div className="kpi-value">{rows.length.toLocaleString("en-GB")}</div>
+          <div className="kpi-hint">approved &amp; completed in range</div>
         </div>
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Pay in range
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-            {fmtMoney(totalPaid)}
-          </div>
+        <div className="card-accent p-5 flex flex-col gap-1.5">
+          <div className="kpi-label">Pay in range</div>
+          <div className="kpi-value">{fmtMoney(totalPaid)}</div>
+          <div className="kpi-hint">sum of paid snapshots</div>
         </div>
       </div>
 
@@ -431,30 +425,20 @@ export default async function OfficerFinancePage({
           <table className="table-default">
             <thead>
               <tr>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  When
-                </th>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Service
-                </th>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Site
-                </th>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Account
-                </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
-                  Pay
-                </th>
+                <th>When</th>
+                <th>Service</th>
+                <th>Site</th>
+                <th>Account</th>
+                <th className="col-num">Pay</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                  <td className="text-slate-700 whitespace-nowrap">
                     {fmtDate(r.when)}
                   </td>
-                  <td className="px-4 py-2">
+                  <td>
                     <Link
                       href={r.href}
                       className="chip-slate text-[10px] hover:bg-slate-200"
@@ -462,7 +446,7 @@ export default async function OfficerFinancePage({
                       {r.kindLabel}
                     </Link>
                   </td>
-                  <td className="px-4 py-2">
+                  <td>
                     {r.siteId ? (
                       <Link
                         href={`/sites/${r.siteId}`}
@@ -475,21 +459,15 @@ export default async function OfficerFinancePage({
                       "—"
                     )}
                   </td>
-                  <td className="px-4 py-2 text-slate-600">
-                    {r.accountName ?? "—"}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {fmtMoney(r.paid)}
-                  </td>
+                  <td className="text-slate-600">{r.accountName ?? "—"}</td>
+                  <td className="col-num">{fmtMoney(r.paid)}</td>
                 </tr>
               ))}
-              <tr className="border-t-2 border-slate-200 bg-slate-50/60 font-medium">
-                <td className="px-4 py-2 text-slate-600" colSpan={4}>
+              <tr className="bg-slate-50 font-medium">
+                <td className="text-slate-600" colSpan={4}>
                   Total
                 </td>
-                <td className="px-4 py-2 text-right tabular-nums">
-                  {fmtMoney(totalPaid)}
-                </td>
+                <td className="col-num">{fmtMoney(totalPaid)}</td>
               </tr>
             </tbody>
           </table>

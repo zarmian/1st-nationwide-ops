@@ -692,19 +692,19 @@ export default async function ActivitiesPage({
           <table className="table-default">
             <thead>
               <tr>
-                <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                <th>
                   {groupBy === "month" ? "Month" : groupBy === "week" ? "Week" : "Day"}
                 </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                <th className="col-num">
                   Activities
                 </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                <th className="col-num">
                   Billed
                 </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                <th className="col-num">
                   Paid
                 </th>
-                <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                <th className="col-num">
                   Profit
                 </th>
               </tr>
@@ -715,18 +715,18 @@ export default async function ActivitiesPage({
                   <td className="px-4 py-2 text-brand-navy font-medium">
                     {p.label}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="col-num">
                     {p.count.toLocaleString("en-GB")}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
+                  <td className="col-num">
                     {fmtMoney(p.billed)}
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums text-slate-600">
+                  <td className="col-num text-slate-600">
                     {fmtMoney(p.paid)}
                   </td>
                   <td
                     className={
-                      "px-4 py-2 text-right tabular-nums font-medium " +
+                      "col-num font-medium " +
                       (p.billed - p.paid >= 0 ? "text-brand-navy" : "text-red-600")
                     }
                   >
@@ -758,28 +758,28 @@ export default async function ActivitiesPage({
             <table className="table-default">
               <thead>
                 <tr>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     When
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Service
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Site
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Account
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Officer
                   </th>
-                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th className="col-num">
                     Billed
                   </th>
-                  <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th className="col-num">
                     Paid
                   </th>
-                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                  <th>
                     Status
                   </th>
                 </tr>
@@ -787,7 +787,7 @@ export default async function ActivitiesPage({
               <tbody>
                 {pageRows.map((r) => (
                   <tr key={r.id}>
-                    <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
+                    <td className="text-slate-700 whitespace-nowrap">
                       {fmtDate(r.at)}
                     </td>
                     <td className="px-4 py-2 text-slate-700">
@@ -795,7 +795,7 @@ export default async function ActivitiesPage({
                         {r.kindLabel}
                       </span>
                     </td>
-                    <td className="px-4 py-2">
+                    <td>
                       {r.siteId ? (
                         <Link
                           href={`/sites/${r.siteId}`}
@@ -821,13 +821,13 @@ export default async function ActivitiesPage({
                         <span className="text-slate-400">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-700">
+                    <td className="col-num text-slate-700">
                       {fmtMoney(r.billed)}
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums text-slate-600">
+                    <td className="col-num text-slate-600">
                       {fmtMoney(r.paid)}
                     </td>
-                    <td className="px-4 py-2 text-slate-600 text-xs">
+                    <td className="text-slate-600 text-xs">
                       <div className="flex items-center gap-2">
                         <ActivityStatus status={r.status} />
                         {isAdmin &&
