@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { FilterPanel } from "@/components/FilterPanel";
 import { FinanceAccountFilters } from "../../_components/FinanceAccountFilters";
+import { toIsoDate } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -314,6 +315,14 @@ export default async function OfficerFinancePage({
         title={officer.name}
         subtitle={
           <>Officer · {officer.email} · {fmtDate(fromDate)} → {fmtDate(toDate)}</>
+        }
+        actions={
+          <Link
+            href={`/finance/officers/${officer.id}/payslip?from=${toIsoDate(fromDate)}&to=${toIsoDate(toDate)}`}
+            className="btn-primary text-sm"
+          >
+            Payslip →
+          </Link>
         }
       />
 

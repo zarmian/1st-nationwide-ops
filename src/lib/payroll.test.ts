@@ -41,6 +41,7 @@ describe("csvLineFor / csvHeader", () => {
     retainerMonths: 1,
     activityPay: 234.5,
     activityCount: 12,
+    adjustments: 0,
     total: 734.5,
     currency: "GBP",
   };
@@ -61,6 +62,11 @@ describe("csvLineFor / csvHeader", () => {
     expect(csvLineFor(row)).toContain('"734.50"');
   });
 
+  it("includes a signed adjustments column", () => {
+    const withAdj: PayrollRow = { ...row, adjustments: -50 };
+    expect(csvLineFor(withAdj)).toContain('"-50.00"');
+  });
+
   it("header has the columns we promise", () => {
     expect(csvHeader()).toBe(
       [
@@ -73,6 +79,7 @@ describe("csvLineFor / csvHeader", () => {
         "retainer_months",
         "activity_pay",
         "activity_count",
+        "adjustments",
         "total",
         "currency",
       ]

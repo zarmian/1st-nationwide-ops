@@ -34,6 +34,9 @@ export type PayrollRow = {
   retainerMonths: number;
   activityPay: number;
   activityCount: number;
+  /** Signed sum of manual PayAdjustment lines dated into the period. */
+  adjustments: number;
+  /** Net pay: retainer + activity + adjustments. */
   total: number;
   currency: string;
 };
@@ -45,6 +48,7 @@ export type PayrollReport = {
   totals: {
     retainer: number;
     activityPay: number;
+    adjustments: number;
     grand: number;
   };
 };
@@ -196,6 +200,17 @@ export async function buildPayrollReport(
     payByOfficer.set(s.officerId, cur);
   }
 
+  // Manual pay adjustments dated into the period, summed per officer.
+  const adjustmentSums = await prisma.payAdjustment.groupBy({
+    by: ["officerId"],
+    where: { date: { gte: from, lte: to } },
+    _sum: { amount: true },
+  });
+  const adjustmentByOfficer = new Map<string, number>();
+  for (const a of adjustmentSums) {
+    adjustmentByOfficer.set(a.officerId, Number(a._sum.amount ?? 0));
+  }
+
   const months = monthsBetween(from, to);
 
   const rows: PayrollRow[] = officers.map((o) => {
@@ -207,7 +222,8 @@ export async function buildPayrollReport(
     const activity = payByOfficer.get(o.id);
     const activityPay = activity?.amount ?? 0;
     const activityCount = activity?.count ?? 0;
-    const total = retainerAmount + activityPay;
+    const adjustments = adjustmentByOfficer.get(o.id) ?? 0;
+    const total = retainerAmount + activityPay + adjustments;
     return {
       officerId: o.id,
       name: o.name,
@@ -219,6 +235,7 @@ export async function buildPayrollReport(
       retainerMonths: months,
       activityPay: round2(activityPay),
       activityCount,
+      adjustments: round2(adjustments),
       total: round2(total),
       currency: retainerCurrency,
     };
@@ -228,9 +245,10 @@ export async function buildPayrollReport(
     (acc, r) => ({
       retainer: acc.retainer + r.retainerAmount,
       activityPay: acc.activityPay + r.activityPay,
+      adjustments: acc.adjustments + r.adjustments,
       grand: acc.grand + r.total,
     }),
-    { retainer: 0, activityPay: 0, grand: 0 },
+    { retainer: 0, activityPay: 0, adjustments: 0, grand: 0 },
   );
 
   return { from, to, rows, totals };
@@ -256,6 +274,7 @@ export function csvLineFor(row: PayrollRow): string {
     String(row.retainerMonths),
     row.activityPay.toFixed(2),
     String(row.activityCount),
+    row.adjustments.toFixed(2),
     row.total.toFixed(2),
     row.currency,
   ];
@@ -273,6 +292,7 @@ export function csvHeader(): string {
     "retainer_months",
     "activity_pay",
     "activity_count",
+    "adjustments",
     "total",
     "currency",
   ]

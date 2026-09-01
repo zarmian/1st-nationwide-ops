@@ -423,6 +423,7 @@ model User {
   formBlueprintsAuthored   FormBlueprint[]     @relation("FormBlueprintAuthor")
   notifications            Notification[]      @relation("NotificationRecipient")
   officerRates             OfficerRate[]
+  payAdjustments           PayAdjustment[]
   shifts                   Shift[]             @relation("ShiftOfficer")
   rotaAvailability         OfficerAvailability[]
   rotaAssignments          RotaAssignment[]    @relation("RotaAssignmentOfficer")
@@ -1479,6 +1480,26 @@ model InvoicePayment {
   createdAt       DateTime @default(now())
 
   @@index([invoiceId])
+}
+
+/// A manual pay line for an officer, dated into a payslip period — bonus,
+/// expense, holiday pay, deduction, correction. `amount` is signed: positive
+/// adds to pay, negative subtracts. Flows into the officer's payslip and the
+/// payroll net total. `kind` is a free label (a small suggested set in the UI).
+model PayAdjustment {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  officerId       String   @db.Uuid
+  officer         User     @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  date            DateTime
+  kind            String
+  label           String
+  amount          Decimal  @db.Decimal(12, 2)
+  note            String?
+  /// Plain audit stamp — no relation, to keep the User model untouched.
+  createdByUserId String?  @db.Uuid
+  createdAt       DateTime @default(now())
+
+  @@index([officerId, date])
 }
 
 model InvoiceLine {
