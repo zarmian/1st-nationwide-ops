@@ -17,6 +17,8 @@ import {
 } from "@/lib/activityWhen";
 import { COMPANY } from "@/lib/company";
 import { dueRecurringLines } from "@/lib/recurring";
+import { sendEmail, isEmailConfigured } from "@/lib/email";
+import type { InvoicePdfData } from "@/lib/reports/invoiceReport";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const humanize = (s: string) =>
@@ -338,5 +340,234 @@ export async function setInvoiceStatus(
     data.dueAt = new Date(now.getTime() + COMPANY.paymentTermsDays * 86_400_000);
   }
   await prisma.invoice.update({ where: { id }, data });
+  return { ok: true };
+}
+
+// ── Payments ──────────────────────────────────────────────────────────────
+
+export type RecordPaymentInput = {
+  amount: number;
+  paidOn: Date;
+  method?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+};
+
+/**
+ * Record a payment (or part payment) against an invoice. Once the payments
+ * cover the invoice total it auto-flips to PAID. Voided invoices are rejected.
+ */
+export async function recordPayment(
+  invoiceId: string,
+  input: RecordPaymentInput,
+  userId?: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(input.amount > 0)) {
+    return { ok: false, error: "Enter a payment amount greater than zero." };
+  }
+  const inv = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { status: true, total: true },
+  });
+  if (!inv) return { ok: false, error: "Invoice not found." };
+  if (inv.status === "VOID") {
+    return { ok: false, error: "This invoice is voided — un-void it first." };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.invoicePayment.create({
+        data: {
+          invoiceId,
+          amount: input.amount,
+          paidOn: input.paidOn,
+          method: input.method ?? null,
+          reference: input.reference ?? null,
+          notes: input.notes ?? null,
+          createdByUserId: userId ?? null,
+        },
+      });
+      const agg = await tx.invoicePayment.aggregate({
+        where: { invoiceId },
+        _sum: { amount: true },
+      });
+      const paid = Number(agg._sum.amount ?? 0);
+      // Cover the total (allow a penny of rounding slack) → settle it.
+      if (paid + 0.009 >= Number(inv.total) && inv.status !== "PAID") {
+        await tx.invoice.update({
+          where: { id: invoiceId },
+          data: { status: "PAID" },
+        });
+      }
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error("recordPayment failed", e);
+    return { ok: false, error: "Couldn't record the payment. Please retry." };
+  }
+}
+
+/**
+ * Delete a payment (correcting a mistake). If removing it drops a PAID invoice
+ * back below its total, the invoice reverts to SENT so it's chased again.
+ */
+export async function deletePayment(
+  paymentId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const pay = await prisma.invoicePayment.findUnique({
+    where: { id: paymentId },
+    select: { invoiceId: true },
+  });
+  if (!pay) return { ok: false, error: "Payment not found." };
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.invoicePayment.delete({ where: { id: paymentId } });
+      const inv = await tx.invoice.findUnique({
+        where: { id: pay.invoiceId },
+        select: { status: true, total: true },
+      });
+      if (inv?.status === "PAID") {
+        const agg = await tx.invoicePayment.aggregate({
+          where: { invoiceId: pay.invoiceId },
+          _sum: { amount: true },
+        });
+        if (Number(agg._sum.amount ?? 0) + 0.009 < Number(inv.total)) {
+          await tx.invoice.update({
+            where: { id: pay.invoiceId },
+            data: { status: "SENT" },
+          });
+        }
+      }
+    });
+    return { ok: true };
+  } catch (e) {
+    console.error("deletePayment failed", e);
+    return { ok: false, error: "Couldn't delete the payment. Please retry." };
+  }
+}
+
+// ── Sending ───────────────────────────────────────────────────────────────
+
+function money(n: number, currency: string): string {
+  return new Intl.NumberFormat("en-GB", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+  }).format(n);
+}
+
+function longDate(date: Date | null): string {
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function invoiceEmailBodies(data: InvoicePdfData): { html: string; text: string } {
+  const total = money(data.total, data.currency);
+  const greeting = data.customer.contactName
+    ? `Hi ${data.customer.contactName},`
+    : "Hello,";
+  const dueLine = data.dueAt
+    ? `Payment is due by <strong>${longDate(data.dueAt)}</strong>.`
+    : "";
+  const dueText = data.dueAt ? `Payment is due by ${longDate(data.dueAt)}.` : "";
+
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;background:#f1f5f9;padding:24px;font-family:Arial,Helvetica,sans-serif;color:#0F1929;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;">
+      <tr><td style="background:#0F1929;padding:20px 28px;color:#ffffff;font-size:16px;font-weight:bold;">${COMPANY.name}</td></tr>
+      <tr><td style="padding:28px;">
+        <p style="margin:0 0 14px;">${greeting}</p>
+        <p style="margin:0 0 14px;">Please find attached invoice <strong>${data.number}</strong> for the period ${longDate(data.periodFrom)} – ${longDate(data.periodTo)}.</p>
+        <p style="margin:0 0 6px;font-size:14px;color:#475569;">Amount due</p>
+        <p style="margin:0 0 16px;font-size:26px;font-weight:bold;">${total}</p>
+        ${dueLine ? `<p style="margin:0 0 14px;">${dueLine}</p>` : ""}
+        <p style="margin:0 0 4px;">Thank you,</p>
+        <p style="margin:0;">${COMPANY.name}</p>
+      </td></tr>
+      <tr><td style="padding:16px 28px;background:#f8fafc;font-size:12px;color:#94a3b8;">The invoice is attached as a PDF. Reply to this email with any questions.</td></tr>
+    </table>
+  </body>
+</html>`;
+
+  const text = [
+    greeting,
+    "",
+    `Please find attached invoice ${data.number} for the period ${longDate(data.periodFrom)} – ${longDate(data.periodTo)}.`,
+    "",
+    `Amount due: ${total}`,
+    dueText,
+    "",
+    "Thank you,",
+    COMPANY.name,
+  ]
+    .filter((l) => l !== undefined)
+    .join("\n");
+
+  return { html, text };
+}
+
+/**
+ * Email the invoice PDF to the customer's contact email. Stamps `emailedAt`,
+ * and on the first send from a DRAFT it also issues the invoice (status → SENT,
+ * issue + due dates set) so the ageing / receivables clock starts.
+ *
+ * No-op with a clear message when email isn't configured or there's no contact
+ * email on file — never throws into the request.
+ */
+export async function sendInvoiceEmail(
+  id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isEmailConfigured()) {
+    return {
+      ok: false,
+      error: "Email isn't set up yet. Add RESEND_API_KEY to send invoices.",
+    };
+  }
+  // Loaded lazily so the (heavy) @react-pdf renderer stays out of the module
+  // graph of every page that touches invoicing.
+  const { loadInvoiceForPdf } = await import("@/lib/reports/invoiceReport");
+  const data = await loadInvoiceForPdf(id);
+  if (!data) return { ok: false, error: "Invoice not found." };
+  if (data.status === "VOID") {
+    return { ok: false, error: "This invoice is voided — un-void it first." };
+  }
+  const to = data.customer.contactEmail?.trim();
+  if (!to) {
+    return {
+      ok: false,
+      error:
+        "No contact email on file for this customer. Add one on the customer record first.",
+    };
+  }
+
+  const { renderInvoicePdf } = await import("@/lib/reports/InvoicePdf");
+  const pdf = await renderInvoicePdf(data);
+  const { html, text } = invoiceEmailBodies(data);
+
+  const sent = await sendEmail({
+    to,
+    subject: `Invoice ${data.number} from ${COMPANY.name}`,
+    html,
+    text,
+    replyTo: COMPANY.email || undefined,
+    attachments: [{ filename: `${data.number}.pdf`, content: pdf }],
+  });
+  if (!sent.ok) return { ok: false, error: sent.error };
+
+  const now = new Date();
+  const update: Prisma.InvoiceUpdateInput = { emailedAt: now };
+  if (data.status === "DRAFT") update.status = "SENT";
+  if (!data.issuedAt) {
+    update.issuedAt = now;
+    update.dueAt = new Date(now.getTime() + COMPANY.paymentTermsDays * 86_400_000);
+  }
+  await prisma.invoice.update({ where: { id }, data: update });
   return { ok: true };
 }

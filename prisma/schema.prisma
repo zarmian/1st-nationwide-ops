@@ -1439,6 +1439,7 @@ model Invoice {
   periodFrom      DateTime
   periodTo        DateTime
   issuedAt        DateTime?
+  emailedAt       DateTime?
   dueAt           DateTime?
   subtotal        Decimal       @db.Decimal(12, 2)
   /// Fractional rate, e.g. 0.2000 = 20% UK standard VAT.
@@ -1457,9 +1458,27 @@ model Invoice {
   visits          PatrolVisit[]
   shifts          Shift[]
   recurringRuns   RecurringChargeRun[]
+  payments        InvoicePayment[]
 
   @@index([customerId, status])
   @@index([status])
+}
+
+/// A payment received against an invoice — supports part payments. The
+/// invoice flips to PAID once the payments cover its total.
+model InvoicePayment {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoiceId       String   @db.Uuid
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount          Decimal  @db.Decimal(12, 2)
+  paidOn          DateTime
+  method          String?
+  reference       String?
+  notes           String?
+  createdByUserId String?  @db.Uuid
+  createdAt       DateTime @default(now())
+
+  @@index([invoiceId])
 }
 
 model InvoiceLine {

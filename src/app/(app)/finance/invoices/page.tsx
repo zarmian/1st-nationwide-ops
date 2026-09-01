@@ -30,9 +30,14 @@ export default async function InvoicesPage() {
         backLabel="Finance"
         subtitle="Customer invoices generated from billed activity."
         actions={
-          <Link href="/finance/invoices/new" className="btn-primary text-sm">
-            New invoice
-          </Link>
+          <>
+            <Link href="/finance/receivables" className="btn-secondary text-sm">
+              Receivables →
+            </Link>
+            <Link href="/finance/invoices/new" className="btn-primary text-sm">
+              New invoice
+            </Link>
+          </>
         }
       />
 

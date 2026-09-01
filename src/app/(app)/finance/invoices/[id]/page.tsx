@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/numbers";
 import { InvoiceStatusButtons } from "../_components/InvoiceStatusButtons";
+import { InvoiceEmailButton } from "../_components/InvoiceEmailButton";
+import { InvoicePayments } from "../_components/InvoicePayments";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +26,17 @@ export default async function InvoiceDetailPage({
   const inv = await prisma.invoice.findUnique({
     where: { id: params.id },
     include: {
-      customer: { select: { name: true, billingAddress: true } },
+      customer: {
+        select: { name: true, billingAddress: true, contactEmail: true },
+      },
       lines: { orderBy: { sortOrder: "asc" } },
+      payments: { orderBy: { paidOn: "desc" } },
       _count: { select: { jobs: true, visits: true, shifts: true } },
     },
   });
   if (!inv) notFound();
   const activityCount = inv._count.jobs + inv._count.visits + inv._count.shifts;
+  const contactEmail = inv.customer.contactEmail?.trim() || null;
 
   return (
     <div className="section">
@@ -45,12 +51,20 @@ export default async function InvoiceDetailPage({
           </>
         }
         actions={
-          <a
-            href={`/api/invoices/${inv.id}/pdf`}
-            className="btn-secondary text-sm"
-          >
-            Download PDF
-          </a>
+          <>
+            <a
+              href={`/api/invoices/${inv.id}/pdf`}
+              className="btn-secondary text-sm"
+            >
+              Download PDF
+            </a>
+            <InvoiceEmailButton
+              id={inv.id}
+              to={contactEmail}
+              emailed={Boolean(inv.emailedAt)}
+              voided={inv.status === "VOID"}
+            />
+          </>
         }
       />
 
@@ -62,6 +76,7 @@ export default async function InvoiceDetailPage({
             </span>
             <span className="text-xs text-slate-500">
               Issued {formatDate(inv.issuedAt)} · Due {formatDate(inv.dueAt)}
+              {inv.emailedAt ? ` · Emailed ${formatDate(inv.emailedAt)}` : ""}
             </span>
           </div>
           <InvoiceStatusButtons id={inv.id} status={inv.status} />
@@ -116,6 +131,28 @@ export default async function InvoiceDetailPage({
           {inv.notes ? ` · ${inv.notes}` : ""}
         </p>
       </div>
+
+      {!contactEmail && (
+        <p className="text-xs text-amber-600">
+          No contact email on {inv.customer.name} — add one on the customer
+          record to email this invoice.
+        </p>
+      )}
+
+      <InvoicePayments
+        invoiceId={inv.id}
+        currency={inv.currency}
+        total={Number(inv.total)}
+        locked={inv.status === "VOID"}
+        payments={inv.payments.map((p) => ({
+          id: p.id,
+          amount: Number(p.amount),
+          paidOn: p.paidOn.toISOString(),
+          method: p.method,
+          reference: p.reference,
+          notes: p.notes,
+        }))}
+      />
     </div>
   );
 }
