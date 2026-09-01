@@ -4,8 +4,11 @@ import {
   invoiceCsvLine,
   paymentCsvHeader,
   paymentCsvLine,
+  costCsvHeader,
+  costCsvLine,
   type InvoiceExportRow,
   type PaymentExportRow,
+  type CostExportRow,
 } from "./accountingExport";
 
 describe("invoice CSV", () => {
@@ -112,5 +115,51 @@ describe("payment CSV", () => {
     expect(line).toContain('"500.00"');
     expect(line).toContain('"Bank transfer"');
     expect(line).toContain('"FT2608"');
+  });
+});
+
+describe("cost CSV", () => {
+  const row: CostExportRow = {
+    date: new Date(2026, 7, 9),
+    supplier: "Nexus Security",
+    category: "Subcontractor",
+    description: "London alarm cover",
+    currency: "GBP",
+    net: 300,
+    vatRate: 0.2,
+    vat: 60,
+    gross: 360,
+    reclaimable: true,
+    reference: "NX-991",
+  };
+
+  it("has the promised columns", () => {
+    expect(costCsvHeader()).toBe(
+      [
+        "date",
+        "supplier",
+        "category",
+        "description",
+        "currency",
+        "net",
+        "vat_rate_pct",
+        "vat",
+        "gross",
+        "vat_reclaimable",
+        "reference",
+      ]
+        .map((c) => `"${c}"`)
+        .join(","),
+    );
+  });
+
+  it("formats the row and yes/no for reclaimable", () => {
+    const line = costCsvLine(row);
+    expect(line).toContain('"2026-08-09"');
+    expect(line).toContain('"300.00"');
+    expect(line).toContain('"20"');
+    expect(line).toContain('"360.00"');
+    expect(line).toContain('"yes"');
+    expect(costCsvLine({ ...row, reclaimable: false })).toContain('"no"');
   });
 });

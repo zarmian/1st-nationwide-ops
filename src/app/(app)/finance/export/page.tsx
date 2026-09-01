@@ -146,6 +146,14 @@ export default async function AccountingExportPage({
           total={formatMoney(counts.received)}
           disabled={counts.payments === 0}
         />
+        <ExportCard
+          title="Supplier costs"
+          blurb="One row per bill by bill date — net, VAT and gross, with the reclaimable flag. The purchase side of the ledger."
+          href={`/api/finance/export/costs?${qs}`}
+          count={counts.costs}
+          total={formatMoney(counts.spent)}
+          disabled={counts.costs === 0}
+        />
         <div className="card p-5 flex flex-col gap-3">
           <div className="flex-1">
             <h2 className="font-semibold text-brand-navy">Payroll</h2>
