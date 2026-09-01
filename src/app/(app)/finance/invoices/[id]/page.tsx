@@ -70,6 +70,14 @@ export default async function InvoiceDetailPage({
             {inv.status === "SENT" && (
               <InvoiceReminderButton id={inv.id} to={contactEmail} />
             )}
+            {inv.status !== "VOID" && (
+              <a
+                href={`/finance/credit-notes/new?invoiceId=${inv.id}`}
+                className="btn-secondary text-sm"
+              >
+                Credit note
+              </a>
+            )}
           </>
         }
       />
