@@ -7,6 +7,9 @@ import { parseIsoDate } from "@/lib/dates";
 import {
   createInvoice,
   setInvoiceStatus,
+  recordPayment,
+  deletePayment,
+  sendInvoiceEmail,
   type InvoiceStatusValue,
 } from "@/lib/invoicing";
 
@@ -43,5 +46,65 @@ export async function updateInvoiceStatus(
   const res = await setInvoiceStatus(id, status);
   revalidatePath(`/finance/invoices/${id}`);
   revalidatePath("/finance/invoices");
+  revalidatePath("/finance/receivables");
+  return res;
+}
+
+/** Record a payment (or part payment) against an invoice. */
+export async function recordPaymentAction(
+  invoiceId: string,
+  input: {
+    amount: number;
+    paidOn: string;
+    method?: string | null;
+    reference?: string | null;
+    notes?: string | null;
+  },
+): Promise<{ ok: boolean; error?: string }> {
+  const u = await requireAdmin();
+  const paidOn = parseIsoDate(input.paidOn);
+  if (!paidOn) return { ok: false, error: "Pick the date the payment was received." };
+  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+    return { ok: false, error: "Enter a payment amount greater than zero." };
+  }
+  const res = await recordPayment(
+    invoiceId,
+    {
+      amount: input.amount,
+      paidOn,
+      method: input.method?.trim() || null,
+      reference: input.reference?.trim() || null,
+      notes: input.notes?.trim() || null,
+    },
+    u.id,
+  );
+  revalidatePath(`/finance/invoices/${invoiceId}`);
+  revalidatePath("/finance/invoices");
+  revalidatePath("/finance/receivables");
+  return res;
+}
+
+/** Delete a payment (correcting a mistake). */
+export async function deletePaymentAction(
+  paymentId: string,
+  invoiceId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  const res = await deletePayment(paymentId);
+  revalidatePath(`/finance/invoices/${invoiceId}`);
+  revalidatePath("/finance/invoices");
+  revalidatePath("/finance/receivables");
+  return res;
+}
+
+/** Email the invoice PDF to the customer's contact email. */
+export async function sendInvoiceEmailAction(
+  invoiceId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  const res = await sendInvoiceEmail(invoiceId);
+  revalidatePath(`/finance/invoices/${invoiceId}`);
+  revalidatePath("/finance/invoices");
+  revalidatePath("/finance/receivables");
   return res;
 }
