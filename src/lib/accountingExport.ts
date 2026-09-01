@@ -206,13 +206,100 @@ export async function paymentsCsv(from: Date, to: Date): Promise<string> {
   return [paymentCsvHeader(), ...rows.map(paymentCsvLine)].join("\n") + "\n";
 }
 
+// ── Supplier costs / purchases ──────────────────────────────────────────────
+
+export type CostExportRow = {
+  date: Date;
+  supplier: string;
+  category: string;
+  description: string | null;
+  currency: string;
+  net: number;
+  vatRate: number;
+  vat: number;
+  gross: number;
+  reclaimable: boolean;
+  reference: string | null;
+};
+
+const COST_COLUMNS = [
+  "date",
+  "supplier",
+  "category",
+  "description",
+  "currency",
+  "net",
+  "vat_rate_pct",
+  "vat",
+  "gross",
+  "vat_reclaimable",
+  "reference",
+];
+
+export function costCsvHeader(): string {
+  return COST_COLUMNS.map(csvCell).join(",");
+}
+
+export function costCsvLine(r: CostExportRow): string {
+  return [
+    toIsoDate(r.date),
+    r.supplier,
+    r.category,
+    r.description ?? "",
+    r.currency,
+    money(r.net),
+    pct(r.vatRate),
+    money(r.vat),
+    money(r.gross),
+    r.reclaimable ? "yes" : "no",
+    r.reference ?? "",
+  ]
+    .map(csvCell)
+    .join(",");
+}
+
+export async function loadCostExportRows(
+  from: Date,
+  to: Date,
+): Promise<CostExportRow[]> {
+  const costs = await prisma.supplierCost.findMany({
+    where: { date: { gte: from, lte: to } },
+    orderBy: { date: "asc" },
+  });
+  return costs.map((c) => ({
+    date: c.date,
+    supplier: c.supplier,
+    category: c.category,
+    description: c.description,
+    currency: "GBP",
+    net: Number(c.net),
+    vatRate: Number(c.vatRate),
+    vat: Number(c.vatAmount),
+    gross: Number(c.gross),
+    reclaimable: c.reclaimable,
+    reference: c.reference,
+  }));
+}
+
+export async function costsCsv(from: Date, to: Date): Promise<string> {
+  const rows = await loadCostExportRows(from, to);
+  return [costCsvHeader(), ...rows.map(costCsvLine)].join("\n") + "\n";
+}
+
 // ── Counts (for the export page preview) ────────────────────────────────────
 
 export async function accountingCounts(
   from: Date,
   to: Date,
-): Promise<{ invoices: number; payments: number; sales: number; received: number }> {
-  const [invAgg, payAgg] = await Promise.all([
+): Promise<{
+  invoices: number;
+  payments: number;
+  costs: number;
+  sales: number;
+  received: number;
+  spent: number;
+}> {
+  const [invAgg, payAgg, costAgg] = await Promise.all([
     prisma.invoice.aggregate({
       where: { status: { in: ["SENT", "PAID"] }, issuedAt: { gte: from, lte: to } },
       _count: { _all: true },
@@ -223,11 +310,18 @@ export async function accountingCounts(
       _count: { _all: true },
       _sum: { amount: true },
     }),
+    prisma.supplierCost.aggregate({
+      where: { date: { gte: from, lte: to } },
+      _count: { _all: true },
+      _sum: { gross: true },
+    }),
   ]);
   return {
     invoices: invAgg._count._all,
     payments: payAgg._count._all,
+    costs: costAgg._count._all,
     sales: Number(invAgg._sum.total ?? 0),
     received: Number(payAgg._sum.amount ?? 0),
+    spent: Number(costAgg._sum.gross ?? 0),
   };
 }

@@ -14,6 +14,7 @@
  *   Box 6 — total sales ex VAT    = Σ subtotal
  */
 import { prisma } from "@/lib/db";
+import { loadInputVat } from "@/lib/costs";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -79,8 +80,14 @@ export type VatReturnSummary = {
   to: Date;
   /** Box 1 — VAT due on sales (output tax). */
   vatDueOnSales: number;
+  /** Box 4 — VAT reclaimed on purchases (input tax). */
+  vatReclaimed: number;
+  /** Box 5 — net VAT to pay HMRC (Box 1 − Box 4); negative = repayment due. */
+  netVatDue: number;
   /** Box 6 — total value of sales excluding VAT. */
   netSales: number;
+  /** Box 7 — total value of purchases excluding VAT. */
+  netPurchases: number;
   /** Box 1 + Box 6 — gross billed. Not an HMRC box; a sanity total. */
   gross: number;
   count: number;
@@ -92,14 +99,17 @@ export async function loadVatReturn(
   from: Date,
   to: Date,
 ): Promise<VatReturnSummary> {
-  const invoices = await prisma.invoice.findMany({
-    where: {
-      status: { in: ["SENT", "PAID"] },
-      issuedAt: { gte: from, lte: to },
-    },
-    include: { customer: { select: { name: true } } },
-    orderBy: { issuedAt: "asc" },
-  });
+  const [invoices, input] = await Promise.all([
+    prisma.invoice.findMany({
+      where: {
+        status: { in: ["SENT", "PAID"] },
+        issuedAt: { gte: from, lte: to },
+      },
+      include: { customer: { select: { name: true } } },
+      orderBy: { issuedAt: "asc" },
+    }),
+    loadInputVat(from, to),
+  ]);
 
   let vatDueOnSales = 0;
   let netSales = 0;
@@ -139,7 +149,10 @@ export async function loadVatReturn(
     from,
     to,
     vatDueOnSales: round2(vatDueOnSales),
+    vatReclaimed: input.inputVat,
+    netVatDue: round2(vatDueOnSales - input.inputVat),
     netSales: round2(netSales),
+    netPurchases: input.netPurchases,
     gross: round2(gross),
     count: rows.length,
     byRate: [...rateMap.values()]

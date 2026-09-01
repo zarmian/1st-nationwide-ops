@@ -630,6 +630,16 @@ export default async function FinancePage({
     { billed: 0, paid: 0, activities: 0 },
   );
 
+  // Overheads (net supplier costs by bill date in range) → true net profit.
+  // Gross margin is billed − officer pay; net profit deducts overheads on top.
+  const costAgg = await prisma.supplierCost.aggregate({
+    where: { date: { gte: fromDate, lte: toDate } },
+    _sum: { net: true },
+  });
+  const overheads = Number(costAgg._sum.net ?? 0);
+  const grossMargin = pnlTotals.billed - pnlTotals.paid;
+  const netProfit = grossMargin - overheads;
+
   // Revenue by service line — where the money in this range actually came
   // from. Visits map to Patrol / VPI via their schedule kind; jobs map via
   // their type using the same RATE_LABEL the rest of the page uses.
@@ -725,6 +735,9 @@ export default async function FinancePage({
             </Link>
             <Link href="/finance/vat" className="btn-secondary text-sm">
               VAT return →
+            </Link>
+            <Link href="/finance/costs" className="btn-secondary text-sm">
+              Costs →
             </Link>
             <Link href="/finance/export" className="btn-secondary text-sm">
               Export →
@@ -1065,6 +1078,47 @@ export default async function FinancePage({
             )}
           </tbody>
         </table>
+        </div>
+      </div>
+
+      {/* True net profit: gross margin minus overheads (net supplier costs). */}
+      <div className="card p-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="font-semibold text-brand-navy">Net profit</h2>
+            <p className="text-xs text-slate-500">
+              Gross margin (billed − officer pay) minus overheads —{" "}
+              <Link href="/finance/costs" className="text-brand-blue-dark hover:underline">
+                net supplier costs
+              </Link>{" "}
+              by bill date in range.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-2 text-sm">
+            <div>
+              <div className="kpi-label">Gross margin</div>
+              <div className="text-lg font-semibold text-brand-navy tabular-nums">
+                {fmtMoney2(grossMargin)}
+              </div>
+            </div>
+            <div>
+              <div className="kpi-label">Overheads</div>
+              <div className="text-lg font-semibold text-slate-600 tabular-nums">
+                −{fmtMoney2(overheads)}
+              </div>
+            </div>
+            <div>
+              <div className="kpi-label">Net profit</div>
+              <div
+                className={
+                  "text-lg font-semibold tabular-nums " +
+                  (netProfit >= 0 ? "text-success" : "text-red-600")
+                }
+              >
+                {fmtMoney2(netProfit)}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

@@ -91,25 +91,52 @@ export default async function VatReturnPage({
         </div>
       </form>
 
-      {/* The two figures that go on the return. */}
+      {/* Box 5 — the figure that actually gets paid (or reclaimed). */}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="card-accent p-5 flex flex-col gap-1">
-          <div className="kpi-label">Box 1 · VAT due on sales</div>
-          <div className="kpi-value">{formatMoney(vat.vatDueOnSales)}</div>
-          <div className="kpi-hint">Output VAT charged in the period</div>
+          <div className="kpi-label">
+            Box 5 · {vat.netVatDue >= 0 ? "Net VAT to pay" : "VAT to reclaim"}
+          </div>
+          <div className="kpi-value">{formatMoney(Math.abs(vat.netVatDue))}</div>
+          <div className="kpi-hint">
+            Box 1 − Box 4 · {formatDate(from)} – {formatDate(to)}
+          </div>
         </div>
         <div className="kpi">
+          <div className="kpi-label">Box 1 · VAT due on sales</div>
+          <div className="kpi-value">{formatMoney(vat.vatDueOnSales)}</div>
+          <div className="kpi-hint">Output VAT charged</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Box 4 · VAT reclaimed on purchases</div>
+          <div className="kpi-value">{formatMoney(vat.vatReclaimed)}</div>
+          <div className="kpi-hint">
+            Input VAT from{" "}
+            <Link href="/finance/costs" className="text-brand-blue-dark hover:underline">
+              supplier costs
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* Boxes 6 & 7 — the values behind the VAT. */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="kpi">
           <div className="kpi-label">Box 6 · Sales excluding VAT</div>
-          <div className="kpi-value">{formatMoney(vat.netSales)}</div>
-          <div className="kpi-hint">Net value of invoices</div>
+          <div className="kpi-value text-xl">{formatMoney(vat.netSales)}</div>
+          <div className="kpi-hint">
+            {vat.count} {vat.count === 1 ? "invoice" : "invoices"}
+          </div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">Box 7 · Purchases excluding VAT</div>
+          <div className="kpi-value text-xl">{formatMoney(vat.netPurchases)}</div>
+          <div className="kpi-hint">Net value of supplier costs</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Gross billed</div>
-          <div className="kpi-value">{formatMoney(vat.gross)}</div>
-          <div className="kpi-hint">
-            {vat.count} {vat.count === 1 ? "invoice" : "invoices"} ·{" "}
-            {formatDate(from)} – {formatDate(to)}
-          </div>
+          <div className="kpi-value text-xl">{formatMoney(vat.gross)}</div>
+          <div className="kpi-hint">Sales incl. VAT</div>
         </div>
       </div>
 
@@ -214,14 +241,17 @@ export default async function VatReturnPage({
         <p className="font-medium text-brand-navy">Before you file</p>
         <ul className="list-disc list-inside space-y-1">
           <li>
-            This is <strong>output VAT only</strong> (VAT on your sales). Input
-            VAT on purchases (Box 4) isn't tracked here — add it from your
-            bookkeeping.
+            <strong>Box 4</strong> comes from{" "}
+            <Link href="/finance/costs" className="text-brand-blue-dark hover:underline">
+              supplier costs
+            </Link>{" "}
+            marked reclaimable. Keep those up to date so the net VAT (Box 5) is
+            right — anything not entered there won't be reclaimed.
           </li>
           <li>
-            Figures use the <strong>invoice date</strong> as the tax point
-            (accrual basis). If you're on the cash accounting scheme, VAT is due
-            when paid instead.
+            Figures use the <strong>invoice / bill date</strong> as the tax
+            point (accrual basis). If you're on the cash accounting scheme, VAT
+            is due when paid instead.
           </li>
           <li>
             Confirm your VAT quarter dates match HMRC's — staggered quarters
