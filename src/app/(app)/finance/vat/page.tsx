@@ -254,6 +254,16 @@ export default async function VatReturnPage({
             is due when paid instead.
           </li>
           <li>
+            <Link href="/finance/credit-notes" className="text-brand-blue-dark hover:underline">
+              Credit notes
+            </Link>{" "}
+            issued in the period are already netted off Box 1 and Box 6
+            {vat.creditNotesCount > 0
+              ? ` (${vat.creditNotesCount} this period, ${formatMoney(vat.creditNotesTotal)} gross)`
+              : ""}
+            .
+          </li>
+          <li>
             Confirm your VAT quarter dates match HMRC's — staggered quarters
             differ from the calendar quarters offered above.
           </li>

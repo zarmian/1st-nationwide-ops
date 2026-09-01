@@ -78,6 +78,7 @@ export async function loadReceivables(
       customer: { select: { id: true, name: true } },
       payments: { select: { amount: true } },
       reminders: { select: { sentAt: true }, orderBy: { sentAt: "desc" }, take: 1 },
+      creditNotes: { where: { status: "ISSUED" }, select: { total: true } },
     },
     orderBy: { dueAt: "asc" },
   });
@@ -95,7 +96,9 @@ export async function loadReceivables(
   for (const inv of invoices) {
     const total = Number(inv.total);
     const paid = inv.payments.reduce((n, p) => n + Number(p.amount), 0);
-    const balance = Math.round((total - paid) * 100) / 100;
+    // Issued credit notes against this invoice reduce what's owed.
+    const credited = inv.creditNotes.reduce((n, c) => n + Number(c.total), 0);
+    const balance = Math.round((total - paid - credited) * 100) / 100;
     // Ignore fully-settled invoices that haven't yet been flipped to PAID, and
     // guard against tiny floating remainders.
     if (balance <= 0.009) continue;

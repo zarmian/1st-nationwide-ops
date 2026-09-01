@@ -84,6 +84,9 @@ export type VatReturnSummary = {
   vatReclaimed: number;
   /** Box 5 — net VAT to pay HMRC (Box 1 − Box 4); negative = repayment due. */
   netVatDue: number;
+  /** Gross value of credit notes issued in the period (already netted off Box 1/6). */
+  creditNotesTotal: number;
+  creditNotesCount: number;
   /** Box 6 — total value of sales excluding VAT. */
   netSales: number;
   /** Box 7 — total value of purchases excluding VAT. */
@@ -99,7 +102,7 @@ export async function loadVatReturn(
   from: Date,
   to: Date,
 ): Promise<VatReturnSummary> {
-  const [invoices, input] = await Promise.all([
+  const [invoices, creditNotes, input] = await Promise.all([
     prisma.invoice.findMany({
       where: {
         status: { in: ["SENT", "PAID"] },
@@ -107,6 +110,10 @@ export async function loadVatReturn(
       },
       include: { customer: { select: { name: true } } },
       orderBy: { issuedAt: "asc" },
+    }),
+    prisma.creditNote.findMany({
+      where: { status: "ISSUED", issuedAt: { gte: from, lte: to } },
+      select: { subtotal: true, vatRate: true, vatAmount: true },
     }),
     loadInputVat(from, to),
   ]);
@@ -145,12 +152,31 @@ export async function loadVatReturn(
     });
   }
 
+  // Credit notes net off output VAT (Box 1) and sales (Box 6) by issue date,
+  // and reduce the matching rate bucket so the by-rate split still reconciles.
+  let credited = 0;
+  for (const cn of creditNotes) {
+    const net = Number(cn.subtotal);
+    const vat = Number(cn.vatAmount);
+    netSales -= net;
+    vatDueOnSales -= vat;
+    gross -= net + vat;
+    credited += net + vat;
+    const rate = Number(cn.vatRate);
+    const rb = rateMap.get(rate) ?? { rate, net: 0, vat: 0, count: 0 };
+    rb.net -= net;
+    rb.vat -= vat;
+    rateMap.set(rate, rb);
+  }
+
   return {
     from,
     to,
     vatDueOnSales: round2(vatDueOnSales),
     vatReclaimed: input.inputVat,
     netVatDue: round2(vatDueOnSales - input.inputVat),
+    creditNotesTotal: round2(credited),
+    creditNotesCount: creditNotes.length,
     netSales: round2(netSales),
     netPurchases: input.netPurchases,
     gross: round2(gross),
