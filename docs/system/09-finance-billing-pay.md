@@ -1,6 +1,6 @@
 # Finance: Billing, Rates & Pay
 
-> How 1st Nationwide Ops prices each activity for the customer, pays the attending officer, snapshots both amounts onto the activity row, and rolls them up into P&L, payroll, the month-end pay-summary SMS, **customer invoices (with VAT), partner reconciliation statements, and recurring/subscription billing** — all driven by four rate-card models and one pure calculator (`src/lib/billing.ts`).
+> How 1st Nationwide Ops prices each activity for the customer, pays the attending officer, snapshots both amounts onto the activity row, and rolls them up into P&L, payroll, the month-end pay-summary SMS, **customer invoices (with VAT) that can be emailed and part-paid, an aged-debt/receivables report, a VAT-return summary, partner reconciliation statements, recurring/subscription billing, officer payslips with manual pay adjustments, and CSV exports for the accountant** — all driven by four rate-card models and one pure calculator (`src/lib/billing.ts`).
 
 Cross-references: activity creation/completion in `06-dispatch-jobs-alarms.md`; the three partner relationship modes in `08-partners.md`; scheduled cron jobs in `13-crons.md`.
 
@@ -16,7 +16,7 @@ Finance answers three questions for every unit of work:
 
 The unit of work is a `Job`, a `PatrolVisit`, or a `Shift`. Each carries its own **finance snapshot** — amounts are computed once and frozen on the row so later rate-card edits never rewrite history. `/finance`, `/finance/payroll`, the CSV export and the pay-summary SMS all read those snapshots; they never re-derive prices at read time.
 
-Now **in** scope (added after the original build): **customer invoicing with VAT** (`Invoice`/`InvoiceLine`), **partner reconciliation statements**, a **billing/pay exceptions** report, and **recurring/subscription billing** (`RecurringCharge` — retainers, subscriptions, one-off setup fees; independent of any `JobType`). Still out of scope: credit notes, invoice emailing / aged-debt tracking, accounting-package export, and multi-currency (GBP is assumed in roll-ups).
+Now **in** scope (added after the original build): **customer invoicing with VAT** (`Invoice`/`InvoiceLine`) that can be **emailed to the customer** and **part-paid** (`InvoicePayment`), an **aged-debt / receivables** report, a **VAT-return summary**, **partner reconciliation statements**, a **billing/pay exceptions** report, **recurring/subscription billing** (`RecurringCharge` — retainers, subscriptions, one-off setup fees; independent of any `JobType`), **officer payslips** (PDF + email) with **manual pay adjustments** (`PayAdjustment`), and **CSV exports** (sales / payments / payroll) for the accountant. Still out of scope: credit notes, purchase-side (input) VAT, and multi-currency (GBP is assumed in roll-ups).
 
 ---
 
@@ -44,12 +44,19 @@ Four rate models, all keyed by `RateService` + `RateUnit` (see `01-data-model.md
 
 | Model | Purpose | Notable fields |
 | --- | --- | --- |
-| `Invoice` | A customer invoice for a period | `number` (unique `INV-#####`), `status` (`InvoiceStatus`: DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt`, `dueAt`, `subtotal`, `vatRate`, `vatAmount`, `total` |
+| `Invoice` | A customer invoice for a period | `number` (unique `INV-#####`), `status` (`InvoiceStatus`: DRAFT/SENT/PAID/VOID), `periodFrom/To`, `issuedAt`, `emailedAt`, `dueAt`, `subtotal`, `vatRate`, `vatAmount`, `total` |
 | `InvoiceLine` | One line, grouped by service | `description`, `service`, `quantity`, `unitAmount`, `amount` |
+| `InvoicePayment` | A payment (or part payment) received against an invoice | `invoiceId` (cascade), `amount`, `paidOn`, `method`, `reference`, `notes` |
 | `RecurringCharge` | A standing charge on a cadence | `customerId`, `amount`, `cadence` (`RecurringCadence`: MONTHLY/QUARTERLY/ANNUAL/ONE_OFF), `startDate`, `endDate`, `active` |
 | `RecurringChargeRun` | One occurrence of a recurring charge for a period | `periodKey` (`YYYY-MM` / `YYYY-Qn` / `YYYY` / `ONEOFF`), `amount`, `invoiceId`; `@@unique([recurringChargeId, periodKey])` |
 
-Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurring occurrences via `RecurringChargeRun.invoiceId`. Voiding an invoice unlinks its activities and deletes its runs, freeing everything to bill again.
+Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurring occurrences via `RecurringChargeRun.invoiceId`. Voiding an invoice unlinks its activities and deletes its runs, freeing everything to bill again. Payments cascade-delete with their invoice; an invoice flips to `PAID` automatically once its payments cover the total (and back to `SENT` if a payment is removed).
+
+**Officer pay adjustments:**
+
+| Model | Purpose | Notable fields |
+| --- | --- | --- |
+| `PayAdjustment` | A manual pay line for an officer, dated into a payslip period | `officerId` (cascade), `date`, `kind` (free label — Bonus / Expense / Holiday pay / Deduction / Correction / Other), `label`, `amount` (**signed** — negative subtracts), `note` |
 
 ---
 
@@ -59,7 +66,12 @@ Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurrin
 | --- | --- |
 | `src/lib/billing.ts` | The calculator. Pure functions (`calculateBilling`, `calculatePay`, `mergeRates`, `jobTypeToRateService`, `durationMinutes`, `roundUpToHalfHour`, `jobAccountingDate`/`visitAccountingDate`/`shiftAccountingDate`) + DB helpers (`billForSite`, `payForOfficer`, `applyBillingTo{Visit,Job,Shift}`, `applyPayTo{Visit,Job,Shift}`, `snapshotJobFinanceIfNeeded`). |
 | `src/lib/activityWhen.ts` | Canonical "when" for an activity — display (`jobWhen`/`visitWhen`/`shiftWhen`) and the scheduled-date Prisma window fragments (`jobScheduledRange`/`visitScheduledRange`/`shiftScheduledRange`) used by every finance/payroll query. |
-| `src/lib/payroll.ts` | `buildPayrollReport`, `monthsBetween`, `csvHeader`/`csvLineFor` — month roll-up + CSV shaping. |
+| `src/lib/payroll.ts` | `buildPayrollReport` (retainer + activity pay + **adjustments** → net), `monthsBetween`, `csvHeader`/`csvLineFor` — month roll-up + CSV shaping. |
+| `src/lib/payslip.ts` | `loadPayslip` (per-officer statement: retainer + activity grouped by service + adjustments → gross/net) + `sendPayslipEmail`. |
+| `src/lib/receivables.ts` | `loadReceivables` + `ageBucket` (unit-tested) — outstanding invoices aged current / 1–30 / 31–60 / 61–90 / 90+. |
+| `src/lib/vatReturn.ts` | `loadVatReturn` (output VAT by invoice/tax-point date → Box 1 + Box 6, by-rate split) + `calendarQuarter`/`recentQuarters` (unit-tested). |
+| `src/lib/accountingExport.ts` | Sales + payments CSV — pure row formatters (unit-tested) + loaders. |
+| `src/lib/email.ts` | Resend wrapper (`isEmailConfigured`/`sendEmail`) — no-op until `RESEND_API_KEY` is set, mirroring `sms.ts`. |
 | `src/lib/rateMeta.ts` | Canonical service/unit lists, labels (`SERVICE_LABEL`, `UNIT_LABEL`), `fmtMoney`, `RateFormState`. |
 | `src/lib/rateInput.ts` | Zod `RateCardInput` + `parseRateForm` + `rateData` — shared validation/shaping for the `SiteRate`/`CustomerRate` editors. |
 | `src/app/(app)/finance/page.tsx` | Finance dashboard — KPIs, 14-day trend, revenue by service/region, P&L by account, top sites, officer & partner tables. |
@@ -73,7 +85,11 @@ Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurrin
 | Create-time callers | `src/lib/scheduleSync.ts`, `src/lib/callouts.ts`, `src/app/(app)/dispatch/_actions.ts`, `.../dispatch/callouts/_actions.ts`, `.../onboarding/_actions.ts`, `.../patrols/_actions.ts`, `.../shifts/_actions.ts`, `src/lib/jobActions.ts`, `src/app/api/submissions/route.ts`, `src/app/duty/[token]/_actions.ts`, `src/app/api/telegram/webhook/route.ts`. |
 | Partner-side | `src/app/partner/activities/_actions.ts` — sets partner charge/pay directly from `PartnerRate` (`getPartnerRateForType`). |
 | Exceptions | `src/lib/financeExceptions.ts` + `src/app/(app)/finance/exceptions/page.tsx` — completed work with no bill / no officer pay. |
-| Invoicing | `src/lib/invoicing.ts` (preview / create / status), `src/lib/company.ts` (supplier details — **fill in for a valid VAT invoice**), `src/app/(app)/finance/invoices/**`; PDF `src/lib/reports/InvoicePdf.tsx` + `src/app/api/invoices/[id]/pdf/route.ts`. |
+| Invoicing | `src/lib/invoicing.ts` (preview / create / status, plus `recordPayment`/`deletePayment`/`sendInvoiceEmail`), `src/lib/company.ts` (supplier details — **fill in for a valid VAT invoice**), `src/app/(app)/finance/invoices/**`; PDF `src/lib/reports/InvoicePdf.tsx` + `src/app/api/invoices/[id]/pdf/route.ts`. |
+| Receivables | `src/lib/receivables.ts`, `src/app/(app)/finance/receivables/page.tsx`. |
+| VAT return | `src/lib/vatReturn.ts`, `src/app/(app)/finance/vat/page.tsx`. |
+| Payslips | `src/lib/payslip.ts`, `src/app/(app)/finance/officers/[id]/payslip/**`; PDF `src/lib/reports/PayslipPdf.tsx` + `src/app/api/officers/[id]/payslip/pdf/route.ts`. |
+| Accounting export | `src/lib/accountingExport.ts`, `src/app/(app)/finance/export/page.tsx`, `src/app/api/finance/export/{invoices,payments}/route.ts`. |
 | Partner statements | `src/lib/partnerStatement.ts`, `src/app/(app)/finance/partners/[id]/statement/page.tsx`; PDF `src/lib/reports/PartnerStatementPdf.tsx` + `src/app/api/partners/[id]/statement/pdf/route.ts`. |
 | Recurring | `src/lib/recurring.ts` (`periodsDue`, `dueRecurringLines` — unit-tested), `src/app/(app)/finance/recurring/**`; wired into `invoicing.ts`. |
 
@@ -119,8 +135,9 @@ When an activity is created **with a fixed unit and a known account**, billing +
 ### 5. Payroll export (`buildPayrollReport` → CSV)
 `buildPayrollReport(from, to)` (`payroll.ts`) produces one row per active `OFFICER`/`DISPATCHER` (including zero-pay officers, so gaps are visible):
 - **Retainer** = the officer's `PER_MONTH` `OfficerRate` (per-officer, else company default; `ANNUAL_SUBSCRIPTION` accepted as legacy) × `monthsBetween(from,to)` (partial months count as whole).
-- **Activity pay** = sum of `paidAmount` over that officer's `COMPLETED` `PatrolVisit`s and completed `Job`s whose scheduled date falls in the window (via `visitScheduledRange`/`jobScheduledRange`, requiring `paidAt` set).
-- `total = retainer + activityPay`. `/api/payroll/export` returns `csvHeader()` + `csvLineFor()` rows as `text/csv` (admin-only; validates `from`/`to`). `/finance/payroll` renders the same report on screen.
+- **Activity pay** = sum of `paidAmount` over that officer's `COMPLETED` `PatrolVisit`s, completed `Job`s and completed `Shift`s whose scheduled date falls in the window (via the `*ScheduledRange` fragments, requiring `paidAt` set).
+- **Adjustments** = signed sum of that officer's `PayAdjustment` rows dated in the window.
+- `total = retainer + activityPay + adjustments` (net pay). `/api/payroll/export` returns `csvHeader()` + `csvLineFor()` rows as `text/csv` (admin-only; validates `from`/`to`; includes an `adjustments` column). `/finance/payroll` renders the same report on screen with a **Payslip →** link per officer.
 
 ### 6. P&L (`/finance`)
 `finance/page.tsx` (admin-only, default range = current month) reads snapshots over the scheduled-date window, counting **only completed work** (`status=COMPLETED` visits/shifts, `completedAt`-set non-cancelled jobs):
@@ -134,11 +151,25 @@ When an activity is created **with a fixed unit and a known account**, billing +
 ### 8. Customer invoicing (`/finance/invoices`)
 `previewInvoice` / `createInvoice` (`invoicing.ts`) gather a customer's **completed, billed, un-invoiced** activity in a period (plus any due recurring charges — §10), group it into lines by service, apply one VAT rate, and create an `Invoice` (`INV-#####`) whose creation stamps every included activity + run with `invoiceId` in a transaction. Lifecycle `DRAFT → SENT` (stamps issue + due dates from `company.ts` terms) `→ PAID`, or `VOID` (unlinks activities, deletes runs). PDF via `InvoicePdf.tsx`. Amounts read the frozen snapshots — invoicing never re-prices.
 
+**Send + payments.** `sendInvoiceEmail(id)` renders the PDF and emails it to the customer's `contactEmail` (via `lib/email.ts`); the first send from a draft issues the invoice (→ SENT + issue/due dates) so the ageing clock starts, and stamps `emailedAt`. `recordPayment` logs an `InvoicePayment` (part payments allowed) and auto-flips the invoice to `PAID` once payments cover the total; `deletePayment` reverts to `SENT` if that drops it back below total. The invoice detail page shows the payments list, live balance and a record-payment form.
+
+### 8a. Receivables / aged debt (`/finance/receivables`)
+`loadReceivables(asOf)` (`receivables.ts`) lists **issued invoices with a positive balance** (`SENT`, `balance = total − Σ payments`) aged by days past `dueAt` into **current / 1–30 / 31–60 / 61–90 / 90+** (`ageBucket`, unit-tested), most-overdue first, with per-bucket and per-customer totals.
+
+### 8b. VAT return (`/finance/vat`)
+`loadVatReturn(from, to)` (`vatReturn.ts`) sums **output VAT** on issued invoices by **invoice (tax-point) date** — **Box 1** (`Σ vatAmount`) and **Box 6** (`Σ subtotal`) — with a split by VAT rate and the invoice-level breakdown. Drafts and voided invoices are excluded. Calendar-quarter presets via `recentQuarters`. Output VAT only — purchase-side input VAT isn't tracked; the page says so.
+
+### 8c. Accounting export (`/finance/export`)
+`accountingExport.ts` produces period-scoped CSVs: **sales** (one row per issued invoice by tax-point date — net/VAT/gross/paid/balance) and **payments received** (one row per `InvoicePayment` by payment date, for bank rec), alongside the existing **payroll** CSV. Every cell is quoted; dates are ISO 8601. Pure row formatters are unit-tested; loaders read frozen figures.
+
 ### 9. Partner statements (`/finance/partners/[id]/statement`)
 `loadPartnerStatement(partnerId, from, to)` (`partnerStatement.ts`) builds a two-sided reconciliation: **they owe us** (mode-2 work we billed them, `billedAmount`) vs **we owe them** (mode-3 jobs / shifts / patrol visits at `partnerChargeToUsAmount`), plus the net position. PDF via `PartnerStatementPdf.tsx`.
 
 ### 10. Recurring / subscription billing (`/finance/recurring`)
 `periodsDue(charge, from, to)` (`recurring.ts`, unit-tested) computes the period keys a `RecurringCharge` is due for (MONTHLY/QUARTERLY/ANNUAL/ONE_OFF, respecting start/end); `dueRecurringLines` returns those not yet run. The invoice flow picks these up as lines and materialises one `RecurringChargeRun` per period (unique per charge + period, so never billed twice). Voiding an invoice deletes its runs.
+
+### 11. Officer payslips + pay adjustments (`/finance/officers/[id]/payslip`)
+`loadPayslip(officerId, from, to)` (`payslip.ts`) builds a per-officer statement using the **same rules as payroll** so the two reconcile: retainer (`PER_MONTH` `OfficerRate`, per-officer else company default × whole months) + activity pay (completed, paid visits/jobs/shifts on the scheduled-date window) **grouped by service**, plus **manual `PayAdjustment` lines** dated into the period → `gross` and `net`. Adjustments are added/deleted inline (signed amount — negative deducts). PDF via `PayslipPdf.tsx`; `sendPayslipEmail` emails it to the officer. Adjustments flow into `buildPayrollReport`'s net total and the payroll CSV.
 
 ---
 
@@ -171,7 +202,11 @@ When an activity is created **with a fixed unit and a known account**, billing +
 | Payroll | `/finance/payroll`; CSV `GET /api/payroll/export?from&to` | admin |
 | Month-end pay SMS | `GET /api/cron/pay-summary` (cron secret; `?force=YYYY-MM` to override month) | cron |
 | Billing / pay exceptions | `/finance/exceptions?from&to` | admin |
-| Invoices | `/finance/invoices` (list), `/new` (preview → create), `/[id]` (detail + status); PDF `GET /api/invoices/[id]/pdf` | admin |
+| Invoices | `/finance/invoices` (list), `/new` (preview → create), `/[id]` (detail + status + payments + email); PDF `GET /api/invoices/[id]/pdf` | admin |
+| Receivables (aged debt) | `/finance/receivables` | admin |
+| VAT return | `/finance/vat?from&to` | admin |
+| Payslips | `/finance/officers/[id]/payslip?from&to` (+ add/delete adjustments, email); PDF `GET /api/officers/[id]/payslip/pdf?from&to` | admin |
+| Accounting export | `/finance/export` → CSV `GET /api/finance/export/{invoices,payments}?from&to` (+ `/api/payroll/export`) | admin |
 | Partner statement | `/finance/partners/[id]/statement?from&to`; PDF `GET /api/partners/[id]/statement/pdf` | admin |
 | Recurring charges | `/finance/recurring` → `addRecurringCharge` / `toggleRecurringCharge` / `deleteRecurringCharge` | admin |
 
@@ -187,3 +222,7 @@ When an activity is created **with a fixed unit and a known account**, billing +
 - **Recompute caps at 5000 rows per type per run.** Large historical backfills need windowing by date.
 - **Subscriptions & setup fees bill via `RecurringCharge`** (not the activity path — they still have no `JobType`). Set them at `/finance/recurring`; each due period lands on the customer's next invoice. `ANNUAL_SUBSCRIPTION` also remains a `RateService`/`OfficerRate` unit for the officer monthly retainer.
 - **Duplicate service label maps.** `SERVICE_LABEL` lives in `rateMeta.ts` but several pages (`finance/page.tsx`, `finance/activities`, officer-rates) keep their own copies with slightly different wording (e.g. `ANNUAL_SUBSCRIPTION` = "Annual subscription" vs "Monthly retainer"). Consolidate on rebuild.
+- **Email is a no-op until configured.** `sendInvoiceEmail`/`sendPayslipEmail` return a clear "not set up yet" result unless `RESEND_API_KEY` is set (and `EMAIL_FROM` a verified sender), mirroring the SMS/WhatsApp drivers — nothing throws, the button just reports it. Set both in Vercel to enable.
+- **"Mark paid" vs recorded payments.** The invoice status buttons still expose a manual **Mark paid** override; using it sets `PAID` without an `InvoicePayment`, so the payments card shows a full balance while the chip says paid. Prefer **Record payment** when you want the balance and the receivables/aged-debt figures to be right.
+- **Receivables/VAT are invoice-date based, not cash.** Receivables ages by `dueAt`; the VAT return uses the invoice (tax-point) date. Businesses on the VAT cash-accounting scheme owe VAT when paid — the page flags this. The **payments** export is the cash-basis companion.
+- **Payslip reconciles with payroll by construction** — both call the same retainer + paid-activity rules. If you change one, change the other (or extract the shared roll-up).

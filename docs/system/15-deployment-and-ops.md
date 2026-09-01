@@ -37,6 +37,7 @@ edit → commit + push → PR → merge to main → Vercel auto-deploys
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_USERNAME` / `TELEGRAM_WEBHOOK_SECRET` | Telegram bot. | Bot |
 | `WHATSAPP_PHONE_ID` / `WHATSAPP_ACCESS_TOKEN` | Meta WhatsApp Cloud API. Notifications queue but stay `SKIPPED` until set. | WhatsApp |
 | `SMS_WORKS_JWT` | SMS Works API (SMS channel). | SMS |
+| `RESEND_API_KEY` / `EMAIL_FROM` | Resend (emailing invoices + payslips via `src/lib/email.ts`). Buttons report "not set up yet" until set; `EMAIL_FROM` must be a Resend-verified sender. | Email |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (photo/signature uploads). | Uploads |
 | `BONLINE_WEBHOOK_SECRET` | Validates inbound bOnline call webhooks. | Calls |
 | Sentry (`SENTRY_*`) | Error reporting. Without it, prod errors are silent. | Recommended |
