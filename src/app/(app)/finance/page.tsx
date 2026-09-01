@@ -1,12 +1,19 @@
 import Link from "next/link";
-import { Sun, Calendar, History, TrendingUp, TrendingDown } from "lucide-react";
+import {
+  Sun,
+  Calendar,
+  TrendingUp,
+  TrendingDown,
+  Scale,
+  PiggyBank,
+} from "lucide-react";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
 import { Sparkline } from "@/components/Sparkline";
 import { PageHeader } from "@/components/PageHeader";
-import { TrendChart } from "@/components/TrendChart";
+import { InteractiveTrend } from "@/components/InteractiveTrend";
 import { BarList } from "@/components/BarList";
 import {
   jobScheduledRange,
@@ -711,58 +718,13 @@ export default async function FinancePage({
     <div className="section">
       <PageHeader
         title="Finance"
-        subtitle={
-          <>
-            What we bill across all sites and customers. Per-visit and
-            per-job amounts are auto-snapshotted from{" "}
-            <code className="text-xs bg-slate-100 px-1 rounded">SiteRate</code>
-            . Officer pay rates and excess-time surcharge are next.
-          </>
-        }
+        subtitle="Revenue, profit and cash across every site and customer, for the selected period."
         actions={
-          <>
-            <Link href="/finance/activities" className="btn-secondary text-sm">
-              Activities log →
-            </Link>
-            <Link href="/finance/payroll" className="btn-secondary text-sm">
-              Payroll →
-            </Link>
-            <Link href="/finance/invoices" className="btn-secondary text-sm">
-              Invoices →
-            </Link>
-            <Link href="/finance/receivables" className="btn-secondary text-sm">
-              Receivables →
-            </Link>
-            <Link href="/finance/statements" className="btn-secondary text-sm">
-              Statements →
-            </Link>
-            <Link href="/finance/credit-notes" className="btn-secondary text-sm">
-              Credit notes →
-            </Link>
-            <Link href="/finance/vat" className="btn-secondary text-sm">
-              VAT return →
-            </Link>
-            <Link href="/finance/costs" className="btn-secondary text-sm">
-              Costs →
-            </Link>
-            <Link href="/finance/export" className="btn-secondary text-sm">
-              Export →
-            </Link>
-            <Link href="/finance/recurring" className="btn-secondary text-sm">
-              Recurring →
-            </Link>
-            <Link
-              href={`/finance/exceptions?from=${ymd(fromDate)}&to=${ymd(toDate)}`}
-              className="btn-secondary text-sm"
-            >
-              Exceptions →
-            </Link>
-            <RecalcButton
-              recalc={recalculateBilling}
-              from={fromDate.toISOString()}
-              to={toDate.toISOString()}
-            />
-          </>
+          <RecalcButton
+            recalc={recalculateBilling}
+            from={fromDate.toISOString()}
+            to={toDate.toISOString()}
+          />
         }
       />
 
@@ -775,6 +737,7 @@ export default async function FinancePage({
             id="from"
             name="from"
             type="date"
+            autoComplete="off"
             defaultValue={ymd(fromDate)}
             className="input"
           />
@@ -787,6 +750,7 @@ export default async function FinancePage({
             id="to"
             name="to"
             type="date"
+            autoComplete="off"
             defaultValue={ymd(toDate)}
             className="input"
           />
@@ -826,21 +790,24 @@ export default async function FinancePage({
         </div>
       </form>
 
-      <div className="grid sm:grid-cols-3 gap-3">
-        {/* Today gets the brand accent stripe — it's the live, always-now
-            number admins glance at first. */}
+      {/* Hero band — the day's live number, the range with its trend, then
+          the two profit figures. Reads left-to-right as revenue → profit. */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="card-accent p-5 flex flex-col gap-1.5">
           <div className="kpi-label inline-flex items-center gap-1.5">
-            <Sun size={13} className="text-brand-blue" /> Earned today
+            <Sun size={13} className="text-brand-blue" aria-hidden="true" /> Earned
+            today
           </div>
           <div className="kpi-value">{fmtMoney2(earnedToday)}</div>
           <div className="kpi-hint">since midnight</div>
         </div>
+
         <div className="kpi">
           <div className="flex items-start justify-between gap-2">
-            <div>
+            <div className="min-w-0">
               <div className="kpi-label inline-flex items-center gap-1.5">
-                <Calendar size={13} className="text-slate-400" /> Earned in range
+                <Calendar size={13} className="text-slate-400" aria-hidden="true" />{" "}
+                Earned in range
               </div>
               <div className="kpi-value">{fmtMoney2(earnedRange)}</div>
             </div>
@@ -850,49 +817,68 @@ export default async function FinancePage({
               fill="#3B82F6"
             />
           </div>
-          <div className="kpi-hint">
-            {fromDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })} →{" "}
-            {toDate.toLocaleDateString("en-GB", { timeZone: "Europe/London" })} · trend: last 14 days
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label inline-flex items-center gap-1.5">
-            <History size={13} className="text-slate-400" /> Previous period
-          </div>
-          <div className="kpi-value">{fmtMoney2(earnedPrev)}</div>
           <div
             className={
-              "text-xs inline-flex items-center gap-1 " +
+              "kpi-hint inline-flex items-center gap-1 " +
               (rangeDelta == null
-                ? "text-slate-500"
+                ? ""
                 : rangeDelta >= 0
                   ? "text-success"
                   : "text-red-600")
             }
           >
             {rangeDelta == null ? (
-              "No prior data to compare"
+              "No prior period to compare"
             ) : (
               <>
                 {rangeDelta >= 0 ? (
-                  <TrendingUp size={12} />
+                  <TrendingUp size={12} aria-hidden="true" />
                 ) : (
-                  <TrendingDown size={12} />
+                  <TrendingDown size={12} aria-hidden="true" />
                 )}
-                {Math.abs(rangeDelta).toFixed(0)}% vs same-length window before
+                {Math.abs(rangeDelta).toFixed(0)}% vs previous {fmtMoney(earnedPrev)}
               </>
             )}
           </div>
         </div>
+
+        <div className="kpi">
+          <div className="kpi-label inline-flex items-center gap-1.5">
+            <Scale size={13} className="text-slate-400" aria-hidden="true" /> Gross
+            margin
+          </div>
+          <div className="kpi-value">{fmtMoney2(grossMargin)}</div>
+          <div className="kpi-hint">billed − officer pay</div>
+        </div>
+
+        <div className="kpi">
+          <div className="kpi-label inline-flex items-center gap-1.5">
+            <PiggyBank size={13} className="text-slate-400" aria-hidden="true" /> Net
+            profit
+          </div>
+          <div
+            className={
+              "kpi-value " + (netProfit >= 0 ? "" : "!text-red-600")
+            }
+          >
+            {fmtMoney2(netProfit)}
+          </div>
+          <div className="kpi-hint">after {fmtMoney(overheads)} overheads</div>
+        </div>
       </div>
 
-      {/* ── Revenue analytics ─────────────────────────────────────────── */}
+      {/* ── Revenue ───────────────────────────────────────────────────── */}
+      <SectionHeading
+        title="Revenue"
+        hint="Billed work in the selected range — over time, and by service, account and region."
+      />
+
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex items-baseline justify-between gap-3">
           <div>
             <h2 className="font-semibold text-brand-navy">Billed — last 14 days</h2>
             <p className="text-xs text-slate-500">
-              Completed visits + jobs, per day. Peak day labelled.
+              Completed visits, jobs and shifts per day. Hover any day; the peak is labelled.
             </p>
           </div>
           <div className="text-right">
@@ -902,13 +888,13 @@ export default async function FinancePage({
             <div className="text-[11px] text-slate-500">14-day total</div>
           </div>
         </div>
-        <div className="p-4">
-          <TrendChart
+        <div className="p-4 pt-6">
+          <InteractiveTrend
             values={dailyBilled}
             labels={trendLabels}
-            height={140}
+            height={168}
             ariaLabel="Daily billed revenue over the last 14 days"
-            formatValue={(n) => fmtMoney(n)}
+            format={(n) => fmtMoney(n)}
           />
         </div>
       </div>
@@ -971,6 +957,12 @@ export default async function FinancePage({
           />
         </div>
       </div>
+
+      {/* ── Profit & loss ─────────────────────────────────────────────── */}
+      <SectionHeading
+        title="Profit & loss"
+        hint="What each account earned after officer pay, then overheads."
+      />
 
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100">
@@ -1128,6 +1120,12 @@ export default async function FinancePage({
         </div>
       </div>
 
+      {/* ── Sites ─────────────────────────────────────────────────────── */}
+      <SectionHeading
+        title="Sites"
+        hint="Where the work is — ranked by revenue and by volume."
+      />
+
       <TopSitesTables
         byRevenue={topSitesByRevenue}
         byActivity={topSitesByActivity}
@@ -1135,29 +1133,43 @@ export default async function FinancePage({
         to={toDate}
       />
 
+      {/* ── People ────────────────────────────────────────────────────── */}
+      <SectionHeading
+        title="People"
+        hint="Partners we work with both ways, and what each officer was paid."
+      />
+
       <div className="grid lg:grid-cols-2 gap-4">
         <PartnerPnlTable rows={partnerRows} from={fromDate} to={toDate} />
         <OfficerPnlTable rows={officerRows} from={fromDate} to={toDate} />
       </div>
+    </div>
+  );
+}
 
-
-      <div className="card-subtle p-4">
-        <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">
-          Coming next
-        </h3>
-        <ul className="text-sm text-slate-700 space-y-1 list-disc list-inside">
-          <li>
-            Static guarding / dog handler shifts with hourly check-ins.
-          </li>
-          <li>
-            Monthly payroll export (CSV) — sums OfficerRate monthly retainers
-            plus all per-activity pay.
-          </li>
-          <li>
-            Date-range picker on this page to scope KPIs and the P&amp;L table.
-          </li>
-        </ul>
-      </div>
+/**
+ * A quiet group heading used to break the dashboard into scannable sections
+ * (Revenue, Profit & loss, Sites, People) — an eyebrow-weight title plus an
+ * optional one-line hint, with a hairline that runs to the edge.
+ */
+function SectionHeading({
+  title,
+  hint,
+}: {
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <div className="flex items-baseline gap-3 pt-2">
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 shrink-0">
+        {title}
+      </h2>
+      {hint && (
+        <p className="min-w-0 text-xs text-slate-400 truncate hidden sm:block">
+          {hint}
+        </p>
+      )}
+      <div className="flex-1 border-t border-slate-200/70" />
     </div>
   );
 }
