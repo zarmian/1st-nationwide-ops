@@ -42,11 +42,6 @@ export default async function VatReturnPage({
         backHref="/finance"
         backLabel="Finance"
         subtitle="Output VAT you've charged customers, by invoice date — ready to transcribe onto your HMRC return."
-        actions={
-          <Link href="/finance/invoices" className="btn-secondary text-sm">
-            Invoices →
-          </Link>
-        }
       />
 
       {/* Period picker — quarter presets plus a manual range. */}
