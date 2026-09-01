@@ -129,18 +129,23 @@ export default async function NewInvoicePage({
               <table className="table-default">
                 <thead>
                   <tr>
-                    <th>Service</th>
-                    <th className="col-num">Qty</th>
-                    <th className="col-num">Unit</th>
-                    <th className="col-num">Amount</th>
+                    <th>Site</th>
+                    <th className="col-num">Activities</th>
+                    <th className="col-num">Total</th>
                   </tr>
                 </thead>
                 <tbody>
                   {preview.lines.map((l, i) => (
                     <tr key={i}>
-                      <td>{l.description}</td>
+                      <td>
+                        <div className="font-medium text-brand-navy">
+                          {l.description}
+                        </div>
+                        {l.detail && (
+                          <div className="text-xs text-slate-500">{l.detail}</div>
+                        )}
+                      </td>
                       <td className="col-num">{l.quantity}</td>
-                      <td className="col-num">{formatMoney(l.unitAmount)}</td>
                       <td className="col-num">{formatMoney(l.amount)}</td>
                     </tr>
                   ))}

@@ -61,10 +61,10 @@ const s = StyleSheet.create({
     borderBottomColor: LINE,
     paddingVertical: 6,
   },
-  cDesc: { flex: 1 },
-  cQty: { width: 44, textAlign: "right" },
-  cUnit: { width: 80, textAlign: "right" },
+  cDesc: { flex: 1, paddingRight: 8 },
+  cQty: { width: 72, textAlign: "right" },
   cAmt: { width: 90, textAlign: "right" },
+  lineDetail: { fontSize: 8, color: SLATE, marginTop: 1 },
   th: { fontSize: 8, fontFamily: "Helvetica-Bold", color: SLATE, textTransform: "uppercase", letterSpacing: 1 },
   totals: { marginTop: 12, alignItems: "flex-end" },
   totalRow: { flexDirection: "row", width: 240, justifyContent: "space-between", paddingVertical: 3 },
@@ -167,16 +167,17 @@ function InvoiceDocument({ data }: { data: InvoicePdfData }) {
         </View>
 
         <View style={s.tHead}>
-          <Text style={[s.cDesc, s.th]}>Description</Text>
-          <Text style={[s.cQty, s.th]}>Qty</Text>
-          <Text style={[s.cUnit, s.th]}>Unit</Text>
-          <Text style={[s.cAmt, s.th]}>Amount</Text>
+          <Text style={[s.cDesc, s.th]}>Site</Text>
+          <Text style={[s.cQty, s.th]}>Activities</Text>
+          <Text style={[s.cAmt, s.th]}>Total</Text>
         </View>
         {data.lines.map((l, i) => (
           <View key={i} style={s.tRow}>
-            <Text style={s.cDesc}>{l.description}</Text>
+            <View style={s.cDesc}>
+              <Text>{l.description}</Text>
+              {l.detail ? <Text style={s.lineDetail}>{l.detail}</Text> : null}
+            </View>
             <Text style={s.cQty}>{l.quantity}</Text>
-            <Text style={s.cUnit}>{money(l.unitAmount, data.currency)}</Text>
             <Text style={s.cAmt}>{money(l.amount, data.currency)}</Text>
           </View>
         ))}

@@ -1586,6 +1586,9 @@ model InvoiceLine {
   invoiceId   String  @db.Uuid
   invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description String
+  /// A secondary line under the description, e.g. the per-site breakdown
+  /// "12 callouts · 24.5 hrs static/dog handling".
+  detail      String?
   /// The RateService this line rolls up, for reference. Free-form.
   service     String?
   quantity    Int     @default(1)

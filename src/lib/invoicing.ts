@@ -21,12 +21,12 @@ import { sendEmail, isEmailConfigured } from "@/lib/email";
 import type { InvoicePdfData } from "@/lib/reports/invoiceReport";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
-const humanize = (s: string) =>
-  s.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
 
 export type PreviewLine = {
   service: string;
   description: string;
+  /** Secondary breakdown under the description, e.g. "12 callouts · 24.5 hrs". */
+  detail: string | null;
   quantity: number;
   unitAmount: number;
   amount: number;
@@ -55,6 +55,7 @@ const toPreviewLines = (
   rec.map((l) => ({
     service: l.service ?? "Recurring",
     description: l.description,
+    detail: null,
     quantity: 1,
     unitAmount: l.amount,
     amount: l.amount,
@@ -78,7 +79,13 @@ async function gather(db: Client, customerId: string, from: Date, to: Date) {
           jobScheduledRange(from, to),
         ],
       },
-      select: { id: true, type: true, typeLabel: true, billedAmount: true },
+      select: {
+        id: true,
+        type: true,
+        typeLabel: true,
+        billedAmount: true,
+        site: { select: { id: true, name: true, code: true } },
+      },
     }),
     db.patrolVisit.findMany({
       where: {
@@ -92,6 +99,7 @@ async function gather(db: Client, customerId: string, from: Date, to: Date) {
         id: true,
         billedAmount: true,
         patrolSchedule: { select: { kind: true } },
+        site: { select: { id: true, name: true, code: true } },
       },
     }),
     db.shift.findMany({
@@ -102,24 +110,96 @@ async function gather(db: Client, customerId: string, from: Date, to: Date) {
         site: { is: { customerId } },
         ...shiftScheduledRange(from, to),
       },
-      select: { id: true, type: true, billedAmount: true },
+      select: {
+        id: true,
+        type: true,
+        billedAmount: true,
+        actualStartedAt: true,
+        actualEndedAt: true,
+        scheduledStartsAt: true,
+        scheduledEndsAt: true,
+        payableMinutes: true,
+        site: { select: { id: true, name: true, code: true } },
+      },
     }),
   ]);
   return { jobs, visits, shifts };
 }
 
+type SiteInfo = { id: string; name: string; code: string | null } | null;
+
+/** Group key + display label for a site (or a catch-all for site-less work). */
+function siteKeyLabel(site: SiteInfo): { key: string; label: string } {
+  if (!site) return { key: "__nosite__", label: "Other (no site)" };
+  return {
+    key: site.id,
+    label: site.code ? `${site.code} · ${site.name}` : site.name,
+  };
+}
+
+/** Billed worked minutes for a shift — actual time, falling back to scheduled. */
+function shiftWorkedMinutes(s: {
+  actualStartedAt: Date | null;
+  actualEndedAt: Date | null;
+  scheduledStartsAt: Date;
+  scheduledEndsAt: Date;
+  payableMinutes: number | null;
+}): number {
+  if (s.actualStartedAt && s.actualEndedAt) {
+    return Math.max(
+      0,
+      (s.actualEndedAt.getTime() - s.actualStartedAt.getTime()) / 60000,
+    );
+  }
+  if (s.scheduledStartsAt && s.scheduledEndsAt) {
+    return Math.max(
+      0,
+      (s.scheduledEndsAt.getTime() - s.scheduledStartsAt.getTime()) / 60000,
+    );
+  }
+  return s.payableMinutes ?? 0;
+}
+
+/** "12 callouts · 24.5 hrs static/dog handling", or null when nothing to say. */
+function buildDetail(callouts: number, shiftMinutes: number): string | null {
+  const parts: string[] = [];
+  if (callouts > 0) {
+    parts.push(`${callouts} callout${callouts === 1 ? "" : "s"}`);
+  }
+  if (shiftMinutes > 0) {
+    const hours = Math.round((shiftMinutes / 60) * 10) / 10;
+    parts.push(`${hours} hr${hours === 1 ? "" : "s"} static/dog handling`);
+  }
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/**
+ * Group the period's activity into one line **per site**: site name, the number
+ * of activities, and the total — with a breakdown of callouts (jobs + patrol
+ * visits) and static/dog handling hours (shifts) as the line's `detail`.
+ */
 function buildLines(gathered: Awaited<ReturnType<typeof gather>>): {
   lines: PreviewLine[];
   jobIds: string[];
   visitIds: string[];
   shiftIds: string[];
 } {
-  const groups = new Map<string, { count: number; sum: number }>();
-  const add = (label: string, amount: number) => {
-    const g = groups.get(label) ?? { count: 0, sum: 0 };
-    g.count += 1;
-    g.sum += amount;
-    groups.set(label, g);
+  type Group = {
+    label: string;
+    count: number;
+    sum: number;
+    callouts: number;
+    shiftMinutes: number;
+  };
+  const groups = new Map<string, Group>();
+  const ensure = (site: SiteInfo): Group => {
+    const { key, label } = siteKeyLabel(site);
+    let g = groups.get(key);
+    if (!g) {
+      g = { label, count: 0, sum: 0, callouts: 0, shiftMinutes: 0 };
+      groups.set(key, g);
+    }
+    return g;
   };
 
   const jobIds: string[] = [];
@@ -128,26 +208,33 @@ function buildLines(gathered: Awaited<ReturnType<typeof gather>>): {
 
   for (const j of gathered.jobs) {
     jobIds.push(j.id);
-    add(j.typeLabel ?? humanize(j.type), Number(j.billedAmount ?? 0));
+    const g = ensure(j.site);
+    g.count += 1;
+    g.sum += Number(j.billedAmount ?? 0);
+    g.callouts += 1;
   }
   for (const v of gathered.visits) {
     visitIds.push(v.id);
-    add(
-      v.patrolSchedule?.kind === "VPI" ? "Void property inspection" : "Mobile patrol",
-      Number(v.billedAmount ?? 0),
-    );
+    const g = ensure(v.site);
+    g.count += 1;
+    g.sum += Number(v.billedAmount ?? 0);
+    g.callouts += 1;
   }
   for (const s of gathered.shifts) {
     shiftIds.push(s.id);
-    add(humanize(s.type), Number(s.billedAmount ?? 0));
+    const g = ensure(s.site);
+    g.count += 1;
+    g.sum += Number(s.billedAmount ?? 0);
+    g.shiftMinutes += shiftWorkedMinutes(s);
   }
 
-  const lines: PreviewLine[] = [...groups.entries()]
-    .map(([service, g]) => ({
-      service,
-      description: service,
+  const lines: PreviewLine[] = [...groups.values()]
+    .map((g) => ({
+      service: g.label,
+      description: g.label,
+      detail: buildDetail(g.callouts, g.shiftMinutes),
       quantity: g.count,
-      unitAmount: round2(g.sum / g.count),
+      unitAmount: round2(g.count ? g.sum / g.count : 0),
       amount: round2(g.sum),
     }))
     .sort((a, b) => b.amount - a.amount);
@@ -256,6 +343,7 @@ export async function createInvoice(
           lines: {
             create: lines.map((l, i) => ({
               description: l.description,
+              detail: l.detail,
               service: l.service,
               quantity: l.quantity,
               unitAmount: l.unitAmount,

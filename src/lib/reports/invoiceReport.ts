@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 
 export type InvoicePdfLine = {
   description: string;
+  detail: string | null;
   quantity: number;
   unitAmount: number;
   amount: number;
@@ -63,6 +64,7 @@ export async function loadInvoiceForPdf(
     customer: inv.customer,
     lines: inv.lines.map((l) => ({
       description: l.description,
+      detail: l.detail,
       quantity: l.quantity,
       unitAmount: Number(l.unitAmount),
       amount: Number(l.amount),
