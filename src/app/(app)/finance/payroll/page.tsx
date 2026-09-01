@@ -158,8 +158,12 @@ export default async function PayrollPage({
                 Activities
               </th>
               <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                Adjustments
+              </th>
+              <th className="text-right px-4 py-2 font-medium uppercase tracking-wider text-xs">
                 Total
               </th>
+              <th className="px-4 py-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -188,14 +192,34 @@ export default async function PayrollPage({
                 <td className="px-4 py-2 text-right tabular-nums text-slate-500">
                   {r.activityCount}
                 </td>
+                <td
+                  className={
+                    "px-4 py-2 text-right tabular-nums " +
+                    (r.adjustments < 0
+                      ? "text-red-600"
+                      : r.adjustments > 0
+                        ? "text-slate-700"
+                        : "text-slate-400")
+                  }
+                >
+                  {r.adjustments === 0 ? "—" : fmt(r.adjustments, r.currency)}
+                </td>
                 <td className="px-4 py-2 text-right tabular-nums font-medium text-brand-navy">
                   {fmt(r.total, r.currency)}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <Link
+                    href={`/finance/officers/${r.officerId}/payslip?from=${ymd(fromDate)}&to=${ymd(toDate)}`}
+                    className="text-brand-blue-dark hover:underline text-sm whitespace-nowrap"
+                  >
+                    Payslip →
+                  </Link>
                 </td>
               </tr>
             ))}
             {report.rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                   No active officers — add one at{" "}
                   <Link href="/officers" className="text-brand-blue-dark hover:underline">
                     /officers
