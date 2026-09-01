@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   LineChart,
+  FileBarChart,
   Activity,
   Banknote,
   FileText,
@@ -46,6 +47,7 @@ type NavItem = {
 const ITEMS: NavItem[] = [
   { href: "/finance", label: "Overview", icon: LayoutDashboard },
   { href: "/finance/cashflow", label: "Cash flow", icon: LineChart },
+  { href: "/finance/pnl", label: "P&L", icon: FileBarChart },
   { href: "/finance/invoices", label: "Invoices", icon: FileText },
   { href: "/finance/receivables", label: "Receivables", icon: Clock },
   { href: "/finance/payables", label: "Payables", icon: CreditCard },
