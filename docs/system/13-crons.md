@@ -1,6 +1,6 @@
 # Scheduled jobs (crons)
 
-> Eleven Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, chase overdue invoices daily, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
+> Twelve Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, chase overdue invoices daily, remind about contract renewals weekly, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
 
 ## Purpose & scope
 
@@ -27,6 +27,7 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 | `/api/cron/upcoming-reminders` | `*/5 * * * *` | every 5 min | Text officers about shifts/jobs starting in 30–60 min. | `SHIFT_REMINDER`/`JOB_REMINDER` SMS rows (deduped). |
 | `/api/cron/pay-summary` | `0 9 1 * *` | 1st of month 09:00 | Text each active officer their prior-month pay total. | `PAY_SUMMARY` SMS rows (one per officer/month). |
 | `/api/cron/invoice-reminders` | `0 8 * * *` | daily 08:00 | Email customers whose `SENT` invoices have crossed an overdue threshold (1/7/14/30 days), highest unsent stage only. | Reminder emails + `InvoiceReminder` rows (one per invoice/stage). No-op until email is configured. |
+| `/api/cron/contract-renewals` | `0 8 * * 1` | Mon 08:00 | Email a digest of active `Contract`s renewing within 30 days (or overdue). | One digest email to `ADMIN_EMAIL`/`COMPANY.email`. No-op until email + a recipient are set. |
 
 ## Per-cron mechanics
 

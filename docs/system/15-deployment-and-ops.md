@@ -63,7 +63,7 @@ Customer invoices render from constants in **`src/lib/company.ts`** (name, regis
 
 ## Crons
 
-11 scheduled routes registered in `vercel.json`, all gated by `CRON_SECRET` (`src/lib/cronAuth.ts`). They materialise patrol visits & lock/unlock jobs, sweep visit/shift statuses, drain the WhatsApp and SMS queues, send the morning Telegram brief and reminders, run payroll summaries, and clean up blobs. Full table in [`13-crons.md`](./13-crons.md).
+12 scheduled routes registered in `vercel.json`, all gated by `CRON_SECRET` (`src/lib/cronAuth.ts`). They materialise patrol visits & lock/unlock jobs, sweep visit/shift statuses, drain the WhatsApp and SMS queues, send the morning Telegram brief and reminders, run payroll summaries, chase overdue invoices and contract renewals, and clean up blobs. Full table in [`13-crons.md`](./13-crons.md).
 
 ## External-service setup (human-only)
 

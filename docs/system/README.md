@@ -15,7 +15,7 @@ Every module doc follows the same shape, so you can skim consistently:
 | # | Doc | Covers |
 |---|---|---|
 | 00 | [Overview](./00-overview.md) | What it is, tech stack, architecture, the 3-mode operating model, roles, where to start. |
-| 01 | [Data Model](./01-data-model.md) | All 45 models + 38 enums, grouped by domain; relationships; migration workflow. |
+| 01 | [Data Model](./01-data-model.md) | All 46 models + 40 enums, grouped by domain; relationships; migration workflow. |
 | 02 | [Access, Auth & Roles](./02-access-auth-roles.md) | NextAuth, the 5 roles, middleware + layout gating, rate limiting, duty tokens, admin bootstrap. |
 | 03 | [Sites, Customers & Regions](./03-sites-customers-regions.md) | The site register, customers/contacts, access instructions, import & geocoding. |
 | 04 | [Keys](./04-keys.md) | Keys, key sets, movements, holders, encrypted access codes. |
