@@ -153,6 +153,7 @@ export default async function ReceivablesPage() {
                     <tr>
                       <th>Customer</th>
                       <th className="col-num">Outstanding</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -162,6 +163,14 @@ export default async function ReceivablesPage() {
                           {c.customerName}
                         </td>
                         <td className="col-num">{formatMoney(c.balance)}</td>
+                        <td className="text-right">
+                          <Link
+                            href={`/finance/customers/${c.customerId}/statement`}
+                            className="text-brand-blue-dark hover:underline text-sm whitespace-nowrap"
+                          >
+                            Statement →
+                          </Link>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
