@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/invoice-reminders",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/contract-renewals",
+      "schedule": "0 8 * * 1"
     }
   ]
 }

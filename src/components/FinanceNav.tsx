@@ -15,6 +15,7 @@ import {
   Landmark,
   Wallet,
   Repeat,
+  FileSignature,
   AlertTriangle,
   Download,
   type LucideIcon,
@@ -65,6 +66,7 @@ const ITEMS: NavItem[] = [
   },
   { href: "/finance/activities", label: "Activities", icon: Activity },
   { href: "/finance/recurring", label: "Recurring", icon: Repeat },
+  { href: "/finance/contracts", label: "Contracts", icon: FileSignature },
   { href: "/finance/exceptions", label: "Exceptions", icon: AlertTriangle },
   { href: "/finance/export", label: "Export", icon: Download },
 ];
