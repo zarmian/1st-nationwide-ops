@@ -1,12 +1,20 @@
 import Link from "next/link";
 import type { Prisma, JobStatus } from "@prisma/client";
-import { CalendarPlus, History } from "lucide-react";
+import {
+  CalendarPlus,
+  History,
+  CheckCircle2,
+  Percent,
+  Timer,
+  Users,
+} from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { BarList } from "@/components/BarList";
 import { TrendChart } from "@/components/TrendChart";
+import { StatCard } from "@/components/StatCard";
 import { CancelActivityButton } from "./_components/CancelActivityButton";
 import { CloseActivityButton } from "./_components/CloseActivityButton";
 import { ReassignOfficer } from "./_components/ReassignOfficer";
@@ -928,32 +936,34 @@ export default async function DispatchPage({
 
       {/* ── Operations analytics ─────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="card-accent p-4 flex flex-col gap-1">
-          <div className="kpi-label">Completed today</div>
-          <div className="kpi-value">{completedTodayTotal.toLocaleString("en-GB")}</div>
-          <div className="kpi-hint">jobs + visits closed</div>
-        </div>
-        <div className="kpi p-4">
-          <div className="kpi-label">Completion rate</div>
-          <div className="kpi-value">
-            {completionRate == null ? "—" : `${completionRate}%`}
-          </div>
-          <div className="kpi-hint">
-            {overdueNow > 0 ? `${overdueNow} overdue now` : "nothing overdue"}
-          </div>
-        </div>
-        <div className="kpi p-4">
-          <div className="kpi-label">Avg response today</div>
-          <div className="kpi-value">
-            {avgResponseMins == null ? "—" : `${avgResponseMins}m`}
-          </div>
-          <div className="kpi-hint">scheduled → on site</div>
-        </div>
-        <div className="kpi p-4">
-          <div className="kpi-label">On duty now</div>
-          <div className="kpi-value">{onDutyOfficers.length.toLocaleString("en-GB")}</div>
-          <div className="kpi-hint">officers signed on</div>
-        </div>
+        <StatCard
+          tone="emerald"
+          label="Completed today"
+          value={completedTodayTotal.toLocaleString("en-GB")}
+          hint="jobs + visits closed"
+          icon={CheckCircle2}
+        />
+        <StatCard
+          tone="blue"
+          label="Completion rate"
+          value={completionRate == null ? "—" : `${completionRate}%`}
+          hint={overdueNow > 0 ? `${overdueNow} overdue now` : "nothing overdue"}
+          icon={Percent}
+        />
+        <StatCard
+          tone="indigo"
+          label="Avg response today"
+          value={avgResponseMins == null ? "—" : `${avgResponseMins}m`}
+          hint="scheduled → on site"
+          icon={Timer}
+        />
+        <StatCard
+          tone="amber"
+          label="On duty now"
+          value={onDutyOfficers.length.toLocaleString("en-GB")}
+          hint="officers signed on"
+          icon={Users}
+        />
       </div>
 
       <AutoRefresh intervalMs={60_000} />
