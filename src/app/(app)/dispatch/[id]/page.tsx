@@ -113,7 +113,8 @@ export default async function JobDetailPage({
   if (!job) notFound();
 
   const assignableOfficers = await prisma.user.findMany({
-    where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
+    // Officers only — jobs are never reassigned to dispatchers.
+    where: { active: true, role: "OFFICER" },
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });

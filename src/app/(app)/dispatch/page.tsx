@@ -372,7 +372,9 @@ export default async function DispatchPage({
       where: {
         active: true,
         onDuty: true,
-        role: { in: ["OFFICER", "DISPATCHER"] },
+        // Dispatchers coordinate from the control room — they aren't field
+        // officers, so their location never shows on the board or the map.
+        role: "OFFICER",
       },
       orderBy: { name: "asc" },
       select: {
@@ -403,7 +405,8 @@ export default async function DispatchPage({
       where: withHiddenVisit(visitBucketWhere("completed", now)) ?? { id: emptyUuid() },
     }),
     prisma.user.findMany({
-      where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
+      // Officers only — jobs and visits are never assigned to dispatchers.
+      where: { active: true, role: "OFFICER" },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
