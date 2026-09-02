@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Finance — Preview · 1st Nationwide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/ops-preview.css">
+</head>
+<body>
+
+<header class="bar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+    <span>1st Nationwide<small>Operations platform</small></span>
+  </div>
+  <span class="preview-pill">Preview</span>
+  <nav class="pagenav">
+    <a href="/ops-dashboard-preview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg> Command Center</a>
+    <a href="/dispatch-preview.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Dispatch</a>
+    <a href="/finance-preview.html" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg> Finance</a>
+  </nav>
+  <div class="spacer"></div>
+  <div class="clock"><span class="t mono" id="clk">14:32</span><span class="d" id="dte">Wed 10 June 2026</span></div>
+  <div class="avatar" title="Zaryab Rashid">ZR</div>
+</header>
+
+<main>
+  <div class="page-title">
+    <div>
+      <h1>Finance</h1>
+      <p>Billing, margin and officer cost across customers and partners.</p>
+    </div>
+    <div class="toolbar">
+      <button class="chip">Today</button>
+      <button class="chip active">This month</button>
+      <button class="chip">Last month</button>
+      <button class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> Custom</button>
+      <button class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg> Recalc billing</button>
+    </div>
+  </div>
+
+  <div class="section-h"><span>June 2026 · to date</span><span class="line"></span><span class="meta">vs May 2026</span></div>
+  <div class="kpis">
+    <div class="kpi"><div class="top">Earned · June<span class="ic g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span></div><div class="val money">£48,920</div><span class="delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg> +12% vs May</span></div>
+    <div class="kpi"><div class="top">Earned today<span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span></div><div class="val money">£2,140</div><span class="delta flat">14 activities billed</span></div>
+    <div class="kpi"><div class="top">Annual recurring<span class="ic v"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 5-6"/></svg></span></div><div class="val money">£612k</div><span class="delta up"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg> +£14k this month</span></div>
+    <div class="kpi"><div class="top">Profit · June<span class="ic g"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8v8M12 4v12M8 12v4M4 20h16"/></svg></span></div><div class="val money">£18,360</div><span class="delta up">38% margin</span></div>
+    <div class="kpi"><div class="top">Officer cost<span class="ic s"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></span></div><div class="val money">£30,560</div><span class="delta flat">364 activities</span></div>
+    <div class="kpi"><div class="top">Sites missing rates<span class="ic a"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg></span></div><div class="val">7</div><span class="delta warn">won't bill until set</span></div>
+  </div>
+
+  <div class="section-h"><span>Profit &amp; loss</span><span class="line"></span><span class="meta">by account · June</span></div>
+  <div class="grid-main">
+    <div class="card">
+      <div class="head"><h3>By account</h3><span class="meta">customers &amp; partners</span></div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Account</th><th class="r">Activities</th><th class="r">Billed</th><th class="r">Cost</th><th class="r">Profit</th><th>Margin</th></tr></thead>
+          <tbody>
+            <tr><td><span class="src"><span class="tag direct">Customer</span> Shurgard</span></td><td class="r mono">142</td><td class="money">£21,400</td><td class="money" style="color:var(--muted)">£12,900</td><td class="money pos">£8,500</td><td style="min-width:120px"><div class="track"><span class="seg green" style="width:40%"></span></div><div class="sub mono" style="margin-top:4px">40%</div></td></tr>
+            <tr><td><span class="src"><span class="tag app">Partner</span> Nexus Security</span></td><td class="r mono">86</td><td class="money">£9,180</td><td class="money" style="color:var(--muted)">£6,640</td><td class="money pos">£2,540</td><td style="min-width:120px"><div class="track"><span class="seg amber" style="width:28%"></span></div><div class="sub mono" style="margin-top:4px">28%</div></td></tr>
+            <tr><td><span class="src"><span class="tag direct">Customer</span> Aegis</span></td><td class="r mono">64</td><td class="money">£8,250</td><td class="money" style="color:var(--muted)">£4,980</td><td class="money pos">£3,270</td><td style="min-width:120px"><div class="track"><span class="seg green" style="width:40%"></span></div><div class="sub mono" style="margin-top:4px">40%</div></td></tr>
+            <tr><td><span class="src"><span class="tag direct">Customer</span> Orbis</span></td><td class="r mono">39</td><td class="money">£5,690</td><td class="money" style="color:var(--muted)">£3,420</td><td class="money pos">£2,270</td><td style="min-width:120px"><div class="track"><span class="seg green" style="width:40%"></span></div><div class="sub mono" style="margin-top:4px">40%</div></td></tr>
+            <tr><td><span class="src"><span class="tag app">Partner</span> Keyholding Co</span></td><td class="r mono">28</td><td class="money">£3,100</td><td class="money" style="color:var(--muted)">£2,260</td><td class="money pos">£840</td><td style="min-width:120px"><div class="track"><span class="seg amber" style="width:27%"></span></div><div class="sub mono" style="margin-top:4px">27%</div></td></tr>
+            <tr><td><span class="src" style="color:var(--dim)">Unassigned</span></td><td class="r mono">5</td><td class="money">£1,300</td><td class="money" style="color:var(--muted)">£360</td><td class="money pos">£940</td><td style="min-width:120px"><div class="track"><span class="seg green" style="width:72%"></span></div><div class="sub mono" style="margin-top:4px">72%</div></td></tr>
+          </tbody>
+          <tfoot><tr><td>Total · 6 accounts</td><td class="r mono">364</td><td class="money">£48,920</td><td class="money" style="color:var(--muted)">£30,560</td><td class="money pos">£18,360</td><td class="mono">38%</td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <div class="head"><h3><svg viewBox="0 0 24 24" fill="none" stroke="var(--blue-light)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg> Billed · last 14 days</h3><span class="meta">£24.1k</span></div>
+        <div class="chart">
+          <svg viewBox="0 0 320 150" preserveAspectRatio="none" style="height:150px" role="img" aria-label="Daily amount billed over the last 14 days">
+            <defs><linearGradient id="fillg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22C55E" stop-opacity=".38"/><stop offset="100%" stop-color="#22C55E" stop-opacity="0"/></linearGradient></defs>
+            <line x1="0" y1="38" x2="320" y2="38" stroke="#1A2740" stroke-width="1"/><line x1="0" y1="76" x2="320" y2="76" stroke="#1A2740" stroke-width="1"/><line x1="0" y1="114" x2="320" y2="114" stroke="#1A2740" stroke-width="1"/>
+            <path d="M0,110 L24,96 L49,118 L73,84 L98,90 L123,70 L147,128 L172,124 L197,66 L221,72 L246,52 L271,60 L295,44 L320,40 L320,150 L0,150 Z" fill="url(#fillg)"/>
+            <path d="M0,110 L24,96 L49,118 L73,84 L98,90 L123,70 L147,128 L172,124 L197,66 L221,72 L246,52 L271,60 L295,44 L320,40" fill="none" stroke="#22C55E" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+            <circle cx="320" cy="40" r="4" fill="#0B1220" stroke="#22C55E" stroke-width="2.4"/>
+          </svg>
+        </div>
+        <div class="chart-x"><span>28 May</span><span>1 Jun</span><span>5 Jun</span><span>today</span></div>
+      </div>
+
+      <div class="card">
+        <div class="head"><h3>Revenue by service</h3><span class="meta">June</span></div>
+        <div class="pad cov">
+          <div class="cov-row"><div class="lab"><span class="n">Alarm response</span><span class="v">£16,200</span></div><div class="track"><span class="seg rep" style="width:100%"></span></div></div>
+          <div class="cov-row"><div class="lab"><span class="n">Keyholding (annual)</span><span class="v">£9,400</span></div><div class="track"><span class="seg rep" style="width:58%"></span></div></div>
+          <div class="cov-row"><div class="lab"><span class="n">Patrol</span><span class="v">£8,100</span></div><div class="track"><span class="seg rep" style="width:50%"></span></div></div>
+          <div class="cov-row"><div class="lab"><span class="n">Lock-up / Unlock</span><span class="v">£6,800</span></div><div class="track"><span class="seg rep" style="width:42%"></span></div></div>
+          <div class="cov-row"><div class="lab"><span class="n">VPI</span><span class="v">£4,200</span></div><div class="track"><span class="seg rep" style="width:26%"></span></div></div>
+          <div class="cov-row"><div class="lab"><span class="n">Ad-hoc</span><span class="v">£4,220</span></div><div class="track"><span class="seg rep" style="width:26%"></span></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-h"><span>People &amp; sites</span><span class="line"></span></div>
+  <div class="grid-3">
+    <div class="card">
+      <div class="head"><h3>Officer cost · June</h3><span class="meta">top by pay</span></div>
+      <div class="ofc"><div class="av">MB</div><div class="who"><div class="t">Marcus Bell</div><div class="s">38 activities</div></div><span class="money">£3,420</span></div>
+      <div class="ofc"><div class="av">DO</div><div class="who"><div class="t">Daniel Okafor</div><div class="s">31 activities</div></div><span class="money">£2,980</span></div>
+      <div class="ofc"><div class="av">PS</div><div class="who"><div class="t">Priya Sharma</div><div class="s">29 activities</div></div><span class="money">£2,610</span></div>
+      <div class="ofc"><div class="av">LH</div><div class="who"><div class="t">Liam Hughes</div><div class="s">24 activities</div></div><span class="money">£2,180</span></div>
+      <div class="ofc"><div class="av">AK</div><div class="who"><div class="t">Aisha Khan</div><div class="s">22 activities</div></div><span class="money">£1,940</span></div>
+      <div class="ofc"><div class="av">TN</div><div class="who"><div class="t">Tomasz Nowak</div><div class="s">19 activities</div></div><span class="money">£1,710</span></div>
+    </div>
+
+    <div class="card">
+      <div class="head"><h3>Top sites by annual value</h3><span class="meta">recurring</span></div>
+      <div class="kline"><span class="ksite">Shurgard Croydon</span><span class="badge b-blue">£4,800/yr</span></div>
+      <div class="kline"><span class="ksite">Aegis House, EC2</span><span class="badge b-blue">£3,600/yr</span></div>
+      <div class="kline"><span class="ksite">Shurgard Wandsworth</span><span class="badge b-blue">£3,200/yr</span></div>
+      <div class="kline"><span class="ksite">Orbis Park, Leeds</span><span class="badge b-blue">£2,400/yr</span></div>
+      <div class="kline"><span class="ksite">Aegis Tower, Canary Wharf</span><span class="badge b-blue">£2,200/yr</span></div>
+      <div class="kline"><span class="ksite">Camden Lock units · Nexus</span><span class="badge b-slate">£1,800/yr</span></div>
+    </div>
+
+    <div class="card">
+      <div class="head"><h3>Billing health</h3><span class="meta">needs attention</span></div>
+      <div class="qitem"><span class="badge b-amber" style="padding:5px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/></svg></span><div class="who"><div class="t">7 sites missing rates</div><div class="s">Activities here won't be billed</div></div><span class="badge b-amber">Set rates</span></div>
+      <div class="qitem"><span class="badge b-red" style="padding:5px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg></span><div class="who"><div class="t">3 activities billed at £0</div><div class="s">Rate found but amount is zero</div></div><span class="badge b-red">Review</span></div>
+      <div class="qitem"><span class="badge b-slate" style="padding:5px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></span><div class="who"><div class="t">Last recalc · today 06:00</div><div class="s">Billing snapshots up to date</div></div><span class="badge b-green">Healthy</span></div>
+      <div class="qitem"><span class="badge b-violet" style="padding:5px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" width="15" height="15"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><div class="who"><div class="t">Export June statement</div><div class="s">CSV · per account &amp; per officer</div></div><span class="badge b-violet">Export</span></div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="legend">
+    <div class="col"><h4>Billed − Cost = Profit</h4><p>Billed is what we charge the account; cost is what we paid the officer (or partner). Margin is profit ÷ billed. Figures snapshot on completion, so scheduled-but-undone work doesn't inflate today's earnings.</p></div>
+    <div class="col"><h4>Customers and partners together</h4><p>Partner accounts (Nexus, Keyholding Co) appear alongside direct customers — partner-app jobs still carry an officer cost we track for pay, even when no client report is produced.</p></div>
+    <div class="col"><h4>Recurring vs one-off</h4><p>Annual recurring revenue (ARR) comes from keyholding subscriptions; the rest is per-activity (alarms, patrols, lock-ups, VPIs, ad-hoc). Setup fees are billed once at onboarding.</p></div>
+  </div>
+  <p style="margin-top:14px;text-align:center">Preview with sample figures — not connected to live records. Currency GBP. The live build pulls billed/paid snapshots from completed jobs and patrol visits.</p>
+</footer>
+
+<script src="/ops-preview-clock.js"></script>
+</body>
+</html>
