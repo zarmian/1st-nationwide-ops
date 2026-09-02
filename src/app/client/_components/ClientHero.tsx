@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
 
 /**
@@ -35,9 +36,10 @@ export function ClientHero({
           {backHref && (
             <Link
               href={backHref}
-              className="inline-flex items-center gap-1 text-xs text-white/70 hover:text-white transition-colors"
+              className="mb-2.5 inline-flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-sm font-medium text-white shadow-sm backdrop-blur-sm transition hover:border-white/50 hover:bg-white/20"
             >
-              ← {backLabel ?? "Back"}
+              <ChevronLeft size={16} aria-hidden />
+              {backLabel ?? "Back"}
             </Link>
           )}
           {eyebrow && (

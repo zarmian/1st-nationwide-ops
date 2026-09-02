@@ -37,17 +37,15 @@ export function CustomerTopNav({
   return (
     <header className="sticky top-0 z-40 pt-safe border-b border-brand-blue-100/70 bg-gradient-to-r from-brand-blue-50/90 via-white/85 to-brand-blue-50/90 backdrop-blur-xl">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4">
-        <Link href="/client" className="flex items-center gap-3" aria-label="Client portal home">
-          <span className="inline-flex items-center justify-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-brand-blue-100">
-            <Image
-              src="/logo.jpg"
-              alt="1st Nationwide Security"
-              width={40}
-              height={53}
-              priority
-              className="h-10 w-auto"
-            />
-          </span>
+        <Link href="/client" className="flex items-center gap-2.5" aria-label="Client portal home">
+          <Image
+            src="/logo.jpg"
+            alt="1st Nationwide Security"
+            width={40}
+            height={53}
+            priority
+            className="h-11 w-auto mix-blend-multiply"
+          />
           <div className="hidden leading-tight sm:block">
             <div className="text-sm font-semibold text-brand-navy">
               1st Nationwide Security
@@ -67,10 +65,10 @@ export function CustomerTopNav({
                 key={item.href}
                 href={item.href}
                 className={
-                  "inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm transition " +
+                  "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm transition " +
                   (active
-                    ? "bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white shadow-sm"
-                    : "text-brand-navy hover:bg-white/70")
+                    ? "border-brand-blue-dark bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white shadow-sm"
+                    : "border-brand-blue-200 bg-white/70 text-brand-navy hover:border-brand-blue-400 hover:bg-white hover:shadow-sm")
                 }
               >
                 <Icon size={14} aria-hidden />
@@ -94,7 +92,7 @@ export function CustomerTopNav({
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-slate-600 transition hover:bg-white/70 hover:text-brand-navy"
+            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/70 px-2.5 py-1.5 text-xs text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-brand-navy"
             aria-label="Sign out"
             title="Sign out"
           >
@@ -115,10 +113,10 @@ export function CustomerTopNav({
                 <Link
                   href={item.href}
                   className={
-                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm " +
+                    "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm " +
                     (active
-                      ? "bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white"
-                      : "text-brand-navy")
+                      ? "border-brand-blue-dark bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white"
+                      : "border-brand-blue-200 bg-white/70 text-brand-navy")
                   }
                 >
                   <Icon size={14} />
