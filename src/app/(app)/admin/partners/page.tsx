@@ -67,6 +67,9 @@ export default async function PartnersAdminPage() {
                   {!p.active && (
                     <span className="ml-2 chip-slate text-[10px]">Inactive</span>
                   )}
+                  {p.hidden && (
+                    <span className="ml-2 chip-amber text-[10px]">Hidden</span>
+                  )}
                 </td>
                 <td className="px-4 py-2.5">
                   <span className="chip-slate">{ROLE_LABEL[p.role] ?? p.role}</span>

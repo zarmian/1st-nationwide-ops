@@ -6,6 +6,8 @@ import { SitesTable, type SiteRow } from "./_components/SitesTable";
 import { SitesMap, type OwnerLegend } from "./_components/SitesMap";
 import { siteOwner } from "@/lib/entityColor";
 import type { SitePin } from "@/components/map/MapInner";
+import { getSessionUser } from "@/lib/authz";
+import { loadHiddenScope, siteHiddenAnd } from "@/lib/hiddenAccounts";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,11 @@ export default async function SitesPage({
   const service = searchParams.service ?? "";
   const type = searchParams.type ?? "";
   const page = Math.max(1, Number(searchParams.page ?? "1") || 1);
+
+  // Admin-only declutter: hide sites of hidden customers/partners. Non-admins
+  // (dispatchers) get an inert scope and still see every site.
+  const me = await getSessionUser();
+  const hidden = await loadHiddenScope(me?.role === "ADMIN");
 
   const where = {
     AND: [
@@ -62,6 +69,7 @@ export default async function SitesPage({
       service ? { services: { has: service as any } } : {},
       type ? { type: type as any } : {},
       { active: true },
+      ...siteHiddenAnd(hidden),
     ],
   };
 

@@ -37,6 +37,7 @@ export type PartnerFormValues = {
   emailIntake: string | null;
   notes: string | null;
   active: boolean;
+  hidden: boolean;
   contacts: PartnerContactRow[];
 };
 
@@ -150,6 +151,24 @@ export function PartnerForm({
             className="checkbox"
           />
           <span>Active</span>
+        </label>
+
+        <label className="flex items-start gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            name="hidden"
+            defaultChecked={initial.hidden}
+            className="checkbox mt-0.5"
+          />
+          <span>
+            Hidden — declutter this partner and its activities from admin lists,
+            the activity log, alarms and presence
+            <span className="block text-xs text-slate-500">
+              Admin views only. Dispatch, finance totals and the client portal
+              still show everything. Un-hide here or from Admin → Hidden
+              accounts.
+            </span>
+          </span>
         </label>
 
         <div>

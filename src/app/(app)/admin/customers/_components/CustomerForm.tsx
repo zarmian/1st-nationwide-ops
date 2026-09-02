@@ -32,6 +32,7 @@ export type CustomerFormValues = {
   contractEnd: string | null;
   notes: string | null;
   active: boolean;
+  hidden: boolean;
   contacts: ContactRow[];
 };
 
@@ -164,6 +165,24 @@ export function CustomerForm({
             className="checkbox"
           />
           <span>Active — customer is live and can be assigned to sites</span>
+        </label>
+
+        <label className="flex items-start gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            name="hidden"
+            defaultChecked={initial.hidden}
+            className="checkbox mt-0.5"
+          />
+          <span>
+            Hidden — declutter this customer and its activities from admin
+            lists, the activity log, alarms and presence
+            <span className="block text-xs text-slate-500">
+              Admin views only. Dispatch, finance totals and the client portal
+              still show everything. Un-hide here or from Admin → Hidden
+              accounts.
+            </span>
+          </span>
         </label>
 
         <div>

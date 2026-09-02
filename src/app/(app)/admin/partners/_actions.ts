@@ -32,6 +32,7 @@ const PartnerInput = z.object({
   emailIntake: z.string().trim().max(200).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   active: z.boolean().default(true),
+  hidden: z.boolean().default(false),
   contacts: z.array(ContactRow).max(20).default([]),
 });
 
@@ -58,6 +59,7 @@ function parseForm(formData: FormData) {
     emailIntake: formData.get("emailIntake")?.toString() || null,
     notes: formData.get("notes")?.toString() || null,
     active: formData.get("active") === "on",
+    hidden: formData.get("hidden") === "on",
     contacts: safeJson(formData.get("contacts_json")?.toString(), [] as unknown[]),
   });
 }
@@ -129,6 +131,7 @@ export async function createPartner(
       emailIntake: d.emailIntake || null,
       notes: d.notes || null,
       active: d.active,
+      hidden: d.hidden,
     },
     select: { id: true },
   });
@@ -170,10 +173,24 @@ export async function updatePartner(
       emailIntake: d.emailIntake || null,
       notes: d.notes || null,
       active: d.active,
+      hidden: d.hidden,
     },
   });
   await syncContacts(id, d.contacts);
   revalidatePath("/admin/partners");
   revalidatePath(`/admin/partners/${id}/edit`);
   redirect("/admin/partners");
+}
+
+/** One-click hide/un-hide a partner from admin browse surfaces. */
+export async function setPartnerHidden(
+  id: string,
+  hidden: boolean,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  await prisma.partner.update({ where: { id }, data: { hidden } });
+  revalidatePath("/admin/partners");
+  revalidatePath(`/admin/partners/${id}/edit`);
+  revalidatePath("/admin/hidden");
+  return { ok: true };
 }

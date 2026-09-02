@@ -11,6 +11,11 @@ import {
   shiftScheduledRange,
   visitScheduledRange,
 } from "@/lib/activityWhen";
+import {
+  loadHiddenScope,
+  jobHiddenAnd,
+  siteRefHiddenAnd,
+} from "@/lib/hiddenAccounts";
 import { RestoreActivityButton } from "../dispatch/_components/RestoreActivityButton";
 import { CloseActivityButton } from "../dispatch/_components/CloseActivityButton";
 import { CancelActivityButton } from "../dispatch/_components/CancelActivityButton";
@@ -318,6 +323,20 @@ export default async function ActivitiesPage({
   // The /submit form writes `form` = JobType. Same kind filter applies.
   if (kinds.length > 0 && jobKinds.length > 0) {
     submissionWhere.form = { in: jobKinds };
+  }
+
+  // Admin-only declutter: drop hidden customers'/partners' activities. Gated
+  // to admins — dispatchers (isAdmin=false) get an inert scope, so they still
+  // see everything.
+  const hidden = await loadHiddenScope(isAdmin);
+  if (hidden.active) {
+    jobWhere.AND = [...(jobWhere.AND ?? []), ...jobHiddenAnd(hidden)];
+    visitWhere.AND = [...(visitWhere.AND ?? []), ...siteRefHiddenAnd(hidden)];
+    shiftWhere.AND = [...(shiftWhere.AND ?? []), ...siteRefHiddenAnd(hidden)];
+    submissionWhere.AND = [
+      ...(submissionWhere.AND ?? []),
+      ...siteRefHiddenAnd(hidden),
+    ];
   }
 
   // ── 3. Load rows + the small filter-lookup data ────────────────────────

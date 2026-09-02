@@ -28,6 +28,7 @@ const CustomerInput = z.object({
   contractEnd: z.string().trim().optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   active: z.boolean().default(true),
+  hidden: z.boolean().default(false),
   contacts: z.array(ContactRow).max(20).default([]),
 });
 
@@ -61,6 +62,7 @@ function parseForm(formData: FormData) {
     contractEnd: formData.get("contractEnd")?.toString() || null,
     notes: formData.get("notes")?.toString() || null,
     active: formData.get("active") === "on",
+    hidden: formData.get("hidden") === "on",
     contacts: safeJson(formData.get("contacts_json")?.toString(), [] as unknown[]),
   };
   return CustomerInput.safeParse(raw);
@@ -135,6 +137,7 @@ export async function createCustomer(
       contractEnd: toDate(d.contractEnd),
       notes: d.notes || null,
       active: d.active,
+      hidden: d.hidden,
     },
     select: { id: true },
   });
@@ -179,10 +182,24 @@ export async function updateCustomer(
       contractEnd: toDate(d.contractEnd),
       notes: d.notes || null,
       active: d.active,
+      hidden: d.hidden,
     },
   });
   await syncContacts(id, d.contacts);
   revalidatePath("/admin/customers");
   revalidatePath(`/admin/customers/${id}/edit`);
   redirect("/admin/customers");
+}
+
+/** One-click hide/un-hide a customer from admin browse surfaces. */
+export async function setCustomerHidden(
+  id: string,
+  hidden: boolean,
+): Promise<{ ok: true }> {
+  await requireAdmin();
+  await prisma.customer.update({ where: { id }, data: { hidden } });
+  revalidatePath("/admin/customers");
+  revalidatePath(`/admin/customers/${id}/edit`);
+  revalidatePath("/admin/hidden");
+  return { ok: true };
 }

@@ -50,6 +50,7 @@ export default async function EditCustomerPage({
             : null,
           notes: customer.notes,
           active: customer.active,
+          hidden: customer.hidden,
           contacts: customer.contacts.map((c) => ({
             id: c.id,
             name: c.name,

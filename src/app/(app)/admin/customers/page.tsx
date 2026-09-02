@@ -61,6 +61,9 @@ export default async function CustomersAdminPage() {
                   {!c.active && (
                     <span className="ml-2 chip-slate text-[10px]">Inactive</span>
                   )}
+                  {c.hidden && (
+                    <span className="ml-2 chip-amber text-[10px]">Hidden</span>
+                  )}
                 </td>
                 <td className="px-4 py-2.5 text-slate-600">
                   {c.type.charAt(0) + c.type.slice(1).toLowerCase()}

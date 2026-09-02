@@ -50,6 +50,7 @@ export default async function EditPartnerPage({
           emailIntake: partner.emailIntake,
           notes: partner.notes,
           active: partner.active,
+          hidden: partner.hidden,
           contacts: partner.contacts.map((c) => ({
             id: c.id,
             name: c.name,

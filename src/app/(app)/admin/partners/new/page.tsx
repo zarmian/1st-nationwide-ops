@@ -22,6 +22,7 @@ export default function NewPartnerPage() {
           emailIntake: null,
           notes: null,
           active: true,
+          hidden: false,
           contacts: [],
         }}
       />

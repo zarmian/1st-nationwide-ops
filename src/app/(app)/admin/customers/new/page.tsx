@@ -24,6 +24,7 @@ export default function NewCustomerPage() {
           contractEnd: null,
           notes: null,
           active: true,
+          hidden: false,
           contacts: [],
         }}
       />

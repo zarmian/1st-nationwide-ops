@@ -3,6 +3,7 @@ import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime } from "@/lib/dates";
+import { loadHiddenScope, siteRefHiddenAnd } from "@/lib/hiddenAccounts";
 import {
   computeAlarmSla,
   summariseAlarmSla,
@@ -37,15 +38,18 @@ export default async function AlarmsPage({
 }: {
   searchParams: { days?: string };
 }) {
-  await requireStaff();
+  const me = await requireStaff();
 
   const days =
     WINDOWS.find((w) => String(w) === searchParams.days) ?? 30;
   const now = new Date();
   const from = new Date(now.getTime() - days * 86_400_000);
 
+  // Admin-only declutter: drop hidden accounts' alarms. Dispatchers see all.
+  const hidden = await loadHiddenScope(me.role === "ADMIN");
+
   const alarms = await prisma.alarmEvent.findMany({
-    where: { receivedAt: { gte: from } },
+    where: { receivedAt: { gte: from }, AND: siteRefHiddenAnd(hidden) },
     orderBy: { receivedAt: "desc" },
     take: 300,
     select: {
