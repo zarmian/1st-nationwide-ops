@@ -4,7 +4,21 @@ import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { getJobTypeLabels } from "@/lib/labels";
 import { jobScheduledRange, shiftScheduledRange } from "@/lib/activityWhen";
-import { ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
+import {
+  ukDayPlus,
+  ukWallClockToUtc,
+  formatDate,
+  formatDateTime,
+} from "@/lib/dates";
+import { isEmailConfigured } from "@/lib/email";
+import {
+  getShurgardDelivery,
+  recentReportSends,
+} from "@/lib/reports/clientReportDelivery";
+import {
+  ReportDelivery,
+  type RecentSendView,
+} from "./_components/ReportDelivery";
 
 export const dynamic = "force-dynamic";
 
@@ -60,7 +74,8 @@ export default async function ReportsPage({
 }: {
   searchParams: { date?: string };
 }) {
-  await requireStaff();
+  const viewer = await requireStaff();
+  const isAdmin = viewer.role === "ADMIN";
 
   const now = new Date();
   const day = parseUkDay(searchParams.date) ?? ukDayPlus(now, 0);
@@ -186,6 +201,37 @@ export default async function ReportsPage({
     }))
     .sort((a, b) => a.when.getTime() - b.when.getTime());
 
+  // Delivery controls + send history — admins only (server actions re-check).
+  let delivery: {
+    on: boolean;
+    recipient: string;
+    contactEmail: string | null;
+    recentSends: RecentSendView[];
+  } | null = null;
+  if (isAdmin) {
+    const [d, sends] = await Promise.all([
+      getShurgardDelivery(),
+      recentReportSends(6),
+    ]);
+    delivery = {
+      on: d.shurgard?.dailyReportOn ?? false,
+      recipient: d.shurgard?.dailyReportRecipient ?? "",
+      contactEmail: d.shurgard?.contactEmail ?? null,
+      recentSends: sends.map((s): RecentSendView => {
+        const when = s.sentAt ?? s.createdAt;
+        return {
+          id: s.id,
+          dateLabel: formatDate(s.reportDate),
+          status: s.status,
+          to: s.toAddress,
+          whenLabel: `${s.status === "SENT" ? "Sent" : "Attempted"} ${formatDateTime(when)}`,
+          via: s.triggeredBy === "cron" ? "Automatic" : "Manual",
+          failureReason: s.failureReason,
+        };
+      }),
+    };
+  }
+
   return (
     <div className="section">
       <PageHeader
@@ -231,6 +277,18 @@ export default async function ReportsPage({
           No customer named “Shurgard” found. Create it in Admin → Partners /
           customers and its sites, then this report will populate.
         </div>
+      )}
+
+      {delivery && shurgard && (
+        <ReportDelivery
+          dayYmd={ymd(day)}
+          dayLabel={longDate(day)}
+          initialOn={delivery.on}
+          initialRecipient={delivery.recipient}
+          contactEmail={delivery.contactEmail}
+          emailConfigured={isEmailConfigured()}
+          recentSends={delivery.recentSends}
+        />
       )}
 
       {/* Callouts + lock/unlocks */}

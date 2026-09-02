@@ -459,6 +459,12 @@ model Customer {
   /// Opt-in for alarm-response SMS acknowledgements to contactPhone.
   /// Default false so we never text a customer who hasn't agreed.
   smsAlertsOn     Boolean       @default(false)
+  /// Opt-in for the automated daily client report email. Off by default so
+  /// nothing is ever sent to a client before the report format is agreed
+  /// with them. The daily-report cron only sends when this is true.
+  dailyReportOn        Boolean  @default(false)
+  /// Where the daily report is emailed; falls back to contactEmail when null.
+  dailyReportRecipient String?
   active          Boolean       @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -1200,6 +1206,32 @@ model ClientReport {
   createdAt       DateTime       @default(now())
 
   @@index([reviewId])
+  @@index([status])
+}
+
+/// Audit log of automated daily-report emails (the Shurgard flow, and any
+/// future per-customer daily report). One row per send attempt — powers the
+/// "was today's report sent?" status on /reports and gives the cron
+/// idempotency (it skips a day that already has a SENT row).
+model ClientReportSend {
+  id              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Which report this was — "shurgard" for now; lets us add more later.
+  reportKey       String
+  /// The UK calendar day the report covers (stored as UK-noon in UTC).
+  reportDate      DateTime
+  toAddress       String
+  subject         String?
+  status          ReportStatus   @default(PENDING)
+  sentAt          DateTime?
+  failureReason   String?
+  /// Rough content indicators, for the status line without re-querying.
+  jobCount        Int            @default(0)
+  shiftCount      Int            @default(0)
+  /// "cron" for the scheduled send, or the admin's user id for a manual send.
+  triggeredBy     String?
+  createdAt       DateTime       @default(now())
+
+  @@index([reportKey, reportDate])
   @@index([status])
 }
 
