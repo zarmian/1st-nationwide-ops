@@ -1,11 +1,14 @@
 import Link from "next/link";
+import { Building2, CheckCircle2, PoundSterling } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
-import { PageHeader } from "@/components/PageHeader";
 import { formatMoney, formatNumber } from "@/lib/numbers";
 import { formatDate } from "@/lib/dates";
 import { loadClientSites } from "@/lib/clientPortal";
 import { resolveRange } from "../_range";
 import { RangePills } from "../_components/RangePills";
+import { ClientHero } from "../_components/ClientHero";
+import { StatCard } from "../_components/StatCard";
+import { Panel } from "../_components/Panel";
 
 export const dynamic = "force-dynamic";
 
@@ -19,41 +22,43 @@ export default async function ClientSitesPage({
   const sites = await loadClientSites(me.customerId, { from, to });
 
   const withActivity = sites.filter((s) => s.activityCount > 0).length;
+  const totalSpend = sites.reduce((sum, s) => sum + s.spend, 0);
 
   return (
-    <div className="section">
-      <PageHeader
-        title="Your sites"
-        subtitle="Every site we cover for you, with activity and spend in the selected period."
-      />
+    <div className="space-y-5">
+      <ClientHero
+        eyebrow="Your sites"
+        title="Sites we cover for you"
+        subtitle="Every site under our watch, with activity and spend in the selected period."
+      >
+        <RangePills active={key} basePath="/client/sites" dark />
+      </ClientHero>
 
-      <RangePills active={key} basePath="/client/sites" />
-
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-3">
-        <div className="kpi">
-          <div className="kpi-label">Sites</div>
-          <div className="kpi-value text-brand-navy">
-            {formatNumber(sites.length)}
-          </div>
-          <div className="kpi-hint">under our watch</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Active this period</div>
-          <div className="kpi-value text-brand-navy">
-            {formatNumber(withActivity)}
-          </div>
-          <div className="kpi-hint">had recorded activity</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Spend</div>
-          <div className="kpi-value text-brand-navy">
-            {formatMoney(sites.reduce((sum, s) => sum + s.spend, 0))}
-          </div>
-          <div className="kpi-hint">across all sites</div>
-        </div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+        <StatCard
+          tone="indigo"
+          label="Sites"
+          value={formatNumber(sites.length)}
+          hint="under our watch"
+          icon={Building2}
+        />
+        <StatCard
+          tone="blue"
+          label="Active this period"
+          value={formatNumber(withActivity)}
+          hint="had recorded activity"
+          icon={CheckCircle2}
+        />
+        <StatCard
+          tone="emerald"
+          label="Spend"
+          value={formatMoney(totalSpend)}
+          hint="across all sites"
+          icon={PoundSterling}
+        />
       </div>
 
-      <div className="card overflow-hidden">
+      <Panel title="All sites" icon={Building2} accent="indigo" flush>
         <div className="table-scroll">
           <table className="table-default">
             <thead>
@@ -99,7 +104,7 @@ export default async function ClientSitesPage({
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
     </div>
   );
 }

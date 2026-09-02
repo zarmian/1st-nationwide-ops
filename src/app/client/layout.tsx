@@ -35,7 +35,7 @@ export default async function ClientShell({
   if (!customer || !customer.active) redirect("/login");
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-ambient">
       <a href="#main" className="skip-link">
         Skip to content
       </a>
