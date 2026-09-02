@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Siren, Timer, Gauge, AlertTriangle } from "lucide-react";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
 import { formatDateTime } from "@/lib/dates";
 import { loadHiddenScope, siteRefHiddenAnd } from "@/lib/hiddenAccounts";
 import {
@@ -109,50 +111,34 @@ export default async function AlarmsPage({
       </div>
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <div className="kpi">
-          <div className="kpi-label">Open</div>
-          <div className="kpi-value text-brand-navy">{summary.open}</div>
-          <div className="kpi-hint">still responding</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Avg response</div>
-          <div className="kpi-value text-brand-navy">
-            {summary.avgResponseMins != null ? `${summary.avgResponseMins}m` : "—"}
-          </div>
-          <div className="kpi-hint">received → on site</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">SLA met</div>
-          <div
-            className={
-              "kpi-value " +
-              (summary.slaMetPct != null && summary.slaMetPct < 90
-                ? "text-amber-700"
-                : "text-success")
-            }
-          >
-            {summary.slaMetPct != null ? `${summary.slaMetPct}%` : "—"}
-          </div>
-          <div className="kpi-hint">of attended alarms</div>
-        </div>
-        <div
-          className={
-            summary.breached > 0
-              ? "card-accent p-5 flex flex-col gap-1.5"
-              : "kpi"
-          }
-        >
-          <div className="kpi-label">Breaches</div>
-          <div
-            className={
-              "kpi-value " +
-              (summary.breached > 0 ? "text-red-600" : "text-brand-navy")
-            }
-          >
-            {summary.breached}
-          </div>
-          <div className="kpi-hint">over target</div>
-        </div>
+        <StatCard
+          tone="blue"
+          label="Open"
+          value={summary.open.toLocaleString("en-GB")}
+          hint="still responding"
+          icon={Siren}
+        />
+        <StatCard
+          tone="indigo"
+          label="Avg response"
+          value={summary.avgResponseMins != null ? `${summary.avgResponseMins}m` : "—"}
+          hint="received → on site"
+          icon={Timer}
+        />
+        <StatCard
+          tone={summary.slaMetPct != null && summary.slaMetPct < 90 ? "amber" : "emerald"}
+          label="SLA met"
+          value={summary.slaMetPct != null ? `${summary.slaMetPct}%` : "—"}
+          hint="of attended alarms"
+          icon={Gauge}
+        />
+        <StatCard
+          tone={summary.breached > 0 ? "rose" : "emerald"}
+          label="Breaches"
+          value={summary.breached.toLocaleString("en-GB")}
+          hint="over target"
+          icon={AlertTriangle}
+        />
       </div>
 
       <div className="card overflow-hidden">

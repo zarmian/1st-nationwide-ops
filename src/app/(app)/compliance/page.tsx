@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { ShieldAlert, CalendarClock, FileQuestion, ShieldCheck } from "lucide-react";
 import { requireAdmin } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
 import { formatDate } from "@/lib/dates";
 import {
   loadComplianceRegister,
@@ -53,50 +55,34 @@ export default async function CompliancePage() {
       />
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <div
-          className={
-            data.counts.expired > 0
-              ? "card-accent p-5 flex flex-col gap-1.5"
-              : "kpi"
-          }
-        >
-          <div className="kpi-label">Expired</div>
-          <div
-            className={
-              "kpi-value " + (data.counts.expired > 0 ? "text-red-600" : "text-brand-navy")
-            }
-          >
-            {data.counts.expired}
-          </div>
-          <div className="kpi-hint">officers with a lapsed item</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Expiring soon</div>
-          <div
-            className={
-              "kpi-value " + (data.counts.expiring > 0 ? "text-amber-700" : "text-brand-navy")
-            }
-          >
-            {data.counts.expiring}
-          </div>
-          <div className="kpi-hint">within 30 days</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Not recorded</div>
-          <div
-            className={
-              "kpi-value " + (data.counts.missing > 0 ? "text-amber-700" : "text-brand-navy")
-            }
-          >
-            {data.counts.missing}
-          </div>
-          <div className="kpi-hint">SIA/DBS gap to fill</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">All clear</div>
-          <div className="kpi-value text-success">{data.counts.ok}</div>
-          <div className="kpi-hint">fully in date</div>
-        </div>
+        <StatCard
+          tone={data.counts.expired > 0 ? "rose" : "emerald"}
+          label="Expired"
+          value={data.counts.expired.toLocaleString("en-GB")}
+          hint="officers with a lapsed item"
+          icon={ShieldAlert}
+        />
+        <StatCard
+          tone={data.counts.expiring > 0 ? "amber" : "emerald"}
+          label="Expiring soon"
+          value={data.counts.expiring.toLocaleString("en-GB")}
+          hint="within 30 days"
+          icon={CalendarClock}
+        />
+        <StatCard
+          tone={data.counts.missing > 0 ? "amber" : "emerald"}
+          label="Not recorded"
+          value={data.counts.missing.toLocaleString("en-GB")}
+          hint="SIA/DBS gap to fill"
+          icon={FileQuestion}
+        />
+        <StatCard
+          tone="emerald"
+          label="All clear"
+          value={data.counts.ok.toLocaleString("en-GB")}
+          hint="fully in date"
+          icon={ShieldCheck}
+        />
       </div>
 
       {data.attention.length > 0 && (

@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { MapPin, Target, MapPinOff, HelpCircle } from "lucide-react";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
 import { formatDateTime } from "@/lib/dates";
 import { ProofBadge } from "@/components/ProofOfPresence";
 import { loadRecentPresence, summarisePresence, mapsLink } from "@/lib/proofOfPresence";
@@ -160,48 +162,34 @@ export default async function PresencePage({
       </div>
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <div className="kpi">
-          <div className="kpi-label">Attendances</div>
-          <div className="kpi-value text-brand-navy">{summary.total}</div>
-          <div className="kpi-hint">with a GPS fix</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Within geofence</div>
-          <div
-            className={
-              "kpi-value " +
-              (summary.withinPct != null && summary.withinPct < 90
-                ? "text-amber-700"
-                : "text-success")
-            }
-          >
-            {summary.withinPct != null ? `${summary.withinPct}%` : "—"}
-          </div>
-          <div className="kpi-hint">of verifiable fixes</div>
-        </div>
-        <div
-          className={
-            summary.outside > 0
-              ? "card-accent p-5 flex flex-col gap-1.5"
-              : "kpi"
-          }
-        >
-          <div className="kpi-label">Outside geofence</div>
-          <div
-            className={
-              "kpi-value " +
-              (summary.outside > 0 ? "text-red-600" : "text-brand-navy")
-            }
-          >
-            {summary.outside}
-          </div>
-          <div className="kpi-hint">fix beyond the radius</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Can’t verify</div>
-          <div className="kpi-value text-brand-navy">{unverifiable}</div>
-          <div className="kpi-hint">site has no coordinates</div>
-        </div>
+        <StatCard
+          tone="blue"
+          label="Attendances"
+          value={summary.total.toLocaleString("en-GB")}
+          hint="with a GPS fix"
+          icon={MapPin}
+        />
+        <StatCard
+          tone={summary.withinPct != null && summary.withinPct < 90 ? "amber" : "emerald"}
+          label="Within geofence"
+          value={summary.withinPct != null ? `${summary.withinPct}%` : "—"}
+          hint="of verifiable fixes"
+          icon={Target}
+        />
+        <StatCard
+          tone={summary.outside > 0 ? "rose" : "emerald"}
+          label="Outside geofence"
+          value={summary.outside.toLocaleString("en-GB")}
+          hint="fix beyond the radius"
+          icon={MapPinOff}
+        />
+        <StatCard
+          tone="indigo"
+          label="Can’t verify"
+          value={unverifiable.toLocaleString("en-GB")}
+          hint="site has no coordinates"
+          icon={HelpCircle}
+        />
       </div>
 
       {hasMap && (
