@@ -1,6 +1,20 @@
-import Link from "next/link";
+import {
+  Inbox,
+  Building2,
+  Handshake,
+  Map,
+  FileText,
+  LayoutTemplate,
+  Upload,
+  MapPinned,
+  PoundSterling,
+  Bell,
+  SlidersHorizontal,
+  EyeOff,
+} from "lucide-react";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
+import { HubGrid, type HubCard } from "@/components/HubGrid";
 
 export const dynamic = "force-dynamic";
 
@@ -32,13 +46,15 @@ export default async function AdminHubPage() {
     prisma.partner.count({ where: { hidden: true } }),
   ]);
 
-  const cards = [
+  const cards: HubCard[] = [
     {
       href: "/admin/reports",
       title: "Review queue",
       blurb: "Officer submissions waiting for sign-off before they go to the customer.",
       stat: pending,
       statLabel: "pending",
+      icon: Inbox,
+      tone: "amber",
     },
     {
       href: "/admin/customers",
@@ -46,6 +62,8 @@ export default async function AdminHubPage() {
       blurb: "Direct customers (Shurgard, Aegis, Orbis) and their contacts.",
       stat: customers,
       statLabel: "active",
+      icon: Building2,
+      tone: "blue",
     },
     {
       href: "/admin/partners",
@@ -53,6 +71,8 @@ export default async function AdminHubPage() {
       blurb: "Companies we sub work to or that sub work to us (Nexus, Keyholding Co).",
       stat: partners,
       statLabel: "active",
+      icon: Handshake,
+      tone: "indigo",
     },
     {
       href: "/admin/regions",
@@ -60,6 +80,8 @@ export default async function AdminHubPage() {
       blurb: "Operating regions for sites and officers (London, Outside London).",
       stat: regions,
       statLabel: "regions",
+      icon: Map,
+      tone: "emerald",
     },
     {
       href: "/admin/forms",
@@ -67,6 +89,8 @@ export default async function AdminHubPage() {
       blurb: "What officers fill in for each kind of job. Per-customer, per-partner, or per-site.",
       stat: templates,
       statLabel: "active",
+      icon: FileText,
+      tone: "blue",
     },
     {
       href: "/admin/blueprints",
@@ -74,6 +98,8 @@ export default async function AdminHubPage() {
       blurb: "Reusable starting points — pick when creating a new template instead of building from scratch.",
       stat: blueprints,
       statLabel: "active",
+      icon: LayoutTemplate,
+      tone: "indigo",
     },
     {
       href: "/admin/imports/nexus",
@@ -81,6 +107,9 @@ export default async function AdminHubPage() {
       blurb: "Upload the latest Nexus CSV. Reset site data first if you want a clean slate.",
       stat: 0,
       statLabel: "tool",
+      icon: Upload,
+      tone: "blue",
+      tool: true,
     },
     {
       href: "/admin/imports/sites",
@@ -88,6 +117,9 @@ export default async function AdminHubPage() {
       blurb: "Upload a site list (Shurgard, Aegis, Orbis, or a custom CSV). Matches by code or name + postcode, then geocodes.",
       stat: 0,
       statLabel: "tool",
+      icon: MapPinned,
+      tone: "emerald",
+      tool: true,
     },
     {
       href: "/admin/officer-rates",
@@ -95,6 +127,9 @@ export default async function AdminHubPage() {
       blurb: "Monthly retainer + per-service rates. Company defaults with per-officer overrides.",
       stat: 0,
       statLabel: "rates",
+      icon: PoundSterling,
+      tone: "amber",
+      tool: true,
     },
     {
       href: "/admin/notifications",
@@ -102,6 +137,8 @@ export default async function AdminHubPage() {
       blurb: "WhatsApp queue — visit, alarm, and key-handover events sent to staff.",
       stat: notifyPending,
       statLabel: "pending",
+      icon: Bell,
+      tone: "rose",
     },
     {
       href: "/admin/options",
@@ -109,6 +146,8 @@ export default async function AdminHubPage() {
       blurb: "Labels and order of the job-type / source dropdowns. Rename, hide, reorder, or add alias labels.",
       stat: pickerOptions,
       statLabel: "job types",
+      icon: SlidersHorizontal,
+      tone: "indigo",
     },
     {
       href: "/admin/hidden",
@@ -116,6 +155,8 @@ export default async function AdminHubPage() {
       blurb: "Customers/partners you've hidden from admin browse views. Un-hide them here. Dispatch, finance and the client portal are unaffected.",
       stat: hiddenCustomers + hiddenPartners,
       statLabel: "hidden",
+      icon: EyeOff,
+      tone: "rose",
     },
   ];
 
@@ -126,28 +167,7 @@ export default async function AdminHubPage() {
         subtitle="Manage the lookup data behind sites and jobs."
       />
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <Link
-            key={c.href}
-            href={c.href}
-            className="card-hover p-5"
-          >
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-semibold text-brand-navy">{c.title}</h2>
-              <div className="text-right">
-                <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-                  {c.stat.toLocaleString("en-GB")}
-                </div>
-                <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                  {c.statLabel}
-                </div>
-              </div>
-            </div>
-            <p className="text-sm text-slate-500 mt-2">{c.blurb}</p>
-          </Link>
-        ))}
-      </div>
+      <HubGrid cards={cards} />
     </div>
   );
 }
