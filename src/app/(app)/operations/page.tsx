@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { getSessionUser } from "@/lib/authz";
+import { loadComplianceRegister } from "@/lib/compliance";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,14 @@ export default async function OperationsHubPage() {
         },
       })
     : 0;
+
+  // Officer-compliance attention count: officers with a lapsed, soon-expiring
+  // or unrecorded vetting item (SIA / RTW / DBS / certificates).
+  const compliance = await loadComplianceRegister();
+  const complianceAttention =
+    compliance.counts.expired +
+    compliance.counts.expiring +
+    compliance.counts.missing;
 
   // Whether the person viewing this hub has linked their own Telegram —
   // the card reflects their personal connection state, not a global one.
@@ -117,6 +126,14 @@ export default async function OperationsHubPage() {
         "Officer roster: on-duty status, last seen, SIA expiry, pay rates.",
       stat: activeOfficers,
       statLabel: "active",
+    },
+    {
+      href: "/compliance",
+      title: "Compliance",
+      blurb:
+        "SIA licences, right-to-work, DBS and training — with expiry alerts. Keeps you ACS audit-ready.",
+      stat: complianceAttention,
+      statLabel: "need attention",
     },
     {
       href: "/admin/reports",

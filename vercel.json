@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/contract-renewals",
       "schedule": "0 8 * * 1"
+    },
+    {
+      "path": "/api/cron/compliance-alerts",
+      "schedule": "30 8 * * 1"
     }
   ]
 }

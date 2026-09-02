@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { toIsoDate } from "@/lib/dates";
 import { OfficerForm } from "../../_components/OfficerForm";
 import { updateOfficer } from "../../_actions";
+import { CertificationsEditor } from "../../_components/CertificationsEditor";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +27,10 @@ export default async function EditOfficerPage({
     await Promise.all([
       prisma.user.findUnique({
         where: { id: params.id },
-        include: { region: { select: { name: true } } },
+        include: {
+          region: { select: { name: true } },
+          certifications: { orderBy: { expiresOn: "asc" } },
+        },
       }),
       prisma.region.findMany({ orderBy: { name: "asc" } }),
       prisma.patrolVisit.findMany({
@@ -105,6 +110,9 @@ export default async function EditOfficerPage({
             phone: officer.phone,
             whatsappNumber: officer.whatsappNumber,
             siaNumber: officer.siaNumber,
+            siaExpiry: toIsoDate(officer.siaExpiry),
+            rightToWorkExpiry: toIsoDate(officer.rightToWorkExpiry),
+            dbsCheckedOn: toIsoDate(officer.dbsCheckedOn),
             regionId: officer.regionId,
             role: officer.role,
             active: officer.active,
@@ -112,6 +120,16 @@ export default async function EditOfficerPage({
         />
 
         <div className="space-y-4">
+          <CertificationsEditor
+            officerId={officer.id}
+            certs={officer.certifications.map((c) => ({
+              id: c.id,
+              name: c.name,
+              expiresOn: c.expiresOn ? c.expiresOn.toISOString() : null,
+              reference: c.reference,
+            }))}
+          />
+
           <div className="card p-4">
             <h3 className="text-xs uppercase tracking-wider text-slate-500 mb-2">
               Keys held ({keysHeld.length})

@@ -377,6 +377,12 @@ model User {
   phone           String?
   whatsappNumber  String?
   siaNumber       String?  @unique
+  /// Compliance / vetting for the SIA register. Null = not recorded (shows as
+  /// "missing"). rightToWorkExpiry null can also mean indefinite/settled — the
+  /// UI treats a recorded-but-null differently from never-checked via the note.
+  siaExpiry           DateTime?
+  rightToWorkExpiry   DateTime?
+  dbsCheckedOn        DateTime?
   role            UserRole
   regionId      Int?
   region        Region?  @relation("OfficerRegion", fields: [regionId], references: [id])
@@ -424,6 +430,7 @@ model User {
   notifications            Notification[]      @relation("NotificationRecipient")
   officerRates             OfficerRate[]
   payAdjustments           PayAdjustment[]
+  certifications           OfficerCertification[]
   shifts                   Shift[]             @relation("ShiftOfficer")
   rotaAvailability         OfficerAvailability[]
   rotaAssignments          RotaAssignment[]    @relation("RotaAssignmentOfficer")
@@ -1591,6 +1598,23 @@ model PayAdjustment {
   createdAt       DateTime @default(now())
 
   @@index([officerId, date])
+}
+
+/// A training certificate / qualification held by an officer, for the
+/// compliance register — First Aid, CCTV (PSS), conflict management, etc. An
+/// `expiresOn` in the past (or approaching) is flagged like an SIA expiry.
+model OfficerCertification {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  officerId String    @db.Uuid
+  officer   User      @relation(fields: [officerId], references: [id], onDelete: Cascade)
+  name      String
+  issuedOn  DateTime?
+  expiresOn DateTime?
+  reference String?
+  createdAt DateTime  @default(now())
+
+  @@index([officerId])
+  @@index([expiresOn])
 }
 
 /// A cost / supplier bill we've incurred — subcontractor invoices, fuel,

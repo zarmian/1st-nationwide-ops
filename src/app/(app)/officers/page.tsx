@@ -4,6 +4,8 @@ import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
 import { TimeAgo } from "@/components/TimeAgo";
 import { FilterPanel } from "@/components/FilterPanel";
+import { statusFor } from "@/lib/compliance";
+import { formatDate } from "@/lib/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,7 @@ export default async function OfficersPage({
   ]);
 
   const onDutyCount = officers.filter((o) => o.active && o.onDuty).length;
+  const now = new Date();
 
   return (
     <div className="space-y-4">
@@ -65,9 +68,14 @@ export default async function OfficersPage({
           </>
         }
         actions={
-          <Link href="/officers/new" className="btn-primary">
-            + New officer
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/compliance" className="btn-secondary">
+              Compliance register
+            </Link>
+            <Link href="/officers/new" className="btn-primary">
+              + New officer
+            </Link>
+          </div>
         }
       />
 
@@ -207,11 +215,35 @@ export default async function OfficersPage({
           },
           {
             header: "SIA",
-            cell: (o) => (
-              <span className="text-slate-600 font-mono text-xs">
-                {o.siaNumber ?? "—"}
-              </span>
-            ),
+            cell: (o) => {
+              const st = statusFor(o.siaExpiry, now);
+              return (
+                <div>
+                  <div className="text-slate-600 font-mono text-xs">
+                    {o.siaNumber ?? "—"}
+                  </div>
+                  {o.siaExpiry ? (
+                    <div
+                      className={
+                        "text-[11px] " +
+                        (st === "expired"
+                          ? "text-red-600 font-medium"
+                          : st === "expiring"
+                            ? "text-amber-700 font-medium"
+                            : "text-slate-400")
+                      }
+                    >
+                      {st === "expired" ? "Expired " : "Exp "}
+                      {formatDate(o.siaExpiry)}
+                    </div>
+                  ) : o.siaNumber ? (
+                    <div className="text-[11px] text-amber-700">
+                      No expiry set
+                    </div>
+                  ) : null}
+                </div>
+              );
+            },
           },
           {
             header: "Keys",
