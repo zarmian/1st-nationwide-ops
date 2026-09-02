@@ -3,7 +3,6 @@ import {
   Activity,
   PoundSterling,
   Building2,
-  BarChart3,
   TrendingUp,
   Layers,
   Clock,
@@ -31,8 +30,6 @@ export default async function ClientHome({
   const { key, from, to, bucket } = resolveRange(searchParams.range);
   const data = await loadClientOverview(me.customerId, { from, to, bucket });
 
-  const topKind = data.byKind[0] ?? null;
-
   return (
     <div className="space-y-5">
       <ClientHero
@@ -45,7 +42,7 @@ export default async function ClientHome({
         <RangePills active={key} basePath="/client" dark />
       </ClientHero>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatCard
           tone="blue"
           label="Activities"
@@ -66,13 +63,6 @@ export default async function ClientHome({
           value={formatNumber(data.siteCount)}
           hint="under our watch"
           icon={Building2}
-        />
-        <StatCard
-          tone="amber"
-          label="Most frequent"
-          value={topKind ? formatNumber(topKind.count) : "—"}
-          hint={topKind?.label ?? "no activity yet"}
-          icon={BarChart3}
         />
       </div>
 

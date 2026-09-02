@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { Activity, PoundSterling, BarChart3, TrendingUp, ClipboardList } from "lucide-react";
+import { Activity, PoundSterling, TrendingUp, ClipboardList } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { formatMoney, formatNumber } from "@/lib/numbers";
@@ -45,8 +45,6 @@ export default async function ClientSiteDetail({
     loadClientActivities(me.customerId, { from, to, siteId: site.id, limit: 200 }),
   ]);
 
-  const topKind = overview.byKind[0] ?? null;
-
   return (
     <div className="space-y-5">
       <ClientHero
@@ -65,7 +63,7 @@ export default async function ClientSiteDetail({
         <RangePills active={key} basePath={`/client/sites/${site.id}`} dark />
       </ClientHero>
 
-      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
         <StatCard
           tone="blue"
           label="Activities"
@@ -79,13 +77,6 @@ export default async function ClientSiteDetail({
           value={formatMoney(overview.totalSpend)}
           hint="for work at this site"
           icon={PoundSterling}
-        />
-        <StatCard
-          tone="amber"
-          label="Most frequent"
-          value={topKind ? formatNumber(topKind.count) : "—"}
-          hint={topKind?.label ?? "no activity yet"}
-          icon={BarChart3}
         />
       </div>
 
