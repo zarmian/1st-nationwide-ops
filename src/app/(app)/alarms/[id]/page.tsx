@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
+import { formatUkDateTimeLocal } from "@/lib/dates";
+import { computeAlarmSla, SLA_CHIP, slaTimingLabel } from "@/lib/alarmSla";
+import { AlarmCloseout } from "../_components/AlarmCloseout";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +63,8 @@ export default async function AlarmEventDetailPage({
           id: true,
           type: true,
           status: true,
+          startedAt: true,
+          completedAt: true,
           assignedTo: { select: { name: true } },
         },
       },
@@ -67,12 +72,18 @@ export default async function AlarmEventDetailPage({
   });
   if (!alarm) notFound();
 
-  const responseMins =
-    alarm.closedAt
-      ? Math.round(
-          (alarm.closedAt.getTime() - alarm.receivedAt.getTime()) / 60000,
-        )
-      : null;
+  // Response time = received → on site (Job.startedAt), measured against the
+  // per-priority SLA target.
+  const sla = computeAlarmSla({
+    receivedAt: alarm.receivedAt,
+    arrivedAt: alarm.job?.startedAt ?? null,
+    priority: alarm.priority,
+  });
+  const slaChip = SLA_CHIP[sla.status];
+  // Total handling time (received → closed), shown once closed out.
+  const resolutionMins = alarm.closedAt
+    ? Math.round((alarm.closedAt.getTime() - alarm.receivedAt.getTime()) / 60000)
+    : null;
 
   return (
     <div className="space-y-4 max-w-4xl">
@@ -87,9 +98,9 @@ export default async function AlarmEventDetailPage({
             </span>
             <PriorityChip p={alarm.priority} />
             <OutcomeChip o={alarm.outcome} />
-            {responseMins != null && (
-              <span className="chip-mint">{responseMins} min response</span>
-            )}
+            <span className={slaChip.chip}>
+              {slaChip.label} · {slaTimingLabel(sla)}
+            </span>
           </span>
         }
       />
@@ -120,9 +131,37 @@ export default async function AlarmEventDetailPage({
           </h2>
           <dl className="text-sm space-y-1">
             <Row label="Received">{fmtFull(alarm.receivedAt)}</Row>
+            <Row label="On site">{fmtFull(alarm.job?.startedAt ?? null)}</Row>
             <Row label="Closed">{fmtFull(alarm.closedAt)}</Row>
             <Row label="Zone">{alarm.zone ?? "—"}</Row>
           </dl>
+        </div>
+
+        <div className="card p-4 space-y-2">
+          <h2 className="font-semibold text-brand-navy text-sm uppercase tracking-wider">
+            Response &amp; SLA
+          </h2>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-semibold text-brand-navy tabular-nums">
+              {sla.arrived ? `${sla.responseMins}m` : `${sla.elapsedMins}m`}
+            </span>
+            <span className={slaChip.chip}>{slaChip.label}</span>
+          </div>
+          <dl className="text-sm space-y-1">
+            <Row label="Target">{sla.targetMins} min ({alarm.priority.toLowerCase()})</Row>
+            <Row label={sla.arrived ? "To attend" : "Elapsed"}>
+              {slaTimingLabel(sla)}
+            </Row>
+            {resolutionMins != null && (
+              <Row label="To resolve">{resolutionMins} min</Row>
+            )}
+          </dl>
+          {!sla.arrived && (
+            <p className="text-xs text-slate-500">
+              No on-site time yet — counting from received. The officer tapping
+              “On site” (or a submitted report) stops the clock.
+            </p>
+          )}
         </div>
 
         <div className="card p-4 space-y-2">
@@ -186,18 +225,15 @@ export default async function AlarmEventDetailPage({
         </div>
       )}
 
-      <div className="card p-4 space-y-2">
-        <h2 className="font-semibold text-brand-navy text-sm uppercase tracking-wider">
-          Notes
-        </h2>
-        {alarm.notes ? (
-          <p className="text-sm whitespace-pre-wrap text-slate-700">
-            {alarm.notes}
-          </p>
-        ) : (
-          <p className="text-sm text-slate-400 italic">No notes.</p>
-        )}
-      </div>
+      <AlarmCloseout
+        alarmId={alarm.id}
+        initialOutcome={alarm.outcome}
+        initialNotes={alarm.notes}
+        initialClosedAtLocal={
+          alarm.closedAt ? formatUkDateTimeLocal(alarm.closedAt) : ""
+        }
+        nowLocal={formatUkDateTimeLocal(new Date())}
+      />
     </div>
   );
 }

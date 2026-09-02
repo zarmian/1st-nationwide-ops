@@ -35,6 +35,8 @@ export type ActivityCardProps = {
   priority?: "HIGH" | "MEDIUM" | "LOW" | null;
   /** Whether the row is overdue (drives a red "When" treatment). */
   overdue?: boolean;
+  /** Live alarm-SLA chip (e.g. "Responding · 8m to target"), alarms only. */
+  sla?: { chip: string; label: string } | null;
   /** Optional inline actions (Edit / Close / Cancel links). */
   actions?: ReactNode;
 };
@@ -52,6 +54,7 @@ export function ActivityCard({
   statusPulse = false,
   priority,
   overdue = false,
+  sla,
   actions,
 }: ActivityCardProps) {
   return (
@@ -63,6 +66,9 @@ export function ActivityCard({
           </span>
           {priority === "HIGH" && (
             <span className="chip-red text-[10px]">HIGH</span>
+          )}
+          {sla && (
+            <span className={sla.chip + " text-[10px]"}>{sla.label}</span>
           )}
         </div>
         {status ? (

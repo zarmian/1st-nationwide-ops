@@ -18,6 +18,7 @@ export default async function OperationsHubPage() {
     activeOfficers,
     pendingReviews,
     missedCallsWeek,
+    openAlarms,
   ] = await prisma.$transaction([
     prisma.patrolSchedule.count({ where: { active: true } }),
     prisma.shift.count({ where: { status: "PENDING" } }),
@@ -36,6 +37,12 @@ export default async function OperationsHubPage() {
       where: {
         missed: true,
         createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
+      },
+    }),
+    prisma.job.count({
+      where: {
+        type: "ALARM_RESPONSE",
+        status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
       },
     }),
   ]);
@@ -150,6 +157,14 @@ export default async function OperationsHubPage() {
         "Calls from the bOnline phone webhook. Missed calls alert dispatch by SMS.",
       stat: missedCallsWeek,
       statLabel: "missed / 7 days",
+    },
+    {
+      href: "/alarms",
+      title: "Alarm responses",
+      blurb:
+        "Response times against SLA targets and close-out outcomes. Spot breaches and record what each alarm turned out to be.",
+      stat: openAlarms,
+      statLabel: "open now",
     },
     {
       href: "/reports",
