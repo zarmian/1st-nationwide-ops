@@ -1,4 +1,6 @@
 import Link from "next/link";
+import type { ComponentType } from "react";
+import { Building2, KeyRound, Route, Lock, Rocket } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { SitesToolbar } from "./_components/SitesToolbar";
 import { PageHeader } from "@/components/PageHeader";
@@ -8,6 +10,7 @@ import { siteOwner } from "@/lib/entityColor";
 import type { SitePin } from "@/components/map/MapInner";
 import { getSessionUser } from "@/lib/authz";
 import { loadHiddenScope, siteHiddenAnd } from "@/lib/hiddenAccounts";
+import { STAT_TONE, type StatTone } from "@/components/StatCard";
 
 export const dynamic = "force-dynamic";
 
@@ -288,57 +291,100 @@ function KpiStrip({
     value: number;
     href: string;
     active: boolean;
+    icon: ComponentType<{ size?: number | string; className?: string }>;
+    tone: StatTone;
   }[] = [
     {
       label: "Total active",
       value: kpis.totalActive,
       href: siteFilterHref(null),
       active: !current.service,
+      icon: Building2,
+      tone: "blue",
     },
     {
       label: "With keyholding",
       value: kpis.withKeyholding,
       href: siteFilterHref("KEYHOLDING"),
       active: current.service === "KEYHOLDING",
+      icon: KeyRound,
+      tone: "amber",
     },
     {
       label: "Patrol routes",
       value: kpis.patrolRouteSites,
       href: siteFilterHref("PATROL"),
       active: current.service === "PATROL",
+      icon: Route,
+      tone: "indigo",
     },
     {
       label: "Lock/unlock daily",
       value: kpis.lockUnlockSites,
       href: siteFilterHref("LOCKUP"),
       active: current.service === "LOCKUP",
+      icon: Lock,
+      tone: "emerald",
     },
     {
       label: "Onboarding pipeline",
       value: kpis.onboarding,
       href: "/onboarding",
       active: false,
+      icon: Rocket,
+      tone: "rose",
     },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-      {items.map((it) => (
-        <Link
-          key={it.label}
-          href={it.href}
-          className={`card p-4 hover:shadow-md transition-shadow ${
-            it.active ? "ring-2 ring-brand-blue/40" : ""
-          }`}
-        >
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            {it.label}
-          </div>
-          <div className="text-3xl font-semibold text-brand-navy mt-1 tabular-nums">
-            {it.value.toLocaleString("en-GB")}
-          </div>
-        </Link>
-      ))}
+      {items.map((it) => {
+        const t = STAT_TONE[it.tone];
+        const Icon = it.icon;
+        return (
+          <Link
+            key={it.label}
+            href={it.href}
+            aria-current={it.active ? "true" : undefined}
+            className={
+              "relative overflow-hidden rounded-2xl border bg-white p-4 shadow-card " +
+              "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md " +
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 " +
+              (it.active ? "ring-2 ring-brand-blue/50 " : "") +
+              t.border
+            }
+          >
+            <div
+              aria-hidden
+              className={
+                "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl " +
+                t.wash
+              }
+            />
+            <div className="relative flex items-start justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                {it.label}
+              </span>
+              <span
+                className={
+                  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm " +
+                  t.chip
+                }
+              >
+                <Icon size={15} />
+              </span>
+            </div>
+            <div
+              className={
+                "relative mt-2 text-3xl font-semibold tabular-nums tracking-tight " +
+                t.value
+              }
+            >
+              {it.value.toLocaleString("en-GB")}
+            </div>
+          </Link>
+        );
+      })}
     </div>
   );
 }

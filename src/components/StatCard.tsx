@@ -2,7 +2,12 @@ import type { ComponentType } from "react";
 
 export type StatTone = "blue" | "emerald" | "indigo" | "amber" | "rose";
 
-const TONE: Record<
+/**
+ * Accent tokens per tone — a gradient icon chip, a value text colour, a
+ * tinted border and a soft corner wash. Exported so link cards that can't use
+ * <StatCard> directly (clickable filter tiles, hub tiles) share one palette.
+ */
+export const STAT_TONE: Record<
   StatTone,
   { chip: string; value: string; border: string; wash: string }
 > = {
@@ -57,7 +62,7 @@ export function StatCard({
   hint?: string;
   icon: ComponentType<{ size?: number | string; className?: string }>;
 }) {
-  const t = TONE[tone];
+  const t = STAT_TONE[tone];
   return (
     <div
       className={

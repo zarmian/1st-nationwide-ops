@@ -1,8 +1,26 @@
 import Link from "next/link";
+import type { ComponentType } from "react";
+import {
+  CalendarRange,
+  CalendarClock,
+  ShieldCheck,
+  KeyRound,
+  ClipboardList,
+  Rocket,
+  Users,
+  BadgeCheck,
+  Inbox,
+  Phone,
+  Siren,
+  MapPin,
+  FileText,
+  Send,
+} from "lucide-react";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { getSessionUser } from "@/lib/authz";
 import { loadComplianceRegister } from "@/lib/compliance";
+import { STAT_TONE, type StatTone } from "@/components/StatCard";
 
 export const dynamic = "force-dynamic";
 
@@ -103,7 +121,15 @@ export default async function OperationsHubPage() {
       )
     : false;
 
-  const cards = [
+  const cards: {
+    href: string;
+    title: string;
+    blurb: string;
+    stat: number;
+    statLabel: string;
+    icon: ComponentType<{ size?: number | string; className?: string }>;
+    tone: StatTone;
+  }[] = [
     {
       href: "/rota",
       title: "Rota",
@@ -111,6 +137,8 @@ export default async function OperationsHubPage() {
         "Who's on for each region and shift — officer availability and the daily assignment grid.",
       stat: rotaThisWeek,
       statLabel: "booked · next 7 days",
+      icon: CalendarRange,
+      tone: "blue",
     },
     {
       href: "/patrols",
@@ -119,6 +147,8 @@ export default async function OperationsHubPage() {
         "Recurring patrols, VPI cadence, lock/unlock times. Set days, frequency, officer per day.",
       stat: activeSchedules,
       statLabel: "active",
+      icon: CalendarClock,
+      tone: "indigo",
     },
     {
       href: "/shifts",
@@ -126,6 +156,8 @@ export default async function OperationsHubPage() {
       blurb: "Static guarding + dog handler shifts with check-in intervals.",
       stat: pendingShifts,
       statLabel: "pending",
+      icon: ShieldCheck,
+      tone: "blue",
     },
     {
       href: "/keys",
@@ -134,6 +166,8 @@ export default async function OperationsHubPage() {
         "Every key, fob, padlock, code we hold. Track handovers and current holders.",
       stat: keysWithUs,
       statLabel: "with us",
+      icon: KeyRound,
+      tone: "amber",
     },
     {
       href: "/activities",
@@ -142,6 +176,8 @@ export default async function OperationsHubPage() {
         "Unified ledger across jobs and visits. Filter by site, customer, officer, region.",
       stat: activitiesPastWeek,
       statLabel: "last 7 days",
+      icon: ClipboardList,
+      tone: "indigo",
     },
     {
       href: "/onboarding",
@@ -150,6 +186,8 @@ export default async function OperationsHubPage() {
         "New customer + site go-live pipelines: setup jobs, surveys, handovers.",
       stat: onboardingOpen,
       statLabel: "open",
+      icon: Rocket,
+      tone: "emerald",
     },
     {
       href: "/officers",
@@ -158,6 +196,8 @@ export default async function OperationsHubPage() {
         "Officer roster: on-duty status, last seen, SIA expiry, pay rates.",
       stat: activeOfficers,
       statLabel: "active",
+      icon: Users,
+      tone: "blue",
     },
     {
       href: "/compliance",
@@ -166,6 +206,8 @@ export default async function OperationsHubPage() {
         "SIA licences, right-to-work, DBS and training — with expiry alerts. Keeps you ACS audit-ready.",
       stat: complianceAttention,
       statLabel: "need attention",
+      icon: BadgeCheck,
+      tone: "emerald",
     },
     {
       href: "/admin/reports",
@@ -174,6 +216,8 @@ export default async function OperationsHubPage() {
         "Officer submissions waiting for sign-off before they go to the customer (alarm responses, ad-hoc reports). Patrols, VPI, lock + unlock auto-approve.",
       stat: pendingReviews,
       statLabel: "pending",
+      icon: Inbox,
+      tone: "amber",
     },
     {
       href: "/calls",
@@ -182,6 +226,8 @@ export default async function OperationsHubPage() {
         "Calls from the bOnline phone webhook. Missed calls alert dispatch by SMS.",
       stat: missedCallsWeek,
       statLabel: "missed / 7 days",
+      icon: Phone,
+      tone: "indigo",
     },
     {
       href: "/alarms",
@@ -190,6 +236,8 @@ export default async function OperationsHubPage() {
         "Response times against SLA targets and close-out outcomes. Spot breaches and record what each alarm turned out to be.",
       stat: openAlarms,
       statLabel: "open now",
+      icon: Siren,
+      tone: "rose",
     },
     {
       href: "/presence",
@@ -198,6 +246,8 @@ export default async function OperationsHubPage() {
         "Where officers actually were when they attended — GPS fix vs the site geofence. Evidence you can show clients.",
       stat: presenceThisWeek,
       statLabel: "GPS-tagged / 7 days",
+      icon: MapPin,
+      tone: "emerald",
     },
     {
       href: "/reports",
@@ -206,6 +256,8 @@ export default async function OperationsHubPage() {
         "Shurgard callouts + lock-ups and static guarding (Shurgard & Access Storage) for a day. Nexus-run sites tagged.",
       stat: todayReportJobs,
       statLabel: "Shurgard today",
+      icon: FileText,
+      tone: "blue",
     },
     {
       href: "/telegram",
@@ -214,6 +266,8 @@ export default async function OperationsHubPage() {
         "Link your Telegram to get ops alerts — and soon create callouts by messaging the bot.",
       stat: telegramLinked ? 1 : 0,
       statLabel: telegramLinked ? "connected" : "not linked",
+      icon: Send,
+      tone: "indigo",
     },
   ];
 
@@ -225,26 +279,57 @@ export default async function OperationsHubPage() {
       />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {cards.map((c) => (
-          <Link
-            key={c.href}
-            href={c.href}
-            className="card-hover p-5"
-          >
-            <div className="flex items-baseline justify-between">
-              <h2 className="font-semibold text-brand-navy">{c.title}</h2>
-              <div className="text-right">
-                <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-                  {c.stat.toLocaleString("en-GB")}
-                </div>
-                <div className="text-[11px] uppercase tracking-wider text-slate-500">
-                  {c.statLabel}
+        {cards.map((c) => {
+          const t = STAT_TONE[c.tone];
+          const Icon = c.icon;
+          return (
+            <Link
+              key={c.href}
+              href={c.href}
+              className={
+                "relative overflow-hidden rounded-2xl border bg-white p-5 shadow-card " +
+                "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md " +
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 " +
+                t.border
+              }
+            >
+              <div
+                aria-hidden
+                className={
+                  "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl " +
+                  t.wash
+                }
+              />
+              <div className="relative flex items-start justify-between gap-3">
+                <span
+                  className={
+                    "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-sm " +
+                    t.chip
+                  }
+                >
+                  <Icon size={18} />
+                </span>
+                <div className="text-right">
+                  <div
+                    className={
+                      "text-2xl font-semibold tabular-nums tracking-tight " +
+                      t.value
+                    }
+                  >
+                    {c.stat.toLocaleString("en-GB")}
+                  </div>
+                  <div className="text-[11px] uppercase tracking-wider text-slate-500">
+                    {c.statLabel}
+                  </div>
                 </div>
               </div>
-            </div>
-            <p className="text-sm text-slate-500 mt-2">{c.blurb}</p>
-          </Link>
-        ))}
+              <h2 className="relative mt-3 font-semibold text-brand-navy">
+                {c.title}
+              </h2>
+              <p className="relative mt-1 text-sm text-slate-500">{c.blurb}</p>
+            </Link>
+          );
+        })}
       </div>
     </div>
   );
