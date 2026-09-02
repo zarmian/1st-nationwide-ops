@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   summariseClientActivities,
-  monthKeysBetween,
-  ukMonthKey,
-  ukMonthLabel,
+  periodKey,
+  periodLabel,
+  periodKeysBetween,
 } from "./clientPortal";
 
 // Raw activity literals (structural match of the internal RawActivity type).
@@ -24,26 +24,54 @@ const mk = (
   billed,
 });
 
-describe("month helpers", () => {
+describe("period helpers — month", () => {
   it("keys and labels a date in UK time", () => {
-    expect(ukMonthKey(new Date("2026-09-15T12:00:00Z"))).toBe("2026-09");
-    expect(ukMonthLabel("2026-09")).toBe("Sept 2026");
+    expect(periodKey(new Date("2026-09-15T12:00:00Z"), "month")).toBe("2026-09");
+    expect(periodLabel("2026-09", "month")).toBe("Sept 2026");
   });
 
   it("spans an inclusive month range", () => {
-    const keys = monthKeysBetween(
-      new Date("2026-07-10T12:00:00Z"),
-      new Date("2026-10-02T12:00:00Z"),
-    );
-    expect(keys).toEqual(["2026-07", "2026-08", "2026-09", "2026-10"]);
+    expect(
+      periodKeysBetween(
+        new Date("2026-07-10T12:00:00Z"),
+        new Date("2026-10-02T12:00:00Z"),
+        "month",
+      ),
+    ).toEqual(["2026-07", "2026-08", "2026-09", "2026-10"]);
   });
 
   it("handles a year boundary", () => {
-    const keys = monthKeysBetween(
-      new Date("2026-11-01T12:00:00Z"),
-      new Date("2027-01-01T12:00:00Z"),
-    );
-    expect(keys).toEqual(["2026-11", "2026-12", "2027-01"]);
+    expect(
+      periodKeysBetween(
+        new Date("2026-11-01T12:00:00Z"),
+        new Date("2027-01-01T12:00:00Z"),
+        "month",
+      ),
+    ).toEqual(["2026-11", "2026-12", "2027-01"]);
+  });
+});
+
+describe("period helpers — week", () => {
+  it("keys a date to the Monday of its UK week", () => {
+    expect(periodKey(new Date("2026-09-15T12:00:00Z"), "week")).toBe(
+      "2026-09-14",
+    ); // Tue → Mon 14th
+    expect(periodKey(new Date("2026-09-14T12:00:00Z"), "week")).toBe(
+      "2026-09-14",
+    ); // Mon → itself
+    expect(periodKey(new Date("2026-09-20T12:00:00Z"), "week")).toBe(
+      "2026-09-14",
+    ); // Sun → Mon 14th
+  });
+
+  it("steps a week range by Mondays", () => {
+    expect(
+      periodKeysBetween(
+        new Date("2026-09-01T12:00:00Z"),
+        new Date("2026-09-20T12:00:00Z"),
+        "week",
+      ),
+    ).toEqual(["2026-08-31", "2026-09-07", "2026-09-14"]);
   });
 });
 
@@ -57,20 +85,19 @@ describe("summariseClientActivities", () => {
   ];
 
   it("totals activities and spend", () => {
-    const s = summariseClientActivities(rows, months);
+    const s = summariseClientActivities(rows, months, "month");
     expect(s.totalActivities).toBe(4);
     expect(s.totalSpend).toBe(220);
   });
 
   it("counts by kind, most frequent first", () => {
-    const s = summariseClientActivities(rows, months);
+    const s = summariseClientActivities(rows, months, "month");
     expect(s.byKind[0]).toEqual({ label: "Patrol", count: 2 });
     expect(s.byKind.map((k) => k.label)).toContain("Alarm response");
   });
 
   it("sums spend per site, highest first", () => {
-    const s = summariseClientActivities(rows, months);
-    // Alpha: 40+40+20 = 100; Beta: 120 → Beta first.
+    const s = summariseClientActivities(rows, months, "month");
     expect(s.spendBySite[0]).toEqual({
       siteId: "s2",
       siteName: "Beta Depot",
@@ -79,19 +106,30 @@ describe("summariseClientActivities", () => {
     expect(s.spendBySite[1].amount).toBe(100);
   });
 
-  it("buckets activity + spend by month, zero-filling the range", () => {
-    const s = summariseClientActivities(rows, months);
-    expect(s.activityByMonth).toEqual([
+  it("buckets activity + spend by period, zero-filling the range", () => {
+    const s = summariseClientActivities(rows, months, "month");
+    expect(s.activityByPeriod).toEqual([
       { key: "2026-08", label: "Aug 2026", count: 1 },
       { key: "2026-09", label: "Sept 2026", count: 3 },
     ]);
-    expect(s.spendByMonth.map((m) => m.amount)).toEqual([40, 180]);
+    expect(s.spendByPeriod.map((m) => m.amount)).toEqual([40, 180]);
   });
 
-  it("zero-fills months with no activity", () => {
-    const s = summariseClientActivities([], ["2026-09"]);
+  it("buckets by week when asked", () => {
+    const weekKeys = ["2026-08-31", "2026-09-07"];
+    const weekRows = [
+      mk("Patrol", "s1", "Alpha", "2026-09-01T12:00:00Z", 10), // wk 08-31
+      mk("Patrol", "s1", "Alpha", "2026-09-08T12:00:00Z", 10), // wk 09-07
+      mk("Patrol", "s1", "Alpha", "2026-09-09T12:00:00Z", 10), // wk 09-07
+    ];
+    const s = summariseClientActivities(weekRows, weekKeys, "week");
+    expect(s.activityByPeriod.map((p) => p.count)).toEqual([1, 2]);
+  });
+
+  it("zero-fills periods with no activity", () => {
+    const s = summariseClientActivities([], ["2026-09"], "month");
     expect(s.totalActivities).toBe(0);
-    expect(s.spendByMonth).toEqual([
+    expect(s.spendByPeriod).toEqual([
       { key: "2026-09", label: "Sept 2026", amount: 0 },
     ]);
   });

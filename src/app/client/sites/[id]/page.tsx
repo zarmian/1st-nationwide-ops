@@ -3,11 +3,11 @@ import { requireCustomer } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { SectionHeading } from "@/components/SectionHeading";
-import { InteractiveTrend } from "@/components/InteractiveTrend";
 import { formatMoney, formatNumber } from "@/lib/numbers";
 import { loadClientOverview, loadClientActivities } from "@/lib/clientPortal";
 import { resolveRange } from "../../_range";
 import { RangePills } from "../../_components/RangePills";
+import { PeriodBars } from "../../_components/PeriodBars";
 import { ActivityList } from "../../_components/ActivityList";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +17,7 @@ export default async function ClientSiteDetail({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { days?: string };
+  searchParams: { range?: string };
 }) {
   const me = await requireCustomer();
 
@@ -37,9 +37,9 @@ export default async function ClientSiteDetail({
   });
   if (!site) notFound();
 
-  const { days, from, to } = resolveRange(searchParams.days);
+  const { key, from, to, bucket } = resolveRange(searchParams.range);
   const [overview, activities] = await Promise.all([
-    loadClientOverview(me.customerId, { from, to, siteId: site.id }),
+    loadClientOverview(me.customerId, { from, to, bucket, siteId: site.id }),
     loadClientActivities(me.customerId, { from, to, siteId: site.id, limit: 200 }),
   ]);
 
@@ -49,7 +49,7 @@ export default async function ClientSiteDetail({
     <div className="section">
       <PageHeader
         title={site.name}
-        backHref={`/client/sites?days=${days}`}
+        backHref={`/client/sites?range=${key}`}
         backLabel="Your sites"
         subtitle={
           <>
@@ -61,7 +61,7 @@ export default async function ClientSiteDetail({
         }
       />
 
-      <RangePills days={days} basePath={`/client/sites/${site.id}`} />
+      <RangePills active={key} basePath={`/client/sites/${site.id}`} />
 
       <div className="grid gap-3 grid-cols-3">
         <div className="kpi">
@@ -87,17 +87,18 @@ export default async function ClientSiteDetail({
         </div>
       </div>
 
-      {overview.activityByMonth.length >= 2 && (
+      {overview.activityByPeriod.length >= 2 && overview.totalActivities > 0 && (
         <div className="space-y-3">
           <SectionHeading title="Activity over time" />
-          <div className="card p-4">
-            <InteractiveTrend
-              values={overview.activityByMonth.map((m) => m.count)}
-              labels={overview.activityByMonth.map((m) => m.label)}
-              displayValues={overview.activityByMonth.map((m) =>
-                formatNumber(m.count),
-              )}
-              ariaLabel="Activities per month at this site"
+          <div className="card p-4 pb-3">
+            <PeriodBars
+              tone="navy"
+              data={overview.activityByPeriod.map((p) => ({
+                label: p.label,
+                value: p.count,
+                display: formatNumber(p.count),
+              }))}
+              ariaLabel="Activities per period at this site"
             />
           </div>
         </div>

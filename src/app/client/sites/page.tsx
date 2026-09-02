@@ -12,10 +12,10 @@ export const dynamic = "force-dynamic";
 export default async function ClientSitesPage({
   searchParams,
 }: {
-  searchParams: { days?: string };
+  searchParams: { range?: string };
 }) {
   const me = await requireCustomer();
-  const { days, from, to } = resolveRange(searchParams.days);
+  const { key, from, to } = resolveRange(searchParams.range);
   const sites = await loadClientSites(me.customerId, { from, to });
 
   const withActivity = sites.filter((s) => s.activityCount > 0).length;
@@ -27,7 +27,7 @@ export default async function ClientSitesPage({
         subtitle="Every site we cover for you, with activity and spend in the selected period."
       />
 
-      <RangePills days={days} basePath="/client/sites" />
+      <RangePills active={key} basePath="/client/sites" />
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-3">
         <div className="kpi">
@@ -70,7 +70,7 @@ export default async function ClientSitesPage({
                 <tr key={s.id}>
                   <td>
                     <Link
-                      href={`/client/sites/${s.id}?days=${days}`}
+                      href={`/client/sites/${s.id}?range=${key}`}
                       className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {s.code ? `${s.code} · ` : ""}
