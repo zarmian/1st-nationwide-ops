@@ -33,14 +33,20 @@ const OFFICER_LINKS: NavItem[] = [
   { href: "/submit", label: "Log activity", icon: FileEdit },
 ];
 
+// Primary nav shown to every staff member (admins + dispatchers).
+// "Home" is the dispatch board — the landing page for staff.
 const STAFF_TOP: NavItem[] = [
-  { href: "/m/today", label: "Today", icon: CalendarDays },
-  { href: "/dispatch", label: "Dispatch", icon: LayoutDashboard },
-  { href: "/rota", label: "Rota", icon: CalendarRange },
+  { href: "/dispatch", label: "Home", icon: LayoutDashboard },
   { href: "/sites", label: "Sites", icon: MapPin },
+];
+
+// Admin-only primary items. Finance is admin-only — a dispatcher can't open
+// it, so it shouldn't sit in their bar at all.
+const ADMIN_TOP: NavItem[] = [
   { href: "/finance", label: "Finance", icon: Wallet },
 ];
 
+// Hub buttons (grouped landing pages). Rota now lives inside Operations.
 const STAFF_HUBS: NavItem[] = [
   { href: "/operations", label: "Operations", icon: Wrench },
 ];
@@ -64,10 +70,11 @@ export function TopNav({
   const pathname = usePathname() ?? "";
   const isAdmin = role === "ADMIN";
   const isStaff = isAdmin || role === "DISPATCHER";
+  const topLinks = isAdmin ? [...STAFF_TOP, ...ADMIN_TOP] : STAFF_TOP;
   const hubs = isAdmin ? [...STAFF_HUBS, ...ADMIN_HUBS] : STAFF_HUBS;
 
   return (
-    <header className="glass-nav sticky top-0 z-40 border-b border-slate-200/70 pt-safe">
+    <header className="glass-nav sticky top-0 z-40 border-b border-brand-blue-100/70 pt-safe">
       <div className="mx-auto max-w-7xl px-4 h-14 flex items-center justify-between gap-3">
         <Link href={isStaff ? "/dispatch" : "/m/today"} aria-label="Home">
           <BrandLogo />
@@ -76,7 +83,7 @@ export function TopNav({
         <nav className="hidden md:flex items-center gap-1 flex-1 justify-center">
           {isStaff ? (
             <>
-              {STAFF_TOP.map((item) => (
+              {topLinks.map((item) => (
                 <NavLink
                   key={item.href}
                   item={item}
@@ -153,7 +160,7 @@ export function TopNav({
       {/* Mobile nav strip — primary items only, scrolls horizontally */}
       <div className="md:hidden border-t border-slate-100 overflow-x-auto">
         <div className="px-3 py-2 flex items-center gap-1 whitespace-nowrap">
-          {(isStaff ? [...STAFF_TOP, ...hubs] : OFFICER_LINKS).map(
+          {(isStaff ? [...topLinks, ...hubs] : OFFICER_LINKS).map(
             (item) => {
               const active = isItemActive(pathname, item.href);
               const Icon = item.icon;
@@ -162,10 +169,10 @@ export function TopNav({
                   key={item.href}
                   href={item.href}
                   className={
-                    "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
+                    "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition " +
                     (active
-                      ? "bg-brand-blue-100 text-brand-blue-800"
-                      : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-blue-700")
+                      ? "border-brand-blue-dark bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white"
+                      : "border-brand-blue-200 bg-white/70 text-brand-navy")
                   }
                 >
                   <Icon size={15} aria-hidden />
@@ -176,6 +183,11 @@ export function TopNav({
           )}
         </div>
       </div>
+      {/* Gradient accent underline — mirrors the client portal header. */}
+      <div
+        aria-hidden
+        className="h-[3px] w-full bg-gradient-to-r from-brand-blue via-brand-blue-dark to-brand-navy"
+      />
     </header>
   );
 }
@@ -187,24 +199,18 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
       href={item.href}
       aria-current={active ? "page" : undefined}
       className={
-        "relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors duration-150 " +
+        "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-medium transition " +
         (active
-          ? "text-brand-navy"
-          : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-blue-700")
+          ? "border-brand-blue-dark bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white shadow-sm"
+          : "border-brand-blue-200 bg-white/70 text-brand-navy hover:border-brand-blue-400 hover:bg-white hover:shadow-sm")
       }
     >
       <Icon
         size={15}
         aria-hidden
-        className={active ? "text-brand-blue" : "text-slate-400"}
+        className={active ? "text-white" : "text-brand-blue"}
       />
       {item.label}
-      {active && (
-        <span
-          aria-hidden
-          className="absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-brand-blue"
-        />
-      )}
     </Link>
   );
 }
