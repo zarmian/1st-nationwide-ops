@@ -1,11 +1,9 @@
-import Link from "next/link";
 import {
   Activity,
   PoundSterling,
   Building2,
   TrendingUp,
   Layers,
-  Clock,
 } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { BarList } from "@/components/BarList";
@@ -14,7 +12,6 @@ import { loadClientOverview } from "@/lib/clientPortal";
 import { resolveRange, rangeLabel } from "./_range";
 import { RangePills } from "./_components/RangePills";
 import { PeriodBars } from "./_components/PeriodBars";
-import { ActivityList } from "./_components/ActivityList";
 import { ClientHero } from "./_components/ClientHero";
 import { StatCard } from "./_components/StatCard";
 import { Panel } from "./_components/Panel";
@@ -117,22 +114,6 @@ export default async function ClientHome({
         </Panel>
       </div>
 
-      <Panel
-        title="Recent activity"
-        icon={Clock}
-        accent="blue"
-        flush
-        action={
-          <Link
-            href={`/client/activities?range=${key}`}
-            className="text-sm font-medium text-brand-blue-dark hover:underline"
-          >
-            View all →
-          </Link>
-        }
-      >
-        <ActivityList activities={data.recent} />
-      </Panel>
     </div>
   );
 }
