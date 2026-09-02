@@ -18,6 +18,9 @@ export type OfficerFormValues = {
   phone: string | null;
   whatsappNumber: string | null;
   siaNumber: string | null;
+  siaExpiry: string | null; // ISO yyyy-mm-dd
+  rightToWorkExpiry: string | null; // ISO yyyy-mm-dd
+  dbsCheckedOn: string | null; // ISO yyyy-mm-dd
   regionId: number | null;
   role: string;
   active: boolean;
@@ -176,6 +179,57 @@ export function OfficerForm({
           />
           <span>Active — inactive accounts can't sign in.</span>
         </label>
+      </div>
+
+      <div className="card p-5 space-y-4">
+        <div>
+          <h2 className="font-semibold text-brand-navy">Compliance &amp; vetting</h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Expiry dates drive the compliance register and its alerts. Leave a
+            date blank if it doesn't apply (e.g. indefinite right to work).
+          </p>
+        </div>
+        <div className="grid md:grid-cols-3 gap-4">
+          <div>
+            <label className="label" htmlFor="siaExpiry">
+              SIA licence expiry
+            </label>
+            <input
+              id="siaExpiry"
+              name="siaExpiry"
+              type="date"
+              defaultValue={initial.siaExpiry ?? ""}
+              className="input"
+            />
+          </div>
+          <div>
+            <label className="label" htmlFor="rightToWorkExpiry">
+              Right-to-work expiry
+            </label>
+            <input
+              id="rightToWorkExpiry"
+              name="rightToWorkExpiry"
+              type="date"
+              defaultValue={initial.rightToWorkExpiry ?? ""}
+              className="input"
+            />
+            <p className="text-xs text-slate-500 mt-1">
+              Blank = indefinite (settled / British).
+            </p>
+          </div>
+          <div>
+            <label className="label" htmlFor="dbsCheckedOn">
+              DBS last checked
+            </label>
+            <input
+              id="dbsCheckedOn"
+              name="dbsCheckedOn"
+              type="date"
+              defaultValue={initial.dbsCheckedOn ?? ""}
+              className="input"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="card p-5 space-y-4">

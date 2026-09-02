@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import { requireAdmin, requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { normaliseE164 } from "@/lib/whatsapp";
+import { parseIsoDate } from "@/lib/dates";
 
 const ROLES = ["OFFICER", "DISPATCHER", "ADMIN"] as const;
 
@@ -25,6 +26,9 @@ const OfficerInput = z.object({
       message: "Use a UK mobile (07…) or full international (+44…)",
     }),
   siaNumber: z.string().trim().max(40).optional().nullable(),
+  siaExpiry: z.date().nullable().optional(),
+  rightToWorkExpiry: z.date().nullable().optional(),
+  dbsCheckedOn: z.date().nullable().optional(),
   regionId: z.coerce.number().int().positive().optional().nullable(),
   role: z.enum(ROLES).default("OFFICER"),
   active: z.boolean().default(true),
@@ -45,6 +49,11 @@ function parseForm(formData: FormData) {
     phone: formData.get("phone")?.toString() || null,
     whatsappNumber: formData.get("whatsappNumber")?.toString() || null,
     siaNumber: formData.get("siaNumber")?.toString() || null,
+    siaExpiry: parseIsoDate(formData.get("siaExpiry")?.toString() || ""),
+    rightToWorkExpiry: parseIsoDate(
+      formData.get("rightToWorkExpiry")?.toString() || "",
+    ),
+    dbsCheckedOn: parseIsoDate(formData.get("dbsCheckedOn")?.toString() || ""),
     regionId: regionRaw === "" ? null : regionRaw,
     role: formData.get("role")?.toString() ?? "OFFICER",
     active: formData.get("active") === "on",
@@ -102,6 +111,9 @@ export async function createOfficer(
       phone: d.phone,
       whatsappNumber: d.whatsappNumber,
       siaNumber: d.siaNumber,
+      siaExpiry: d.siaExpiry ?? null,
+      rightToWorkExpiry: d.rightToWorkExpiry ?? null,
+      dbsCheckedOn: d.dbsCheckedOn ?? null,
       regionId: d.regionId,
       role: d.role as any,
       active: d.active,
@@ -167,6 +179,9 @@ export async function updateOfficer(
       phone: d.phone,
       whatsappNumber: d.whatsappNumber,
       siaNumber: d.siaNumber,
+      siaExpiry: d.siaExpiry ?? null,
+      rightToWorkExpiry: d.rightToWorkExpiry ?? null,
+      dbsCheckedOn: d.dbsCheckedOn ?? null,
       regionId: d.regionId,
       role: d.role as any,
       active: d.active,
@@ -176,6 +191,49 @@ export async function updateOfficer(
   revalidatePath("/officers");
   revalidatePath(`/officers/${id}/edit`);
   redirect("/officers");
+}
+
+/** Add a training certificate / qualification to an officer. */
+export async function addCertificationAction(
+  officerId: string,
+  input: { name: string; expiresOn?: string | null; reference?: string | null },
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  const name = input.name?.trim();
+  if (!name) return { ok: false, error: "Give the certificate a name." };
+  try {
+    await prisma.officerCertification.create({
+      data: {
+        officerId,
+        name,
+        expiresOn: input.expiresOn ? parseIsoDate(input.expiresOn) : null,
+        reference: input.reference?.trim() || null,
+      },
+    });
+  } catch (e) {
+    console.error("addCertification failed", e);
+    return { ok: false, error: "Couldn't save the certificate. Please retry." };
+  }
+  revalidatePath(`/officers/${officerId}/edit`);
+  revalidatePath("/compliance");
+  return { ok: true };
+}
+
+/** Delete an officer certificate. */
+export async function deleteCertificationAction(
+  id: string,
+  officerId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  await requireAdmin();
+  try {
+    await prisma.officerCertification.delete({ where: { id } });
+  } catch (e) {
+    console.error("deleteCertification failed", e);
+    return { ok: false, error: "Couldn't delete the certificate. Please retry." };
+  }
+  revalidatePath(`/officers/${officerId}/edit`);
+  revalidatePath("/compliance");
+  return { ok: true };
 }
 
 export async function setOnDuty(
