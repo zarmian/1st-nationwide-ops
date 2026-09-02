@@ -6,6 +6,8 @@ Internal operations platform for **1st Nationwide Security Services Ltd** (UK). 
 
 The user (Zaryab Rashid, `zarmian@gmail.com`) is **non-technical** — running the business, not the codebase. Drive every change end-to-end. Don't ask the user to run commands unless absolutely needed; do it yourself, then have them review the result.
 
+> **Authoritative, up-to-date reference: [`docs/system/`](docs/system/README.md)** — a maintained, module-by-module guide (data model, dispatch/jobs/alarms, officer reports, finance, crons, officer compliance, …). The "Current state" and "What's NOT done yet" lists further down this file predate the finance build-out and the operational features (SIA compliance register, automated daily client report, alarm SLA + close-out, officer proof-of-presence) and are kept only for historical context — trust `docs/system/` and the code over them.
+
 ## Operating model — important
 
 1NW operates in three relationship modes simultaneously. The schema and reports must handle all three:
@@ -104,8 +106,8 @@ tailwind.config.ts         # brand tokens
 
 - **Real seed data not loaded**. The 485 sites, regions, keys, schedules from the importer's `import_out/*.csv` are still in the user's project folder at `Documents\Claude\Projects\1st Nationwide\import_out\` but haven't been imported. `prisma/seed.ts` reads them but has never run because the user doesn't have Node.js installed.
 - **No partners seeded** (Nexus, Keyholding Co, Aegis, Orbis, Shurgard) — these need creating before partner-customer sites can be tagged.
-- **Daily Shurgard report email** — placeholder only. `ClientReport` rows can be created but nothing sends them. Format TBC with Shurgard.
-- **/submit form** — works end-to-end functionally but missing photo uploads, GPS, more form fields per job type.
+- ~~**Daily Shurgard report email** — placeholder only.~~ **Done** — the daily report now auto-emails (PDF attached) via the `/reports` delivery panel + the `daily-client-report` cron; off by default until a recipient is set and `dailyReportOn` is switched on. The per-submission `ClientReport` model is still a stub. See [`docs/system/07-officer-reports-forms.md`](docs/system/07-officer-reports-forms.md).
+- **/submit form** — works end-to-end; captures GPS (now surfaced as **proof of presence** with a geofence verdict on job details + `/presence`). Photo uploads + more per-type fields still via dynamic form templates.
 - **Admin review/edit UI** — list page exists, but no detail/edit/approve action yet.
 - **Site editing UI** — `/sites/new` and `/sites/[id]/edit` linked but not built.
 - **Email ingest from partners (Nexus, Keyholding Co)** — alarm activation emails arrive at our inbox. No automation yet to parse them into `AlarmEvent` rows.

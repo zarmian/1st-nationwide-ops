@@ -42,7 +42,7 @@ Read `prisma/schema.prisma`. The four models this module owns are **`Job`**, **`
 | `onboardingPipelineId` | `String?` | Setup jobs during site onboarding. |
 | `scheduledFor` | `DateTime?` | **The attribution anchor** (see `activityWhen`). |
 | `startedAt`, `completedAt` | `DateTime?` | On-site / off-site stamps. |
-| `lat`, `lng`, `locatedAt` | `Float?/DateTime?` | Officer location at submit/complete (web geo or Telegram share). |
+| `lat`, `lng`, `locatedAt` | `Float?/DateTime?` | Officer location at submit/complete (web geo or Telegram share). Surfaced as **proof of presence** (geofence verdict) on the job detail + `/presence` — see below. |
 | `cancelledAt`, `cancelledByUserId` → `cancelledBy`, `statusBeforeCancel` | audit | `statusBeforeCancel` lets Restore return the job precisely. |
 | `reportedViaPartnerApp` | `Boolean` default false | **Partner-as-customer flag** → no `/submit`, no `ClientReport`. |
 | `partnerReportRef` | `String?` | Paste the partner's PDF/activation ref when they report back. |
@@ -64,8 +64,9 @@ Relations out: `formSubmissions FormSubmission[]` (a job can gather several subm
 | `rawSubject`, `rawBody`, `zone` | `String?` | Pasted email / dispatcher notes. |
 | `priority` | `AlarmPriority` default `MEDIUM` | |
 | `assignedToId` → `assignedTo` (`"AlarmAssignedTo"`) | `String?` | Copied from the job's assignee at create. |
-| `outcome` | `AlarmOutcome?` | `FALSE_ALARM`/`GENUINE`/`RESOLVED`/`ESCALATED_TO_POLICE`/`OTHER`. **Never written in production** — see gotchas. |
-| `closedAt` | `DateTime?` | Also never written — response-time display stays null. |
+| `outcome` | `AlarmOutcome?` | `FALSE_ALARM`/`GENUINE`/`RESOLVED`/`ESCALATED_TO_POLICE`/`OTHER`. Written by the **close-out** action (`closeAlarmAction`). |
+| `closedAt` | `DateTime?` | Set at close-out; drives the resolution-time display. |
+| `notes` | `String?` | Free-text, editable in the close-out panel. |
 | `job` | `Job?` | Back-relation of `Job.alarmEventId`. |
 
 `AlarmEvent` is a **byproduct** of an alarm-response job, not an independent intake. It has no list page, no create form, and no mutation action.
@@ -159,7 +160,10 @@ stateDiagram-v2
 - `src/app/(app)/dispatch/callouts/new/page.tsx` + `_actions.ts` + `_components/CalloutForm.tsx` — retrospective "Record callout".
 - `src/app/(app)/dispatch/_components/{ReassignOfficer,CancelActivityButton,CloseActivityButton,RestoreActivityButton,EditJobForm,ActivityCard}.tsx` — row-level controls, reused on `/activities`.
 - `src/app/(app)/patrols/_actions.ts` — `reassignJob`, `reassignVisit`, `closePatrolVisit`, `cancelPatrolVisit`, `restorePatrolVisit` (the visit twins of the job actions live here).
-- `src/app/(app)/alarms/[id]/page.tsx` — read-only alarm-event detail.
+- `src/app/(app)/alarms/[id]/page.tsx` — alarm-event detail: site, timeline, assignee, response job, raw email, **Response & SLA** card, **close-out** panel (`_components/AlarmCloseout.tsx`).
+- `src/app/(app)/alarms/page.tsx` + `_actions.ts` — the alarm **register** (SLA KPIs + table) and the `closeAlarmAction`/`reopenAlarmAction` close-out actions.
+- `src/lib/alarmSla.ts` — pure SLA compute (`computeAlarmSla`, `summariseAlarmSla`, per-priority targets) + tests.
+- `src/lib/proofOfPresence.ts` — geofence-verdict compute (`proofVerdict`) + `loadRecentPresence`; `src/app/(app)/presence/page.tsx` is the overview; `src/components/ProofOfPresence.tsx` the shared card/badge.
 - `src/app/(app)/activities/page.tsx` — the unified history: jobs + visits + shifts + orphan submissions, filtered by scheduled-date windows.
 - `src/app/jobs/{page.tsx,[id]/page.tsx,[id]/ClaimForm.tsx,_actions.ts}` — **public** open-jobs claim board.
 - `src/app/api/submissions/route.ts` — `/submit` POST: creates `FormSubmission` + `ReportReview` and drives job `SUBMITTED`/`APPROVED`.
@@ -209,7 +213,18 @@ There is **no automated alarm intake**. An `AlarmEvent` is only ever born alongs
 1. Via `createJob` (dispatch form, `type=ALARM_RESPONSE`) — source/zone/rawSubject/rawBody captured from the operator; **or**
 2. Via `createBotCallout` (Telegram, `type=ALARM_RESPONSE`) — `source=MANUAL`.
 
-The `AlarmEvent` is linked 1:1 (`Job.alarmEventId`), surfaces on `/alarms/[id]` (read-only: site, timeline, assignee, the response job, raw email), and triggers `notifyAlarmReceived`. Parsing partner/ARC alarm emails into `AlarmEvent` rows is **not built** (matches the roadmap in `CLAUDE.md`).
+The `AlarmEvent` is linked 1:1 (`Job.alarmEventId`), surfaces on `/alarms/[id]` (site, timeline, assignee, the response job, raw email, SLA + close-out) and in the `/alarms` register, and triggers `notifyAlarmReceived`. Parsing partner/ARC alarm emails into `AlarmEvent` rows is **not built** (matches the roadmap in `CLAUDE.md`).
+
+### (f) Alarm SLA & close-out
+
+- **Response time** = `AlarmEvent.receivedAt → Job.startedAt` (received to on-site). `src/lib/alarmSla.ts` (pure, unit-tested) classifies it against a **per-priority target** — high 20 min / medium 45 min / low 90 min (`DEFAULT_SLA_TARGET_MINS`; a per-site override is accepted in the compute contract) — as **responding / at-risk (≥80% of the window) / breached / met**. No target is stored; no schema change.
+- **`/alarms` register** (`src/app/(app)/alarms/page.tsx`, staff): a 7/30/90-day window with KPIs (open / avg response / SLA-met % / breaches) and a table of alarms with response time, SLA chip and outcome. Linked from the Operations hub.
+- **Live dispatch chip:** `ActivityCard` shows an SLA countdown/breach chip on open alarm-response rows (`computeAlarmSla` in `dispatch/page.tsx`), so a slipping response is visible on the board (60 s auto-refresh).
+- **Close-out:** `closeAlarmAction` / `reopenAlarmAction` (`alarms/_actions.ts`, `requireStaff`) write `AlarmEvent.outcome` / `closedAt` / `notes` — the previously-unused columns. The close-out panel (`AlarmCloseout`) validates the close time isn't before `receivedAt`.
+
+### (g) Proof of presence
+
+The officer's captured GPS fix (`Job.lat/lng/locatedAt`) is turned into evidence by `src/lib/proofOfPresence.ts`: `proofVerdict()` runs the fix against the site geofence (`src/lib/geo.ts`, per-site `geofenceRadiusM` else 300 m) → **within / outside / no-site-coords / no-fix**. Surfaced on the job detail (`<ProofOfPresenceCard>` — the point was stored but never shown before) and consolidated on **`/presence`** (`loadRecentPresence` over jobs + patrol visits; KPIs, a per-officer/day filter, and a Leaflet evidence map plotting each fix joined to its site). Derived on read — no new capture, no stored verdict. Static-guarding shifts keep their own richer start/end geofence record (see [`05`](./05-patrols-shifts-rota.md)).
 
 ---
 
@@ -245,6 +260,7 @@ The `AlarmEvent` is linked 1:1 (`Job.alarmEventId`), surfaces on `/alarms/[id]` 
 | `reassignJob` / `reassignVisit` | `patrols/_actions.ts` | Change officer (job via `reassignJobCore`). |
 | `closePatrolVisit` / `cancelPatrolVisit` / `restorePatrolVisit` | `patrols/_actions.ts` | Visit twins of the job actions. |
 | `claimJob` | `jobs/_actions.ts` | **Public.** Atomic claim → `ASSIGNED`/`EXTERNAL_NAMED`, redirect to `/submit`. |
+| `closeAlarmAction` / `reopenAlarmAction` | `alarms/_actions.ts` | **Staff.** Write/clear `AlarmEvent.outcome`/`closedAt`/`notes` (alarm close-out). |
 | `approveReview` | `admin/reports/_actions.ts` | `SUBMITTED → APPROVED`, create `ClientReport`, snapshot finance (see [`07`](./07-officer-reports-forms.md)). |
 | `create/update/delete/toggle JobTypeOption` & `…JobSourceOption` | `admin/options/_actions.ts` | **Admin.** Picker-label CRUD; revalidates dispatch/jobs pages. |
 
@@ -269,7 +285,7 @@ The `AlarmEvent` is linked 1:1 (`Job.alarmEventId`), surfaces on `/alarms/[id]` 
 ## Extension points & gotchas
 
 - **Dead enum states.** `REVIEW_PENDING` and `SENT_TO_CLIENT` are in `JobStatus` and appear in read-side guards/tone maps but **no code ever writes them**. Issuing/sending a `ClientReport` does **not** flip the job to `SENT_TO_CLIENT` — it stays `APPROVED`. `CLOSED` is written only by onboarding-pipeline completion (`onboarding/_actions.ts`), not by the dispatch flow. A rebuild should either wire these up or drop them.
-- **Alarm events are write-once.** No action ever updates an `AlarmEvent`, so `outcome` and `closedAt` are never populated in production — the `/alarms/[id]` "N min response" chip never renders, and there's no way to record a false alarm/genuine outcome. There is also no alarm **list** page and no assign/outcome UI. Prime area for a rebuild.
+- **Alarm close-out + SLA now exist** (previously the `outcome`/`closedAt` columns were never written). `closeAlarmAction` writes them; `/alarms` is the register and `/alarms/[id]` shows the SLA + close-out panel; `src/lib/alarmSla.ts` computes response-vs-target. Still **not** built: automated alarm-email intake, per-site SLA target UI, and proactive breach alerting (a breach is visible on the board/register but nothing pushes an SMS/WhatsApp yet — a "notified" flag would keep such a cron idempotent).
 - **`IN_PROGRESS` is Telegram-only for jobs.** The web/mobile UI has no "start job" button; only the bot's **On-site** tap moves a job to `IN_PROGRESS`. A job completed via `/submit` jumps straight `OPEN/ASSIGNED → SUBMITTED/APPROVED`, so `IN_PROGRESS` is often skipped and `startedAt` comes from the form's `arrivedAt`. (Visits *do* have a web on-site endpoint.)
 - **Patrols are visits, not jobs — but appear as jobs.** `materializePatrolVisits` writes `PatrolVisit` rows; the dispatch board projects them into the job list (`__visitId` discriminates, routing edit/cancel/reassign to the visit actions and detail to `/patrols/visits/[id]`). Lock/unlock **are** real Jobs. Don't assume a board row is a `Job`.
 - **No shared state machine.** Transition legality is duplicated across `jobActions.ts`, `api/submissions`, `approveReview`, and the webhook, using `as any` status casts throughout. Easy to drift; a rebuild should centralise it.
