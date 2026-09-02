@@ -12,6 +12,8 @@ import { CloseActivityButton } from "./_components/CloseActivityButton";
 import { ReassignOfficer } from "./_components/ReassignOfficer";
 import { EditIconLink } from "./_components/EditIconLink";
 import { ActivityCard } from "./_components/ActivityCard";
+import type { AlarmPriority } from "@prisma/client";
+import { computeAlarmSla, SLA_CHIP, slaTimingLabel } from "@/lib/alarmSla";
 import { DispatchMap } from "./_components/DispatchMap";
 import { SyncSchedulesButton } from "./_components/SyncSchedulesButton";
 import { MapLayerToggles } from "./_components/MapLayerToggles";
@@ -291,6 +293,7 @@ export default async function DispatchPage({
         assignedTo: { select: { id: true, name: true } },
         partner: { select: { name: true } },
         handledByPartner: { select: { id: true, name: true } },
+        alarmEvent: { select: { receivedAt: true } },
       },
       orderBy: jobsOrderBy,
       take: 100,
@@ -505,6 +508,9 @@ export default async function DispatchPage({
     partner: { name: string } | null;
     assignedTo: { id: string; name: string } | null;
     handledByPartner: { id: string; name: string } | null;
+    /** Alarm-response SLA inputs (null for non-alarm rows). */
+    alarmReceivedAt: Date | null;
+    startedAt: Date | null;
   };
 
   const jobRows: DispatchRow[] = jobs.map((j) => ({
@@ -520,6 +526,8 @@ export default async function DispatchPage({
     partner: j.partner,
     assignedTo: j.assignedTo,
     handledByPartner: j.handledByPartner,
+    alarmReceivedAt: j.alarmEvent?.receivedAt ?? null,
+    startedAt: j.startedAt ?? null,
   }));
 
   const visitRows: DispatchRow[] = visits.map((v) => ({
@@ -535,6 +543,8 @@ export default async function DispatchPage({
     partner: v.site?.partner ?? null,
     assignedTo: v.officer,
     handledByPartner: null,
+    alarmReceivedAt: null,
+    startedAt: null,
   }));
 
   const rows: DispatchRow[] = [...jobRows, ...visitRows].sort((a, b) => {
@@ -957,6 +967,25 @@ export default async function DispatchPage({
                     j.status === "ASSIGNED" ||
                     j.status === "PENDING");
                 const whenLabel = f ? `${f.day} ${f.time}` : null;
+                // Live SLA countdown / breach chip on open alarm responses.
+                const sla =
+                  j.type === "ALARM_RESPONSE" &&
+                  j.alarmReceivedAt &&
+                  !isClosed
+                    ? (() => {
+                        const r = computeAlarmSla({
+                          receivedAt: j.alarmReceivedAt,
+                          arrivedAt: j.startedAt,
+                          priority: j.priority as AlarmPriority,
+                          now,
+                        });
+                        const c = SLA_CHIP[r.status];
+                        return {
+                          chip: c.chip,
+                          label: `${c.label} · ${slaTimingLabel(r)}`,
+                        };
+                      })()
+                    : null;
                 const officerName = j.handledByPartner
                   ? `${j.handledByPartner.name} (partner)`
                   : (j.assignedTo?.name ?? null);
@@ -976,6 +1005,7 @@ export default async function DispatchPage({
                     status={j.status}
                     priority={j.priority as "HIGH" | "MEDIUM" | "LOW"}
                     overdue={overdue}
+                    sla={sla}
                     actions={
                       <>
                         {canReassign && (
