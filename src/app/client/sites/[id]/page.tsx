@@ -1,14 +1,16 @@
 import { notFound } from "next/navigation";
+import { Activity, PoundSterling, BarChart3, TrendingUp, ClipboardList } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { prisma } from "@/lib/db";
-import { PageHeader } from "@/components/PageHeader";
-import { SectionHeading } from "@/components/SectionHeading";
 import { formatMoney, formatNumber } from "@/lib/numbers";
 import { loadClientOverview, loadClientActivities } from "@/lib/clientPortal";
 import { resolveRange } from "../../_range";
 import { RangePills } from "../../_components/RangePills";
 import { PeriodBars } from "../../_components/PeriodBars";
 import { ActivityList } from "../../_components/ActivityList";
+import { ClientHero } from "../../_components/ClientHero";
+import { StatCard } from "../../_components/StatCard";
+import { Panel } from "../../_components/Panel";
 
 export const dynamic = "force-dynamic";
 
@@ -46,70 +48,64 @@ export default async function ClientSiteDetail({
   const topKind = overview.byKind[0] ?? null;
 
   return (
-    <div className="section">
-      <PageHeader
+    <div className="space-y-5">
+      <ClientHero
+        eyebrow={site.code ? `Site ${site.code}` : "Site"}
         title={site.name}
         backHref={`/client/sites?range=${key}`}
         backLabel="Your sites"
         subtitle={
           <>
-            {site.code ? `${site.code} · ` : ""}
             {site.addressLine}
             {site.city ? `, ${site.city}` : ""} · {site.postcodeFormatted}
             {site.region ? ` · ${site.region.name}` : ""}
           </>
         }
-      />
+      >
+        <RangePills active={key} basePath={`/client/sites/${site.id}`} dark />
+      </ClientHero>
 
-      <RangePills active={key} basePath={`/client/sites/${site.id}`} />
-
-      <div className="grid gap-3 grid-cols-3">
-        <div className="kpi">
-          <div className="kpi-label">Activities</div>
-          <div className="kpi-value text-brand-navy">
-            {formatNumber(overview.totalActivities)}
-          </div>
-          <div className="kpi-hint">in this period</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Spend</div>
-          <div className="kpi-value text-brand-navy">
-            {formatMoney(overview.totalSpend)}
-          </div>
-          <div className="kpi-hint">for work at this site</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Most frequent</div>
-          <div className="kpi-value text-brand-navy">
-            {topKind ? formatNumber(topKind.count) : "—"}
-          </div>
-          <div className="kpi-hint">{topKind?.label ?? "no activity yet"}</div>
-        </div>
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+        <StatCard
+          tone="blue"
+          label="Activities"
+          value={formatNumber(overview.totalActivities)}
+          hint="in this period"
+          icon={Activity}
+        />
+        <StatCard
+          tone="emerald"
+          label="Spend"
+          value={formatMoney(overview.totalSpend)}
+          hint="for work at this site"
+          icon={PoundSterling}
+        />
+        <StatCard
+          tone="amber"
+          label="Most frequent"
+          value={topKind ? formatNumber(topKind.count) : "—"}
+          hint={topKind?.label ?? "no activity yet"}
+          icon={BarChart3}
+        />
       </div>
 
       {overview.activityByPeriod.length >= 2 && overview.totalActivities > 0 && (
-        <div className="space-y-3">
-          <SectionHeading title="Activity over time" />
-          <div className="card p-4 pb-3">
-            <PeriodBars
-              tone="navy"
-              data={overview.activityByPeriod.map((p) => ({
-                label: p.label,
-                value: p.count,
-                display: formatNumber(p.count),
-              }))}
-              ariaLabel="Activities per period at this site"
-            />
-          </div>
-        </div>
+        <Panel title="Activity over time" icon={TrendingUp} accent="blue">
+          <PeriodBars
+            tone="blue"
+            data={overview.activityByPeriod.map((p) => ({
+              label: p.label,
+              value: p.count,
+              display: formatNumber(p.count),
+            }))}
+            ariaLabel="Activities per period at this site"
+          />
+        </Panel>
       )}
 
-      <div className="space-y-3">
-        <SectionHeading title="Activity log" />
-        <div className="card overflow-hidden">
-          <ActivityList activities={activities} showSite={false} />
-        </div>
-      </div>
+      <Panel title="Activity log" icon={ClipboardList} accent="indigo" flush>
+        <ActivityList activities={activities} showSite={false} />
+      </Panel>
     </div>
   );
 }

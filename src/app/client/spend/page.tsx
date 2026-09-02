@@ -1,12 +1,14 @@
+import { PoundSterling, CalendarDays, Building2, TrendingUp } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
-import { PageHeader } from "@/components/PageHeader";
-import { SectionHeading } from "@/components/SectionHeading";
 import { BarList } from "@/components/BarList";
 import { formatMoney, formatNumber } from "@/lib/numbers";
 import { loadClientOverview } from "@/lib/clientPortal";
 import { resolveRange } from "../_range";
 import { RangePills } from "../_components/RangePills";
 import { PeriodBars } from "../_components/PeriodBars";
+import { ClientHero } from "../_components/ClientHero";
+import { StatCard } from "../_components/StatCard";
+import { Panel } from "../_components/Panel";
 
 export const dynamic = "force-dynamic";
 
@@ -26,104 +28,94 @@ export default async function ClientSpendPage({
     bucket === "month" ? "month" : bucket === "week" ? "week" : "day";
 
   return (
-    <div className="section">
-      <PageHeader
-        title="Spend"
-        subtitle="What you've been billed for security work, by period and by site. Figures exclude VAT."
-      />
+    <div className="space-y-5">
+      <ClientHero
+        eyebrow="Spend"
+        title="What you've been billed"
+        subtitle="Security work billed to your account, by period and by site. Figures exclude VAT."
+      >
+        <RangePills active={key} basePath="/client/spend" dark />
+      </ClientHero>
 
-      <RangePills active={key} basePath="/client/spend" />
-
-      <div className="grid gap-3 grid-cols-3">
-        <div className="card-accent p-5 flex flex-col gap-1.5">
-          <div className="kpi-label">Total spend</div>
-          <div className="kpi-value text-brand-navy">
-            {formatMoney(data.totalSpend)}
-          </div>
-          <div className="kpi-hint">in this period</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Avg / {periodWord}</div>
-          <div className="kpi-value text-brand-navy">
-            {formatMoney(avgPerPeriod)}
-          </div>
-          <div className="kpi-hint">
-            across {formatNumber(periods)} {periodWord}s
-          </div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Sites billed</div>
-          <div className="kpi-value text-brand-navy">
-            {formatNumber(sitesBilled)}
-          </div>
-          <div className="kpi-hint">had billed work</div>
-        </div>
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+        <StatCard
+          tone="emerald"
+          label="Total spend"
+          value={formatMoney(data.totalSpend)}
+          hint="in this period"
+          icon={PoundSterling}
+        />
+        <StatCard
+          tone="blue"
+          label={`Avg / ${periodWord}`}
+          value={formatMoney(avgPerPeriod)}
+          hint={`across ${formatNumber(periods)} ${periodWord}s`}
+          icon={CalendarDays}
+        />
+        <StatCard
+          tone="indigo"
+          label="Sites billed"
+          value={formatNumber(sitesBilled)}
+          hint="had billed work"
+          icon={Building2}
+        />
       </div>
 
       {data.spendByPeriod.length >= 2 && data.totalSpend > 0 && (
-        <div className="space-y-3">
-          <SectionHeading title="Spend over time" />
-          <div className="card p-4 pb-3">
-            <PeriodBars
-              tone="blue"
-              data={data.spendByPeriod.map((p) => ({
-                label: p.label,
-                value: p.amount,
-                display: formatMoney(p.amount),
-              }))}
-              ariaLabel="Spend per period"
-            />
-          </div>
-        </div>
+        <Panel title="Spend over time" icon={TrendingUp} accent="emerald">
+          <PeriodBars
+            tone="emerald"
+            data={data.spendByPeriod.map((p) => ({
+              label: p.label,
+              value: p.amount,
+              display: formatMoney(p.amount),
+            }))}
+            ariaLabel="Spend per period"
+          />
+        </Panel>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <SectionHeading title="By site" hint="Highest first" />
-          <div className="card p-4">
-            <BarList
-              tone="blue"
-              items={data.spendBySite.map((s) => ({
-                label: s.siteName,
-                value: s.amount,
-                display: formatMoney(s.amount),
-                href: `/client/sites/${s.siteId}?range=${key}`,
-              }))}
-              emptyLabel="No billed work in this period."
-            />
-          </div>
-        </div>
-        <div className="space-y-3">
-          <SectionHeading title="By period" />
-          <div className="card overflow-hidden">
-            <div className="table-scroll">
-              <table className="table-default">
-                <thead>
-                  <tr>
-                    <th>Period</th>
-                    <th className="col-num">Spend</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.spendByPeriod.map((p) => (
-                    <tr key={p.key}>
-                      <td className="text-slate-700">{p.label}</td>
-                      <td className="col-num tabular-nums text-slate-700">
-                        {formatMoney(p.amount)}
-                      </td>
-                    </tr>
-                  ))}
-                  <tr className="font-medium">
-                    <td className="text-brand-navy">Total</td>
-                    <td className="col-num tabular-nums text-brand-navy">
-                      {formatMoney(data.totalSpend)}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="By site" hint="Highest first" icon={Building2} accent="blue">
+          <BarList
+            tone="blue"
+            items={data.spendBySite.map((s) => ({
+              label: s.siteName,
+              value: s.amount,
+              display: formatMoney(s.amount),
+              href: `/client/sites/${s.siteId}?range=${key}`,
+            }))}
+            emptyLabel="No billed work in this period."
+          />
+        </Panel>
+        <Panel title="By period" icon={CalendarDays} accent="indigo" flush>
+          <div className="table-scroll">
+            <table className="table-default">
+              <thead>
+                <tr>
+                  <th>Period</th>
+                  <th className="col-num">Spend</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.spendByPeriod.map((p) => (
+                  <tr key={p.key}>
+                    <td className="text-slate-700">{p.label}</td>
+                    <td className="col-num tabular-nums text-slate-700">
+                      {formatMoney(p.amount)}
                     </td>
                   </tr>
-                </tbody>
-              </table>
-            </div>
+                ))}
+                <tr className="font-medium">
+                  <td className="text-brand-navy">Total</td>
+                  <td className="col-num tabular-nums text-brand-navy">
+                    {formatMoney(data.totalSpend)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </div>
+        </Panel>
       </div>
     </div>
   );

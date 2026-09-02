@@ -1,7 +1,14 @@
 import Link from "next/link";
+import {
+  Activity,
+  PoundSterling,
+  Building2,
+  BarChart3,
+  TrendingUp,
+  Layers,
+  Clock,
+} from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
-import { PageHeader } from "@/components/PageHeader";
-import { SectionHeading } from "@/components/SectionHeading";
 import { BarList } from "@/components/BarList";
 import { formatMoney, formatNumber } from "@/lib/numbers";
 import { loadClientOverview } from "@/lib/clientPortal";
@@ -9,6 +16,9 @@ import { resolveRange, rangeLabel } from "./_range";
 import { RangePills } from "./_components/RangePills";
 import { PeriodBars } from "./_components/PeriodBars";
 import { ActivityList } from "./_components/ActivityList";
+import { ClientHero } from "./_components/ClientHero";
+import { StatCard } from "./_components/StatCard";
+import { Panel } from "./_components/Panel";
 
 export const dynamic = "force-dynamic";
 
@@ -24,112 +34,115 @@ export default async function ClientHome({
   const topKind = data.byKind[0] ?? null;
 
   return (
-    <div className="section">
-      <PageHeader
-        title="Overview"
-        subtitle="A live view of the security work across your sites."
-      />
+    <div className="space-y-5">
+      <ClientHero
+        eyebrow="Security overview"
+        title="Your sites at a glance"
+        subtitle={`A live view of the security work across your sites — ${rangeLabel(
+          key,
+        ).toLowerCase()}.`}
+      >
+        <RangePills active={key} basePath="/client" dark />
+      </ClientHero>
 
-      <RangePills active={key} basePath="/client" />
-
-      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-        <div className="card-accent p-5 flex flex-col gap-1.5">
-          <div className="kpi-label">Activities</div>
-          <div className="kpi-value text-brand-navy">
-            {formatNumber(data.totalActivities)}
-          </div>
-          <div className="kpi-hint">{rangeLabel(key).toLowerCase()}</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Spend</div>
-          <div className="kpi-value text-brand-navy">
-            {formatMoney(data.totalSpend)}
-          </div>
-          <div className="kpi-hint">for work in this period</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Sites</div>
-          <div className="kpi-value text-brand-navy">
-            {formatNumber(data.siteCount)}
-          </div>
-          <div className="kpi-hint">under our watch</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi-label">Most frequent</div>
-          <div className="kpi-value text-brand-navy">
-            {topKind ? formatNumber(topKind.count) : "—"}
-          </div>
-          <div className="kpi-hint">{topKind?.label ?? "no activity yet"}</div>
-        </div>
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        <StatCard
+          tone="blue"
+          label="Activities"
+          value={formatNumber(data.totalActivities)}
+          hint={rangeLabel(key).toLowerCase()}
+          icon={Activity}
+        />
+        <StatCard
+          tone="emerald"
+          label="Spend"
+          value={formatMoney(data.totalSpend)}
+          hint="for work in this period"
+          icon={PoundSterling}
+        />
+        <StatCard
+          tone="indigo"
+          label="Sites"
+          value={formatNumber(data.siteCount)}
+          hint="under our watch"
+          icon={Building2}
+        />
+        <StatCard
+          tone="amber"
+          label="Most frequent"
+          value={topKind ? formatNumber(topKind.count) : "—"}
+          hint={topKind?.label ?? "no activity yet"}
+          icon={BarChart3}
+        />
       </div>
 
       {data.activityByPeriod.length >= 2 && data.totalActivities > 0 && (
-        <div className="space-y-3">
-          <SectionHeading
-            title="Activity over time"
-            hint="Attended work per period across your sites"
+        <Panel
+          title="Activity over time"
+          hint="Attended work per period across your sites"
+          icon={TrendingUp}
+          accent="blue"
+        >
+          <PeriodBars
+            tone="blue"
+            data={data.activityByPeriod.map((p) => ({
+              label: p.label,
+              value: p.count,
+              display: formatNumber(p.count),
+            }))}
+            ariaLabel="Activities per period"
           />
-          <div className="card p-4 pb-3">
-            <PeriodBars
-              tone="navy"
-              data={data.activityByPeriod.map((p) => ({
-                label: p.label,
-                value: p.count,
-                display: formatNumber(p.count),
-              }))}
-              ariaLabel="Activities per period"
-            />
-          </div>
-        </div>
+        </Panel>
       )}
 
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <SectionHeading title="Activity by type" />
-          <div className="card p-4">
-            <BarList
-              tone="navy"
-              items={data.byKind.map((k) => ({
-                label: k.label,
-                value: k.count,
-                display: formatNumber(k.count),
-              }))}
-              emptyLabel="No activity in this period."
-            />
-          </div>
-        </div>
-        <div className="space-y-3">
-          <SectionHeading title="Spend by site" hint="Top sites in this period" />
-          <div className="card p-4">
-            <BarList
-              tone="blue"
-              max={8}
-              items={data.spendBySite.map((s) => ({
-                label: s.siteName,
-                value: s.amount,
-                display: formatMoney(s.amount),
-                href: `/client/sites/${s.siteId}?range=${key}`,
-              }))}
-              emptyLabel="No billed work in this period."
-            />
-          </div>
-        </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel title="Activity by type" icon={Layers} accent="indigo">
+          <BarList
+            tone="navy"
+            items={data.byKind.map((k) => ({
+              label: k.label,
+              value: k.count,
+              display: formatNumber(k.count),
+            }))}
+            emptyLabel="No activity in this period."
+          />
+        </Panel>
+        <Panel
+          title="Spend by site"
+          hint="Top sites in this period"
+          icon={Building2}
+          accent="emerald"
+        >
+          <BarList
+            tone="blue"
+            max={8}
+            items={data.spendBySite.map((s) => ({
+              label: s.siteName,
+              value: s.amount,
+              display: formatMoney(s.amount),
+              href: `/client/sites/${s.siteId}?range=${key}`,
+            }))}
+            emptyLabel="No billed work in this period."
+          />
+        </Panel>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <SectionHeading title="Recent activity" />
+      <Panel
+        title="Recent activity"
+        icon={Clock}
+        accent="blue"
+        flush
+        action={
           <Link
             href={`/client/activities?range=${key}`}
-            className="text-sm text-brand-blue-dark hover:underline shrink-0"
+            className="text-sm font-medium text-brand-blue-dark hover:underline"
           >
             View all →
           </Link>
-        </div>
-        <div className="card overflow-hidden">
-          <ActivityList activities={data.recent} />
-        </div>
-      </div>
+        }
+      >
+        <ActivityList activities={data.recent} />
+      </Panel>
     </div>
   );
 }

@@ -1,10 +1,12 @@
+import { ClipboardList } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { prisma } from "@/lib/db";
-import { PageHeader } from "@/components/PageHeader";
 import { loadClientActivities } from "@/lib/clientPortal";
 import { resolveRange } from "../_range";
 import { RangePills } from "../_components/RangePills";
 import { ActivityList } from "../_components/ActivityList";
+import { ClientHero } from "../_components/ClientHero";
+import { Panel } from "../_components/Panel";
 
 export const dynamic = "force-dynamic";
 
@@ -27,54 +29,57 @@ export default async function ClientActivitiesPage({
   ]);
 
   return (
-    <div className="section">
-      <PageHeader
-        title="Activity"
-        subtitle="Every security activity recorded across your sites."
-      />
-
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="space-y-5">
+      <ClientHero
+        eyebrow="Activity"
+        title="Security activity log"
+        subtitle="Every attended activity recorded across your sites."
+      >
         <RangePills
           active={key}
           basePath="/client/activities"
           extra={siteId ? { siteId } : undefined}
+          dark
         />
-        <form className="flex items-end gap-2">
-          <input type="hidden" name="range" value={key} />
-          <div>
-            <label className="label" htmlFor="siteId">
-              Site
-            </label>
-            <select
-              id="siteId"
-              name="siteId"
-              defaultValue={siteId ?? ""}
-              className="input"
-            >
-              <option value="">All sites</option>
-              {sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.code ? `${s.code} · ` : ""}
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button type="submit" className="btn-secondary text-sm">
-            Apply
-          </button>
-        </form>
-      </div>
+      </ClientHero>
 
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100">
-          <p className="text-xs text-slate-500">
-            {activities.length} {activities.length === 1 ? "activity" : "activities"}{" "}
-            in this period
-          </p>
+      <form className="flex flex-wrap items-end gap-2 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-card">
+        <input type="hidden" name="range" value={key} />
+        <div>
+          <label className="label" htmlFor="siteId">
+            Filter by site
+          </label>
+          <select
+            id="siteId"
+            name="siteId"
+            defaultValue={siteId ?? ""}
+            className="input"
+          >
+            <option value="">All sites</option>
+            {sites.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.code ? `${s.code} · ` : ""}
+                {s.name}
+              </option>
+            ))}
+          </select>
         </div>
+        <button type="submit" className="btn-primary text-sm">
+          Apply
+        </button>
+      </form>
+
+      <Panel
+        title="Activity"
+        hint={`${activities.length} ${
+          activities.length === 1 ? "activity" : "activities"
+        } in this period`}
+        icon={ClipboardList}
+        accent="blue"
+        flush
+      >
         <ActivityList activities={activities} />
-      </div>
+      </Panel>
     </div>
   );
 }
