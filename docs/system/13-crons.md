@@ -1,6 +1,6 @@
 # Scheduled jobs (crons)
 
-> Twelve Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, chase overdue invoices daily, remind about contract renewals weekly, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
+> Fourteen Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, chase overdue invoices daily, remind about contract renewals and officer-compliance expiries weekly, email the daily client report each morning, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
 
 ## Purpose & scope
 
@@ -28,6 +28,8 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 | `/api/cron/pay-summary` | `0 9 1 * *` | 1st of month 09:00 | Text each active officer their prior-month pay total. | `PAY_SUMMARY` SMS rows (one per officer/month). |
 | `/api/cron/invoice-reminders` | `0 8 * * *` | daily 08:00 | Email customers whose `SENT` invoices have crossed an overdue threshold (1/7/14/30 days), highest unsent stage only. | Reminder emails + `InvoiceReminder` rows (one per invoice/stage). No-op until email is configured. |
 | `/api/cron/contract-renewals` | `0 8 * * 1` | Mon 08:00 | Email a digest of active `Contract`s renewing within 30 days (or overdue). | One digest email to `ADMIN_EMAIL`/`COMPANY.email`. No-op until email + a recipient are set. |
+| `/api/cron/compliance-alerts` | `30 8 * * 1` | Mon 08:30 | Email a digest of officer vetting items expired / expiring ≤30 days / (SIA) unrecorded — licences, right-to-work, DBS, training certs. | One digest email to `ADMIN_EMAIL`/`COMPANY.email`. No-op until email + a recipient are set. |
+| `/api/cron/daily-client-report` | `0 7 * * *` | daily 07:00 | Email **yesterday's** Shurgard report (PDF attached), **only** when the Shurgard customer has `dailyReportOn = true`. | One email to the configured recipient + a `ClientReportSend` row. Idempotent (skips a day already `SENT`). Off by default. |
 
 ## Per-cron mechanics
 
@@ -66,6 +68,12 @@ Window `from = now + 30 min`, `to = now + 60 min`. In parallel: `PENDING` shifts
 
 ### `pay-summary` (`0 9 1 * *`)
 09:00 UTC on the 1st: sums the **prior calendar month** for each active `OFFICER`/`DISPATCHER` with a `phone`, across `PatrolVisit.paidAmount` (`COMPLETED`), `Job.paidAmount` (not `CANCELLED`, `completedAt` set), and `Shift.paidAmount` (`COMPLETED`). Crucially, month membership is by **scheduled** date via `visitScheduledRange` / `jobScheduledRange` / `shiftScheduledRange` (`src/lib/activityWhen.ts`) — never `createdAt` (see [`14-conventions-and-ui.md`](./14-conventions-and-ui.md)). Officers with zero activities and zero pay are skipped. `notifyOfficerPaySummary` queues a `PAY_SUMMARY` SMS with composite `eventEntityId = <officerId>:<YYYY-MM>` for month-level idempotency. `?force=YYYY-MM` overrides the month (for admin testing) and stays `CRON_SECRET`-gated.
+
+### `compliance-alerts` (`30 8 * * 1`)
+`runtime = "nodejs"`, `force-dynamic`. Calls `expiringComplianceItems(30)` (`src/lib/compliance.ts`) — a flat, expired-first list of officer vetting items that are expired, expiring within 30 days, or (SIA only) unrecorded — and emails an HTML+text digest to `ADMIN_EMAIL` (falling back to `COMPANY.email`). No work → `{ items: 0 }`; email unconfigured or no recipient → `{ emailed: false, reason }`. It only reads, so it's naturally idempotent (re-running re-sends the same digest). Surfaces the same data the `/compliance` register shows.
+
+### `daily-client-report` (`0 7 * * *`)
+`runtime = "nodejs"`, `force-dynamic`. Covers **yesterday** (`ukDayPlus(now, -1)` — the last complete UK day). Gated four ways before it sends: a Shurgard customer must exist, `dailyReportOn` must be `true` (**off by default** — the safety catch so nothing reaches a client before the format is agreed), a recipient must resolve (`dailyReportRecipient → contactEmail`), and no `ClientReportSend` row may already be `SENT` for that day (idempotency). When all pass, `deliverShurgardReport` (`src/lib/reports/clientReportDelivery.ts`) renders the existing PDF, emails it with an HTML+text body, and logs the attempt. Manual sends come from the `/reports` page's delivery panel, not this cron. See [`07-officer-reports-forms.md`](./07-officer-reports-forms.md).
 
 ## Business rules & invariants
 

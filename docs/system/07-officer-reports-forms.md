@@ -81,7 +81,8 @@ Source: `prisma/schema.prisma`. Money is `Decimal(10,2)`; all ids are `uuid` unl
 - `src/app/(app)/admin/blueprints/**` — blueprint list/new/edit; `_actions.ts`, `_components/BlueprintForm.tsx` (reuses `FieldEditor`).
 - `src/lib/reports/activitiesReport.ts` — shared activity-row loader (jobs+visits+shifts merge). `ActivitiesReportPdf.tsx` renders it.
 - `src/app/api/reports/activities/route.ts` (PDF), `src/app/api/activities/export/route.ts` (CSV) — staff exports.
-- `src/lib/reports/shurgardReport.ts` + `src/app/api/reports/shurgard/route.ts` + `ShurgardReportPdf.tsx` — daily Shurgard PDF (on demand).
+- `src/lib/reports/shurgardReport.ts` + `src/app/api/reports/shurgard/route.ts` + `ShurgardReportPdf.tsx` — the daily Shurgard PDF (download).
+- `src/lib/reports/clientReportDelivery.ts` — **emailing** the daily report: `deliverShurgardReport` (renders the PDF + HTML/text body, sends via Resend, logs a `ClientReportSend` row), recipient resolution, idempotency. `src/app/(app)/reports/{page.tsx,_actions.ts,_components/ReportDelivery.tsx}` is the delivery panel (recipient, auto-send toggle, "Send now", send history); `src/app/api/cron/daily-client-report/route.ts` is the morning cron ([`13-crons.md`](./13-crons.md)).
 
 ## Core flows
 
@@ -143,12 +144,12 @@ Source: `prisma/schema.prisma`. Money is `Decimal(10,2)`; all ids are `uuid` unl
 **Staff export routes (GET, `ADMIN`/`DISPATCHER`)**
 - `/api/reports/activities` (PDF), `/api/activities/export` (CSV, admin-only), `/api/reports/shurgard` (PDF).
 
-**Crons:** none in this module. No cron sends `ClientReport`s (see gotchas).
+**Crons:** `daily-client-report` (`0 7 * * *`) emails yesterday's Shurgard report when the customer's `dailyReportOn` is set — see [`13-crons.md`](./13-crons.md). The per-submission `ClientReport` model, by contrast, still has no send cron (see gotchas).
 
 ## Extension points & gotchas
 
 - **Two `resolveTemplate` implementations.** The **client** one in `SubmitForm.tsx` is what `/submit` actually uses (it filters the preloaded template list). The **server** `resolveTemplate` in `formTemplates.ts` (DB-querying) is exported/tested but **not called by any route** — reserved/dead. A rebuild should collapse to one server resolver and stop shipping every template to the browser.
-- **`ClientReport` never sends.** Rows are created `PENDING` and nothing flips them to `SENT/FAILED` — there is no send cron and no `pdfUrl` writer. The daily Shurgard email is still a placeholder; the Shurgard/activities PDFs are on-demand downloads only. Approving direct-customer reports silently accrues `PENDING` rows.
+- **Two separate "client report" tracks — don't conflate them.** (1) The **daily Shurgard report** now emails itself: `deliverShurgardReport` sends the PDF and logs a `ClientReportSend` row, driven by the `/reports` delivery panel ("Send now") and the `daily-client-report` cron (off until `Customer.dailyReportOn` + a recipient are set, and email is configured). (2) The per-submission **`ClientReport`** model is still a stub — rows are created `PENDING` at approval and nothing flips them to `SENT/FAILED` (no send cron, no `pdfUrl` writer), so approving direct-customer reports silently accrues `PENDING` rows. The activities PDF/CSV remain on-demand downloads.
 - **UI↔action mismatch on report eligibility.** `admin/reports/[id]/page.tsx` computes `reportable` and the "will be queued to X" banner using `job?.customer ?? sub.site?.customer` (site fallback), but `approveReview` only creates a `ClientReport` when **`job.customer`** has an email — a cron-created site-only job (no `job.customerId`) shows the banner yet produces no report.
 - **Auto-approve set is hard-coded** in `api/submissions/route.ts` (`PATROL/VPI/LOCK/UNLOCK`), not data-driven — changing which kinds skip review needs a code change.
 - **Blob orphans**: uploaded files are referenced only inside the submission payload; abandoned uploads under `uploads/` are swept by the retention cron, not tracked in the DB.

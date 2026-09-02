@@ -30,6 +30,7 @@ Every module doc follows the same shape, so you can skim consistently:
 | 13 | [Crons](./13-crons.md) | Every scheduled route: schedule, purpose, side effects. |
 | 14 | [Conventions & UI System](./14-conventions-and-ui.md) | Dates/money, activity attribution, server-action pattern, UI primitives, a11y, testing. |
 | 15 | [Deployment & Operations](./15-deployment-and-ops.md) | Build pipeline, env vars, migrations, bootstrap, seeding, runbook. |
+| 16 | [Officer Compliance & Vetting](./16-officer-compliance.md) | SIA/RTW/DBS + training certs, the `/compliance` register, expiry status, the weekly alert cron. |
 
 ## Suggested reading order for a rebuild
 
