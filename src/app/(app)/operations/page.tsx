@@ -19,6 +19,7 @@ export default async function OperationsHubPage() {
     pendingReviews,
     missedCallsWeek,
     openAlarms,
+    presenceThisWeek,
   ] = await prisma.$transaction([
     prisma.patrolSchedule.count({ where: { active: true } }),
     prisma.shift.count({ where: { status: "PENDING" } }),
@@ -43,6 +44,12 @@ export default async function OperationsHubPage() {
       where: {
         type: "ALARM_RESPONSE",
         status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS"] },
+      },
+    }),
+    prisma.job.count({
+      where: {
+        lat: { not: null },
+        locatedAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
       },
     }),
   ]);
@@ -165,6 +172,14 @@ export default async function OperationsHubPage() {
         "Response times against SLA targets and close-out outcomes. Spot breaches and record what each alarm turned out to be.",
       stat: openAlarms,
       statLabel: "open now",
+    },
+    {
+      href: "/presence",
+      title: "Proof of presence",
+      blurb:
+        "Where officers actually were when they attended — GPS fix vs the site geofence. Evidence you can show clients.",
+      stat: presenceThisWeek,
+      statLabel: "GPS-tagged / 7 days",
     },
     {
       href: "/reports",
