@@ -30,7 +30,8 @@ export default async function NewJobPage({
       },
     }),
     prisma.user.findMany({
-      where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
+      // Officers only — jobs are never assigned to dispatchers.
+      where: { active: true, role: "OFFICER" },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
