@@ -8,6 +8,8 @@ import { CancelActivityButton } from "../_components/CancelActivityButton";
 import { RestoreActivityButton } from "../_components/RestoreActivityButton";
 import { CloseActivityButton } from "../_components/CloseActivityButton";
 import { PageHeader } from "@/components/PageHeader";
+import { ProofOfPresenceCard } from "@/components/ProofOfPresence";
+import { proofVerdict } from "@/lib/proofOfPresence";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +69,9 @@ export default async function JobDetailPage({
           postcodeFormatted: true,
           addressLine: true,
           city: true,
+          lat: true,
+          lng: true,
+          geofenceRadiusM: true,
           // Pull the site's customer/partner so the "Who it's for"
           // card falls back to them when the job itself doesn't have
           // a direct customer/partner set — common for cron-created
@@ -126,6 +131,20 @@ export default async function JobDetailPage({
 
   const billed = moneyOrNull(job.billedAmount, job.billedCurrency);
   const paid = moneyOrNull(job.paidAmount, job.paidCurrency);
+
+  // Proof of presence — the officer's captured GPS fix vs the site geofence.
+  // Only shown once a fix exists (i.e. the job has been attended / submitted).
+  const proof =
+    job.lat != null && job.lng != null
+      ? proofVerdict({
+          gpsLat: job.lat,
+          gpsLng: job.lng,
+          locatedAt: job.locatedAt,
+          siteLat: job.site?.lat,
+          siteLng: job.site?.lng,
+          radiusM: job.site?.geofenceRadiusM,
+        })
+      : null;
 
   return (
     <div className="space-y-4 max-w-4xl">
@@ -328,6 +347,8 @@ export default async function JobDetailPage({
           </dl>
         </div>
       </div>
+
+      {proof && <ProofOfPresenceCard verdict={proof} />}
 
       {(job.alarmEvent ||
         job.patrolVisit ||
