@@ -9,6 +9,9 @@ export default async function HomePage() {
 
   const role = session.user.role;
   if (role === "OFFICER") redirect("/m/today");
+  if (role === "PARTNER") redirect("/partner");
+  if (role === "PARTNER_OFFICER") redirect("/partner/m/today");
+  if (role === "CUSTOMER") redirect("/client");
   if (role === "DISPATCHER") redirect("/dispatch");
   redirect("/sites");
 }

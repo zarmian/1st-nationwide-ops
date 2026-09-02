@@ -17,6 +17,8 @@ export type SessionUser = {
   /// Set when role = PARTNER (and future PARTNER_OFFICER). Carries
   /// through from the JWT — see auth.ts callbacks.
   partnerId: string | null;
+  /// Set when role = CUSTOMER (client portal). Carries through from the JWT.
+  customerId: string | null;
 };
 
 export async function getSessionUser(): Promise<SessionUser | null> {
@@ -28,6 +30,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     name: session.user.name ?? "",
     role: session.user.role,
     partnerId: session.user.partnerId ?? null,
+    customerId: session.user.customerId ?? null,
   };
 }
 
@@ -51,6 +54,27 @@ export async function requireStaff(): Promise<SessionUser> {
     throw new Error("Not authorised");
   }
   return u;
+}
+
+/**
+ * Client-portal guard. Used by every page/action under /client/*. Returns a
+ * guaranteed-non-null `customerId` that callers MUST use to scope every query
+ * (through the site: { is: { customerId } } relation for visits/shifts) —
+ * trusting only the session, never the URL. Read-only portal.
+ */
+export async function requireCustomer(): Promise<
+  SessionUser & { customerId: string }
+> {
+  const u = await requireUser();
+  if (u.role !== "CUSTOMER") {
+    throw new Error("Client-portal access only");
+  }
+  if (!u.customerId) {
+    // Should be impossible if the admin-side login form requires a customerId,
+    // but throw rather than silently leaking data scope.
+    throw new Error("Client login is not linked to a customer");
+  }
+  return { ...u, customerId: u.customerId };
 }
 
 /**
