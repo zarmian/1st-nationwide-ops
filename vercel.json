@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/compliance-alerts",
       "schedule": "30 8 * * 1"
+    },
+    {
+      "path": "/api/cron/daily-client-report",
+      "schedule": "0 7 * * *"
     }
   ]
 }
