@@ -30,6 +30,7 @@ export const authOptions: NextAuthOptions = {
           name: user.name,
           role: user.role,
           partnerId: user.partnerId,
+          customerId: user.customerId,
         } as any;
       },
     }),
@@ -43,6 +44,8 @@ export const authOptions: NextAuthOptions = {
         // /partner/* request just to know which partner the seat
         // belongs to. Refreshed by the next sign-in.
         token.partnerId = (user as any).partnerId ?? null;
+        // Sticky client-portal scope, same idea for /client/* requests.
+        token.customerId = (user as any).customerId ?? null;
       }
       return token;
     },
@@ -51,6 +54,7 @@ export const authOptions: NextAuthOptions = {
         (session.user as any).id = token.id;
         (session.user as any).role = token.role;
         (session.user as any).partnerId = token.partnerId ?? null;
+        (session.user as any).customerId = token.customerId ?? null;
       }
       return session;
     },

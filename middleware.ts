@@ -25,6 +25,7 @@ export default withAuth(
       | "OFFICER"
       | "PARTNER"
       | "PARTNER_OFFICER"
+      | "CUSTOMER"
       | undefined;
 
     // Forward the pathname as a request header so the (app) layout can
@@ -47,7 +48,9 @@ export default withAuth(
           ? "/partner"
           : r === "PARTNER_OFFICER"
             ? "/partner/m/today"
-            : "/dispatch";
+            : r === "CUSTOMER"
+              ? "/client"
+              : "/dispatch";
 
     // ── Officer hard-lock ────────────────────────────────────────────
     // Officers can only see /m/* and /submit. Anything else → bounce home.
@@ -100,10 +103,35 @@ export default withAuth(
       return passThrough;
     }
 
+    // ── Client hard-lock ─────────────────────────────────────────────
+    // CUSTOMER seats see only the read-only client portal /client/*.
+    // Everything else (dispatch, admin, finance, partner) is off-limits.
+    if (role === "CUSTOMER") {
+      const clientOk =
+        pathname === "/client" || pathname.startsWith("/client/");
+      if (!clientOk) {
+        const url = req.nextUrl.clone();
+        url.pathname = "/client";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+      return passThrough;
+    }
+
     // ── Partner portal is partner-only ───────────────────────────────
     // Our own staff don't have a partnerId, so /partner/* is meaningless
     // for them. Send them back to their normal home.
     if (pathname === "/partner" || pathname.startsWith("/partner/")) {
+      const url = req.nextUrl.clone();
+      url.pathname = homeFor(role);
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+
+    // ── Client portal is customer-only ───────────────────────────────
+    // Reached only by ADMIN/DISPATCHER here (the other roles returned
+    // above); staff have no customerId so /client/* is meaningless.
+    if (pathname === "/client" || pathname.startsWith("/client/")) {
       const url = req.nextUrl.clone();
       url.pathname = homeFor(role);
       url.search = "";

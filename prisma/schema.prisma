@@ -31,6 +31,10 @@ enum UserRole {
   /// linked 1:1 to a PartnerOfficer roster row via that row's
   /// userId. Hard-locked to /partner/m/* by middleware.
   PARTNER_OFFICER
+  /// Direct-customer contact. role=CUSTOMER + customerId set means the user
+  /// logs into the read-only client portal (/client/*), every query scoped
+  /// to that customer's own sites. Never sees other customers or our staff.
+  CUSTOMER
 }
 
 enum SiteType {
@@ -406,6 +410,10 @@ model User {
   /// PARTNER_OFFICER). The portal hard-locks every query to this id.
   partnerId     String?  @db.Uuid
   partner       Partner? @relation("PartnerUsers", fields: [partnerId], references: [id], onDelete: SetNull)
+  /// Client-portal scope. Only set when role = CUSTOMER. The read-only client
+  /// portal (/client/*) hard-locks every query to this customer's own sites.
+  customerId    String?  @db.Uuid
+  customer      Customer? @relation("CustomerUsers", fields: [customerId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -442,6 +450,7 @@ model User {
 
   @@index([regionId, role])
   @@index([partnerId])
+  @@index([customerId])
 }
 
 model Customer {
@@ -472,6 +481,8 @@ model Customer {
   sites           Site[]
   jobs            Job[]
   contacts        CustomerContact[]
+  /// Client-portal logins scoped to this customer (role=CUSTOMER).
+  users           User[]            @relation("CustomerUsers")
   formTemplates   FormTemplate[]
   rates           CustomerRate[]
   invoices        Invoice[]

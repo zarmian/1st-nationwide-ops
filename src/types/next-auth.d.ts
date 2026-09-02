@@ -9,6 +9,8 @@ declare module "next-auth" {
       /// Set when role = PARTNER (or future PARTNER_OFFICER).
       /// null/undefined for ADMIN / DISPATCHER / OFFICER.
       partnerId?: string | null;
+      /// Set when role = CUSTOMER (client portal). null otherwise.
+      customerId?: string | null;
     } & DefaultSession["user"];
   }
 
@@ -16,6 +18,7 @@ declare module "next-auth" {
     id: string;
     role: UserRole;
     partnerId?: string | null;
+    customerId?: string | null;
   }
 }
 
@@ -24,5 +27,6 @@ declare module "next-auth/jwt" {
     id: string;
     role: UserRole;
     partnerId?: string | null;
+    customerId?: string | null;
   }
 }

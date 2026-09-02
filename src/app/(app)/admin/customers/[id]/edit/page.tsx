@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { CustomerForm } from "../../_components/CustomerForm";
 import { updateCustomer } from "../../_actions";
 import { PageHeader } from "@/components/PageHeader";
+import { CustomerLoginCard } from "../_components/CustomerLoginCard";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,12 @@ export default async function EditCustomerPage({
     include: { contacts: { orderBy: { name: "asc" } } },
   });
   if (!customer) notFound();
+
+  const existingLogin = await prisma.user.findFirst({
+    where: { customerId: customer.id, role: "CUSTOMER" },
+    orderBy: { createdAt: "desc" },
+    select: { email: true, active: true },
+  });
 
   const action = updateCustomer.bind(null, customer.id);
 
@@ -52,6 +59,16 @@ export default async function EditCustomerPage({
             ref: c.ref,
             notes: c.notes,
           })),
+        }}
+      />
+
+      <CustomerLoginCard
+        initial={{
+          customerId: customer.id,
+          customerName: customer.name,
+          existing: existingLogin
+            ? { email: existingLogin.email, active: existingLogin.active }
+            : null,
         }}
       />
     </div>
