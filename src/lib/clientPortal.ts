@@ -21,6 +21,7 @@ import {
   visitScheduledRange,
   shiftScheduledRange,
 } from "@/lib/activityWhen";
+import { ukDayString } from "@/lib/dates";
 
 export type ClientActivityStatus = "Completed" | "In progress" | "Scheduled";
 
@@ -184,6 +185,8 @@ async function fetchRaw(
 
 // ── Pure aggregation (unit-tested) ────────────────────────────────────────
 
+export type Bucket = "day" | "week" | "month";
+
 const MONTH_FMT = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/London",
   month: "short",
@@ -194,33 +197,74 @@ const MONTH_KEY_FMT = new Intl.DateTimeFormat("en-CA", {
   year: "numeric",
   month: "2-digit",
 });
+const DAY_FMT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  weekday: "short",
+  day: "numeric",
+  month: "short",
+});
+const DAYMONTH_FMT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  day: "numeric",
+  month: "short",
+});
 
-/** "YYYY-MM" in UK time. */
-export function ukMonthKey(d: Date): string {
-  return MONTH_KEY_FMT.format(d).slice(0, 7);
+function ymdToNoonUtc(key: string): Date {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12));
 }
-/** "Sep 2026" from a "YYYY-MM" key. */
-export function ukMonthLabel(key: string): string {
-  const [y, m] = key.split("-").map(Number);
-  return MONTH_FMT.format(new Date(Date.UTC(y, m - 1, 15, 12)));
+
+/** Bucket key for a date — day / week (its Monday) / month — in UK time. */
+export function periodKey(d: Date, bucket: Bucket): string {
+  if (bucket === "month") return MONTH_KEY_FMT.format(d).slice(0, 7);
+  const ymd = ukDayString(d); // "YYYY-MM-DD" in UK terms
+  if (bucket === "day") return ymd;
+  const [y, m, day] = ymd.split("-").map(Number);
+  const noon = Date.UTC(y, m - 1, day, 12);
+  const dow = new Date(noon).getUTCDay(); // 0=Sun … 6=Sat
+  const monday = new Date(noon - ((dow + 6) % 7) * 86_400_000);
+  return `${monday.getUTCFullYear()}-${String(monday.getUTCMonth() + 1).padStart(2, "0")}-${String(monday.getUTCDate()).padStart(2, "0")}`;
 }
-/** Inclusive list of "YYYY-MM" keys spanning [from, to]. */
-export function monthKeysBetween(from: Date, to: Date): string[] {
-  const keys: string[] = [];
-  let y = from.getUTCFullYear();
-  let m = from.getUTCMonth();
-  const endY = to.getUTCFullYear();
-  const endM = to.getUTCMonth();
-  // Cap at 24 buckets so a silly range can't explode the chart.
-  for (let i = 0; i < 24; i++) {
-    keys.push(`${y}-${String(m + 1).padStart(2, "0")}`);
-    if (y === endY && m === endM) break;
-    m++;
-    if (m > 11) {
-      m = 0;
-      y++;
-    }
+
+/** Human label for a bucket key at the given granularity. */
+export function periodLabel(key: string, bucket: Bucket): string {
+  if (bucket === "month") {
+    const [y, m] = key.split("-").map(Number);
+    return MONTH_FMT.format(new Date(Date.UTC(y, m - 1, 15, 12)));
   }
+  const dt = ymdToNoonUtc(key);
+  return bucket === "day" ? DAY_FMT.format(dt) : DAYMONTH_FMT.format(dt);
+}
+
+/** Inclusive list of bucket keys spanning [from, to] at the given granularity. */
+export function periodKeysBetween(from: Date, to: Date, bucket: Bucket): string[] {
+  const keys: string[] = [];
+  const endKey = periodKey(to, bucket);
+  if (bucket === "month") {
+    let y = from.getUTCFullYear();
+    let mo = from.getUTCMonth();
+    for (let i = 0; i < 24; i++) {
+      const k = `${y}-${String(mo + 1).padStart(2, "0")}`;
+      keys.push(k);
+      if (k === endKey) break;
+      mo++;
+      if (mo > 11) {
+        mo = 0;
+        y++;
+      }
+    }
+    return keys;
+  }
+  const step = bucket === "week" ? 7 : 1;
+  const cap = bucket === "week" ? 30 : 62;
+  let cursor = ymdToNoonUtc(periodKey(from, bucket));
+  for (let i = 0; i < cap; i++) {
+    const k = periodKey(cursor, bucket);
+    keys.push(k);
+    if (k === endKey) break;
+    cursor = new Date(cursor.getTime() + step * 86_400_000);
+  }
+  if (keys[keys.length - 1] !== endKey) keys.push(endKey);
   return keys;
 }
 
@@ -229,24 +273,25 @@ export type ClientSummary = {
   totalSpend: number;
   byKind: { label: string; count: number }[];
   spendBySite: { siteId: string; siteName: string; amount: number }[];
-  activityByMonth: { key: string; label: string; count: number }[];
-  spendByMonth: { key: string; label: string; amount: number }[];
+  activityByPeriod: { key: string; label: string; count: number }[];
+  spendByPeriod: { key: string; label: string; amount: number }[];
 };
 
 /** Roll a set of raw activities into the portal's KPIs, breakdowns and trends. */
 export function summariseClientActivities(
   rows: RawActivity[],
-  monthKeys: string[],
+  periodKeys: string[],
+  bucket: Bucket,
 ): ClientSummary {
   const byKind = new Map<string, number>();
   const bySite = new Map<string, { siteName: string; amount: number }>();
-  const actByMonth = new Map<string, number>();
-  const spendByMonth = new Map<string, number>();
+  const actByPeriod = new Map<string, number>();
+  const spendByPeriod = new Map<string, number>();
   let totalSpend = 0;
 
-  for (const k of monthKeys) {
-    actByMonth.set(k, 0);
-    spendByMonth.set(k, 0);
+  for (const k of periodKeys) {
+    actByPeriod.set(k, 0);
+    spendByPeriod.set(k, 0);
   }
 
   for (const r of rows) {
@@ -255,10 +300,10 @@ export function summariseClientActivities(
     site.amount += r.billed;
     bySite.set(r.siteId, site);
     totalSpend += r.billed;
-    const mk = ukMonthKey(r.at);
-    if (actByMonth.has(mk)) actByMonth.set(mk, (actByMonth.get(mk) ?? 0) + 1);
-    if (spendByMonth.has(mk))
-      spendByMonth.set(mk, (spendByMonth.get(mk) ?? 0) + r.billed);
+    const pk = periodKey(r.at, bucket);
+    if (actByPeriod.has(pk)) actByPeriod.set(pk, (actByPeriod.get(pk) ?? 0) + 1);
+    if (spendByPeriod.has(pk))
+      spendByPeriod.set(pk, (spendByPeriod.get(pk) ?? 0) + r.billed);
   }
 
   return {
@@ -272,15 +317,15 @@ export function summariseClientActivities(
       siteName: v.siteName,
       amount: v.amount,
     })).sort((a, b) => b.amount - a.amount),
-    activityByMonth: monthKeys.map((key) => ({
+    activityByPeriod: periodKeys.map((key) => ({
       key,
-      label: ukMonthLabel(key),
-      count: actByMonth.get(key) ?? 0,
+      label: periodLabel(key, bucket),
+      count: actByPeriod.get(key) ?? 0,
     })),
-    spendByMonth: monthKeys.map((key) => ({
+    spendByPeriod: periodKeys.map((key) => ({
       key,
-      label: ukMonthLabel(key),
-      amount: spendByMonth.get(key) ?? 0,
+      label: periodLabel(key, bucket),
+      amount: spendByPeriod.get(key) ?? 0,
     })),
   };
 }
@@ -359,7 +404,7 @@ export type ClientOverview = ClientSummary & {
 /** Everything the home dashboard + spend + site-detail pages need for a range. */
 export async function loadClientOverview(
   customerId: string,
-  opts: { from: Date; to: Date; siteId?: string | null },
+  opts: { from: Date; to: Date; bucket: Bucket; siteId?: string | null },
 ): Promise<ClientOverview> {
   const [rows, siteCount] = await Promise.all([
     fetchRaw(customerId, opts.from, opts.to, opts.siteId),
@@ -367,7 +412,8 @@ export async function loadClientOverview(
   ]);
   const summary = summariseClientActivities(
     rows,
-    monthKeysBetween(opts.from, opts.to),
+    periodKeysBetween(opts.from, opts.to, opts.bucket),
+    opts.bucket,
   );
   const recent = [...rows]
     .sort((a, b) => b.at.getTime() - a.at.getTime())

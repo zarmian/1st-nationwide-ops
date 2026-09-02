@@ -11,10 +11,10 @@ export const dynamic = "force-dynamic";
 export default async function ClientActivitiesPage({
   searchParams,
 }: {
-  searchParams: { days?: string; siteId?: string };
+  searchParams: { range?: string; siteId?: string };
 }) {
   const me = await requireCustomer();
-  const { days, from, to } = resolveRange(searchParams.days);
+  const { key, from, to } = resolveRange(searchParams.range);
   const siteId = searchParams.siteId?.trim() || null;
 
   const [sites, activities] = await Promise.all([
@@ -35,12 +35,12 @@ export default async function ClientActivitiesPage({
 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <RangePills
-          days={days}
+          active={key}
           basePath="/client/activities"
           extra={siteId ? { siteId } : undefined}
         />
         <form className="flex items-end gap-2">
-          <input type="hidden" name="days" value={days} />
+          <input type="hidden" name="range" value={key} />
           <div>
             <label className="label" htmlFor="siteId">
               Site

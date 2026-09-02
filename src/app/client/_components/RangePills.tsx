@@ -1,28 +1,28 @@
 import Link from "next/link";
-import { RANGE_DAYS, type RangeDays } from "../_range";
+import { RANGE_PRESETS, type RangeKey } from "../_range";
 
-/** Window switcher (30 / 90 / 180 days / 12 months) preserving other params. */
+/** Window switcher (Today / Yesterday / Weeks / Months), preserving other params. */
 export function RangePills({
-  days,
+  active,
   basePath,
   extra,
 }: {
-  days: RangeDays;
+  active: RangeKey;
   basePath: string;
   extra?: Record<string, string>;
 }) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <span className="text-sm text-slate-500">Period</span>
-      {RANGE_DAYS.map((d) => {
-        const sp = new URLSearchParams({ ...(extra ?? {}), days: String(d) });
+      {RANGE_PRESETS.map((p) => {
+        const sp = new URLSearchParams({ ...(extra ?? {}), range: p.key });
         return (
           <Link
-            key={d}
+            key={p.key}
             href={`${basePath}?${sp.toString()}`}
-            className={d === days ? "pill pill-active" : "pill pill-idle"}
+            className={p.key === active ? "pill pill-active" : "pill pill-idle"}
           >
-            {d === 365 ? "12 months" : `${d} days`}
+            {p.label}
           </Link>
         );
       })}

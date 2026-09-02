@@ -3,11 +3,11 @@ import { requireCustomer } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { SectionHeading } from "@/components/SectionHeading";
 import { BarList } from "@/components/BarList";
-import { InteractiveTrend } from "@/components/InteractiveTrend";
 import { formatMoney, formatNumber } from "@/lib/numbers";
 import { loadClientOverview } from "@/lib/clientPortal";
 import { resolveRange, rangeLabel } from "./_range";
 import { RangePills } from "./_components/RangePills";
+import { PeriodBars } from "./_components/PeriodBars";
 import { ActivityList } from "./_components/ActivityList";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +15,11 @@ export const dynamic = "force-dynamic";
 export default async function ClientHome({
   searchParams,
 }: {
-  searchParams: { days?: string };
+  searchParams: { range?: string };
 }) {
   const me = await requireCustomer();
-  const { days, from, to } = resolveRange(searchParams.days);
-  const data = await loadClientOverview(me.customerId, { from, to });
+  const { key, from, to, bucket } = resolveRange(searchParams.range);
+  const data = await loadClientOverview(me.customerId, { from, to, bucket });
 
   const topKind = data.byKind[0] ?? null;
 
@@ -30,7 +30,7 @@ export default async function ClientHome({
         subtitle="A live view of the security work across your sites."
       />
 
-      <RangePills days={days} basePath="/client" />
+      <RangePills active={key} basePath="/client" />
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
         <div className="card-accent p-5 flex flex-col gap-1.5">
@@ -38,7 +38,7 @@ export default async function ClientHome({
           <div className="kpi-value text-brand-navy">
             {formatNumber(data.totalActivities)}
           </div>
-          <div className="kpi-hint">{rangeLabel(days).toLowerCase()}</div>
+          <div className="kpi-hint">{rangeLabel(key).toLowerCase()}</div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Spend</div>
@@ -63,20 +63,21 @@ export default async function ClientHome({
         </div>
       </div>
 
-      {data.activityByMonth.length >= 2 && (
+      {data.activityByPeriod.length >= 2 && data.totalActivities > 0 && (
         <div className="space-y-3">
           <SectionHeading
             title="Activity over time"
-            hint="Attended work per month across your sites"
+            hint="Attended work per period across your sites"
           />
-          <div className="card p-4">
-            <InteractiveTrend
-              values={data.activityByMonth.map((m) => m.count)}
-              labels={data.activityByMonth.map((m) => m.label)}
-              displayValues={data.activityByMonth.map((m) =>
-                formatNumber(m.count),
-              )}
-              ariaLabel="Activities per month"
+          <div className="card p-4 pb-3">
+            <PeriodBars
+              tone="navy"
+              data={data.activityByPeriod.map((p) => ({
+                label: p.label,
+                value: p.count,
+                display: formatNumber(p.count),
+              }))}
+              ariaLabel="Activities per period"
             />
           </div>
         </div>
@@ -107,7 +108,7 @@ export default async function ClientHome({
                 label: s.siteName,
                 value: s.amount,
                 display: formatMoney(s.amount),
-                href: `/client/sites/${s.siteId}`,
+                href: `/client/sites/${s.siteId}?range=${key}`,
               }))}
               emptyLabel="No billed work in this period."
             />
@@ -119,7 +120,7 @@ export default async function ClientHome({
         <div className="flex items-center justify-between">
           <SectionHeading title="Recent activity" />
           <Link
-            href={`/client/activities?days=${days}`}
+            href={`/client/activities?range=${key}`}
             className="text-sm text-brand-blue-dark hover:underline shrink-0"
           >
             View all →
