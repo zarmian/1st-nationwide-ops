@@ -475,6 +475,12 @@ model Customer {
   /// Where the daily report is emailed; falls back to contactEmail when null.
   dailyReportRecipient String?
   active          Boolean       @default(true)
+  /// Admin-only view declutter: when true, this customer and all its
+  /// activities drop out of the browse/log surfaces admins view (activities,
+  /// sites, alarms, presence). Distinct from `active` — a hidden customer is
+  /// still live; it just isn't shown. Dispatch, finance totals and the
+  /// client portal are unaffected.
+  hidden          Boolean       @default(false)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -491,6 +497,7 @@ model Customer {
   contracts       Contract[]
 
   @@index([name])
+  @@index([hidden])
 }
 
 model CustomerContact {
@@ -890,6 +897,10 @@ model Partner {
   emailIntake String?
   notes       String?
   active      Boolean         @default(true)
+  /// Admin-only view declutter (mirrors Customer.hidden): when true, this
+  /// partner and its related activities drop out of the browse/log surfaces
+  /// admins view. Distinct from `active`; dispatch + finance unaffected.
+  hidden      Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -914,6 +925,7 @@ model Partner {
 
   @@index([role])
   @@index([active])
+  @@index([hidden])
 }
 
 /// Officers belonging to a partner. Used for the partner's own

@@ -17,6 +17,8 @@ export default async function AdminHubPage() {
     blueprints,
     notifyPending,
     pickerOptions,
+    hiddenCustomers,
+    hiddenPartners,
   ] = await prisma.$transaction([
     prisma.customer.count({ where: { active: true } }),
     prisma.partner.count({ where: { active: true } }),
@@ -26,6 +28,8 @@ export default async function AdminHubPage() {
     prisma.formBlueprint.count({ where: { active: true } }),
     prisma.notification.count({ where: { status: "PENDING" } }),
     prisma.jobTypeOption.count({ where: { active: true } }),
+    prisma.customer.count({ where: { hidden: true } }),
+    prisma.partner.count({ where: { hidden: true } }),
   ]);
 
   const cards = [
@@ -105,6 +109,13 @@ export default async function AdminHubPage() {
       blurb: "Labels and order of the job-type / source dropdowns. Rename, hide, reorder, or add alias labels.",
       stat: pickerOptions,
       statLabel: "job types",
+    },
+    {
+      href: "/admin/hidden",
+      title: "Hidden accounts",
+      blurb: "Customers/partners you've hidden from admin browse views. Un-hide them here. Dispatch, finance and the client portal are unaffected.",
+      stat: hiddenCustomers + hiddenPartners,
+      statLabel: "hidden",
     },
   ];
 

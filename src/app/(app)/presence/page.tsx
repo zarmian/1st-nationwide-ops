@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime } from "@/lib/dates";
 import { ProofBadge } from "@/components/ProofOfPresence";
 import { loadRecentPresence, summarisePresence, mapsLink } from "@/lib/proofOfPresence";
+import { loadHiddenScope, hiddenSiteSet } from "@/lib/hiddenAccounts";
 import type {
   OfficerPin,
   SitePin,
@@ -22,19 +23,26 @@ export default async function PresencePage({
 }: {
   searchParams: { days?: string; officerId?: string };
 }) {
-  await requireStaff();
+  const me = await requireStaff();
 
   const days = WINDOWS.find((w) => String(w) === searchParams.days) ?? 30;
   const officerId = searchParams.officerId?.trim() || null;
 
-  const [points, officers] = await Promise.all([
+  const [rawPoints, officers, hidden] = await Promise.all([
     loadRecentPresence({ days, officerId }),
     prisma.user.findMany({
       where: { role: { in: ["OFFICER", "DISPATCHER"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    loadHiddenScope(me.role === "ADMIN"),
   ]);
+
+  // Admin-only declutter: drop attendances on hidden accounts' sites.
+  const hiddenSites = hiddenSiteSet(hidden);
+  const points = hidden.active
+    ? rawPoints.filter((p) => !(p.siteId && hiddenSites.has(p.siteId)))
+    : rawPoints;
 
   const summary = summarisePresence(points);
   const unverifiable = summary.total - summary.enforced;
