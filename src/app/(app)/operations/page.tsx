@@ -7,6 +7,12 @@ import { loadComplianceRegister } from "@/lib/compliance";
 export const dynamic = "force-dynamic";
 
 export default async function OperationsHubPage() {
+  // Rota coverage window: assignments dated from the start of today through
+  // the next 7 days — "who's booked on this week".
+  const rotaWeekStart = new Date();
+  rotaWeekStart.setHours(0, 0, 0, 0);
+  const rotaWeekEnd = new Date(rotaWeekStart.getTime() + 7 * 86_400_000);
+
   // Live counts that make the cards actionable. Same $transaction trick
   // as /admin to keep connection use low on the pooler.
   const [
@@ -20,6 +26,7 @@ export default async function OperationsHubPage() {
     missedCallsWeek,
     openAlarms,
     presenceThisWeek,
+    rotaThisWeek,
   ] = await prisma.$transaction([
     prisma.patrolSchedule.count({ where: { active: true } }),
     prisma.shift.count({ where: { status: "PENDING" } }),
@@ -51,6 +58,9 @@ export default async function OperationsHubPage() {
         lat: { not: null },
         locatedAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
       },
+    }),
+    prisma.rotaAssignment.count({
+      where: { date: { gte: rotaWeekStart, lt: rotaWeekEnd } },
     }),
   ]);
 
@@ -94,6 +104,14 @@ export default async function OperationsHubPage() {
     : false;
 
   const cards = [
+    {
+      href: "/rota",
+      title: "Rota",
+      blurb:
+        "Who's on for each region and shift — officer availability and the daily assignment grid.",
+      stat: rotaThisWeek,
+      statLabel: "booked · next 7 days",
+    },
     {
       href: "/patrols",
       title: "Schedules",
