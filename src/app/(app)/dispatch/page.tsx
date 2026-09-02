@@ -14,6 +14,12 @@ import { EditIconLink } from "./_components/EditIconLink";
 import { ActivityCard } from "./_components/ActivityCard";
 import type { AlarmPriority } from "@prisma/client";
 import { computeAlarmSla, SLA_CHIP, slaTimingLabel } from "@/lib/alarmSla";
+import {
+  loadHiddenScope,
+  jobHiddenAnd,
+  siteRefHiddenAnd,
+  siteHiddenAnd,
+} from "@/lib/hiddenAccounts";
 import { DispatchMap } from "./_components/DispatchMap";
 import { SyncSchedulesButton } from "./_components/SyncSchedulesButton";
 import { MapLayerToggles } from "./_components/MapLayerToggles";
@@ -201,8 +207,23 @@ export default async function DispatchPage({
           ),
   );
 
-  const jobsWhere = bucketWhere(bucket, now);
-  const visitsWhere = visitBucketWhere(bucket, now);
+  // Admin-only declutter: a hidden customer/partner drops off the board too
+  // (for admins only — dispatchers get an inert scope and see everything).
+  const hidden = await loadHiddenScope(isAdmin);
+  const withHiddenJob = (w: any) =>
+    hidden.active
+      ? { ...w, AND: [...(w?.AND ?? []), ...jobHiddenAnd(hidden)] }
+      : w;
+  const withHiddenVisit = <T,>(w: T): T =>
+    w && hidden.active
+      ? ({
+          ...(w as any),
+          AND: [...((w as any).AND ?? []), ...siteRefHiddenAnd(hidden)],
+        } as T)
+      : w;
+
+  const jobsWhere = withHiddenJob(bucketWhere(bucket, now));
+  const visitsWhere = withHiddenVisit(visitBucketWhere(bucket, now));
 
   // Recent-activity feed cutoff: midnight UK two days ago so the table
   // shows today + the previous two calendar days of completed work.
@@ -363,23 +384,23 @@ export default async function DispatchPage({
         lastSeenAt: true,
       },
     }),
-    prisma.job.count({ where: bucketWhere("pending", now) }),
-    prisma.job.count({ where: bucketWhere("in_progress", now) }),
-    prisma.job.count({ where: bucketWhere("review", now) }),
-    prisma.job.count({ where: bucketWhere("missed", now) }),
-    prisma.job.count({ where: bucketWhere("completed", now) }),
-    prisma.job.count({ where: bucketWhere("cancelled", now) }),
+    prisma.job.count({ where: withHiddenJob(bucketWhere("pending", now)) }),
+    prisma.job.count({ where: withHiddenJob(bucketWhere("in_progress", now)) }),
+    prisma.job.count({ where: withHiddenJob(bucketWhere("review", now)) }),
+    prisma.job.count({ where: withHiddenJob(bucketWhere("missed", now)) }),
+    prisma.job.count({ where: withHiddenJob(bucketWhere("completed", now)) }),
+    prisma.job.count({ where: withHiddenJob(bucketWhere("cancelled", now)) }),
     prisma.patrolVisit.count({
-      where: visitBucketWhere("pending", now) ?? { id: emptyUuid() },
+      where: withHiddenVisit(visitBucketWhere("pending", now)) ?? { id: emptyUuid() },
     }),
     prisma.patrolVisit.count({
-      where: visitBucketWhere("in_progress", now) ?? { id: emptyUuid() },
+      where: withHiddenVisit(visitBucketWhere("in_progress", now)) ?? { id: emptyUuid() },
     }),
     prisma.patrolVisit.count({
-      where: visitBucketWhere("missed", now) ?? { id: emptyUuid() },
+      where: withHiddenVisit(visitBucketWhere("missed", now)) ?? { id: emptyUuid() },
     }),
     prisma.patrolVisit.count({
-      where: visitBucketWhere("completed", now) ?? { id: emptyUuid() },
+      where: withHiddenVisit(visitBucketWhere("completed", now)) ?? { id: emptyUuid() },
     }),
     prisma.user.findMany({
       where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
@@ -390,7 +411,12 @@ export default async function DispatchPage({
     // be 400+ rows once the importer runs.
     activeLayers.has("sites")
       ? prisma.site.findMany({
-          where: { active: true, lat: { not: null }, lng: { not: null } },
+          where: {
+            active: true,
+            lat: { not: null },
+            lng: { not: null },
+            AND: siteHiddenAnd(hidden),
+          },
           select: {
             id: true,
             name: true,
@@ -418,7 +444,11 @@ export default async function DispatchPage({
       // Recently-completed work, windowed by the SCHEDULED date (else
       // completion) — a job scheduled for the 2nd but closed on the 4th
       // belongs to the 2nd, not the 4th.
-      where: { completedAt: { not: null }, ...jobScheduledRange(recentSince, now) },
+      where: {
+        completedAt: { not: null },
+        ...jobScheduledRange(recentSince, now),
+        AND: jobHiddenAnd(hidden),
+      },
       include: {
         site: { select: { id: true, name: true } },
         assignedTo: { select: { name: true } },
@@ -428,7 +458,11 @@ export default async function DispatchPage({
       take: 100,
     }),
     prisma.patrolVisit.findMany({
-      where: { departedAt: { not: null }, ...visitScheduledRange(recentSince, now) },
+      where: {
+        departedAt: { not: null },
+        ...visitScheduledRange(recentSince, now),
+        AND: siteRefHiddenAnd(hidden),
+      },
       include: {
         site: { select: { id: true, name: true } },
         officer: { select: { name: true } },
@@ -439,20 +473,31 @@ export default async function DispatchPage({
     }),
     // ── Analytics: last-7-day completed jobs (type mix + response time) ──
     prisma.job.findMany({
-      where: { completedAt: { gte: weekSince, lte: now }, status: { not: "CANCELLED" } },
+      where: {
+        completedAt: { gte: weekSince, lte: now },
+        status: { not: "CANCELLED" },
+        AND: jobHiddenAnd(hidden),
+      },
       select: { type: true, scheduledFor: true, startedAt: true, completedAt: true },
       take: 2000,
     }),
     // Last-7-day completed visits (type mix).
     prisma.patrolVisit.findMany({
-      where: { status: "COMPLETED", departedAt: { gte: weekSince, lte: now } },
+      where: {
+        status: "COMPLETED",
+        departedAt: { gte: weekSince, lte: now },
+        AND: siteRefHiddenAnd(hidden),
+      },
       select: { patrolSchedule: { select: { kind: true } } },
       take: 2000,
     }),
     // Live workload (open / assigned / in-progress) by region — what's on
     // the board right now, grouped to show where the pressure is.
     prisma.job.findMany({
-      where: { status: { in: LIVE_STATUSES as JobStatus[] } },
+      where: {
+        status: { in: LIVE_STATUSES as JobStatus[] },
+        AND: jobHiddenAnd(hidden),
+      },
       select: { site: { select: { region: { select: { name: true } } } } },
       take: 2000,
     }),

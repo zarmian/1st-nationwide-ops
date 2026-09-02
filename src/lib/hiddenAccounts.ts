@@ -2,9 +2,11 @@
  * Admin-only "hidden accounts" filter.
  *
  * When an admin marks a customer/partner as hidden, that account and its
- * activities drop out of the browse/log surfaces admins view. This is a VIEW
- * declutter, gated to `role === "ADMIN"` — dispatchers, officers, the live
- * dispatch board, finance totals and the client portal are never filtered.
+ * activities drop out of EVERY surface an admin views — the activity log,
+ * sites, alarms, presence, the dispatch board AND finance. It's a VIEW
+ * declutter gated to `role === "ADMIN"`: dispatchers and officers still see
+ * everything (they get an inert scope), and the client portal — the customer's
+ * own view of their data — is never filtered.
  *
  * Scope of "related activities" (deliberate): a hidden account's own sites and
  * their work, plus jobs directly tagged to the account (Job.customerId /
@@ -71,8 +73,8 @@ function notInOrNull(field: string, ids: string[]): any {
  * or a direct Job.customerId / Job.partnerId link. Spread into a job `where`'s
  * AND array (safe alongside the query's own OR / other keys).
  */
-export function jobHiddenAnd(scope: HiddenScope): any[] {
-  if (!scope.active) return [];
+export function jobHiddenAnd(scope?: HiddenScope | null): any[] {
+  if (!scope?.active) return [];
   const out: any[] = [];
   if (scope.siteIds.length) out.push(notInOrNull("siteId", scope.siteIds));
   if (scope.customerIds.length) out.push(notInOrNull("customerId", scope.customerIds));
@@ -84,18 +86,34 @@ export function jobHiddenAnd(scope: HiddenScope): any[] {
  * AND-fragments excluding rows on a hidden account's site — for PatrolVisit /
  * Shift / AlarmEvent / FormSubmission (they reach the account only via `site`).
  */
-export function siteRefHiddenAnd(scope: HiddenScope): any[] {
-  if (!scope.active || !scope.siteIds.length) return [];
+export function siteRefHiddenAnd(scope?: HiddenScope | null): any[] {
+  if (!scope?.active || !scope.siteIds.length) return [];
   return [notInOrNull("siteId", scope.siteIds)];
 }
 
 /** AND-fragments excluding a hidden account's sites from a Site query. */
-export function siteHiddenAnd(scope: HiddenScope): any[] {
-  if (!scope.active || !scope.siteIds.length) return [];
+export function siteHiddenAnd(scope?: HiddenScope | null): any[] {
+  if (!scope?.active || !scope.siteIds.length) return [];
   return [{ id: { notIn: scope.siteIds } }]; // Site.id is never null
 }
 
+/**
+ * AND-fragments excluding rows tied directly to a hidden CUSTOMER via a
+ * `customerId` column — for Invoice / Contract / CreditNote / RecurringCharge
+ * and the like. Null-safe (works whether customerId is required or nullable).
+ */
+export function customerHiddenAnd(scope?: HiddenScope | null): any[] {
+  if (!scope?.active || !scope.customerIds.length) return [];
+  return [notInOrNull("customerId", scope.customerIds)];
+}
+
+/** AND-fragments excluding rows tied directly to a hidden PARTNER via `partnerId`. */
+export function partnerHiddenAnd(scope?: HiddenScope | null): any[] {
+  if (!scope?.active || !scope.partnerIds.length) return [];
+  return [notInOrNull("partnerId", scope.partnerIds)];
+}
+
 /** Set of hidden site ids, for filtering an already-loaded array in memory. */
-export function hiddenSiteSet(scope: HiddenScope): Set<string> {
-  return new Set(scope.active ? scope.siteIds : []);
+export function hiddenSiteSet(scope?: HiddenScope | null): Set<string> {
+  return new Set(scope?.active ? scope.siteIds : []);
 }

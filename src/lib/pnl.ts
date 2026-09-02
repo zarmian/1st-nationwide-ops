@@ -19,6 +19,11 @@ import {
   visitScheduledRange,
   shiftScheduledRange,
 } from "@/lib/activityWhen";
+import {
+  type HiddenScope,
+  jobHiddenAnd,
+  siteRefHiddenAnd,
+} from "@/lib/hiddenAccounts";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -55,10 +60,18 @@ export type PnlReport = {
   revenueByService: { label: string; value: number }[];
 };
 
-async function figuresFor(from: Date, to: Date): Promise<PnlFigures> {
+async function figuresFor(
+  from: Date,
+  to: Date,
+  hidden?: HiddenScope,
+): Promise<PnlFigures> {
   const [v, j, s, costs] = await Promise.all([
     prisma.patrolVisit.aggregate({
-      where: { status: "COMPLETED", ...visitScheduledRange(from, to) },
+      where: {
+        status: "COMPLETED",
+        ...visitScheduledRange(from, to),
+        AND: siteRefHiddenAnd(hidden),
+      },
       _sum: {
         billedAmount: true,
         paidAmount: true,
@@ -70,6 +83,7 @@ async function figuresFor(from: Date, to: Date): Promise<PnlFigures> {
         status: { not: "CANCELLED" },
         completedAt: { not: null },
         ...jobScheduledRange(from, to),
+        AND: jobHiddenAnd(hidden),
       },
       _sum: {
         billedAmount: true,
@@ -78,7 +92,11 @@ async function figuresFor(from: Date, to: Date): Promise<PnlFigures> {
       },
     }),
     prisma.shift.aggregate({
-      where: { status: "COMPLETED", ...shiftScheduledRange(from, to) },
+      where: {
+        status: "COMPLETED",
+        ...shiftScheduledRange(from, to),
+        AND: siteRefHiddenAnd(hidden),
+      },
       _sum: {
         billedAmount: true,
         paidAmount: true,
@@ -115,10 +133,15 @@ async function figuresFor(from: Date, to: Date): Promise<PnlFigures> {
 async function revenueByService(
   from: Date,
   to: Date,
+  hidden?: HiddenScope,
 ): Promise<{ label: string; value: number }[]> {
   const [visits, jobs, shifts] = await Promise.all([
     prisma.patrolVisit.findMany({
-      where: { status: "COMPLETED", ...visitScheduledRange(from, to) },
+      where: {
+        status: "COMPLETED",
+        ...visitScheduledRange(from, to),
+        AND: siteRefHiddenAnd(hidden),
+      },
       select: { billedAmount: true, patrolSchedule: { select: { kind: true } } },
     }),
     prisma.job.findMany({
@@ -126,11 +149,16 @@ async function revenueByService(
         status: { not: "CANCELLED" },
         completedAt: { not: null },
         ...jobScheduledRange(from, to),
+        AND: jobHiddenAnd(hidden),
       },
       select: { billedAmount: true, type: true, typeLabel: true },
     }),
     prisma.shift.findMany({
-      where: { status: "COMPLETED", ...shiftScheduledRange(from, to) },
+      where: {
+        status: "COMPLETED",
+        ...shiftScheduledRange(from, to),
+        AND: siteRefHiddenAnd(hidden),
+      },
       select: { billedAmount: true, type: true },
     }),
   ]);
@@ -149,16 +177,20 @@ async function revenueByService(
     .sort((a, b) => b.value - a.value);
 }
 
-export async function loadPnl(from: Date, to: Date): Promise<PnlReport> {
+export async function loadPnl(
+  from: Date,
+  to: Date,
+  hidden?: HiddenScope,
+): Promise<PnlReport> {
   // Previous period: same length, ending the moment before `from`.
   const periodMs = to.getTime() - from.getTime();
   const prevTo = new Date(from.getTime() - 1);
   const prevFrom = new Date(prevTo.getTime() - periodMs);
 
   const [current, previous, rbs] = await Promise.all([
-    figuresFor(from, to),
-    figuresFor(prevFrom, prevTo),
-    revenueByService(from, to),
+    figuresFor(from, to, hidden),
+    figuresFor(prevFrom, prevTo, hidden),
+    revenueByService(from, to, hidden),
   ]);
 
   return { from, to, prevFrom, prevTo, current, previous, revenueByService: rbs };

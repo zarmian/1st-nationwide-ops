@@ -476,10 +476,10 @@ model Customer {
   dailyReportRecipient String?
   active          Boolean       @default(true)
   /// Admin-only view declutter: when true, this customer and all its
-  /// activities drop out of the browse/log surfaces admins view (activities,
-  /// sites, alarms, presence). Distinct from `active` — a hidden customer is
-  /// still live; it just isn't shown. Dispatch, finance totals and the
-  /// client portal are unaffected.
+  /// activities drop out of EVERY admin view — the activity log, sites,
+  /// alarms, presence, the dispatch board and finance. Distinct from `active`
+  /// (a hidden customer is still live; it just isn't shown). Dispatchers and
+  /// officers still see everything; the client portal is unaffected.
   hidden          Boolean       @default(false)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -898,8 +898,9 @@ model Partner {
   notes       String?
   active      Boolean         @default(true)
   /// Admin-only view declutter (mirrors Customer.hidden): when true, this
-  /// partner and its related activities drop out of the browse/log surfaces
-  /// admins view. Distinct from `active`; dispatch + finance unaffected.
+  /// partner and its related activities drop out of every admin view,
+  /// including the dispatch board and finance. Distinct from `active`;
+  /// dispatchers/officers and the client portal are unaffected.
   hidden      Boolean         @default(false)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt

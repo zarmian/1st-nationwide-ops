@@ -41,7 +41,7 @@ export default async function HiddenAccountsPage() {
         title="Hidden accounts"
         backHref="/admin"
         backLabel="Admin"
-        subtitle="Customers and partners you've hidden from the admin browse views (the activity log, sites, alarms and presence). They're only hidden for admins — dispatch, finance totals and the client portal still show everything. Un-hide any of them here."
+        subtitle="Customers and partners you've hidden from your admin views — the activity log, sites, dispatch board, alarms and finance. They're hidden for admins only: dispatchers and officers still see everything, and the client's own portal is unaffected. Un-hide any of them here."
       />
 
       {nothingHidden && (

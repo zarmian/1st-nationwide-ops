@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
+import { loadHiddenScope } from "@/lib/hiddenAccounts";
+import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/numbers";
@@ -23,7 +25,8 @@ const BUCKET_CHIP: Record<AgedBucket, string> = {
 
 export default async function PayablesPage() {
   await requireAdmin();
-  const data = await loadPayables();
+  const hidden = await loadHiddenScope(true);
+  const data = await loadPayables(new Date(), hidden);
 
   return (
     <div className="section">
@@ -37,6 +40,10 @@ export default async function PayablesPage() {
             All costs →
           </Link>
         }
+      />
+
+      <HiddenAccountsNotice
+        count={hidden.customerIds.length + hidden.partnerIds.length}
       />
 
       {/* Ageing summary. */}

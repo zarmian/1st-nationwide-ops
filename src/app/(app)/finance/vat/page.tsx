@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
+import { loadHiddenScope } from "@/lib/hiddenAccounts";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate, toIsoDate, parseIsoDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/numbers";
@@ -32,8 +33,10 @@ export default async function VatReturnPage({
   const from = parseIsoDate(searchParams.from) ?? thisQuarter.from;
   const to = parseIsoDate(searchParams.to, true) ?? thisQuarter.to;
 
-  const vat = await loadVatReturn(from, to);
+  const hidden = await loadHiddenScope(true);
+  const vat = await loadVatReturn(from, to, hidden);
   const quarters = recentQuarters(now, 5);
+  const hiddenCount = hidden.customerIds.length + hidden.partnerIds.length;
 
   return (
     <div className="section">
@@ -43,6 +46,17 @@ export default async function VatReturnPage({
         backLabel="Finance"
         subtitle="Output VAT you've charged customers, by invoice date — ready to transcribe onto your HMRC return."
       />
+
+      {hiddenCount > 0 && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <span>
+            ⚠︎ {hiddenCount} hidden{" "}
+            {hiddenCount === 1 ? "account is" : "accounts are"} excluded from
+            this return. Un-hide them from Admin → Hidden accounts before you
+            file, so your VAT figure is complete.
+          </span>
+        </div>
+      )}
 
       {/* Period picker — quarter presets plus a manual range. */}
       <form className="card p-3 flex flex-wrap items-end gap-3">

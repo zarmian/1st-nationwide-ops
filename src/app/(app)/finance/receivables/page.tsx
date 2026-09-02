@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
+import { loadHiddenScope } from "@/lib/hiddenAccounts";
+import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/numbers";
@@ -23,7 +25,8 @@ const BUCKET_CHIP: Record<AgedBucket, string> = {
 
 export default async function ReceivablesPage() {
   await requireAdmin();
-  const data = await loadReceivables();
+  const hidden = await loadHiddenScope(true);
+  const data = await loadReceivables(new Date(), hidden);
 
   return (
     <div className="section">
@@ -32,6 +35,10 @@ export default async function ReceivablesPage() {
         backHref="/finance"
         backLabel="Finance"
         subtitle="Outstanding customer invoices, aged by how long they've been due. Overdue invoices are reminded automatically each day (once email is set up)."
+      />
+
+      <HiddenAccountsNotice
+        count={hidden.customerIds.length + hidden.partnerIds.length}
       />
 
       {/* Ageing summary — total outstanding plus a card per bucket. */}

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import { loadHiddenScope } from "@/lib/hiddenAccounts";
+import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/numbers";
 import { loadReceivables } from "@/lib/receivables";
@@ -9,13 +11,17 @@ export const dynamic = "force-dynamic";
 
 export default async function StatementsPage() {
   await requireAdmin();
+  const hidden = await loadHiddenScope(true);
 
   const [customers, receivables] = await Promise.all([
     prisma.customer.findMany({
+      where: hidden.customerIds.length
+        ? { id: { notIn: hidden.customerIds } }
+        : undefined,
       orderBy: { name: "asc" },
       select: { id: true, name: true, contactEmail: true },
     }),
-    loadReceivables(),
+    loadReceivables(new Date(), hidden),
   ]);
   const outstanding = new Map(
     receivables.byCustomer.map((c) => [c.customerId, c.balance]),
@@ -28,6 +34,10 @@ export default async function StatementsPage() {
         backHref="/finance"
         backLabel="Finance"
         subtitle="Pick a customer to see their account statement — every invoice, payment and credit note with a running balance."
+      />
+
+      <HiddenAccountsNotice
+        count={hidden.customerIds.length + hidden.partnerIds.length}
       />
 
       {customers.length === 0 ? (

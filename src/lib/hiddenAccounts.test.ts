@@ -3,6 +3,8 @@ import {
   jobHiddenAnd,
   siteRefHiddenAnd,
   siteHiddenAnd,
+  customerHiddenAnd,
+  partnerHiddenAnd,
   hiddenSiteSet,
   type HiddenScope,
 } from "./hiddenAccounts";
@@ -51,6 +53,21 @@ describe("siteRefHiddenAnd", () => {
 describe("siteHiddenAnd", () => {
   it("excludes hidden site ids directly", () => {
     expect(siteHiddenAnd(scope)).toEqual([{ id: { notIn: ["s1", "s2"] } }]);
+  });
+});
+
+describe("customerHiddenAnd / partnerHiddenAnd", () => {
+  it("exclude by direct customer / partner id (null-safe)", () => {
+    expect(customerHiddenAnd(scope)).toEqual([
+      { OR: [{ customerId: null }, { customerId: { notIn: ["c1"] } }] },
+    ]);
+    expect(partnerHiddenAnd(scope)).toEqual([
+      { OR: [{ partnerId: null }, { partnerId: { notIn: ["p1", "p2"] } }] },
+    ]);
+  });
+  it("are empty for an inert scope", () => {
+    expect(customerHiddenAnd(inert)).toEqual([]);
+    expect(partnerHiddenAnd(inert)).toEqual([]);
   });
 });
 

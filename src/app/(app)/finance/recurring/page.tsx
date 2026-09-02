@@ -19,11 +19,12 @@ export default async function RecurringChargesPage() {
   await requireAdmin();
   const [charges, customers] = await Promise.all([
     prisma.recurringCharge.findMany({
+      where: { customer: { hidden: false } },
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
       include: { customer: { select: { name: true } } },
     }),
     prisma.customer.findMany({
-      where: { active: true },
+      where: { active: true, hidden: false },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),

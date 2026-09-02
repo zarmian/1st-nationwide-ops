@@ -5,6 +5,8 @@ import { formatMoney } from "@/lib/numbers";
 import { loadPnl, type PnlFigures } from "@/lib/pnl";
 import { PrintButton } from "./_components/PrintButton";
 import { COMPANY } from "@/lib/company";
+import { loadHiddenScope } from "@/lib/hiddenAccounts";
+import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +49,9 @@ export default async function PnlPage({
   const fromIso = toIsoDate(from);
   const toIso = toIsoDate(to);
 
-  const r = await loadPnl(from, to);
+  const hidden = await loadHiddenScope(true);
+  const r = await loadPnl(from, to, hidden);
+  const hiddenCount = hidden.customerIds.length + hidden.partnerIds.length;
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -63,6 +67,8 @@ export default async function PnlPage({
         subtitle={`${COMPANY.name} · ${formatDate(from)} – ${formatDate(to)}`}
         actions={<PrintButton />}
       />
+
+      <HiddenAccountsNotice count={hiddenCount} />
 
       <form className="card p-3 flex flex-wrap items-end gap-3">
         <div>
