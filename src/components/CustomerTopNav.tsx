@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { LayoutDashboard, Building2, ClipboardList, Wallet, LogOut } from "lucide-react";
-import { BrandLogo } from "./BrandLogo";
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<any> };
 
@@ -21,9 +21,9 @@ function isItemActive(pathname: string, href: string): boolean {
 }
 
 /**
- * Client-portal top nav. Read-only surface — no create/edit anywhere.
- * The customer name is the "signed in as" label so the client sees their
- * account confirmed at a glance.
+ * Client-portal top nav. A light, blue-tinted glass header with a gradient
+ * accent underline and the company crest in a clean badge — colourful without
+ * fighting the dark gradient hero below. Read-only surface.
  */
 export function CustomerTopNav({
   customerName,
@@ -35,20 +35,30 @@ export function CustomerTopNav({
   const pathname = usePathname() ?? "";
 
   return (
-    <header className="glass-nav sticky top-0 z-40 border-b border-slate-200/70 pt-safe">
-      <div className="mx-auto max-w-7xl px-4 h-14 flex items-center justify-between gap-3">
-        <Link
-          href="/client"
-          className="inline-flex items-center gap-3"
-          aria-label="Client portal home"
-        >
-          <BrandLogo />
-          <span className="hidden sm:inline-flex items-center gap-1.5 text-sm text-slate-600">
-            <span className="chip-slate text-[10px]">Client portal</span>
+    <header className="sticky top-0 z-40 pt-safe border-b border-brand-blue-100/70 bg-gradient-to-r from-brand-blue-50/90 via-white/85 to-brand-blue-50/90 backdrop-blur-xl">
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4">
+        <Link href="/client" className="flex items-center gap-3" aria-label="Client portal home">
+          <span className="inline-flex items-center justify-center rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-brand-blue-100">
+            <Image
+              src="/logo.jpg"
+              alt="1st Nationwide Security"
+              width={40}
+              height={53}
+              priority
+              className="h-10 w-auto"
+            />
           </span>
+          <div className="hidden leading-tight sm:block">
+            <div className="text-sm font-semibold text-brand-navy">
+              1st Nationwide Security
+            </div>
+            <span className="mt-0.5 inline-flex rounded-full bg-brand-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-blue-dark">
+              Client portal
+            </span>
+          </div>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1 flex-1 justify-center">
+        <nav className="hidden flex-1 items-center justify-center gap-1 md:flex">
           {CLIENT_LINKS.map((item) => {
             const Icon = item.icon;
             const active = isItemActive(pathname, item.href);
@@ -57,10 +67,10 @@ export function CustomerTopNav({
                 key={item.href}
                 href={item.href}
                 className={
-                  "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm transition " +
+                  "inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm transition " +
                   (active
-                    ? "bg-brand-blue-50 text-brand-blue-dark font-medium"
-                    : "text-slate-600 hover:bg-brand-blue-50 hover:text-brand-navy")
+                    ? "bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white shadow-sm"
+                    : "text-brand-navy hover:bg-white/70")
                 }
               >
                 <Icon size={14} aria-hidden />
@@ -71,12 +81,12 @@ export function CustomerTopNav({
         </nav>
 
         <div className="flex items-center gap-2 text-sm">
-          <div className="hidden sm:flex flex-col items-end leading-tight">
-            <span className="text-xs font-medium text-brand-navy truncate max-w-[200px]">
+          <div className="hidden flex-col items-end leading-tight sm:flex">
+            <span className="max-w-[200px] truncate text-xs font-semibold text-brand-navy">
               {customerName}
             </span>
             {userEmail && (
-              <span className="text-[10px] text-slate-500 truncate max-w-[200px]">
+              <span className="max-w-[200px] truncate text-[10px] text-slate-500">
                 {userEmail}
               </span>
             )}
@@ -84,7 +94,7 @@ export function CustomerTopNav({
           <button
             type="button"
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="btn-ghost text-xs inline-flex items-center gap-1"
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-slate-600 transition hover:bg-white/70 hover:text-brand-navy"
             aria-label="Sign out"
             title="Sign out"
           >
@@ -95,7 +105,7 @@ export function CustomerTopNav({
       </div>
 
       {/* Mobile nav — single-line scrollable */}
-      <nav className="md:hidden border-t border-slate-100 px-4 py-1 overflow-x-auto">
+      <nav className="overflow-x-auto border-t border-brand-blue-100/60 px-4 py-1 md:hidden">
         <ul className="flex items-center gap-1">
           {CLIENT_LINKS.map((item) => {
             const Icon = item.icon;
@@ -105,10 +115,10 @@ export function CustomerTopNav({
                 <Link
                   href={item.href}
                   className={
-                    "inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg " +
+                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm " +
                     (active
-                      ? "bg-brand-blue-50 text-brand-blue-dark font-medium"
-                      : "text-slate-600")
+                      ? "bg-gradient-to-b from-brand-blue-500 to-brand-blue-dark text-white"
+                      : "text-brand-navy")
                   }
                 >
                   <Icon size={14} />
@@ -119,6 +129,9 @@ export function CustomerTopNav({
           })}
         </ul>
       </nav>
+
+      {/* Gradient accent underline */}
+      <div className="h-[3px] w-full bg-gradient-to-r from-brand-blue via-brand-blue-dark to-brand-navy" />
     </header>
   );
 }
