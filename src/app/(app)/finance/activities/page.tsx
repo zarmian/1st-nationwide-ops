@@ -6,6 +6,11 @@ import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
 import { RestoreActivityButton } from "../../dispatch/_components/RestoreActivityButton";
 import { PageHeader } from "@/components/PageHeader";
+import {
+  loadHiddenScope,
+  jobHiddenAnd,
+  siteRefHiddenAnd,
+} from "@/lib/hiddenAccounts";
 
 export const dynamic = "force-dynamic";
 
@@ -286,6 +291,12 @@ export default async function ActivitiesPage({
     loadShifts = false;
     jobWhere.type = kind;
   }
+
+  // Hidden accounts drop out of the finance ledger too (admin-only surface).
+  const hidden = await loadHiddenScope(true);
+  jobWhere.AND = [...(jobWhere.AND ?? []), ...jobHiddenAnd(hidden)];
+  visitWhere.AND = [...(visitWhere.AND ?? []), ...siteRefHiddenAnd(hidden)];
+  shiftWhere.AND = [...(shiftWhere.AND ?? []), ...siteRefHiddenAnd(hidden)];
 
   // ── 3. Load rows + the small filter-lookup data ────────────────────────
   // Serial $transaction over one pooled connection (not Promise.all) to

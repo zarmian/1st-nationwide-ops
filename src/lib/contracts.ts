@@ -8,6 +8,7 @@
  */
 import { prisma } from "@/lib/db";
 import type { ContractCadence, ContractStatus } from "@prisma/client";
+import { type HiddenScope, customerHiddenAnd } from "@/lib/hiddenAccounts";
 
 const DAY_MS = 86_400_000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -93,8 +94,10 @@ function toRow(
 
 export async function loadContracts(
   asOf: Date = new Date(),
+  hidden?: HiddenScope,
 ): Promise<ContractsSummary> {
   const contracts = await prisma.contract.findMany({
+    where: { AND: customerHiddenAnd(hidden) },
     include: { customer: { select: { name: true } } },
     orderBy: [{ status: "asc" }, { endDate: "asc" }],
   });

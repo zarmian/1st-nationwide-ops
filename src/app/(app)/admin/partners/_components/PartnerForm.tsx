@@ -161,12 +161,11 @@ export function PartnerForm({
             className="checkbox mt-0.5"
           />
           <span>
-            Hidden — declutter this partner and its activities from admin lists,
-            the activity log, alarms and presence
+            Hidden — remove this partner and its activities from every admin
+            view (activity log, sites, dispatch board, alarms and finance)
             <span className="block text-xs text-slate-500">
-              Admin views only. Dispatch, finance totals and the client portal
-              still show everything. Un-hide here or from Admin → Hidden
-              accounts.
+              Admin views only — dispatchers and officers still see everything.
+              Un-hide here or from Admin → Hidden accounts.
             </span>
           </span>
         </label>

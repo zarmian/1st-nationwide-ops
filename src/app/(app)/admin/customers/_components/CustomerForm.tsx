@@ -175,12 +175,12 @@ export function CustomerForm({
             className="checkbox mt-0.5"
           />
           <span>
-            Hidden — declutter this customer and its activities from admin
-            lists, the activity log, alarms and presence
+            Hidden — remove this customer and its activities from every admin
+            view (activity log, sites, dispatch board, alarms and finance)
             <span className="block text-xs text-slate-500">
-              Admin views only. Dispatch, finance totals and the client portal
-              still show everything. Un-hide here or from Admin → Hidden
-              accounts.
+              Admin views only — dispatchers and officers still see everything,
+              and the client&apos;s own portal is unaffected. Un-hide here or
+              from Admin → Hidden accounts.
             </span>
           </span>
         </label>

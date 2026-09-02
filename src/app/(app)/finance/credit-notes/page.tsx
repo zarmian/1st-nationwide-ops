@@ -15,6 +15,7 @@ const STATUS_CHIP: Record<string, string> = {
 export default async function CreditNotesPage() {
   await requireAdmin();
   const notes = await prisma.creditNote.findMany({
+    where: { customer: { hidden: false } },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: {

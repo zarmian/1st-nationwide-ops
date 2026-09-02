@@ -15,6 +15,7 @@
  */
 import { loadReceivables } from "@/lib/receivables";
 import { loadPayables } from "@/lib/payables";
+import { type HiddenScope } from "@/lib/hiddenAccounts";
 import { buildPayrollReport } from "@/lib/payroll";
 
 const DAY_MS = 86_400_000;
@@ -59,6 +60,7 @@ export async function loadCashflow(
   asOf: Date = new Date(),
   weeksCount = 12,
   opening = 0,
+  hidden?: HiddenScope,
 ): Promise<CashflowForecast> {
   const wkStart = startOfWeek(asOf);
   const windowEnd = addDays(wkStart, weeksCount * 7);
@@ -76,8 +78,8 @@ export async function loadCashflow(
   );
 
   const [receivables, payables, payroll] = await Promise.all([
-    loadReceivables(asOf),
-    loadPayables(asOf),
+    loadReceivables(asOf, hidden),
+    loadPayables(asOf, hidden),
     buildPayrollReport(lastMonthStart, lastMonthEnd),
   ]);
   const monthlyPayroll = round2(payroll.totals.grand);

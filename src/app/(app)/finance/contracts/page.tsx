@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import { loadHiddenScope } from "@/lib/hiddenAccounts";
+import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/numbers";
 import { formatDate } from "@/lib/dates";
@@ -11,13 +13,19 @@ export const dynamic = "force-dynamic";
 
 export default async function ContractsPage() {
   await requireAdmin();
+  const hidden = await loadHiddenScope(true);
   const [customers, data] = await Promise.all([
     prisma.customer.findMany({
-      where: { active: true },
+      where: {
+        active: true,
+        ...(hidden.customerIds.length
+          ? { id: { notIn: hidden.customerIds } }
+          : {}),
+      },
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
-    loadContracts(),
+    loadContracts(new Date(), hidden),
   ]);
 
   return (
@@ -27,6 +35,10 @@ export default async function ContractsPage() {
         backHref="/finance"
         backLabel="Finance"
         subtitle="Customer service agreements and their renewal dates — so a contract never quietly lapses."
+      />
+
+      <HiddenAccountsNotice
+        count={hidden.customerIds.length + hidden.partnerIds.length}
       />
 
       <div className="grid gap-3 sm:grid-cols-3">

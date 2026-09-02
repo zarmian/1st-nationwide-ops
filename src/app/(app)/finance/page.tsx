@@ -16,11 +16,17 @@ import { PageHeader } from "@/components/PageHeader";
 import { InteractiveTrend } from "@/components/InteractiveTrend";
 import { BarList } from "@/components/BarList";
 import { SectionHeading } from "@/components/SectionHeading";
+import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import {
   jobScheduledRange,
   visitScheduledRange,
   shiftScheduledRange,
 } from "@/lib/activityWhen";
+import {
+  loadHiddenScope,
+  jobHiddenAnd,
+  siteRefHiddenAnd,
+} from "@/lib/hiddenAccounts";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +126,11 @@ export default async function FinancePage({
   // etc.) so the page won't render the totals to a non-admin session.
   await requireAdmin();
 
+  // Hidden accounts drop out of every finance figure here — finance is
+  // admin-only, so this always applies. (A hidden account can't silently
+  // skew a VAT/P&L figure the admin is reading.)
+  const hidden = await loadHiddenScope(true);
+
   // Date-range scope. Defaults to the current calendar month. The two
   // search params drive every KPI / P&L total below.
   const now = new Date();
@@ -147,6 +158,7 @@ export default async function FinancePage({
         where: {
           status: "COMPLETED",
           ...visitScheduledRange(from, to),
+          AND: siteRefHiddenAnd(hidden),
         },
       }),
       prisma.job.aggregate({
@@ -156,6 +168,7 @@ export default async function FinancePage({
           completedAt: { not: null },
           status: { not: "CANCELLED" },
           ...jobScheduledRange(from, to),
+          AND: jobHiddenAnd(hidden),
         },
       }),
       prisma.shift.aggregate({
@@ -163,6 +176,7 @@ export default async function FinancePage({
         where: {
           status: "COMPLETED",
           ...shiftScheduledRange(from, to),
+          AND: siteRefHiddenAnd(hidden),
         },
       }),
     ]);
@@ -286,6 +300,7 @@ export default async function FinancePage({
       where: {
         status: "COMPLETED",
         ...visitScheduledRange(fromDate, toDate),
+        AND: siteRefHiddenAnd(hidden),
       },
       select: {
         billedAmount: true,
@@ -314,6 +329,7 @@ export default async function FinancePage({
         completedAt: { not: null },
         status: { not: "CANCELLED" },
         ...jobScheduledRange(fromDate, toDate),
+        AND: jobHiddenAnd(hidden),
       },
       select: {
         billedAmount: true,
@@ -353,6 +369,7 @@ export default async function FinancePage({
       where: {
         status: "COMPLETED",
         ...shiftScheduledRange(fromDate, toDate),
+        AND: siteRefHiddenAnd(hidden),
       },
       select: {
         billedAmount: true,
@@ -727,6 +744,10 @@ export default async function FinancePage({
             to={toDate.toISOString()}
           />
         }
+      />
+
+      <HiddenAccountsNotice
+        count={hidden.customerIds.length + hidden.partnerIds.length}
       />
 
       <form className="card p-3 flex flex-wrap items-end gap-3">

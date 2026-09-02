@@ -17,6 +17,8 @@ const STATUS_CHIP: Record<string, string> = {
 export default async function InvoicesPage() {
   await requireAdmin();
   const invoices = await prisma.invoice.findMany({
+    // Hidden customers drop out of admin finance views.
+    where: { customer: { hidden: false } },
     orderBy: { createdAt: "desc" },
     take: 100,
     include: { customer: { select: { name: true } } },

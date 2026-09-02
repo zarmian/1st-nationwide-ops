@@ -8,6 +8,7 @@
  * settled outside this ledger, so they don't have a paid/unpaid flag here.
  */
 import { prisma } from "@/lib/db";
+import { type HiddenScope } from "@/lib/hiddenAccounts";
 import {
   ageBucket,
   BUCKET_ORDER,
@@ -52,7 +53,19 @@ export type PayablesSummary = {
 
 export async function loadPayables(
   asOf: Date = new Date(),
+  hidden?: HiddenScope,
 ): Promise<PayablesSummary> {
+  // Hidden partners drop out of "what we owe partners" too. handledByPartnerId
+  // is filtered non-null below, so a plain notIn is safe.
+  const excludePartner =
+    hidden?.active && hidden.partnerIds.length
+      ? [{ handledByPartnerId: { notIn: hidden.partnerIds } }]
+      : [];
+  const partnerWhere =
+    hidden?.active && hidden.partnerIds.length
+      ? { id: { notIn: hidden.partnerIds } }
+      : undefined;
+
   const [bills, jobOw, shiftOw, visitOw, partners] = await Promise.all([
     prisma.supplierCost.findMany({
       where: { paidOn: null },
@@ -64,6 +77,7 @@ export async function loadPayables(
         handledByPartnerId: { not: null },
         partnerChargeToUsAmount: { not: null },
         status: { not: "CANCELLED" },
+        AND: excludePartner,
       },
       _sum: { partnerChargeToUsAmount: true },
     }),
@@ -72,6 +86,7 @@ export async function loadPayables(
       where: {
         handledByPartnerId: { not: null },
         partnerChargeToUsAmount: { not: null },
+        AND: excludePartner,
       },
       _sum: { partnerChargeToUsAmount: true },
     }),
@@ -80,10 +95,11 @@ export async function loadPayables(
       where: {
         handledByPartnerId: { not: null },
         partnerChargeToUsAmount: { not: null },
+        AND: excludePartner,
       },
       _sum: { partnerChargeToUsAmount: true },
     }),
-    prisma.partner.findMany({ select: { id: true, name: true } }),
+    prisma.partner.findMany({ where: partnerWhere, select: { id: true, name: true } }),
   ]);
 
   const buckets: Record<AgedBucket, number> = {

@@ -11,6 +11,7 @@
  * in "current"; overdue ones fall into 1–30 / 31–60 / 61–90 / 90+ days.
  */
 import { prisma } from "@/lib/db";
+import { type HiddenScope, customerHiddenAnd } from "@/lib/hiddenAccounts";
 
 export type AgedBucket = "current" | "d1_30" | "d31_60" | "d61_90" | "d90_plus";
 
@@ -71,9 +72,10 @@ export function ageBucket(daysOverdue: number): AgedBucket {
 
 export async function loadReceivables(
   asOf: Date = new Date(),
+  hidden?: HiddenScope,
 ): Promise<ReceivablesSummary> {
   const invoices = await prisma.invoice.findMany({
-    where: { status: "SENT" },
+    where: { status: "SENT", AND: customerHiddenAnd(hidden) },
     include: {
       customer: { select: { id: true, name: true } },
       payments: { select: { amount: true } },

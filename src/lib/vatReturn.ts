@@ -15,6 +15,7 @@
  */
 import { prisma } from "@/lib/db";
 import { loadInputVat } from "@/lib/costs";
+import { type HiddenScope, customerHiddenAnd } from "@/lib/hiddenAccounts";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -101,18 +102,24 @@ export type VatReturnSummary = {
 export async function loadVatReturn(
   from: Date,
   to: Date,
+  hidden?: HiddenScope,
 ): Promise<VatReturnSummary> {
   const [invoices, creditNotes, input] = await Promise.all([
     prisma.invoice.findMany({
       where: {
         status: { in: ["SENT", "PAID"] },
         issuedAt: { gte: from, lte: to },
+        AND: customerHiddenAnd(hidden),
       },
       include: { customer: { select: { name: true } } },
       orderBy: { issuedAt: "asc" },
     }),
     prisma.creditNote.findMany({
-      where: { status: "ISSUED", issuedAt: { gte: from, lte: to } },
+      where: {
+        status: "ISSUED",
+        issuedAt: { gte: from, lte: to },
+        AND: customerHiddenAnd(hidden),
+      },
       select: { subtotal: true, vatRate: true, vatAmount: true },
     }),
     loadInputVat(from, to),

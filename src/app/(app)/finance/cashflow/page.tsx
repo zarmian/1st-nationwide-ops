@@ -1,4 +1,6 @@
 import { requireAdmin } from "@/lib/authz";
+import { loadHiddenScope } from "@/lib/hiddenAccounts";
+import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/numbers";
 import { loadCashflow } from "@/lib/cashflow";
@@ -22,7 +24,8 @@ export default async function CashflowPage({
 
   const openingRaw = Number(searchParams.opening);
   const opening = Number.isFinite(openingRaw) ? openingRaw : 0;
-  const f = await loadCashflow(new Date(), 12, opening);
+  const hidden = await loadHiddenScope(true);
+  const f = await loadCashflow(new Date(), 12, opening, hidden);
 
   const balNeg = f.lowestBalance < 0;
 
@@ -33,6 +36,10 @@ export default async function CashflowPage({
         backHref="/finance"
         backLabel="Finance"
         subtitle="Money in vs money out over the next 12 weeks, with a running position — so you can see a squeeze coming."
+      />
+
+      <HiddenAccountsNotice
+        count={hidden.customerIds.length + hidden.partnerIds.length}
       />
 
       {/* Opening balance — no bank feed, so you tell us where you're starting. */}
