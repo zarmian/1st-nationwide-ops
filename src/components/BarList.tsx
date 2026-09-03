@@ -45,11 +45,13 @@ export function BarList({
   }
 
   const ceiling = Math.max(max ?? 0, ...items.map((i) => i.value), 1);
+  // Gradient tracks read more vibrant than a flat pale fill, while staying
+  // low-contrast enough that the dark label + value on top stay legible.
   const track: Record<string, string> = {
-    blue: "bg-brand-blue-100",
-    navy: "bg-brand-navy-100",
-    amber: "bg-amber-100",
-    slate: "bg-slate-100",
+    blue: "bg-gradient-to-r from-brand-blue-200 to-brand-blue-50",
+    navy: "bg-gradient-to-r from-indigo-200 to-indigo-50",
+    amber: "bg-gradient-to-r from-amber-200 to-amber-50",
+    slate: "bg-gradient-to-r from-slate-200 to-slate-50",
   };
 
   return (

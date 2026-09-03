@@ -9,37 +9,42 @@ export type StatTone = "blue" | "emerald" | "indigo" | "amber" | "rose";
  */
 export const STAT_TONE: Record<
   StatTone,
-  { chip: string; value: string; border: string; wash: string }
+  { chip: string; value: string; border: string; wash: string; tint: string }
 > = {
   blue: {
     chip: "from-blue-400 to-blue-600",
     value: "text-blue-700",
-    border: "border-blue-100",
+    border: "border-blue-200",
     wash: "from-blue-400 to-blue-600",
+    tint: "to-blue-50",
   },
   emerald: {
     chip: "from-emerald-400 to-emerald-600",
     value: "text-emerald-700",
-    border: "border-emerald-100",
+    border: "border-emerald-200",
     wash: "from-emerald-400 to-emerald-600",
+    tint: "to-emerald-50",
   },
   indigo: {
     chip: "from-indigo-400 to-indigo-600",
     value: "text-indigo-700",
-    border: "border-indigo-100",
+    border: "border-indigo-200",
     wash: "from-indigo-400 to-indigo-600",
+    tint: "to-indigo-50",
   },
   amber: {
     chip: "from-amber-400 to-amber-500",
     value: "text-amber-700",
-    border: "border-amber-100",
+    border: "border-amber-200",
     wash: "from-amber-400 to-amber-500",
+    tint: "to-amber-50",
   },
   rose: {
     chip: "from-rose-400 to-rose-600",
     value: "text-rose-700",
-    border: "border-rose-100",
+    border: "border-rose-200",
     wash: "from-rose-400 to-rose-600",
+    tint: "to-rose-50",
   },
 };
 
@@ -66,15 +71,17 @@ export function StatCard({
   return (
     <div
       className={
-        "relative overflow-hidden rounded-2xl border bg-white p-5 shadow-card " +
-        "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md " +
+        "relative overflow-hidden rounded-2xl border p-5 shadow-md " +
+        "bg-gradient-to-br from-white " +
+        t.tint +
+        " transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg " +
         t.border
       }
     >
       <div
         aria-hidden
         className={
-          "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl " +
+          "pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br opacity-[0.16] blur-2xl " +
           t.wash
         }
       />
