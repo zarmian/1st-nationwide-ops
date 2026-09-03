@@ -1,8 +1,18 @@
 import Link from "next/link";
-import { CalendarPlus, History } from "lucide-react";
+import type { ComponentType } from "react";
+import {
+  CalendarPlus,
+  History,
+  Clock,
+  Activity,
+  CheckCircle2,
+  AlertTriangle,
+  Ban,
+} from "lucide-react";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
+import { STAT_TONE, type StatTone } from "@/components/StatCard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +22,21 @@ const STATUS_TONE: Record<string, string> = {
   COMPLETED: "chip-mint",
   MISSED: "chip-red",
   ABANDONED: "chip-amber",
+};
+
+// Icon + accent for each status tile in the summary strip.
+const STATUS_STAT: Record<
+  string,
+  {
+    icon: ComponentType<{ size?: number | string; className?: string }>;
+    tone: StatTone;
+  }
+> = {
+  PENDING: { icon: Clock, tone: "indigo" },
+  IN_PROGRESS: { icon: Activity, tone: "blue" },
+  COMPLETED: { icon: CheckCircle2, tone: "emerald" },
+  MISSED: { icon: AlertTriangle, tone: "rose" },
+  ABANDONED: { icon: Ban, tone: "amber" },
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -96,22 +121,59 @@ export default async function ShiftsPage({
       />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
-        {(["PENDING", "IN_PROGRESS", "COMPLETED", "MISSED", "ABANDONED"] as const).map((s) => (
-          <Link
-            key={s}
-            href={`/shifts?status=${s}`}
-            className={`card p-3 hover:shadow-md transition-shadow ${
-              statusFilter === s ? "ring-2 ring-brand-blue/40" : ""
-            }`}
-          >
-            <div className="text-xs uppercase tracking-wider text-slate-500">
-              {s.replace("_", " ").toLowerCase()}
-            </div>
-            <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-              {countsMap[s] ?? 0}
-            </div>
-          </Link>
-        ))}
+        {(["PENDING", "IN_PROGRESS", "COMPLETED", "MISSED", "ABANDONED"] as const).map((s) => {
+          const meta = STATUS_STAT[s];
+          const count = countsMap[s] ?? 0;
+          // "Missed" reads red only when something was actually missed.
+          const tone: StatTone =
+            s === "MISSED" && count === 0 ? "emerald" : meta.tone;
+          const tk = STAT_TONE[tone];
+          const Icon = meta.icon;
+          const active = statusFilter === s;
+          return (
+            <Link
+              key={s}
+              href={`/shifts?status=${s}`}
+              aria-current={active ? "true" : undefined}
+              className={
+                "relative overflow-hidden rounded-2xl border bg-white p-3 shadow-card " +
+                "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md " +
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 " +
+                (active ? "ring-2 ring-brand-blue/50 " : "") +
+                tk.border
+              }
+            >
+              <div
+                aria-hidden
+                className={
+                  "pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl " +
+                  tk.wash
+                }
+              />
+              <div className="relative flex items-start justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  {s.replace("_", " ").toLowerCase()}
+                </span>
+                <span
+                  className={
+                    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm " +
+                    tk.chip
+                  }
+                >
+                  <Icon size={14} />
+                </span>
+              </div>
+              <div
+                className={
+                  "relative mt-1.5 text-2xl font-semibold tabular-nums tracking-tight " +
+                  tk.value
+                }
+              >
+                {count.toLocaleString("en-GB")}
+              </div>
+            </Link>
+          );
+        })}
       </div>
 
       <DataTable

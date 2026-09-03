@@ -1,20 +1,30 @@
 import Link from "next/link";
+import type { ComponentType } from "react";
+import { Home, UserRound, Building2, AlertTriangle, Archive } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { FilterPanel } from "@/components/FilterPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { KeysTable, type KeyTableRow } from "./_components/KeysTable";
 import { Pagination } from "@/components/Pagination";
+import { STAT_TONE, type StatTone } from "@/components/StatCard";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 100;
 
-const STATUS_LABEL: Record<string, string> = {
-  WITH_US: "With us",
-  WITH_OFFICER: "With officer",
-  WITH_CUSTOMER: "With customer",
-  LOST: "Lost",
-  RETIRED: "Retired",
+const STATUS_META: Record<
+  string,
+  {
+    label: string;
+    icon: ComponentType<{ size?: number | string; className?: string }>;
+    tone: StatTone;
+  }
+> = {
+  WITH_US: { label: "With us", icon: Home, tone: "blue" },
+  WITH_OFFICER: { label: "With officer", icon: UserRound, tone: "indigo" },
+  WITH_CUSTOMER: { label: "With customer", icon: Building2, tone: "emerald" },
+  LOST: { label: "Lost", icon: AlertTriangle, tone: "rose" },
+  RETIRED: { label: "Retired", icon: Archive, tone: "amber" },
 };
 
 export default async function KeysPage({
@@ -128,22 +138,59 @@ export default async function KeysPage({
       />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
-        {Object.entries(STATUS_LABEL).map(([k, label]) => (
-          <Link
-            key={k}
-            href={`/keys?status=${k}`}
-            className={`card p-3 hover:shadow-md transition-shadow ${
-              statusFilter === k ? "ring-2 ring-brand-blue/40" : ""
-            }`}
-          >
-            <div className="text-xs uppercase tracking-wider text-slate-500">
-              {label}
-            </div>
-            <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-              {(counts[k] ?? 0).toLocaleString("en-GB")}
-            </div>
-          </Link>
-        ))}
+        {Object.entries(STATUS_META).map(([k, meta]) => {
+          const count = counts[k] ?? 0;
+          // "Lost" reads red only when there actually are lost keys — a
+          // clean zero shouldn't glow like an alert.
+          const tone: StatTone =
+            k === "LOST" && count === 0 ? "emerald" : meta.tone;
+          const tk = STAT_TONE[tone];
+          const Icon = meta.icon;
+          const active = statusFilter === k;
+          return (
+            <Link
+              key={k}
+              href={`/keys?status=${k}`}
+              aria-current={active ? "true" : undefined}
+              className={
+                "relative overflow-hidden rounded-2xl border bg-white p-3 shadow-card " +
+                "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md " +
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 " +
+                (active ? "ring-2 ring-brand-blue/50 " : "") +
+                tk.border
+              }
+            >
+              <div
+                aria-hidden
+                className={
+                  "pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl " +
+                  tk.wash
+                }
+              />
+              <div className="relative flex items-start justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  {meta.label}
+                </span>
+                <span
+                  className={
+                    "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm " +
+                    tk.chip
+                  }
+                >
+                  <Icon size={14} />
+                </span>
+              </div>
+              <div
+                className={
+                  "relative mt-1.5 text-2xl font-semibold tabular-nums tracking-tight " +
+                  tk.value
+                }
+              >
+                {count.toLocaleString("en-GB")}
+              </div>
+            </Link>
+          );
+        })}
       </div>
 
       <FilterPanel
@@ -160,7 +207,7 @@ export default async function KeysPage({
           if (q) filters.push({ label: `Search: ${q}`, clearHref: drop("q") });
           if (statusFilter) {
             filters.push({
-              label: `Status: ${STATUS_LABEL[statusFilter] ?? statusFilter}`,
+              label: `Status: ${STATUS_META[statusFilter]?.label ?? statusFilter}`,
               clearHref: drop("status"),
             });
           }
