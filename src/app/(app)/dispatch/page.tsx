@@ -66,10 +66,23 @@ const BUCKETS = [
 ] as const;
 type Bucket = (typeof BUCKETS)[number];
 
+/** Start of "today" in UK wall-clock, expressed as a UTC instant. */
+function ukDayStartUtc(now: Date): Date {
+  const d = ukDayPlus(now, 0);
+  return ukWallClockToUtc(d.year, d.month, d.day, 0, 0, 0);
+}
+
 function bucketWhere(bucket: Bucket | null, now: Date): Prisma.JobWhereInput {
+  const dayStart = ukDayStartUtc(now);
+  // Not-started work scheduled today-or-later (or with no time set yet) is
+  // "upcoming". Open work that was due before today is "missed".
+  const upcomingOpen: Prisma.JobWhereInput = {
+    status: { in: ["OPEN", "ASSIGNED"] },
+    OR: [{ scheduledFor: { gte: dayStart } }, { scheduledFor: null }],
+  };
   switch (bucket) {
     case "pending":
-      return { status: { in: ["OPEN", "ASSIGNED"] } };
+      return upcomingOpen;
     case "in_progress":
       return { status: "IN_PROGRESS" };
     case "review":
@@ -77,15 +90,16 @@ function bucketWhere(bucket: Bucket | null, now: Date): Prisma.JobWhereInput {
     case "missed":
       return {
         status: { in: ["OPEN", "ASSIGNED"] },
-        scheduledFor: { lt: now },
+        scheduledFor: { lt: dayStart },
       };
     case "completed":
       return { status: { in: COMPLETED_STATUSES as JobStatus[] } };
     case "cancelled":
       return { status: "CANCELLED" };
     default:
-      // No bucket selected = "live work in progress".
-      return { status: { in: LIVE_STATUSES as JobStatus[] } };
+      // Upcoming box = in-progress now, plus today's/future not-started work.
+      // Overdue-before-today jobs live under the Missed filter only.
+      return { OR: [{ status: "IN_PROGRESS" }, upcomingOpen] };
   }
 }
 
@@ -110,9 +124,14 @@ function visitBucketWhere(
   bucket: Bucket | null,
   now: Date,
 ): Prisma.PatrolVisitWhereInput | null {
+  const dayStart = ukDayStartUtc(now);
+  const upcomingPending: Prisma.PatrolVisitWhereInput = {
+    status: "PENDING",
+    scheduledAt: { gte: dayStart },
+  };
   switch (bucket) {
     case "pending":
-      return { status: "PENDING" };
+      return upcomingPending;
     case "in_progress":
       return { status: { in: ["IN_PROGRESS", "LATE"] } };
     case "review":
@@ -121,7 +140,7 @@ function visitBucketWhere(
       return {
         OR: [
           { status: "MISSED" },
-          { status: "PENDING", scheduledAt: { lt: now } },
+          { status: "PENDING", scheduledAt: { lt: dayStart } },
         ],
       };
     case "completed":
@@ -129,7 +148,9 @@ function visitBucketWhere(
     case "cancelled":
       return null;
     default:
-      return { status: { in: ["PENDING", "IN_PROGRESS", "LATE"] } };
+      return {
+        OR: [{ status: { in: ["IN_PROGRESS", "LATE"] } }, upcomingPending],
+      };
   }
 }
 
@@ -143,9 +164,14 @@ function shiftBucketWhere(
   bucket: Bucket | null,
   now: Date,
 ): Prisma.ShiftWhereInput | null {
+  const dayStart = ukDayStartUtc(now);
+  const upcomingPending: Prisma.ShiftWhereInput = {
+    status: "PENDING",
+    scheduledStartsAt: { gte: dayStart },
+  };
   switch (bucket) {
     case "pending":
-      return { status: "PENDING" };
+      return upcomingPending;
     case "in_progress":
       return { status: "IN_PROGRESS" };
     case "review":
@@ -154,7 +180,7 @@ function shiftBucketWhere(
       return {
         OR: [
           { status: "MISSED" },
-          { status: "PENDING", scheduledStartsAt: { lt: now } },
+          { status: "PENDING", scheduledStartsAt: { lt: dayStart } },
         ],
       };
     case "completed":
@@ -162,7 +188,7 @@ function shiftBucketWhere(
     case "cancelled":
       return { status: "ABANDONED" };
     default:
-      return { status: { in: ["PENDING", "IN_PROGRESS"] } };
+      return { OR: [{ status: "IN_PROGRESS" }, upcomingPending] };
   }
 }
 
@@ -304,7 +330,8 @@ export default async function DispatchPage({
   const jobsOrderBy: Prisma.JobOrderByWithRelationInput[] =
     bucket === "completed" || bucket === "cancelled"
       ? [{ scheduledFor: "desc" }, { createdAt: "desc" }]
-      : [{ priority: "asc" }, { scheduledFor: "asc" }, { createdAt: "desc" }];
+      : // Live views read earliest-first; priority only breaks ties.
+        [{ scheduledFor: "asc" }, { priority: "asc" }, { createdAt: "desc" }];
   const visitsOrderBy: Prisma.PatrolVisitOrderByWithRelationInput[] =
     bucket === "completed"
       ? [{ scheduledAt: "desc" }]
@@ -730,14 +757,15 @@ export default async function DispatchPage({
     startedAt: s.actualStartedAt ?? null,
   }));
 
+  const completedView = bucket === "completed" || bucket === "cancelled";
   const rows: DispatchRow[] = [...jobRows, ...visitRows, ...shiftRows].sort((a, b) => {
-    // Mirror the Job ordering: priority HIGH first, then earliest scheduled.
-    // Priority on visits is always MEDIUM, so visits interleave by time.
-    const pri = priorityRank(a.priority) - priorityRank(b.priority);
-    if (pri !== 0) return pri;
     const at = a.scheduledFor?.getTime() ?? Number.POSITIVE_INFINITY;
     const bt = b.scheduledFor?.getTime() ?? Number.POSITIVE_INFINITY;
-    return at - bt;
+    // Completed / cancelled read most-recent-first; every live view reads
+    // earliest-first, with priority only breaking ties on the same time.
+    if (completedView) return bt - at;
+    if (at !== bt) return at - bt;
+    return priorityRank(a.priority) - priorityRank(b.priority);
   });
   const bucketLabels: Record<Bucket, string> = {
     pending: "Pending",
