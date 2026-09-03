@@ -91,6 +91,9 @@ export async function loadShurgardReport(
           site: { is: { customerId: shurgard.id } },
           status: { not: "CANCELLED" },
           completedAt: { not: null },
+          // Static-guarding callouts belong under Static guarding below, not
+          // in this list — otherwise a shift-type job would double-count.
+          type: { not: "STATIC_GUARDING_SHIFT" },
           ...jobScheduledRange(dayStart, dayEnd),
         },
         select: {
@@ -140,36 +143,86 @@ export async function loadShurgardReport(
     });
 
   // ── Static guarding — Shurgard OR Access Storage ──────────────────────
+  // Two sources feed this section: completed static-guarding SHIFTS (the
+  // scheduled flow) and static-guarding CALLOUT jobs logged after the fact
+  // via Record callout. Both render as site + hours, with any on-site photos.
   const storageIds = [shurgard?.id, access?.id].filter(
     (id): id is string => Boolean(id),
   );
-  const rawShifts = storageIds.length
-    ? await prisma.shift.findMany({
-        where: {
-          type: "STATIC_GUARDING",
-          status: "COMPLETED",
-          site: { is: { customerId: { in: storageIds } } },
-          ...shiftScheduledRange(dayStart, dayEnd),
-        },
-        orderBy: { scheduledStartsAt: "asc" },
-        select: {
-          scheduledStartsAt: true,
-          scheduledEndsAt: true,
-          actualStartedAt: true,
-          actualEndedAt: true,
-          handledByPartnerId: true,
-          site: { select: { name: true } },
-          // On-site photos captured at each hourly check-in live in the
-          // submission payload as a Vercel Blob URL.
-          formSubmissions: {
-            orderBy: { submittedAt: "asc" },
-            select: { payload: true },
-          },
-        },
-      })
-    : [];
 
-  const shifts = await Promise.all(
+  // On-site photos captured during a shift / job live in each linked
+  // submission's payload as a Vercel Blob URL (photoUrl, or photoUrls[]).
+  function photoUrlsFrom(subs: { payload: unknown }[]): string[] {
+    return subs
+      .flatMap((fs) => {
+        const p = (fs.payload ?? {}) as Record<string, unknown>;
+        const one = typeof p.photoUrl === "string" ? [p.photoUrl] : [];
+        const many = Array.isArray(p.photoUrls)
+          ? (p.photoUrls as unknown[]).filter(
+              (u): u is string => typeof u === "string",
+            )
+          : [];
+        return [...one, ...many];
+      })
+      .slice(0, 8); // cap so the report stays light
+  }
+
+  const [rawShifts, rawGuardJobs] = await Promise.all([
+    storageIds.length
+      ? prisma.shift.findMany({
+          where: {
+            type: "STATIC_GUARDING",
+            status: "COMPLETED",
+            site: { is: { customerId: { in: storageIds } } },
+            ...shiftScheduledRange(dayStart, dayEnd),
+          },
+          orderBy: { scheduledStartsAt: "asc" },
+          select: {
+            scheduledStartsAt: true,
+            scheduledEndsAt: true,
+            actualStartedAt: true,
+            actualEndedAt: true,
+            handledByPartnerId: true,
+            site: { select: { name: true } },
+            formSubmissions: {
+              orderBy: { submittedAt: "asc" },
+              select: { payload: true },
+            },
+          },
+        })
+      : Promise.resolve([]),
+    storageIds.length
+      ? prisma.job.findMany({
+          where: {
+            type: "STATIC_GUARDING_SHIFT",
+            status: { not: "CANCELLED" },
+            completedAt: { not: null },
+            site: { is: { customerId: { in: storageIds } } },
+            ...jobScheduledRange(dayStart, dayEnd),
+          },
+          select: {
+            startedAt: true,
+            completedAt: true,
+            scheduledFor: true,
+            handledByPartnerId: true,
+            site: { select: { name: true } },
+            formSubmissions: {
+              orderBy: { submittedAt: "asc" },
+              select: { payload: true },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  type GuardEntry = {
+    label: string;
+    hours: string;
+    photos: string[];
+    startMs: number;
+  };
+
+  const shiftEntries: GuardEntry[] = await Promise.all(
     rawShifts.map(async (s) => {
       const label =
         nexusId && s.handledByPartnerId === nexusId
@@ -177,22 +230,46 @@ export async function loadShurgardReport(
           : s.site.name;
       const start = s.actualStartedAt ?? s.scheduledStartsAt;
       const end = s.actualEndedAt ?? s.scheduledEndsAt;
-      const photoUrls = s.formSubmissions
-        .flatMap((fs) => {
-          const p = (fs.payload ?? {}) as Record<string, unknown>;
-          const one = typeof p.photoUrl === "string" ? [p.photoUrl] : [];
-          const many = Array.isArray(p.photoUrls)
-            ? (p.photoUrls as unknown[]).filter(
-                (u): u is string => typeof u === "string",
-              )
-            : [];
-          return [...one, ...many];
-        })
-        .slice(0, 8); // cap per shift so the report stays light
-      const photos = await fetchImages(photoUrls);
-      return { label, hours: `${ukTime(start)} – ${ukTime(end)}`, photos };
+      const photos = await fetchImages(photoUrlsFrom(s.formSubmissions));
+      return {
+        label,
+        hours: `${ukTime(start)} – ${ukTime(end)}`,
+        photos,
+        startMs: start.getTime(),
+      };
     }),
   );
+
+  const jobEntries: GuardEntry[] = await Promise.all(
+    rawGuardJobs.map(async (j) => {
+      const siteName = j.site?.name ?? "Site";
+      const label =
+        nexusId && j.handledByPartnerId === nexusId
+          ? `${siteName} (Nexus)`
+          : siteName;
+      const start = j.startedAt ?? j.scheduledFor;
+      const end = j.completedAt;
+      const hours =
+        start && end
+          ? `${ukTime(start)} – ${ukTime(end)}`
+          : start
+            ? `from ${ukTime(start)}`
+            : end
+              ? `until ${ukTime(end)}`
+              : "—";
+      const photos = await fetchImages(photoUrlsFrom(j.formSubmissions));
+      return {
+        label,
+        hours,
+        photos,
+        startMs: (start ?? end ?? dayStart).getTime(),
+      };
+    }),
+  );
+
+  const shifts = [...shiftEntries, ...jobEntries]
+    .sort((a, b) => a.startMs - b.startMs)
+    .map(({ label, hours, photos }) => ({ label, hours, photos }));
 
   return {
     dateLabel,
