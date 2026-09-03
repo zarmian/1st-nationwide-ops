@@ -13,6 +13,7 @@ const CALLOUT_TYPE_CODES = new Set([
   "UNLOCK",
   "VPI",
   "ADHOC",
+  "STATIC_GUARDING_SHIFT",
 ]);
 
 const CALLOUT_SOURCE_CODES = new Set([
@@ -59,8 +60,17 @@ export default async function NewCalloutPage({
   ]);
 
   // Callout flow only covers a subset of job types/sources — scheduled work
-  // is captured via the cron, shift jobs via the shift flow, etc.
-  const jobTypes = allJobTypes.filter((o) => CALLOUT_TYPE_CODES.has(o.code));
+  // is captured via the cron, shift jobs via the shift flow, etc. Dedupe by
+  // label so a duplicate option row never shows the same type twice.
+  const seenTypeLabel = new Set<string>();
+  const jobTypes = allJobTypes
+    .filter((o) => CALLOUT_TYPE_CODES.has(o.code))
+    .filter((o) => {
+      const key = o.label.trim().toLowerCase();
+      if (seenTypeLabel.has(key)) return false;
+      seenTypeLabel.add(key);
+      return true;
+    });
   const jobSources = allJobSources.filter((o) =>
     CALLOUT_SOURCE_CODES.has(o.code),
   );

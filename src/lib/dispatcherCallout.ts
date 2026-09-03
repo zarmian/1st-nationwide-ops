@@ -17,6 +17,7 @@ export const CALLOUT_JOB_TYPES = [
   "UNLOCK",
   "VPI",
   "ADHOC",
+  "STATIC_GUARDING_SHIFT",
 ] as const;
 
 export const CALLOUT_SOURCES = [
