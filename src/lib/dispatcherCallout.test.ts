@@ -81,8 +81,8 @@ describe("CalloutInput — bad ids", () => {
 });
 
 describe("CalloutInput — enums", () => {
-  it("rejects an unknown job type", () => {
-    const r = CalloutInput.safeParse(baseInput({ type: "STATIC_GUARDING_SHIFT" }));
+  it("rejects a job type that isn't a callout type", () => {
+    const r = CalloutInput.safeParse(baseInput({ type: "DOG_HANDLER_SHIFT" }));
     expect(r.success).toBe(false);
   });
 

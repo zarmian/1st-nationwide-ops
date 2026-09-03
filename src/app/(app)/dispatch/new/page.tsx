@@ -49,9 +49,16 @@ export default async function NewJobPage({
     listJobSourceOptions(),
   ]);
 
-  const jobTypes = allJobTypes.filter(
-    (o) => !NEW_JOB_TYPE_EXCLUDED.has(o.code),
-  );
+  // Dedupe by label so a duplicate option row never shows the same type twice.
+  const seenTypeLabel = new Set<string>();
+  const jobTypes = allJobTypes
+    .filter((o) => !NEW_JOB_TYPE_EXCLUDED.has(o.code))
+    .filter((o) => {
+      const key = o.label.trim().toLowerCase();
+      if (seenTypeLabel.has(key)) return false;
+      seenTypeLabel.add(key);
+      return true;
+    });
   const jobSources = allJobSources
     .filter((o) => !NEW_JOB_SOURCE_EXCLUDED.has(o.code))
     // Show the partner-request source as "Nexus" — our standing partner.
