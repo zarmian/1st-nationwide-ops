@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { formatDateTime } from "@/lib/dates";
 import { PROOF_CHIP, mapsLink, type ProofVerdict } from "@/lib/proofOfPresence";
+import { ProofMiniMap } from "./ProofMiniMap";
 
 /** Small geofence-verdict chip (On site / Outside geofence / …). */
 export function ProofBadge({ verdict }: { verdict: ProofVerdict }) {
@@ -45,18 +46,21 @@ export function ProofOfPresenceCard({
             <Row label="Captured">
               {verdict.locatedAt ? formatDateTime(verdict.locatedAt) : "—"}
             </Row>
-            <Row label="Location">
+          </dl>
+
+          {verdict.gpsLat != null && verdict.gpsLng != null && (
+            <div className="space-y-1.5">
+              <ProofMiniMap lat={verdict.gpsLat} lng={verdict.gpsLng} />
               <a
-                href={mapsLink(verdict.gpsLat as number, verdict.gpsLng as number)}
+                href={mapsLink(verdict.gpsLat, verdict.gpsLng)}
                 target="_blank"
                 rel="noreferrer"
-                className="text-brand-blue-dark hover:underline font-mono text-xs"
+                className="inline-flex items-center gap-1 text-xs font-medium text-brand-blue-dark hover:underline"
               >
-                {(verdict.gpsLat as number).toFixed(5)},{" "}
-                {(verdict.gpsLng as number).toFixed(5)} ↗
+                View on Google Maps ↗
               </a>
-            </Row>
-          </dl>
+            </div>
+          )}
           {verdict.status === "outside" && (
             <p className="text-xs text-red-600">
               This fix is outside the site geofence — worth checking with the
