@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 export type StatTone = "blue" | "emerald" | "indigo" | "amber" | "rose";
 
@@ -60,12 +60,15 @@ export function StatCard({
   value,
   hint,
   icon: Icon,
+  footer,
 }: {
   tone: StatTone;
   label: string;
   value: string;
   hint?: string;
   icon: ComponentType<{ size?: number | string; className?: string }>;
+  /** Optional content below the value (e.g. a sparkline + trend delta). */
+  footer?: ReactNode;
 }) {
   const t = STAT_TONE[tone];
   return (
@@ -109,6 +112,7 @@ export function StatCard({
       {hint && (
         <div className="relative mt-0.5 text-xs text-slate-500">{hint}</div>
       )}
+      {footer && <div className="relative mt-2">{footer}</div>}
     </div>
   );
 }

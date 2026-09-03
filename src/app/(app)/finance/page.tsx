@@ -12,6 +12,7 @@ import { requireAdmin } from "@/lib/authz";
 import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
 import { Sparkline } from "@/components/Sparkline";
+import { StatCard } from "@/components/StatCard";
 import { PageHeader } from "@/components/PageHeader";
 import { InteractiveTrend } from "@/components/InteractiveTrend";
 import { BarList } from "@/components/BarList";
@@ -815,78 +816,69 @@ export default async function FinancePage({
       {/* Hero band — the day's live number, the range with its trend, then
           the two profit figures. Reads left-to-right as revenue → profit. */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="card-accent p-5 flex flex-col gap-1.5">
-          <div className="kpi-label inline-flex items-center gap-1.5">
-            <Sun size={13} className="text-brand-blue" aria-hidden="true" /> Earned
-            today
-          </div>
-          <div className="kpi-value">{fmtMoney2(earnedToday)}</div>
-          <div className="kpi-hint">since midnight</div>
-        </div>
-
-        <div className="kpi">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <div className="kpi-label inline-flex items-center gap-1.5">
-                <Calendar size={13} className="text-slate-400" aria-hidden="true" />{" "}
-                Earned in range
-              </div>
-              <div className="kpi-value">{fmtMoney2(earnedRange)}</div>
-            </div>
-            <Sparkline
-              values={dailyBilled}
-              ariaLabel="Daily billed for the last 14 days"
-              fill="#3B82F6"
-            />
-          </div>
-          <div
-            className={
-              "kpi-hint inline-flex items-center gap-1 " +
-              (rangeDelta == null
-                ? ""
-                : rangeDelta >= 0
-                  ? "text-success"
-                  : "text-red-600")
-            }
-          >
-            {rangeDelta == null ? (
-              "No prior period to compare"
-            ) : (
-              <>
-                {rangeDelta >= 0 ? (
-                  <TrendingUp size={12} aria-hidden="true" />
+        <StatCard
+          tone="emerald"
+          label="Earned today"
+          value={fmtMoney2(earnedToday)}
+          hint="since midnight"
+          icon={Sun}
+        />
+        <StatCard
+          tone="blue"
+          label="Earned in range"
+          value={fmtMoney2(earnedRange)}
+          icon={Calendar}
+          footer={
+            <div className="space-y-1">
+              <Sparkline
+                values={dailyBilled}
+                width={180}
+                height={28}
+                stroke="#2563EB"
+                fill="#3B82F6"
+                ariaLabel="Daily billed for the last 14 days"
+              />
+              <div
+                className={
+                  "inline-flex items-center gap-1 text-xs " +
+                  (rangeDelta == null
+                    ? "text-slate-500"
+                    : rangeDelta >= 0
+                      ? "text-success"
+                      : "text-red-600")
+                }
+              >
+                {rangeDelta == null ? (
+                  "No prior period to compare"
                 ) : (
-                  <TrendingDown size={12} aria-hidden="true" />
+                  <>
+                    {rangeDelta >= 0 ? (
+                      <TrendingUp size={12} aria-hidden="true" />
+                    ) : (
+                      <TrendingDown size={12} aria-hidden="true" />
+                    )}
+                    {Math.abs(rangeDelta).toFixed(0)}% vs previous{" "}
+                    {fmtMoney(earnedPrev)}
+                  </>
                 )}
-                {Math.abs(rangeDelta).toFixed(0)}% vs previous {fmtMoney(earnedPrev)}
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="kpi">
-          <div className="kpi-label inline-flex items-center gap-1.5">
-            <Scale size={13} className="text-slate-400" aria-hidden="true" /> Gross
-            margin
-          </div>
-          <div className="kpi-value">{fmtMoney2(grossMargin)}</div>
-          <div className="kpi-hint">billed − officer pay</div>
-        </div>
-
-        <div className="kpi">
-          <div className="kpi-label inline-flex items-center gap-1.5">
-            <PiggyBank size={13} className="text-slate-400" aria-hidden="true" /> Net
-            profit
-          </div>
-          <div
-            className={
-              "kpi-value " + (netProfit >= 0 ? "" : "!text-red-600")
-            }
-          >
-            {fmtMoney2(netProfit)}
-          </div>
-          <div className="kpi-hint">after {fmtMoney(overheads)} overheads</div>
-        </div>
+              </div>
+            </div>
+          }
+        />
+        <StatCard
+          tone="indigo"
+          label="Gross margin"
+          value={fmtMoney2(grossMargin)}
+          hint="billed − officer pay"
+          icon={Scale}
+        />
+        <StatCard
+          tone={netProfit >= 0 ? "emerald" : "rose"}
+          label="Net profit"
+          value={fmtMoney2(netProfit)}
+          hint={`after ${fmtMoney(overheads)} overheads`}
+          icon={PiggyBank}
+        />
       </div>
 
       {/* ── Revenue ───────────────────────────────────────────────────── */}
