@@ -13,6 +13,11 @@ const NEW_JOB_TYPE_EXCLUDED = new Set([
   "DOG_HANDLER_SHIFT",
 ]);
 
+// The manual add-job flow only offers the sources an office user picks by
+// hand. Alarm activations arrive by ingestion/webhook and ad-hoc work is
+// logged via the callout flow, so both are dropped from this dropdown.
+const NEW_JOB_SOURCE_EXCLUDED = new Set(["ALARM", "AD_HOC"]);
+
 export default async function NewJobPage({
   searchParams,
 }: {
@@ -47,6 +52,10 @@ export default async function NewJobPage({
   const jobTypes = allJobTypes.filter(
     (o) => !NEW_JOB_TYPE_EXCLUDED.has(o.code),
   );
+  const jobSources = allJobSources
+    .filter((o) => !NEW_JOB_SOURCE_EXCLUDED.has(o.code))
+    // Show the partner-request source as "Nexus" — our standing partner.
+    .map((o) => (o.code === "PARTNER_REQUEST" ? { ...o, label: "Nexus" } : o));
 
   return (
     <div className="space-y-4">
@@ -63,7 +72,7 @@ export default async function NewJobPage({
         officers={officers}
         partners={partners}
         jobTypes={jobTypes}
-        jobSources={allJobSources}
+        jobSources={jobSources}
         defaultSiteId={searchParams.siteId}
       />
     </div>

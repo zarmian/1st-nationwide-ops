@@ -101,7 +101,7 @@ export function NewJobForm({
             <select
               id="source"
               name="source"
-              defaultValue={wantsAlarm ? "ALARM" : "CUSTOMER_REQUEST"}
+              defaultValue="CUSTOMER_REQUEST"
               className="input"
               key={typeId}
             >

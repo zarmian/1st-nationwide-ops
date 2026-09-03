@@ -16,6 +16,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { BrandLogo } from "./BrandLogo";
+import { roleLabel } from "@/lib/roleLabel";
 
 // Lucide's PropTypes-based signatures don't line up with our minimal
 // React.ComponentType prop subset on this version of lucide-react, so
@@ -142,7 +143,7 @@ export function TopNav({
                 {userName ?? "User"}
               </div>
               <div className="text-[10px] uppercase tracking-wider text-slate-500">
-                {role ?? "—"}
+                {roleLabel(role)}
               </div>
             </div>
           </div>

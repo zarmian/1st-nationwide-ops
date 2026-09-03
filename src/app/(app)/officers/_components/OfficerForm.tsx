@@ -7,7 +7,7 @@ import { FormError } from "@/components/FormError";
 
 const ROLES = [
   { v: "OFFICER", label: "Officer" },
-  { v: "DISPATCHER", label: "Dispatcher" },
+  { v: "DISPATCHER", label: "Office" },
   { v: "ADMIN", label: "Admin" },
 ];
 
