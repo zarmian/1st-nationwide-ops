@@ -36,6 +36,8 @@ export function CompletedShiftForm({
   officers,
   partners,
   initial,
+  lockedType,
+  cancelHref = "/shifts",
 }: {
   action: (s: ShiftFormState, fd: FormData) => Promise<ShiftFormState>;
   sites: {
@@ -47,6 +49,10 @@ export function CompletedShiftForm({
   officers: { id: string; name: string }[];
   partners: { id: string; name: string }[];
   initial?: CompletedShiftFormInitial;
+  /** When set, the shift type is fixed (e.g. a "Static guarding" tab) — the
+   *  dropdown is hidden and the value posted via a hidden input. */
+  lockedType?: string;
+  cancelHref?: string;
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -85,23 +91,27 @@ export function CompletedShiftForm({
           )}
         </div>
 
-        <div>
-          <label className="label" htmlFor="type">
-            Shift type
-          </label>
-          <select
-            id="type"
-            name="type"
-            className="input"
-            defaultValue={initial?.type ?? "STATIC_GUARDING"}
-          >
-            {TYPES.map((t) => (
-              <option key={t.v} value={t.v}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {lockedType ? (
+          <input type="hidden" name="type" value={lockedType} />
+        ) : (
+          <div>
+            <label className="label" htmlFor="type">
+              Shift type
+            </label>
+            <select
+              id="type"
+              name="type"
+              className="input"
+              defaultValue={initial?.type ?? "STATIC_GUARDING"}
+            >
+              {TYPES.map((t) => (
+                <option key={t.v} value={t.v}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="card p-5 space-y-4">
@@ -241,7 +251,7 @@ export function CompletedShiftForm({
 
       <div className="flex items-center gap-3">
         <SubmitButton />
-        <Link href="/shifts" className="btn-secondary">
+        <Link href={cancelHref} className="btn-secondary">
           Cancel
         </Link>
       </div>
