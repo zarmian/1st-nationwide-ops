@@ -87,9 +87,16 @@ export function TrendChart({
       preserveAspectRatio="none"
     >
       <defs>
+        {/* Multi-hue line — blue → indigo → violet across the range so the
+            trend reads colourful, not a single flat blue. */}
+        <linearGradient id={`${gradId}-line`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#3B82F6" />
+          <stop offset="55%" stopColor="#6366F1" />
+          <stop offset="100%" stopColor="#8B5CF6" />
+        </linearGradient>
         <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={fill} stopOpacity="0.22" />
-          <stop offset="100%" stopColor={fill} stopOpacity="0.02" />
+          <stop offset="0%" stopColor="#6366F1" stopOpacity="0.30" />
+          <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0.03" />
         </linearGradient>
       </defs>
 
@@ -107,15 +114,15 @@ export function TrendChart({
       <polyline
         points={lineStr}
         fill="none"
-        stroke={stroke}
-        strokeWidth={2}
+        stroke={`url(#${gradId}-line)`}
+        strokeWidth={2.5}
         strokeLinejoin="round"
         strokeLinecap="round"
         vectorEffect="non-scaling-stroke"
       />
 
       {/* End marker */}
-      <circle cx={lastX} cy={lastY} r={3} fill={stroke} />
+      <circle cx={lastX} cy={lastY} r={3.5} fill="#8B5CF6" />
 
       {/* Peak annotation — keeps the chart readable without hover. */}
       {max > 0 && (

@@ -28,7 +28,7 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-slate-50">
       <header className="bg-brand-navy text-white px-4 pb-3 pt-safe-4">
         <div className="max-w-lg mx-auto flex items-center gap-2">
-          <BrandLogo showWordmark={false} />
+          <BrandLogo showWordmark={false} onDark />
           <div className="leading-tight">
             <div className="text-sm font-semibold">1st Nationwide</div>
             <div className="text-[10px] uppercase tracking-wider text-white/70">

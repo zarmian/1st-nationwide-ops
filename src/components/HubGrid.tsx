@@ -32,8 +32,10 @@ export function HubGrid({ cards }: { cards: HubCard[] }) {
             key={c.href}
             href={c.href}
             className={
-              "relative overflow-hidden rounded-2xl border bg-white p-5 shadow-card " +
-              "transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md " +
+              "relative overflow-hidden rounded-2xl border p-5 shadow-md " +
+              "bg-gradient-to-br from-white " +
+              t.tint +
+              " transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg " +
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/40 " +
               t.border
             }
@@ -41,7 +43,7 @@ export function HubGrid({ cards }: { cards: HubCard[] }) {
             <div
               aria-hidden
               className={
-                "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-gradient-to-br opacity-[0.12] blur-2xl " +
+                "pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br opacity-[0.16] blur-2xl " +
                 t.wash
               }
             />
