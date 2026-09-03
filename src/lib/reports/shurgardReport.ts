@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { jobScheduledRange, shiftScheduledRange } from "@/lib/activityWhen";
 import { ukWallClockToUtc } from "@/lib/dates";
+import { fetchImages } from "./reportImages";
 
 /**
  * Data for the Shurgard daily PDF report.
@@ -19,7 +20,9 @@ export type ShurgardReportData = {
   dateLabel: string;
   shurgardFound: boolean;
   jobSites: string[]; // grouped, formatted site labels
-  shifts: { label: string; hours: string }[];
+  /** Static guarding: site + hours, plus any on-site check-in photos
+   *  (data URIs, already fetched + validated for the PDF). */
+  shifts: { label: string; hours: string; photos: string[] }[];
   generatedAt: string;
 };
 
@@ -156,19 +159,40 @@ export async function loadShurgardReport(
           actualEndedAt: true,
           handledByPartnerId: true,
           site: { select: { name: true } },
+          // On-site photos captured at each hourly check-in live in the
+          // submission payload as a Vercel Blob URL.
+          formSubmissions: {
+            orderBy: { submittedAt: "asc" },
+            select: { payload: true },
+          },
         },
       })
     : [];
 
-  const shifts = rawShifts.map((s) => {
-    const label =
-      nexusId && s.handledByPartnerId === nexusId
-        ? `${s.site.name} (Nexus)`
-        : s.site.name;
-    const start = s.actualStartedAt ?? s.scheduledStartsAt;
-    const end = s.actualEndedAt ?? s.scheduledEndsAt;
-    return { label, hours: `${ukTime(start)} – ${ukTime(end)}` };
-  });
+  const shifts = await Promise.all(
+    rawShifts.map(async (s) => {
+      const label =
+        nexusId && s.handledByPartnerId === nexusId
+          ? `${s.site.name} (Nexus)`
+          : s.site.name;
+      const start = s.actualStartedAt ?? s.scheduledStartsAt;
+      const end = s.actualEndedAt ?? s.scheduledEndsAt;
+      const photoUrls = s.formSubmissions
+        .flatMap((fs) => {
+          const p = (fs.payload ?? {}) as Record<string, unknown>;
+          const one = typeof p.photoUrl === "string" ? [p.photoUrl] : [];
+          const many = Array.isArray(p.photoUrls)
+            ? (p.photoUrls as unknown[]).filter(
+                (u): u is string => typeof u === "string",
+              )
+            : [];
+          return [...one, ...many];
+        })
+        .slice(0, 8); // cap per shift so the report stays light
+      const photos = await fetchImages(photoUrls);
+      return { label, hours: `${ukTime(start)} – ${ukTime(end)}`, photos };
+    }),
+  );
 
   return {
     dateLabel,

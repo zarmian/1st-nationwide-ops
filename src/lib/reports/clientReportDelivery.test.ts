@@ -6,7 +6,7 @@ const sample: ShurgardReportData = {
   dateLabel: "Monday, 01 September 2026",
   shurgardFound: true,
   jobSites: ["Norbury (Lock and Unlock)", "Neasden (Nexus)"],
-  shifts: [{ label: "Croydon", hours: "18:00 – 06:00" }],
+  shifts: [{ label: "Croydon", hours: "18:00 – 06:00", photos: [] }],
   generatedAt: "Tue, 02 Sep 2026, 07:00",
 };
 

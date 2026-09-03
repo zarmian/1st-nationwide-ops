@@ -3,6 +3,7 @@ import {
   Page,
   Text,
   View,
+  Image,
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
@@ -63,6 +64,25 @@ const s = StyleSheet.create({
   site: { flex: 1, color: NAVY },
   hours: { width: 120, color: SLATE, textAlign: "right" },
   empty: { fontSize: 10, color: SLATE, fontStyle: "italic" },
+  shiftBlock: { marginBottom: 2 },
+  photoRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingLeft: 16,
+    paddingTop: 4,
+    paddingBottom: 2,
+  },
+  photo: {
+    width: 96,
+    height: 72,
+    objectFit: "cover",
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: LINE,
+    marginRight: 4,
+    marginBottom: 4,
+  },
+  photoCaption: { fontSize: 7, color: SLATE, paddingLeft: 16, marginBottom: 4 },
   footer: {
     position: "absolute",
     bottom: 24,
@@ -114,10 +134,24 @@ function ShurgardReportDocument({ data }: { data: ShurgardReportData }) {
           <Text style={s.sectionTitle}>Static guarding</Text>
           {data.shifts.length > 0 ? (
             data.shifts.map((r, i) => (
-              <View style={s.listRow} key={i} wrap={false}>
-                <Text style={s.bullet}>{i + 1}.</Text>
-                <Text style={s.site}>{r.label}</Text>
-                <Text style={s.hours}>{r.hours}</Text>
+              <View style={s.shiftBlock} key={i} wrap={false}>
+                <View style={s.listRow}>
+                  <Text style={s.bullet}>{i + 1}.</Text>
+                  <Text style={s.site}>{r.label}</Text>
+                  <Text style={s.hours}>{r.hours}</Text>
+                </View>
+                {r.photos.length > 0 && (
+                  <>
+                    <View style={s.photoRow}>
+                      {r.photos.map((src, j) => (
+                        <Image key={j} src={src} style={s.photo} />
+                      ))}
+                    </View>
+                    <Text style={s.photoCaption}>
+                      On-site photos captured during the shift.
+                    </Text>
+                  </>
+                )}
               </View>
             ))
           ) : (
