@@ -133,6 +133,39 @@ function visitBucketWhere(
   }
 }
 
+/**
+ * Shift equivalent of bucketWhere / visitBucketWhere. Static-guarding and
+ * dog-handler shifts join the board too. Shift statuses are PENDING /
+ * IN_PROGRESS / COMPLETED / MISSED / ABANDONED (no review or LATE), so the
+ * review bucket returns null and cancelled maps to ABANDONED.
+ */
+function shiftBucketWhere(
+  bucket: Bucket | null,
+  now: Date,
+): Prisma.ShiftWhereInput | null {
+  switch (bucket) {
+    case "pending":
+      return { status: "PENDING" };
+    case "in_progress":
+      return { status: "IN_PROGRESS" };
+    case "review":
+      return null;
+    case "missed":
+      return {
+        OR: [
+          { status: "MISSED" },
+          { status: "PENDING", scheduledStartsAt: { lt: now } },
+        ],
+      };
+    case "completed":
+      return { status: "COMPLETED" };
+    case "cancelled":
+      return { status: "ABANDONED" };
+    default:
+      return { status: { in: ["PENDING", "IN_PROGRESS"] } };
+  }
+}
+
 const VALID_LAYERS = ["jobs", "sites", "lines"] as const;
 type LayerKey = (typeof VALID_LAYERS)[number];
 
@@ -527,13 +560,86 @@ export default async function DispatchPage({
     `,
   ]);
 
+  // ── Shifts (static guarding / dog handler) ─────────────────────────────
+  // They join the live board + recent feed alongside jobs and visits. Kept
+  // as a separate query group so the big Promise.all above stays intact.
+  const shiftInclude = {
+    site: {
+      select: {
+        id: true,
+        name: true,
+        postcode: true,
+        postcodeFormatted: true,
+        lat: true,
+        lng: true,
+        customer: { select: { name: true } },
+        partner: { select: { name: true } },
+      },
+    },
+    officer: { select: { id: true, name: true } },
+    handledByPartner: { select: { id: true, name: true } },
+  } as const;
+
+  // Shifts hang off a site, so reuse the site-ref hidden filter (admin-only;
+  // the fragment is empty when nothing is hidden).
+  const shiftWhereFor = (b: Bucket | null): Prisma.ShiftWhereInput | null => {
+    const base = shiftBucketWhere(b, now);
+    if (!base) return null;
+    return { ...base, AND: siteRefHiddenAnd(hidden) };
+  };
+  const boardShiftWhere = shiftWhereFor(bucket);
+  const shiftsOrderBy: Prisma.ShiftOrderByWithRelationInput[] =
+    bucket === "completed" || bucket === "cancelled"
+      ? [{ scheduledStartsAt: "desc" }]
+      : [{ scheduledStartsAt: "asc" }];
+
+  const [
+    shifts,
+    recentShifts,
+    pendingShiftCount,
+    inProgressShiftCount,
+    missedShiftCount,
+    completedShiftCount,
+    cancelledShiftCount,
+  ] = await Promise.all([
+    boardShiftWhere
+      ? prisma.shift.findMany({
+          where: boardShiftWhere,
+          include: shiftInclude,
+          orderBy: shiftsOrderBy,
+          take: 100,
+        })
+      : Promise.resolve([]),
+    prisma.shift.findMany({
+      where: {
+        status: "COMPLETED",
+        actualEndedAt: { gte: recentSince, lte: now },
+        AND: siteRefHiddenAnd(hidden),
+      },
+      include: shiftInclude,
+      orderBy: [{ actualEndedAt: "desc" }],
+      take: 100,
+    }),
+    prisma.shift.count({ where: shiftWhereFor("pending") ?? { id: emptyUuid() } }),
+    prisma.shift.count({
+      where: shiftWhereFor("in_progress") ?? { id: emptyUuid() },
+    }),
+    prisma.shift.count({ where: shiftWhereFor("missed") ?? { id: emptyUuid() } }),
+    prisma.shift.count({
+      where: shiftWhereFor("completed") ?? { id: emptyUuid() },
+    }),
+    prisma.shift.count({
+      where: shiftWhereFor("cancelled") ?? { id: emptyUuid() },
+    }),
+  ]);
+
   const bucketCounts: Record<Bucket, number> = {
-    pending: pendingCount + pendingVisitCount,
-    in_progress: inProgressCount + inProgressVisitCount,
+    pending: pendingCount + pendingVisitCount + pendingShiftCount,
+    in_progress: inProgressCount + inProgressVisitCount + inProgressShiftCount,
     review: reviewCount,
-    missed: missedCount + missedVisitCount,
-    completed: completedCount + completedVisitCount,
-    cancelled: cancelledCount,
+    missed: missedCount + missedVisitCount + missedShiftCount,
+    completed: completedCount + completedVisitCount + completedShiftCount,
+    cancelled: cancelledCount + cancelledShiftCount,
   };
 
   // Merge Jobs and PatrolVisits into a single rows[] for the board. To
@@ -543,6 +649,7 @@ export default async function DispatchPage({
   // so the cells can route edit/cancel/reassign to the right model.
   type DispatchRow = {
     __visitId: string | null;
+    __shiftId: string | null;
     id: string;
     type: string;
     source: string;
@@ -570,6 +677,7 @@ export default async function DispatchPage({
 
   const jobRows: DispatchRow[] = jobs.map((j) => ({
     __visitId: null,
+    __shiftId: null,
     id: j.id,
     type: j.type,
     source: j.source,
@@ -587,6 +695,7 @@ export default async function DispatchPage({
 
   const visitRows: DispatchRow[] = visits.map((v) => ({
     __visitId: v.id,
+    __shiftId: null,
     id: v.id,
     type: v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
     source: "SCHEDULED",
@@ -602,7 +711,26 @@ export default async function DispatchPage({
     startedAt: null,
   }));
 
-  const rows: DispatchRow[] = [...jobRows, ...visitRows].sort((a, b) => {
+  const shiftRows: DispatchRow[] = shifts.map((s) => ({
+    __visitId: null,
+    __shiftId: s.id,
+    id: s.id,
+    type:
+      s.type === "DOG_HANDLER" ? "DOG_HANDLER_SHIFT" : "STATIC_GUARDING_SHIFT",
+    source: "SCHEDULED",
+    status: s.status,
+    priority: "MEDIUM",
+    scheduledFor: s.scheduledStartsAt,
+    site: s.site,
+    customer: s.site?.customer ?? null,
+    partner: s.site?.partner ?? null,
+    assignedTo: s.officer,
+    handledByPartner: s.handledByPartner,
+    alarmReceivedAt: null,
+    startedAt: s.actualStartedAt ?? null,
+  }));
+
+  const rows: DispatchRow[] = [...jobRows, ...visitRows, ...shiftRows].sort((a, b) => {
     // Mirror the Job ordering: priority HIGH first, then earliest scheduled.
     // Priority on visits is always MEDIUM, so visits interleave by time.
     const pri = priorityRank(a.priority) - priorityRank(b.priority);
@@ -655,6 +783,21 @@ export default async function DispatchPage({
       siteId: v.site?.id ?? null,
       siteName: v.site?.name ?? null,
       officerName: v.officer?.name ?? null,
+    });
+  }
+  for (const s of recentShifts) {
+    if (!s.actualEndedAt) continue;
+    recentRows.push({
+      id: `s:${s.id}`,
+      href: `/shifts/${s.id}`,
+      at: s.actualEndedAt,
+      typeLabel:
+        s.type === "DOG_HANDLER" ? "Dog handler shift" : "Static guarding shift",
+      siteId: s.site?.id ?? null,
+      siteName: s.site?.name ?? null,
+      officerName: s.handledByPartner
+        ? `${s.handledByPartner.name} (partner)`
+        : (s.officer?.name ?? null),
     });
   }
   recentRows.sort((a, b) => b.at.getTime() - a.at.getTime());
@@ -986,20 +1129,25 @@ export default async function DispatchPage({
             <ul className="divide-y divide-slate-100 overflow-y-auto">
               {rows.map((j) => {
                 const isVisit = j.__visitId != null;
-                const detailHref = isVisit
-                  ? `/patrols/visits/${j.__visitId}`
-                  : `/dispatch/${j.id}`;
+                const isShift = j.__shiftId != null;
+                const detailHref = isShift
+                  ? `/shifts/${j.id}`
+                  : isVisit
+                    ? `/patrols/visits/${j.__visitId}`
+                    : `/dispatch/${j.id}`;
                 const editHref = isVisit
                   ? `/patrols/visits/${j.__visitId}/edit`
                   : `/dispatch/${j.id}/edit`;
-                const canEdit = isAdmin && j.status !== "CANCELLED";
+                // Shifts are managed on their own detail page — the board's
+                // inline reassign/close/cancel actions are job/visit-only.
+                const canEdit = isAdmin && j.status !== "CANCELLED" && !isShift;
                 const isClosed =
                   j.status === "APPROVED" ||
                   j.status === "SENT_TO_CLIENT" ||
                   j.status === "CLOSED" ||
                   j.status === "CANCELLED" ||
                   j.status === "COMPLETED";
-                const canClose = !isClosed;
+                const canClose = !isClosed && !isShift;
                 const typeLabel =
                   jobTypeLabels[j.type] ?? j.type.replace(/_/g, " ");
                 const activityLabel = `${typeLabel} @ ${j.site?.name ?? "site"}`;
@@ -1036,7 +1184,7 @@ export default async function DispatchPage({
                 // Reassign is offered on any still-live activity that isn't
                 // handled in a partner's app (those have no internal officer
                 // to swap).
-                const canReassign = !isClosed && !j.handledByPartner;
+                const canReassign = !isClosed && !j.handledByPartner && !isShift;
                 return (
                   <ActivityCard
                     key={j.id}
@@ -1072,7 +1220,7 @@ export default async function DispatchPage({
                             size="small"
                           />
                         )}
-                        {!isClosed && !j.handledByPartner && (
+                        {!isClosed && !j.handledByPartner && !isShift && (
                           <CancelActivityButton
                             kind={isVisit ? "visit" : "job"}
                             id={isVisit ? j.__visitId! : j.id}
