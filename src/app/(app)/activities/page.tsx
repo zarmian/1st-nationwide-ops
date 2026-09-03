@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { ClipboardList } from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -810,13 +812,14 @@ export default async function ActivitiesPage({
         />
       </FilterPanel>
 
-      <div className="card p-4 inline-block">
-        <div className="text-xs uppercase tracking-wider text-slate-500">
-          Activities in range
-        </div>
-        <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-          {totals.count.toLocaleString("en-GB")}
-        </div>
+      <div className="sm:max-w-xs">
+        <StatCard
+          tone="blue"
+          label="Activities in range"
+          value={totals.count.toLocaleString("en-GB")}
+          hint="jobs + visits"
+          icon={ClipboardList}
+        />
       </div>
 
       {groupBy !== "none" ? (
