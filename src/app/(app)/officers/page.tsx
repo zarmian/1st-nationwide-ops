@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { Users, UserCheck, Radio, UserX } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
 import { TimeAgo } from "@/components/TimeAgo";
 import { FilterPanel } from "@/components/FilterPanel";
 import { statusFor } from "@/lib/compliance";
@@ -36,37 +38,42 @@ export default async function OfficersPage({
     ];
   }
 
-  const [officers, regions, totals] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      orderBy: [{ active: "desc" }, { name: "asc" }],
-      include: {
-        region: { select: { name: true } },
-        _count: {
-          select: { keysHeld: true, formSubmissions: true, patrolVisits: true },
+  const [officers, regions, totals, activeTotal, onDutyTotal] =
+    await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: [{ active: "desc" }, { name: "asc" }],
+        include: {
+          region: { select: { name: true } },
+          _count: {
+            select: { keysHeld: true, formSubmissions: true, patrolVisits: true },
+          },
         },
-      },
-    }),
-    prisma.region.findMany({ orderBy: { name: "asc" } }),
-    prisma.user.aggregate({
-      where: { role: { in: ["OFFICER", "DISPATCHER"] } },
-      _count: true,
-    }),
-  ]);
+      }),
+      prisma.region.findMany({ orderBy: { name: "asc" } }),
+      prisma.user.aggregate({
+        where: { role: { in: ["OFFICER", "DISPATCHER"] } },
+        _count: true,
+      }),
+      prisma.user.count({
+        where: { role: { in: ["OFFICER", "DISPATCHER"] }, active: true },
+      }),
+      prisma.user.count({
+        where: {
+          role: { in: ["OFFICER", "DISPATCHER"] },
+          active: true,
+          onDuty: true,
+        },
+      }),
+    ]);
 
-  const onDutyCount = officers.filter((o) => o.active && o.onDuty).length;
   const now = new Date();
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Officers"
-        subtitle={
-          <>
-            Roster of officers and dispatchers — {totals._count} total,{" "}
-            {onDutyCount} on duty.
-          </>
-        }
+        subtitle="Roster of officers and dispatchers."
         actions={
           <div className="flex items-center gap-2">
             <Link href="/compliance" className="btn-secondary">
@@ -78,6 +85,37 @@ export default async function OfficersPage({
           </div>
         }
       />
+
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          tone="blue"
+          label="Roster"
+          value={totals._count.toLocaleString("en-GB")}
+          hint="officers + dispatchers"
+          icon={Users}
+        />
+        <StatCard
+          tone="emerald"
+          label="Active"
+          value={activeTotal.toLocaleString("en-GB")}
+          hint="currently employed"
+          icon={UserCheck}
+        />
+        <StatCard
+          tone="amber"
+          label="On duty"
+          value={onDutyTotal.toLocaleString("en-GB")}
+          hint="signed on now"
+          icon={Radio}
+        />
+        <StatCard
+          tone="indigo"
+          label="Inactive"
+          value={(totals._count - activeTotal).toLocaleString("en-GB")}
+          hint="off the roster"
+          icon={UserX}
+        />
+      </div>
 
       <FilterPanel
         clearAllHref="/officers"
