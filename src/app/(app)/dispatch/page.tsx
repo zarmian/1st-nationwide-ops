@@ -2,7 +2,6 @@ import Link from "next/link";
 import type { Prisma, JobStatus } from "@prisma/client";
 import {
   CalendarPlus,
-  History,
   CheckCircle2,
   Percent,
   Timer,
@@ -860,28 +859,15 @@ export default async function DispatchPage({
           <>
             <SyncSchedulesButton />
             <Link
-              href="/dispatch/callouts/new"
-              className="btn-secondary text-left"
-              title="Log a callout that's already been handled"
-            >
-              <History size={16} className="shrink-0" />
-              <span className="leading-tight">
-                <span className="block">Record callout</span>
-                <span className="block text-[10px] font-normal opacity-70">
-                  Log a past activity
-                </span>
-              </span>
-            </Link>
-            <Link
               href="/dispatch/new"
               className="btn-primary text-left"
-              title="Schedule a new job for the future"
+              title="Log a callout or shift — schedule it, or record one that's already done"
             >
               <CalendarPlus size={16} className="shrink-0" />
               <span className="leading-tight">
                 <span className="block">New job</span>
                 <span className="block text-[10px] font-normal opacity-80">
-                  Schedule for the future
+                  Callout or shift · schedule or log
                 </span>
               </span>
             </Link>

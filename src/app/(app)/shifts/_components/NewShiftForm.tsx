@@ -30,6 +30,7 @@ export function NewShiftForm({
   initial,
   submitLabel = "Create shift",
   cancelHref = "/shifts",
+  lockedType,
 }: {
   action: (s: ShiftFormState, fd: FormData) => Promise<ShiftFormState>;
   sites: { id: string; name: string; code: string | null; postcodeFormatted: string }[];
@@ -41,6 +42,9 @@ export function NewShiftForm({
   initial?: ShiftFormInitial;
   submitLabel?: string;
   cancelHref?: string;
+  /** When set, the shift type is fixed (e.g. a "Static guarding" tab) — the
+   *  dropdown is hidden and the value posted via a hidden input. */
+  lockedType?: string;
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -78,23 +82,27 @@ export function NewShiftForm({
           )}
         </div>
 
-        <div>
-          <label className="label" htmlFor="type">
-            Type
-          </label>
-          <select
-            id="type"
-            name="type"
-            className="input"
-            defaultValue={initial?.type ?? "STATIC_GUARDING"}
-          >
-            {TYPES.map((t) => (
-              <option key={t.v} value={t.v}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {lockedType ? (
+          <input type="hidden" name="type" value={lockedType} />
+        ) : (
+          <div>
+            <label className="label" htmlFor="type">
+              Type
+            </label>
+            <select
+              id="type"
+              name="type"
+              className="input"
+              defaultValue={initial?.type ?? "STATIC_GUARDING"}
+            >
+              {TYPES.map((t) => (
+                <option key={t.v} value={t.v}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* ── Who is doing it ───────────────────────────────────────── */}
         {showHandler ? (
