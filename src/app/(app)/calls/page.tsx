@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { Phone, PhoneMissed } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard } from "@/components/StatCard";
 import { Pagination } from "@/components/Pagination";
 
 export const dynamic = "force-dynamic";
@@ -111,23 +113,21 @@ export default async function CallsPage({
         subtitle="Calls posted by the bOnline webhook. Missed calls alert dispatch by SMS."
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            In range
-          </div>
-          <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-            {total.toLocaleString("en-GB")}
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="text-xs uppercase tracking-wider text-slate-500">
-            Missed
-          </div>
-          <div className="text-2xl font-semibold text-red-600 tabular-nums">
-            {missedCount.toLocaleString("en-GB")}
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
+        <StatCard
+          tone="blue"
+          label="In range"
+          value={total.toLocaleString("en-GB")}
+          hint="calls logged"
+          icon={Phone}
+        />
+        <StatCard
+          tone={missedCount > 0 ? "rose" : "emerald"}
+          label="Missed"
+          value={missedCount.toLocaleString("en-GB")}
+          hint="alerted dispatch"
+          icon={PhoneMissed}
+        />
       </div>
 
       <form className="card p-4 grid sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">

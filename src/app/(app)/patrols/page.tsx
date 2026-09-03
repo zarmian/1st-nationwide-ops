@@ -1,7 +1,15 @@
 import Link from "next/link";
+import {
+  Clock,
+  Activity,
+  CheckCircle2,
+  Hourglass,
+  AlertTriangle,
+} from "lucide-react";
 import { prisma } from "@/lib/db";
 import { FilterPanel } from "@/components/FilterPanel";
 import { PageHeader } from "@/components/PageHeader";
+import { StatCard, type StatTone } from "@/components/StatCard";
 import {
   reassignJob,
   reassignLockUnlockSchedule,
@@ -199,22 +207,29 @@ export default async function PatrolsPage({
       />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">
-        {[
-          { k: "PENDING", label: "Pending (7d)" },
-          { k: "IN_PROGRESS", label: "In progress" },
-          { k: "COMPLETED", label: "Completed" },
-          { k: "LATE", label: "Late" },
-          { k: "MISSED", label: "Missed" },
-        ].map((s) => (
-          <div key={s.k} className="card p-3">
-            <div className="text-xs uppercase tracking-wider text-slate-500">
-              {s.label}
-            </div>
-            <div className="text-2xl font-semibold text-brand-navy tabular-nums">
-              {(last7[s.k] ?? 0).toLocaleString("en-GB")}
-            </div>
-          </div>
-        ))}
+        {(
+          [
+            { k: "PENDING", label: "Pending (7d)", tone: "indigo", icon: Clock },
+            { k: "IN_PROGRESS", label: "In progress", tone: "blue", icon: Activity },
+            { k: "COMPLETED", label: "Completed", tone: "emerald", icon: CheckCircle2 },
+            { k: "LATE", label: "Late", tone: "amber", icon: Hourglass },
+            { k: "MISSED", label: "Missed", tone: "rose", icon: AlertTriangle },
+          ] as const
+        ).map((s) => {
+          const count = last7[s.k] ?? 0;
+          // "Missed" / "Late" read as an alert only when there's something there.
+          const tone: StatTone =
+            s.k === "MISSED" && count === 0 ? "emerald" : s.tone;
+          return (
+            <StatCard
+              key={s.k}
+              tone={tone}
+              label={s.label}
+              value={count.toLocaleString("en-GB")}
+              icon={s.icon}
+            />
+          );
+        })}
       </div>
 
       <FilterPanel
