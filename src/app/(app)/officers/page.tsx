@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
+import { roleLabel } from "@/lib/roleLabel";
 import { TimeAgo } from "@/components/TimeAgo";
 import { FilterPanel } from "@/components/FilterPanel";
 import { statusFor } from "@/lib/compliance";
@@ -73,7 +74,7 @@ export default async function OfficersPage({
     <div className="space-y-4">
       <PageHeader
         title="Officers"
-        subtitle="Roster of officers and dispatchers."
+        subtitle="Roster of officers and office staff."
         actions={
           <div className="flex items-center gap-2">
             <Link href="/compliance" className="btn-secondary">
@@ -240,9 +241,7 @@ export default async function OfficersPage({
           {
             header: "Role",
             cell: (o) => (
-              <span className="text-slate-600">
-                {o.role.charAt(0) + o.role.slice(1).toLowerCase()}
-              </span>
+              <span className="text-slate-600">{roleLabel(o.role)}</span>
             ),
           },
           {
