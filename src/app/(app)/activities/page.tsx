@@ -5,6 +5,8 @@ import { authOptions } from "@/lib/auth";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { prisma } from "@/lib/db";
+import { loadLatestActors } from "@/lib/activityHistory";
+import { actionLabel } from "@/components/ActivityHistory";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
@@ -663,6 +665,25 @@ export default async function ActivitiesPage({
   const safePage = Math.min(page, totalPages);
   const pageRows = filteredRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
+  // Latest audit event (who last touched it) for the jobs / visits / shifts on
+  // this page — one query, keyed "entity:id". Orphan submissions (f:) have no
+  // audit row and are skipped.
+  const actorRefs = pageRows.flatMap((r) => {
+    const m = r.id.match(/^([jvs]):(.+)$/);
+    if (!m) return [];
+    const entity =
+      m[1] === "j" ? "Job" : m[1] === "v" ? "PatrolVisit" : "Shift";
+    return [{ entity, entityId: m[2]! }];
+  });
+  const latestActors = await loadLatestActors(actorRefs);
+  function actorFor(rowId: string) {
+    const m = rowId.match(/^([jvs]):(.+)$/);
+    if (!m) return null;
+    const entity =
+      m[1] === "j" ? "Job" : m[1] === "v" ? "PatrolVisit" : "Shift";
+    return latestActors.get(`${entity}:${m[2]}`) ?? null;
+  }
+
   // ── 7. Export QS (preserve every filter) ───────────────────────────────
   const exportParams = new URLSearchParams();
   for (const [k, v] of Object.entries(searchParams)) {
@@ -894,6 +915,9 @@ export default async function ActivitiesPage({
                     Officer
                   </th>
                   <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
+                    Last change
+                  </th>
+                  <th className="text-left px-4 py-2 font-medium uppercase tracking-wider text-xs">
                     Status
                   </th>
                 </tr>
@@ -968,6 +992,24 @@ export default async function ActivitiesPage({
                           )
                         )}
                       </td>
+                      <td className="px-4 py-2 text-slate-600 text-xs whitespace-nowrap">
+                        {(() => {
+                          const a = actorFor(r.id);
+                          if (!a)
+                            return <span className="text-slate-400">—</span>;
+                          return (
+                            <span title={a.at.toLocaleString("en-GB")}>
+                              {actionLabel(a.action)}
+                              {a.actorName ? (
+                                <span className="text-slate-500">
+                                  {" "}
+                                  · {a.actorName}
+                                </span>
+                              ) : null}
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="px-4 py-2 text-slate-600 text-xs">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <ActivityStatus status={r.status} />
@@ -1005,7 +1047,7 @@ export default async function ActivitiesPage({
                 })}
                 {pageRows.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                       No activities for these filters.
                     </td>
                   </tr>

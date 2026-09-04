@@ -15,6 +15,7 @@ import {
 import { notifyAlarmReceived } from "@/lib/notifications";
 import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
 import { cancelJobCore, closeJobCore } from "@/lib/jobActions";
+import { logActivity } from "@/lib/audit";
 import { parseUkDateTimeLocal } from "@/lib/dates";
 import {
   materializeLockUnlockJobs,
@@ -256,6 +257,13 @@ export async function createJob(
     );
   }
 
+  await logActivity({
+    entity: "Job",
+    entityId: created.id,
+    action: "created",
+    userId: me.id,
+  });
+
   revalidatePath("/dispatch");
   revalidatePath(`/sites/${d.siteId}`);
   redirect("/dispatch");
@@ -284,6 +292,12 @@ export async function closeJob(
 
   const r = await closeJobCore(jobId, { closedAt, note });
   if (!r.ok) return { ok: false, error: r.error };
+  await logActivity({
+    entity: "Job",
+    entityId: jobId,
+    action: "closed",
+    userId: me.id,
+  });
 
   revalidatePath("/dispatch");
   revalidatePath(`/dispatch/${jobId}`);
@@ -306,6 +320,12 @@ export async function cancelJob(
   const me = await requireStaff();
   const r = await cancelJobCore(jobId, me.id);
   if (!r.ok) return { ok: false, error: r.error };
+  await logActivity({
+    entity: "Job",
+    entityId: jobId,
+    action: "cancelled",
+    userId: me.id,
+  });
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
   revalidatePath("/activities");
@@ -323,7 +343,7 @@ export async function cancelJob(
 export async function restoreJob(
   jobId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAdmin();
+  const me = await requireAdmin();
   const job = await prisma.job.findUnique({
     where: { id: jobId },
     select: {
@@ -374,6 +394,13 @@ export async function restoreJob(
       }
     }
   }
+
+  await logActivity({
+    entity: "Job",
+    entityId: jobId,
+    action: "restored",
+    userId: me.id,
+  });
 
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
@@ -467,7 +494,7 @@ export async function updateJob(
   // Dispatcher + admin. The edit form doesn't expose finance fields
   // (billed/paid live on the model but not in the form), so opening
   // this up to dispatcher doesn't leak money. Restore stays admin-only.
-  await requireStaff();
+  const me = await requireStaff();
   const existing = await prisma.job.findUnique({
     where: { id: jobId },
     select: { id: true, status: true, siteId: true, alarmEventId: true },
@@ -533,6 +560,13 @@ export async function updateJob(
       excludeFromClientReport: d.excludeFromClientReport,
       partnerReportRef: d.partnerReportRef ?? null,
     },
+  });
+
+  await logActivity({
+    entity: "Job",
+    entityId: jobId,
+    action: "edited",
+    userId: me.id,
   });
 
   revalidatePath("/dispatch");

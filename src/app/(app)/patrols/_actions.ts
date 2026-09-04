@@ -15,6 +15,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { reassignJobCore } from "@/lib/jobActions";
+import { logActivity } from "@/lib/audit";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),
@@ -58,13 +59,19 @@ export async function toggleScheduleActive(
 export async function reassignVisit(
   formData: FormData,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireStaff();
+  const me = await requireStaff();
   const visitId = formData.get("visitId")?.toString();
   const officerId = formData.get("officerId")?.toString() || "";
   if (!visitId) return { ok: false, error: "Missing visit id" };
   await prisma.patrolVisit.update({
     where: { id: visitId },
     data: { officerId: officerId === "" ? null : officerId },
+  });
+  await logActivity({
+    entity: "PatrolVisit",
+    entityId: visitId,
+    action: officerId ? "reassigned" : "unassigned",
+    userId: me.id,
   });
   revalidatePath("/patrols");
   revalidatePath("/dispatch");
@@ -96,13 +103,19 @@ export async function reassignLockUnlockSchedule(
 export async function reassignJob(
   formData: FormData,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireStaff();
+  const me = await requireStaff();
   const jobId = formData.get("jobId")?.toString();
   const officerId = formData.get("officerId")?.toString() || "";
   if (!jobId) return { ok: false, error: "Missing job id" };
 
   const r = await reassignJobCore(jobId, officerId === "" ? null : officerId);
   if (!r.ok) return { ok: false, error: r.error };
+  await logActivity({
+    entity: "Job",
+    entityId: jobId,
+    action: officerId ? "reassigned" : "unassigned",
+    userId: me.id,
+  });
 
   revalidatePath("/patrols");
   revalidatePath("/dispatch");
@@ -160,7 +173,7 @@ export async function updatePatrolVisit(
 ): Promise<EditVisitState> {
   // Dispatcher + admin. EditVisitForm exposes scheduling / officer /
   // notes, no finance fields. Aligns with the dispatch job edit.
-  await requireStaff();
+  const me = await requireStaff();
   const parsed = EditVisitInput.safeParse({
     officerId: formData.get("officerId")?.toString() || null,
     handledByPartnerId: formData.get("handledByPartnerId")?.toString() || null,
@@ -204,6 +217,13 @@ export async function updatePatrolVisit(
       status: d.status as any,
       notes: d.notes ?? null,
     },
+  });
+
+  await logActivity({
+    entity: "PatrolVisit",
+    entityId: visitId,
+    action: "edited",
+    userId: me.id,
   });
 
   revalidatePath("/patrols");
@@ -284,6 +304,13 @@ export async function closePatrolVisit(
     }
   }
 
+  await logActivity({
+    entity: "PatrolVisit",
+    entityId: visitId,
+    action: "closed",
+    userId: me.id,
+  });
+
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
   revalidatePath(`/patrols/visits/${visitId}`);
@@ -327,6 +354,13 @@ export async function cancelPatrolVisit(
     },
   });
 
+  await logActivity({
+    entity: "PatrolVisit",
+    entityId: visitId,
+    action: "cancelled",
+    userId: me.id,
+  });
+
   revalidatePath("/dispatch");
   revalidatePath("/patrols");
   revalidatePath(`/patrols/visits/${visitId}`);
@@ -345,7 +379,7 @@ export async function cancelPatrolVisit(
 export async function restorePatrolVisit(
   visitId: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAdmin();
+  const me = await requireAdmin();
   const visit = await prisma.patrolVisit.findUnique({
     where: { id: visitId },
     select: {
@@ -392,6 +426,13 @@ export async function restorePatrolVisit(
       }
     }
   }
+
+  await logActivity({
+    entity: "PatrolVisit",
+    entityId: visitId,
+    action: "restored",
+    userId: me.id,
+  });
 
   revalidatePath("/dispatch");
   revalidatePath("/patrols");

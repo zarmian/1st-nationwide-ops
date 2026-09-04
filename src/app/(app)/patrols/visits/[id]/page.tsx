@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { ActivityHistory } from "@/components/ActivityHistory";
+import { loadActivityHistory } from "@/lib/activityHistory";
 import { requireStaff } from "@/lib/authz";
 import { CloseActivityButton } from "../../../dispatch/_components/CloseActivityButton";
 import { CancelActivityButton } from "../../../dispatch/_components/CancelActivityButton";
@@ -94,6 +96,8 @@ export default async function PatrolVisitDetailPage({
 
   const billed = moneyOrNull(visit.billedAmount, visit.billedCurrency);
   const paid = moneyOrNull(visit.paidAmount, visit.paidCurrency);
+
+  const history = await loadActivityHistory("PatrolVisit", params.id);
 
   return (
     <div className="space-y-4 max-w-4xl">
@@ -329,6 +333,8 @@ export default async function PatrolVisitDetailPage({
           <p className="text-sm text-slate-400 italic">No notes.</p>
         )}
       </div>
+
+      <ActivityHistory events={history} />
     </div>
   );
 }
