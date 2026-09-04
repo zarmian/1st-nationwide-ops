@@ -12,6 +12,7 @@ import {
   payForOfficer,
 } from "@/lib/billing";
 import { CalloutInput, checkBackdateAllowed } from "@/lib/dispatcherCallout";
+import { logActivity } from "@/lib/audit";
 import { parseUkDateTimeLocal } from "@/lib/dates";
 
 /**
@@ -185,6 +186,13 @@ export async function recordDispatcherCallout(
       if (pay.ok) await applyPayToJob(created.id, pay, at);
     }
   }
+
+  await logActivity({
+    entity: "Job",
+    entityId: created.id,
+    action: "recorded",
+    userId: me.id,
+  });
 
   revalidatePath("/dispatch");
   revalidatePath("/activities");

@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
+import { ActivityHistory } from "@/components/ActivityHistory";
+import { loadActivityHistory } from "@/lib/activityHistory";
 import { reassignJob } from "../../patrols/_actions";
 import { QuickReassignJob } from "../../patrols/_components/QuickReassign";
 import { CancelActivityButton } from "../_components/CancelActivityButton";
@@ -146,6 +148,8 @@ export default async function JobDetailPage({
           radiusM: job.site?.geofenceRadiusM,
         })
       : null;
+
+  const history = await loadActivityHistory("Job", params.id);
 
   return (
     <div className="space-y-4 max-w-4xl">
@@ -474,6 +478,8 @@ export default async function JobDetailPage({
           <p className="text-sm text-slate-400 italic">No notes.</p>
         )}
       </div>
+
+      <ActivityHistory events={history} />
     </div>
   );
 }
