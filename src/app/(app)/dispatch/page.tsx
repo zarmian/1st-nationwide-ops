@@ -516,6 +516,8 @@ export default async function DispatchPage({
       // belongs to the 2nd, not the 4th.
       where: {
         completedAt: { not: null },
+        // Cancelled work never belongs in "recently completed".
+        status: { not: "CANCELLED" },
         ...jobScheduledRange(recentSince, now),
         AND: jobHiddenAnd(hidden),
       },
