@@ -16,6 +16,7 @@ import { notifyAlarmReceived } from "@/lib/notifications";
 import { notifyAssignedOfficerOfJob } from "@/lib/telegramNotify";
 import { cancelJobCore, closeJobCore } from "@/lib/jobActions";
 import { logActivity } from "@/lib/audit";
+import { findDuplicateJobWarnings } from "@/lib/duplicateCheck";
 import { parseUkDateTimeLocal } from "@/lib/dates";
 import {
   materializeLockUnlockJobs,
@@ -98,6 +99,8 @@ const NewJobInput = z
 export type NewJobState = {
   error?: string;
   fieldErrors?: Record<string, string[]>;
+  /** Soft duplicate warnings — shown with an "add anyway" override. */
+  warnings?: string[];
 };
 
 function parseForm(formData: FormData) {
@@ -150,6 +153,17 @@ export async function createJob(
       error: "Site is inactive.",
       fieldErrors: { siteId: ["Site is not currently active"] },
     };
+  }
+
+  // Duplicate guard: warn on a same-site clash unless the user overrode it.
+  if (formData.get("override") !== "on") {
+    const at = parseUkDateTimeLocal(d.scheduledFor) ?? new Date();
+    const warnings = await findDuplicateJobWarnings({
+      siteId: d.siteId,
+      type: d.type,
+      at,
+    });
+    if (warnings.length > 0) return { warnings };
   }
 
   const handlerPartnerId =

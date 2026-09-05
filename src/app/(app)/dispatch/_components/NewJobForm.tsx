@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import type { NewJobState } from "../_actions";
 import { FormError } from "@/components/FormError";
+import { DuplicateWarning } from "@/components/DuplicateWarning";
 
 type PickerOption = { id: string; code: string; label: string };
 
@@ -66,6 +67,7 @@ export function NewJobForm({
   return (
     <form action={formAction} className="space-y-6 max-w-3xl">
       <FormError message={state.error} />
+      <DuplicateWarning warnings={state.warnings} />
 
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-brand-navy">Basics</h2>
