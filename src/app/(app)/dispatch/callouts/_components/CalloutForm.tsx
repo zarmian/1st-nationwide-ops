@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { FormError } from "@/components/FormError";
+import { DuplicateWarning } from "@/components/DuplicateWarning";
 import { formatUkDateTimeLocal } from "@/lib/dates";
 import type { CalloutState } from "../_actions";
 
@@ -80,6 +81,7 @@ export function CalloutForm({
   return (
     <form action={formAction} className="space-y-6 max-w-3xl">
       <FormError message={state.error} />
+      <DuplicateWarning warnings={state.warnings} />
 
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-brand-navy">What happened</h2>
