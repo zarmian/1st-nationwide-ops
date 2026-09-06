@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import {
   parseBonlineCall,
   isBonlineLegShape,
+  extractBonlineLegs,
   parseBonlineLeg,
   deriveCallFromLegs,
   isExternalNumber,
@@ -118,10 +119,20 @@ async function alertMissedOnce(
   return true;
 }
 
-/** bOnline leg webhook: merge into the call's row keyed by conversation_id. */
+/**
+ * bOnline call-state webhook. Handles either shape — a single leg, or the whole
+ * conversation as `{ legs: {…} }` — and merges into one CallEvent keyed by
+ * conversation_id, re-deriving the call from all known legs each time.
+ */
 async function ingestBonlineLeg(payload: unknown): Promise<NextResponse> {
-  const leg = parseBonlineLeg(payload);
-  const key = leg.conversationId ?? leg.legId;
+  const rawLegs = extractBonlineLegs(payload);
+  if (rawLegs.length === 0) return ingestGenericCall(payload);
+
+  const parsedIncoming = rawLegs.map(parseBonlineLeg);
+  const key =
+    parsedIncoming.map((l) => l.conversationId).find((c): c is string => !!c) ??
+    parsedIncoming.map((l) => l.legId).find((c): c is string => !!c) ??
+    null;
   if (!key) return ingestGenericCall(payload);
 
   const existing = await prisma.callEvent.findFirst({
@@ -136,17 +147,21 @@ async function ingestBonlineLeg(payload: unknown): Promise<NextResponse> {
   if (prevLegs && typeof prevLegs === "object" && !Array.isArray(prevLegs)) {
     Object.assign(legMap, prevLegs as Record<string, unknown>);
   }
-  const legKey = leg.legId ?? `leg-${Object.keys(legMap).length + 1}`;
-  legMap[legKey] = payload;
+  rawLegs.forEach((raw, i) => {
+    const l = parsedIncoming[i];
+    const legKey = l.legId ?? `leg-${Object.keys(legMap).length + 1}`;
+    legMap[legKey] = raw;
+  });
 
   const d = deriveCallFromLegs(Object.values(legMap).map(parseBonlineLeg));
+  const latest = parsedIncoming[parsedIncoming.length - 1];
 
   const data = {
     provider: "bonline",
     externalId: key,
     direction: d.direction,
     status: d.status,
-    rawStatus: leg.providerStatus,
+    rawStatus: latest?.providerStatus ?? null,
     fromNumber: d.fromNumber,
     toNumber: d.toNumber,
     durationSec: d.durationSec,

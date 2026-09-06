@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { Phone, PhoneMissed } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getSessionUser } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Pagination } from "@/components/Pagination";
+import { CleanupButton } from "./_components/CleanupButton";
 
 export const dynamic = "force-dynamic";
 
@@ -111,12 +113,14 @@ export default async function CallsPage({
     }),
   ]);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const me = await getSessionUser();
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Call log"
         subtitle="Calls posted by the bOnline webhook, one row per call (its ringing legs are grouped). Missed external calls alert the office."
+        actions={me?.role === "ADMIN" ? <CleanupButton /> : undefined}
       />
 
       <div className="grid grid-cols-2 gap-3 sm:max-w-md">

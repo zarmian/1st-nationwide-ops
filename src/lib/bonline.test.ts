@@ -3,6 +3,7 @@ import {
   parseBonlineCall,
   isUkMobile,
   isBonlineLegShape,
+  extractBonlineLegs,
   parseBonlineLeg,
   deriveCallFromLegs,
   isExternalNumber,
@@ -148,6 +149,33 @@ describe("bOnline call-state legs", () => {
       isBonlineLegShape({ status: "missed", from: "07700900123", to: "0800" }),
     ).toBe(false);
     expect(isBonlineLegShape(null)).toBe(false);
+  });
+
+  it("extracts legs whether sent flat or wrapped in a legs map/array", () => {
+    // Single flat leg.
+    expect(extractBonlineLegs(CALLER_LEG)).toHaveLength(1);
+    // Whole conversation as a { legs: {id: leg} } map (how bOnline posts it).
+    const wrappedMap = {
+      legs: { [OUT_CALLER_LEG.call_id]: OUT_CALLER_LEG, [OUT_CALLEE_LEG.call_id]: OUT_CALLEE_LEG },
+    };
+    expect(extractBonlineLegs(wrappedMap)).toHaveLength(2);
+    expect(isBonlineLegShape(wrappedMap)).toBe(true);
+    // As an array too.
+    expect(extractBonlineLegs({ legs: [OUT_CALLER_LEG, OUT_CALLEE_LEG] })).toHaveLength(2);
+    // Junk / generic payloads yield no legs.
+    expect(extractBonlineLegs({ from: "07700900123" })).toHaveLength(0);
+    expect(extractBonlineLegs(null)).toHaveLength(0);
+  });
+
+  it("derives one call from a whole-conversation { legs: {…} } payload", () => {
+    const wrapped = {
+      legs: { [OUT_CALLER_LEG.call_id]: OUT_CALLER_LEG, [OUT_CALLEE_LEG.call_id]: OUT_CALLEE_LEG },
+    };
+    const d = deriveCallFromLegs(extractBonlineLegs(wrapped).map(parseBonlineLeg));
+    expect(d.direction).toBe("OUTBOUND");
+    expect(d.status).toBe("ANSWERED");
+    expect(d.fromNumber).toBe("+442081678180");
+    expect(d.toNumber).toBe("07398400046");
   });
 
   it("parses a leg's fields", () => {
