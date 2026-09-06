@@ -202,10 +202,9 @@ export type BonlineLeg = {
   hangupTime: Date | null;
 };
 
-/** True when a payload looks like a bOnline call-state leg (vs a generic
- *  one-shot call webhook), so the webhook route knows to group by conversation. */
-export function isBonlineLegShape(payload: unknown): boolean {
-  const bag = flatten(payload);
+/** True when a single object carries bOnline leg fields. */
+function looksLikeBonlineLeg(raw: unknown): boolean {
+  const bag = flatten(raw);
   const hasConversation =
     pick(bag, ["conversation_id", "conversationId"]) !== undefined;
   const hasLegFields =
@@ -217,6 +216,29 @@ export function isBonlineLegShape(payload: unknown): boolean {
       "is_caller",
     ]) !== undefined;
   return hasConversation || hasLegFields;
+}
+
+/**
+ * Pull the individual legs out of a webhook body, whichever shape bOnline
+ * sends: a single flat leg, or the whole conversation as `{ legs: {id: leg} }`
+ * or `{ legs: [leg, …] }`. Returns only objects that actually look like legs.
+ */
+export function extractBonlineLegs(payload: unknown): unknown[] {
+  if (!payload || typeof payload !== "object") return [];
+  const legs = (payload as Record<string, unknown>).legs;
+  if (legs && typeof legs === "object") {
+    const arr = Array.isArray(legs)
+      ? legs
+      : Object.values(legs as Record<string, unknown>);
+    return arr.filter((l) => l && typeof l === "object" && looksLikeBonlineLeg(l));
+  }
+  return looksLikeBonlineLeg(payload) ? [payload] : [];
+}
+
+/** True when a payload looks like a bOnline call-state webhook (single leg or a
+ *  legs map/array), so the webhook route knows to group by conversation. */
+export function isBonlineLegShape(payload: unknown): boolean {
+  return extractBonlineLegs(payload).length > 0;
 }
 
 export function parseBonlineLeg(payload: unknown): BonlineLeg {
