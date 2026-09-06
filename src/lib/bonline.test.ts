@@ -52,6 +52,39 @@ const ANSWERED_LEG = {
   peer_caller_id_number: "07398400046",
 };
 
+// Real bOnline legs for an OUTBOUND call: a staff handset (+442081678180,
+// user_uuid set) dialled 07398400046, who answered.
+const OUT_CALLER_LEG = {
+  status: "Up",
+  call_id: "1788708391.2169965",
+  is_caller: true,
+  direction: "internal",
+  user_uuid: "5cdd161c-a7ca-4388-90db-747bf6fe04ec",
+  answer_time: "2026-09-06T15:26:40.921200+00:00",
+  hangup_time: "2026-09-06T15:26:50.714790+00:00",
+  reason_code: 16,
+  creation_time: "2026-09-06T15:26:31.230+0000",
+  conversation_id: "1788708391.2169965",
+  caller_id_number: "07398400046",
+  dialed_extension: "07398400046",
+  peer_caller_id_number: "+442081678180",
+};
+const OUT_CALLEE_LEG = {
+  status: "Up",
+  call_id: "1788708391.2169966",
+  is_caller: false,
+  direction: "internal",
+  user_uuid: null,
+  answer_time: "2026-09-06T15:26:40.817749+00:00",
+  hangup_time: "2026-09-06T15:26:50.705523+00:00",
+  reason_code: 16,
+  creation_time: "2026-09-06T15:26:31.343+0000",
+  conversation_id: "1788708391.2169965",
+  caller_id_number: "+442081678180",
+  dialed_extension: "07398400046",
+  peer_caller_id_number: "07398400046",
+};
+
 describe("parseBonlineCall", () => {
   it("detects a missed call from a status string", () => {
     const r = parseBonlineCall({
@@ -172,6 +205,35 @@ describe("bOnline call-state legs", () => {
     );
     expect(withAnswer.missed).toBe(false);
     expect(withAnswer.answered).toBe(true);
+  });
+
+  it("classifies a staff-initiated call as OUTBOUND with the right numbers", () => {
+    const d = deriveCallFromLegs(
+      [OUT_CALLER_LEG, OUT_CALLEE_LEG].map(parseBonlineLeg),
+    );
+    expect(d.direction).toBe("OUTBOUND");
+    expect(d.answered).toBe(true);
+    expect(d.status).toBe("ANSWERED");
+    // from = the office/staff line; to = the number we dialled.
+    expect(d.fromNumber).toBe("+442081678180");
+    expect(d.toNumber).toBe("07398400046");
+    expect(d.durationSec).toBe(10);
+  });
+
+  it("never flags an unanswered OUTBOUND call as missed", () => {
+    const callerHungUp = { ...OUT_CALLER_LEG, answer_time: null };
+    const noAnswer = {
+      ...OUT_CALLEE_LEG,
+      status: "Down",
+      answer_time: null,
+      hangup_time: null,
+    };
+    const d = deriveCallFromLegs([callerHungUp, noAnswer].map(parseBonlineLeg));
+    expect(d.direction).toBe("OUTBOUND");
+    expect(d.answered).toBe(false);
+    expect(d.ended).toBe(true);
+    expect(d.missed).toBe(false); // <- would have wrongly alerted before
+    expect(d.status).toBe("NO_ANSWER");
   });
 });
 

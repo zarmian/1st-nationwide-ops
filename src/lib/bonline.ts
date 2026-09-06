@@ -189,11 +189,13 @@ export function parseBonlineCall(payload: unknown): NormalisedCall {
 export type BonlineLeg = {
   legId: string | null; // call_id — unique per leg
   conversationId: string | null; // shared across a call's legs
-  isCaller: boolean; // true for the originating (external caller) channel
+  isCaller: boolean; // true for the originating channel
+  userUuid: string | null; // set when this leg is one of OUR users' handsets
+  directionRaw: string | null; // provider's own "inbound"/"outbound"/"internal"
   callerNumber: string | null; // caller_id_number
   peerNumber: string | null; // peer_caller_id_number
-  dialedNumber: string | null; // dialed_extension (the number rung)
-  providerStatus: string | null; // "Up" | "Ringing" | ...
+  dialedNumber: string | null; // dialed_extension (the number dialled)
+  providerStatus: string | null; // "Up" | "Ringing" | "Down" | ...
   reasonCode: number | null; // Q.850 hangup cause (16 = normal)
   creationTime: Date | null;
   answerTime: Date | null; // set once this leg is answered
@@ -225,6 +227,8 @@ export function parseBonlineLeg(payload: unknown): BonlineLeg {
       pick(bag, ["conversation_id", "conversationId"]),
     ),
     isCaller: asBool(pick(bag, ["is_caller", "isCaller"])) ?? false,
+    userUuid: asString(pick(bag, ["user_uuid", "userUuid"])),
+    directionRaw: asString(pick(bag, ["direction", "callDirection"])),
     callerNumber: asString(pick(bag, ["caller_id_number", "callerIdNumber"])),
     peerNumber: asString(
       pick(bag, ["peer_caller_id_number", "peerCallerIdNumber"]),
@@ -270,11 +274,24 @@ function latest(dates: (Date | null)[]): Date | null {
   return ms.length ? new Date(Math.max(...ms)) : null;
 }
 
+/** Comparable digits for a UK number: strip formatting and the 44/0 prefix so
+ *  "+442081678180", "442081678180" and "02081678180" all compare equal. */
+function normNum(n: string | null | undefined): string {
+  if (!n) return "";
+  let d = n.replace(/[^\d]/g, "");
+  if (d.startsWith("44")) d = d.slice(2);
+  else if (d.startsWith("0")) d = d.slice(1);
+  return d;
+}
+
 /**
  * Fold a call's legs into one call-level outcome.
- *   answered — some non-caller (agent) leg has an answer_time.
+ *   answered — the far (non-caller) leg was answered.
  *   ended    — the caller's own leg has hung up (or every leg has).
- *   missed   — ended without any agent answering.
+ *   missed   — an INBOUND call that ended with nobody answering.
+ * Direction comes from which side started the call: our own user's handset
+ * (a leg with user_uuid) placing it = OUTBOUND, otherwise INBOUND. bOnline's
+ * own `direction` field ("outbound"/"inbound") wins when it isn't "internal".
  * Recomputed from all known legs on every webhook, so it's order-independent.
  */
 export function deriveCallFromLegs(legs: BonlineLeg[]): DerivedCall {
@@ -295,14 +312,36 @@ export function deriveCallFromLegs(legs: BonlineLeg[]): DerivedCall {
   const agentLegs = legs.filter((l) => !l.isCaller);
   const callerLegs = legs.filter((l) => l.isCaller);
 
-  // External caller number: agent legs carry it as caller_id_number; the
-  // caller's own leg carries it as peer_caller_id_number.
-  const fromNumber =
-    legs.map((l) => l.callerNumber).find((n) => n && n.trim() !== "") ??
-    legs.map((l) => l.peerNumber).find((n) => n && n.trim() !== "") ??
-    null;
+  // Direction. Prefer an explicit provider label; else infer from whether the
+  // originating leg is one of our own users (has a user_uuid).
+  const explicit = legs
+    .map((l) => l.directionRaw?.toLowerCase())
+    .find((d) => d === "outbound" || d === "inbound");
+  let direction: DerivedCall["direction"];
+  if (explicit === "outbound") direction = "OUTBOUND";
+  else if (explicit === "inbound") direction = "INBOUND";
+  else {
+    const callerLeg = callerLegs[0];
+    if (callerLeg) direction = callerLeg.userUuid ? "OUTBOUND" : "INBOUND";
+    else direction = "UNKNOWN";
+  }
+
+  // to = the number that was dialled (consistent across legs & directions).
+  // from = the other party on the call (the caller/peer number that isn't the
+  // dialled number) — robust to bOnline swapping caller_id/peer between legs.
   const toNumber =
     legs.map((l) => l.dialedNumber).find((n) => n && n.trim() !== "") ?? null;
+  const toNorm = normNum(toNumber);
+  const candidates: string[] = [];
+  for (const l of legs) {
+    for (const n of [l.callerNumber, l.peerNumber]) {
+      if (n && n.trim() !== "") candidates.push(n);
+    }
+  }
+  const fromNumber =
+    candidates.find((n) => normNum(n) !== "" && normNum(n) !== toNorm) ??
+    candidates[0] ??
+    null;
 
   const occurredAt = earliest(legs.map((l) => l.creationTime ?? l.answerTime));
 
@@ -313,22 +352,23 @@ export function deriveCallFromLegs(legs: BonlineLeg[]): DerivedCall {
     callerLegs.some((l) => l.hangupTime != null) ||
     (callerLegs.length === 0 && legs.every((l) => l.hangupTime != null));
 
-  const missed = !answered && ended;
+  // A missed call is an INBOUND call nobody answered. An unanswered OUTBOUND
+  // call is "no answer" — not something to alert the office about.
+  const missed = !answered && ended && direction !== "OUTBOUND";
 
   let status = "IN_PROGRESS";
   if (answered) status = "ANSWERED";
-  else if (ended) status = "MISSED";
-
-  const direction: DerivedCall["direction"] = isExternalNumber(fromNumber)
-    ? "INBOUND"
-    : "INTERNAL";
+  else if (ended) status = direction === "OUTBOUND" ? "NO_ANSWER" : "MISSED";
 
   let durationSec: number | null = null;
   if (answered) {
     const answeredAt = earliest(agentLegs.map((l) => l.answerTime));
     const endedAt = latest(legs.map((l) => l.hangupTime));
     if (answeredAt && endedAt) {
-      durationSec = Math.max(0, Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000));
+      durationSec = Math.max(
+        0,
+        Math.round((endedAt.getTime() - answeredAt.getTime()) / 1000),
+      );
     }
   }
 
