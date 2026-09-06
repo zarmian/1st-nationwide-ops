@@ -13,6 +13,7 @@ const STATUS_TONE: Record<string, string> = {
   MISSED: "chip-red",
   ANSWERED: "chip-mint",
   IN_PROGRESS: "chip-info",
+  NO_ANSWER: "chip-amber",
   VOICEMAIL: "chip-amber",
   BUSY: "chip-amber",
   FAILED: "chip-slate",
