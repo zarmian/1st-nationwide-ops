@@ -565,7 +565,7 @@ export async function drainQueue(
           error:
             channel === "WHATSAPP"
               ? "WhatsApp not configured (WHATSAPP_PHONE_ID / WHATSAPP_ACCESS_TOKEN missing)"
-              : "SMS not configured (SMS_WORKS_JWT missing)",
+              : "SMS not configured (no httpsms or SMS Works credentials)",
           attempts: { increment: 1 },
         },
       });
