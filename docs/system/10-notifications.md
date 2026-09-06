@@ -1,13 +1,14 @@
 # Notifications
 
-> One `Notification` queue table feeds three transports — WhatsApp (Meta) and SMS (httpsms) are drained by per-minute crons, while Telegram is a fire-and-forget broadcast sent inline; domain helpers funnel every event through `queueAll` (WhatsApp + Telegram) or `queueSms*` (SMS), and dedup keeps cron-driven reminders from re-firing.
+> One `Notification` queue table feeds three transports — WhatsApp (Meta) and SMS (httpsms) are drained by per-minute crons, while Telegram is sent inline; each domain helper reads the **routing matrix** (`NotificationSetting`, edited at `/admin/notifications/settings`) to decide who receives the event and over which mediums, and dedup keeps cron-driven reminders from re-firing.
 
 ## Purpose & scope
 
 The unified outbound-notification system in `src/lib/notifications.ts` plus its three provider clients. Covers:
 
 - The `Notification` queue model and its `PENDING → SENT/FAILED/SKIPPED` lifecycle.
-- The two funnels: `queueAll` (WhatsApp rows **and** a Telegram broadcast) and `queueSms` / `queueSmsOnce` (SMS rows).
+- The admin-editable **routing matrix** (`src/lib/notificationSettings.ts` + `NotificationSetting`): per-kind `enabled` / audience (`toAdmin` / `toDispatcher` / `toOfficer`) / channel (`viaTelegram` / `viaSms` / `viaWhatsapp`). A missing row = built-in default (matches the pre-panel behaviour). `getNotificationRouting(kind)` is read at fire time.
+- The two internal fan-outs: `dispatchToStaff` (office/dispatch events → Telegram inline + WhatsApp/SMS queue rows, role-filtered) and `dispatchToOfficer` (a single officer → SMS and/or Telegram, deduped per entity).
 - Domain helpers (`notifyVisitStarted`, `…Completed`, `…LateOrMissed`, `notifyAlarmReceived`, `notifyShiftCheckOverdue`, `notifyKeyHandover`; `notifyShiftReminder`, `…JobReminder`, `…OfficerNoShow`, `…AlarmCustomerAck`, `…OfficerPaySummary`, `notifyMissedCall`).
 - The Telegram broadcast layer (`broadcastToLinkedStaff`, `notifyDispatchTelegram`, `alertMissedCallTelegram`, `alertNoShowTelegram`, `alertPartnerUpdateDueTelegram`, `notifyAssignedOfficerOfJob`).
 - The generic `drainQueue` and the channel-specific crons that call it.
@@ -49,10 +50,12 @@ Recipient contact columns live on `User`: `whatsappNumber`, `phone`, `telegramCh
 
 | File | Responsibility |
 |---|---|
-| `src/lib/notifications.ts` | Queue model logic: `queueAll`, `queueSms`, `queueSmsOnce`, all domain helpers, and `drainQueue`. |
+| `src/lib/notifications.ts` | Queue model logic: `dispatchToStaff`, `dispatchToOfficer`, all domain helpers, and `drainQueue`. |
+| `src/lib/notificationSettings.ts` | The routing matrix: `NOTIFICATION_KINDS` catalogue + defaults, `getNotificationRouting`, `getAllNotificationRoutings`. |
 | `src/lib/whatsapp.ts` | Meta WhatsApp Cloud API v21.0 client: `sendTemplate`, `isWhatsAppConfigured`, `normaliseE164`. |
 | `src/lib/sms.ts` | httpsms REST client: `sendSms`, `isSmsConfigured`, `normaliseE164`. |
-| `src/lib/telegramNotify.ts` | DB-touching Telegram broadcasts + the assigned-officer DM. |
+| `src/lib/telegramNotify.ts` | DB-touching Telegram sends: `formatDispatchAlert`, `sendTelegramToChatIds`, `broadcastToLinkedStaff`, the assigned-officer DM. |
+| `src/app/(app)/admin/notifications/settings/` | Admin routing panel (who/how per notification) + `/admin/sms-test` sends a one-off test SMS. |
 | `src/lib/telegram.ts` | Pure Bot API wrapper (`sendTelegramMessage`, `isTelegramConfigured`, HTML escaping). |
 | `src/app/api/cron/whatsapp-queue/route.ts` | Per-minute `drainQueue()` (WhatsApp). |
 | `src/app/api/cron/sms-queue/route.ts` | Per-minute `drainQueue("SMS")`. |

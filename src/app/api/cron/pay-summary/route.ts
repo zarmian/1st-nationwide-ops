@@ -16,8 +16,8 @@ import {
  * Job.paidAmount, and Shift.paidAmount; texts those with phone numbers
  * a one-line summary.
  *
- * Idempotent via queueSmsOnce — the Notification eventEntityId is
- * `<officerId>:<YYYY-MM>` so re-running the cron in-month is safe.
+ * Idempotent per officer-month — the Notification eventEntityId is
+ * `<officerId>:<YYYY-MM>`, so re-running the cron in-month won't re-send.
  *
  * `?force=YYYY-MM` overrides which month to sum — useful for admin
  * testing without waiting for the calendar. Still gated on the cron

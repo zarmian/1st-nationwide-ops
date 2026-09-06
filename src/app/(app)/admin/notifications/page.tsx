@@ -16,12 +16,27 @@ const STATUS_TONE: Record<string, string> = {
 };
 
 const KIND_LABEL: Record<string, string> = {
-  VISIT_STARTED: "Visit started",
-  VISIT_COMPLETED: "Visit completed",
-  VISIT_LATE: "Visit late",
-  VISIT_MISSED: "Visit missed",
+  VISIT_STARTED: "Patrol started",
+  VISIT_COMPLETED: "Patrol completed",
+  VISIT_LATE: "Patrol late",
+  VISIT_MISSED: "Patrol missed",
   ALARM_RECEIVED: "Alarm received",
   KEY_HANDOVER: "Key handover",
+  SHIFT_CHECK_OVERDUE: "Check-in overdue",
+  SHIFT_REMINDER: "Shift reminder",
+  JOB_REMINDER: "Job reminder",
+  OFFICER_NO_SHOW: "Officer no-show",
+  ALARM_CUSTOMER_ACK: "Customer alarm ack",
+  PAY_SUMMARY: "Pay summary",
+  MISSED_CALL: "Missed call",
+  SHIFT_LINK: "Shift link",
+};
+
+const CHANNEL_TONE: Record<string, string> = {
+  WHATSAPP: "chip-green",
+  SMS: "chip-info",
+  TELEGRAM: "chip-mint",
+  EMAIL: "chip-slate",
 };
 
 function fmt(d: Date | null): string {
@@ -71,28 +86,45 @@ export default async function NotificationsPage({
   return (
     <div className="space-y-4">
       <PageHeader
-        title="WhatsApp notifications"
+        title="Notifications"
         backHref="/admin"
         backLabel="Admin"
         subtitle={
           <>
-            Outbound queue. The /api/cron/whatsapp-queue cron drains every
-            minute. Officers / dispatchers receive notifications based on{" "}
+            Outbound queue for WhatsApp, SMS and Telegram alerts. The per-minute
+            crons drain WhatsApp and SMS; Telegram is sent instantly. Choose who
+            gets what on the{" "}
             <Link
-              href="/officers"
+              href="/admin/notifications/settings"
               className="text-brand-blue-dark hover:underline"
             >
-              their WhatsApp number
+              routing settings
             </Link>{" "}
-            being set.
+            page.
           </>
         }
-        actions={<FlushButton flush={flushQueueNow} />}
+        actions={
+          <div className="flex items-center gap-2">
+            <Link href="/admin/notifications/settings" className="btn-secondary">
+              Routing settings
+            </Link>
+            <FlushButton flush={flushQueueNow} />
+          </div>
+        }
       />
 
       {!configured && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="font-medium">WhatsApp is not configured.</span> Set{" "}
+          <span className="font-medium">WhatsApp isn't set up.</span> WhatsApp
+          messages are skipped — Telegram and SMS are unaffected. Turn WhatsApp
+          off per alert on the{" "}
+          <Link
+            href="/admin/notifications/settings"
+            className="font-medium underline"
+          >
+            routing settings
+          </Link>{" "}
+          page, or set{" "}
           <code className="text-xs bg-amber-100 px-1 rounded">
             WHATSAPP_PHONE_ID
           </code>{" "}
@@ -100,11 +132,7 @@ export default async function NotificationsPage({
           <code className="text-xs bg-amber-100 px-1 rounded">
             WHATSAPP_ACCESS_TOKEN
           </code>{" "}
-          in Vercel to start sending. See{" "}
-          <code className="text-xs bg-amber-100 px-1 rounded">
-            docs/whatsapp-setup.md
-          </code>{" "}
-          for the Meta steps.
+          in Vercel to enable it.
         </div>
       )}
 
@@ -221,6 +249,14 @@ export default async function NotificationsPage({
             cell: (n) => (
               <span className="text-slate-700">
                 {KIND_LABEL[n.kind] ?? n.kind}
+              </span>
+            ),
+          },
+          {
+            header: "Channel",
+            cell: (n) => (
+              <span className={CHANNEL_TONE[n.channel] ?? "chip-slate"}>
+                {n.channel.toLowerCase()}
               </span>
             ),
           },

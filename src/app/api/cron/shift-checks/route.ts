@@ -5,10 +5,7 @@ import {
   notifyShiftCheckOverdue,
   notifyOfficerNoShow,
 } from "@/lib/notifications";
-import {
-  alertNoShowTelegram,
-  alertPartnerUpdateDueTelegram,
-} from "@/lib/telegramNotify";
+import { alertPartnerUpdateDueTelegram } from "@/lib/telegramNotify";
 
 /**
  * 15-min sweep that does three things:
@@ -43,17 +40,13 @@ export async function GET(req: Request) {
   for (const s of pending) {
     const cutoff = s.scheduledStartsAt.getTime() + s.graceMinutes * 60_000;
     if (now.getTime() < cutoff) continue;
-    // Queue the SMS *before* flipping status so a notification failure
-    // leaves the shift PENDING and the next cron run retries. After
-    // the status flips to MISSED, the shift drops out of this query.
-    // queueSmsOnce dedupes so re-running the cron is safe.
+    // Alert the office *before* flipping status so a notification failure
+    // leaves the shift PENDING and the next cron run retries. After the status
+    // flips to MISSED, the shift drops out of this query. notifyOfficerNoShow
+    // dedupes per entity and sends over whichever channels are configured
+    // (Telegram / SMS), so re-running the cron is safe.
     await notifyOfficerNoShow({ entity: "Shift", entityId: s.id }).catch((e) =>
       console.error("notifyOfficerNoShow (shift) failed", e),
-    );
-    // Telegram alert to dispatch. The status flip below means this shift
-    // drops out of the query next run, so the alert goes exactly once.
-    await alertNoShowTelegram("Shift", s.id).catch((e) =>
-      console.error("alertNoShowTelegram (shift) failed", e),
     );
     await prisma.shift.update({
       where: { id: s.id },
@@ -82,6 +75,8 @@ export async function GET(req: Request) {
   });
   let jobNoShowQueued = 0;
   for (const j of lateJobs) {
+    // notifyOfficerNoShow dedupes per job across channels and sends Telegram
+    // and/or SMS per the routing settings, so it alerts once per job.
     const n = await notifyOfficerNoShow({
       entity: "Job",
       entityId: j.id,
@@ -89,13 +84,6 @@ export async function GET(req: Request) {
       console.error("notifyOfficerNoShow (job) failed", e);
       return 0;
     });
-    // Only alert Telegram when the SMS was freshly queued (n > 0), so the
-    // queueSmsOnce dedupe keeps the Telegram alert to once per job too.
-    if (n > 0) {
-      await alertNoShowTelegram("Job", j.id).catch((e) =>
-        console.error("alertNoShowTelegram (job) failed", e),
-      );
-    }
     jobNoShowQueued += n;
   }
 
@@ -144,11 +132,11 @@ export async function GET(req: Request) {
       console.error("notifyShiftCheckOverdue failed", e);
       return 0;
     });
-    // notifyShiftCheckOverdue also broadcasts to all linked dispatch on
-    // Telegram (via queueAll). When no WhatsApp recipients are configured it
-    // writes no queue row, so the recentNotif gate above would re-broadcast
-    // every sweep — drop a SKIPPED marker to hold it to once per overdue
-    // window. (When queued > 0 the PENDING WhatsApp rows serve as the marker.)
+    // notifyShiftCheckOverdue also sends Telegram inline to linked dispatch.
+    // When no WhatsApp/SMS rows are queued (e.g. Telegram-only), it returns 0,
+    // so the recentNotif gate above would re-broadcast every sweep — drop a
+    // SKIPPED marker to hold it to once per overdue window. (When queued > 0 the
+    // PENDING queue rows serve as the marker.)
     if (queued === 0) {
       await prisma.notification
         .create({

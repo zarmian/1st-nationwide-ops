@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { parseBonlineCall } from "@/lib/bonline";
 import { notifyMissedCall } from "@/lib/notifications";
-import { alertMissedCallTelegram } from "@/lib/telegramNotify";
 
 /**
  * Shared bOnline webhook logic, used by both URL shapes:
@@ -124,17 +123,26 @@ export async function ingestBonline(req: Request): Promise<NextResponse> {
 
   let alerted = false;
   if (parsed.missed && !alreadyAlerted) {
-    const queued = await notifyMissedCall(callEventId).catch((e) => {
+    // notifyMissedCall routes to the office over whichever channels are
+    // configured (Telegram / SMS) and dedupes per call, so repeated webhook
+    // deliveries don't re-alert.
+    await notifyMissedCall(callEventId).catch((e) => {
       console.error("notifyMissedCall failed", e);
       return 0;
     });
-    // Telegram alert to any linked dispatch/admin — independent of SMS
-    // recipients, so a Telegram-only team still gets the heads-up.
-    const tg = await alertMissedCallTelegram(callEventId).catch((e) => {
-      console.error("alertMissedCallTelegram failed", e);
-      return 0;
+    // Flip `alerted` once an alert has actually been recorded (a queued SMS
+    // row or a Telegram marker). If nothing could be sent yet — e.g. no
+    // channel configured — leave it so a later delivery retries.
+    const recorded = await prisma.notification.findFirst({
+      where: {
+        eventEntity: "CallEvent",
+        eventEntityId: callEventId,
+        kind: "MISSED_CALL",
+        status: { notIn: ["FAILED"] },
+      },
+      select: { id: true },
     });
-    if (queued > 0 || tg > 0) {
+    if (recorded) {
       await prisma.callEvent.update({
         where: { id: callEventId },
         data: { alerted: true },
