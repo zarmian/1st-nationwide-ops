@@ -36,7 +36,7 @@ edit → commit + push → PR → merge to main → Vercel auto-deploys
 | `ANTHROPIC_API_KEY` | Telegram bot intent routing (`src/lib/anthropic.ts`). | Bot |
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_USERNAME` / `TELEGRAM_WEBHOOK_SECRET` | Telegram bot. | Bot |
 | `WHATSAPP_PHONE_ID` / `WHATSAPP_ACCESS_TOKEN` | Meta WhatsApp Cloud API. Notifications queue but stay `SKIPPED` until set. | WhatsApp |
-| `SMS_WORKS_JWT` | SMS Works API (SMS channel). | SMS |
+| `HTTPSMS_API_KEY` / `HTTPSMS_FROM` | httpsms gateway (SMS channel). `HTTPSMS_FROM` = the gateway phone's own number in E.164. Optional `HTTPSMS_ENDPOINT` overrides the API URL for a self-hosted server. | SMS |
 | `RESEND_API_KEY` / `EMAIL_FROM` | Resend (emailing invoices + payslips via `src/lib/email.ts`). Buttons report "not set up yet" until set; `EMAIL_FROM` must be a Resend-verified sender. | Email |
 | `BLOB_READ_WRITE_TOKEN` | Vercel Blob (photo/signature uploads). | Uploads |
 | `BONLINE_WEBHOOK_SECRET` | Validates inbound bOnline call webhooks. | Calls |
