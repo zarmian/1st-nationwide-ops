@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { parseBonlineCall } from "@/lib/bonline";
+import {
+  parseBonlineCall,
+  isBonlineLegShape,
+  parseBonlineLeg,
+  deriveCallFromLegs,
+  isExternalNumber,
+} from "@/lib/bonline";
 import { notifyMissedCall } from "@/lib/notifications";
 
 /**
@@ -66,12 +72,122 @@ async function readBody(req: Request): Promise<unknown> {
 }
 
 /**
- * Store the call event (raw payload always kept) and, when it's a missed
- * call, alert dispatch by SMS — once per call. Assumes the caller has
- * already checked the secret.
+ * Store the call (raw payload always kept) and, when it's a missed call, alert
+ * the office — once per call. Assumes the secret is already checked.
+ *
+ * bOnline pushes one webhook per call *leg* (grouped by `conversation_id`), so
+ * for that shape we merge the legs into a single CallEvent and derive the
+ * call-level outcome. Anything else falls back to the generic one-row handler.
  */
 export async function ingestBonline(req: Request): Promise<NextResponse> {
   const payload = await readBody(req);
+  if (isBonlineLegShape(payload)) {
+    return ingestBonlineLeg(payload);
+  }
+  return ingestGenericCall(payload);
+}
+
+/**
+ * Raise the missed-call alert once per CallEvent, flipping `alerted` only after
+ * an alert is actually recorded (so an unconfigured channel retries later).
+ * Returns whether the row is now considered alerted.
+ */
+async function alertMissedOnce(
+  callEventId: string,
+  alreadyAlerted: boolean,
+): Promise<boolean> {
+  if (alreadyAlerted) return true;
+  await notifyMissedCall(callEventId).catch((e) => {
+    console.error("notifyMissedCall failed", e);
+    return 0;
+  });
+  const recorded = await prisma.notification.findFirst({
+    where: {
+      eventEntity: "CallEvent",
+      eventEntityId: callEventId,
+      kind: "MISSED_CALL",
+      status: { notIn: ["FAILED"] },
+    },
+    select: { id: true },
+  });
+  if (!recorded) return false;
+  await prisma.callEvent.update({
+    where: { id: callEventId },
+    data: { alerted: true },
+  });
+  return true;
+}
+
+/** bOnline leg webhook: merge into the call's row keyed by conversation_id. */
+async function ingestBonlineLeg(payload: unknown): Promise<NextResponse> {
+  const leg = parseBonlineLeg(payload);
+  const key = leg.conversationId ?? leg.legId;
+  if (!key) return ingestGenericCall(payload);
+
+  const existing = await prisma.callEvent.findFirst({
+    where: { provider: "bonline", externalId: key },
+    select: { id: true, alerted: true, payload: true },
+  });
+
+  // Accumulate legs keyed by legId so a later state update for the same leg
+  // replaces the earlier one; then re-derive the whole call from all legs.
+  const legMap: Record<string, unknown> = {};
+  const prevLegs = (existing?.payload as { legs?: unknown } | null)?.legs;
+  if (prevLegs && typeof prevLegs === "object" && !Array.isArray(prevLegs)) {
+    Object.assign(legMap, prevLegs as Record<string, unknown>);
+  }
+  const legKey = leg.legId ?? `leg-${Object.keys(legMap).length + 1}`;
+  legMap[legKey] = payload;
+
+  const d = deriveCallFromLegs(Object.values(legMap).map(parseBonlineLeg));
+
+  const data = {
+    provider: "bonline",
+    externalId: key,
+    direction: d.direction,
+    status: d.status,
+    rawStatus: leg.providerStatus,
+    fromNumber: d.fromNumber,
+    toNumber: d.toNumber,
+    durationSec: d.durationSec,
+    missed: d.missed,
+    occurredAt: d.occurredAt,
+    payload: { legs: legMap } as any,
+  };
+
+  let callEventId: string;
+  let alreadyAlerted = false;
+  if (existing) {
+    callEventId = existing.id;
+    alreadyAlerted = existing.alerted;
+    await prisma.callEvent.update({ where: { id: existing.id }, data });
+  } else {
+    const created = await prisma.callEvent.create({
+      data,
+      select: { id: true },
+    });
+    callEventId = created.id;
+  }
+
+  // Only a genuinely missed *external* call raises an alert — never an
+  // extension-to-extension internal miss.
+  let alerted = alreadyAlerted;
+  if (d.missed && isExternalNumber(d.fromNumber)) {
+    alerted = await alertMissedOnce(callEventId, alreadyAlerted);
+  }
+
+  return NextResponse.json({
+    ok: true,
+    id: callEventId,
+    conversationId: key,
+    status: d.status,
+    missed: d.missed,
+    alerted,
+  });
+}
+
+/** Generic one-shot call webhook (non-bOnline shapes): one row per call id. */
+async function ingestGenericCall(payload: unknown): Promise<NextResponse> {
   const parsed = parseBonlineCall(payload);
 
   const existing = parsed.externalId
@@ -81,74 +197,37 @@ export async function ingestBonline(req: Request): Promise<NextResponse> {
       })
     : null;
 
+  const data = {
+    provider: "bonline",
+    externalId: parsed.externalId,
+    direction: parsed.direction,
+    status: parsed.status,
+    rawStatus: parsed.rawStatus,
+    fromNumber: parsed.fromNumber,
+    toNumber: parsed.toNumber,
+    durationSec: parsed.durationSec,
+    missed: parsed.missed,
+    occurredAt: parsed.occurredAt,
+    payload: payload as any,
+  };
+
   let callEventId: string;
   let alreadyAlerted = false;
-
   if (existing) {
     callEventId = existing.id;
     alreadyAlerted = existing.alerted;
-    await prisma.callEvent.update({
-      where: { id: existing.id },
-      data: {
-        direction: parsed.direction,
-        status: parsed.status,
-        rawStatus: parsed.rawStatus,
-        fromNumber: parsed.fromNumber,
-        toNumber: parsed.toNumber,
-        durationSec: parsed.durationSec,
-        missed: parsed.missed,
-        occurredAt: parsed.occurredAt,
-        payload: payload as any,
-      },
-    });
+    await prisma.callEvent.update({ where: { id: existing.id }, data });
   } else {
     const created = await prisma.callEvent.create({
-      data: {
-        provider: "bonline",
-        externalId: parsed.externalId,
-        direction: parsed.direction,
-        status: parsed.status,
-        rawStatus: parsed.rawStatus,
-        fromNumber: parsed.fromNumber,
-        toNumber: parsed.toNumber,
-        durationSec: parsed.durationSec,
-        missed: parsed.missed,
-        occurredAt: parsed.occurredAt,
-        payload: payload as any,
-      },
+      data,
       select: { id: true },
     });
     callEventId = created.id;
   }
 
-  let alerted = false;
-  if (parsed.missed && !alreadyAlerted) {
-    // notifyMissedCall routes to the office over whichever channels are
-    // configured (Telegram / SMS) and dedupes per call, so repeated webhook
-    // deliveries don't re-alert.
-    await notifyMissedCall(callEventId).catch((e) => {
-      console.error("notifyMissedCall failed", e);
-      return 0;
-    });
-    // Flip `alerted` once an alert has actually been recorded (a queued SMS
-    // row or a Telegram marker). If nothing could be sent yet — e.g. no
-    // channel configured — leave it so a later delivery retries.
-    const recorded = await prisma.notification.findFirst({
-      where: {
-        eventEntity: "CallEvent",
-        eventEntityId: callEventId,
-        kind: "MISSED_CALL",
-        status: { notIn: ["FAILED"] },
-      },
-      select: { id: true },
-    });
-    if (recorded) {
-      await prisma.callEvent.update({
-        where: { id: callEventId },
-        data: { alerted: true },
-      });
-      alerted = true;
-    }
+  let alerted = alreadyAlerted;
+  if (parsed.missed) {
+    alerted = await alertMissedOnce(callEventId, alreadyAlerted);
   }
 
   return NextResponse.json({

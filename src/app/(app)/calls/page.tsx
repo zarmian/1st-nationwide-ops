@@ -12,11 +12,16 @@ const PAGE_SIZE = 50;
 const STATUS_TONE: Record<string, string> = {
   MISSED: "chip-red",
   ANSWERED: "chip-mint",
+  IN_PROGRESS: "chip-info",
   VOICEMAIL: "chip-amber",
   BUSY: "chip-amber",
   FAILED: "chip-slate",
   UNKNOWN: "chip-slate",
 };
+
+function prettyStatus(s: string | null): string {
+  return (s ?? "unknown").toLowerCase().replace(/_/g, " ");
+}
 
 function fmt(d: Date | null): string {
   if (!d) return "—";
@@ -110,7 +115,7 @@ export default async function CallsPage({
     <div className="space-y-4">
       <PageHeader
         title="Call log"
-        subtitle="Calls posted by the bOnline webhook. Missed calls alert dispatch by SMS."
+        subtitle="Calls posted by the bOnline webhook, one row per call (its ringing legs are grouped). Missed external calls alert the office."
       />
 
       <div className="grid grid-cols-2 gap-3 sm:max-w-md">
@@ -185,7 +190,7 @@ export default async function CallsPage({
                   </td>
                   <td className="px-4 py-2">
                     <span className={`${STATUS_TONE[c.status ?? "UNKNOWN"] ?? "chip-slate"} text-[10px]`}>
-                      {(c.status ?? "unknown").toLowerCase()}
+                      {prettyStatus(c.status)}
                     </span>
                     {c.missed && c.alerted && (
                       <span className="chip-slate text-[10px] ml-1">alerted</span>
