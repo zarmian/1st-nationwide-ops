@@ -270,7 +270,7 @@ export async function notifyKeyHandover(
 //
 // Each helper resolves the recipient, builds a plain-text body, and
 // queues a Notification row with channel=SMS. The cron at
-// /api/cron/sms-queue picks them up and sends via SMS Works.
+// /api/cron/sms-queue picks them up and sends via httpsms.
 //
 // All helpers are idempotent at the entity-id level via Notification's
 // eventEntityId index — callers check for an existing row before
@@ -565,7 +565,7 @@ export async function drainQueue(
           error:
             channel === "WHATSAPP"
               ? "WhatsApp not configured (WHATSAPP_PHONE_ID / WHATSAPP_ACCESS_TOKEN missing)"
-              : "SMS not configured (no httpsms or SMS Works credentials)",
+              : "SMS not configured (HTTPSMS_API_KEY / HTTPSMS_FROM missing)",
           attempts: { increment: 1 },
         },
       });

@@ -1,6 +1,6 @@
 # Notifications
 
-> One `Notification` queue table feeds three transports — WhatsApp (Meta) and SMS (SMS Works) are drained by per-minute crons, while Telegram is a fire-and-forget broadcast sent inline; domain helpers funnel every event through `queueAll` (WhatsApp + Telegram) or `queueSms*` (SMS), and dedup keeps cron-driven reminders from re-firing.
+> One `Notification` queue table feeds three transports — WhatsApp (Meta) and SMS (httpsms) are drained by per-minute crons, while Telegram is a fire-and-forget broadcast sent inline; domain helpers funnel every event through `queueAll` (WhatsApp + Telegram) or `queueSms*` (SMS), and dedup keeps cron-driven reminders from re-firing.
 
 ## Purpose & scope
 
@@ -51,7 +51,7 @@ Recipient contact columns live on `User`: `whatsappNumber`, `phone`, `telegramCh
 |---|---|
 | `src/lib/notifications.ts` | Queue model logic: `queueAll`, `queueSms`, `queueSmsOnce`, all domain helpers, and `drainQueue`. |
 | `src/lib/whatsapp.ts` | Meta WhatsApp Cloud API v21.0 client: `sendTemplate`, `isWhatsAppConfigured`, `normaliseE164`. |
-| `src/lib/sms.ts` | SMS Works REST client: `sendSms`, `isSmsConfigured`, `normaliseE164`. |
+| `src/lib/sms.ts` | httpsms REST client: `sendSms`, `isSmsConfigured`, `normaliseE164`. |
 | `src/lib/telegramNotify.ts` | DB-touching Telegram broadcasts + the assigned-officer DM. |
 | `src/lib/telegram.ts` | Pure Bot API wrapper (`sendTelegramMessage`, `isTelegramConfigured`, HTML escaping). |
 | `src/app/api/cron/whatsapp-queue/route.ts` | Per-minute `drainQueue()` (WhatsApp). |
@@ -135,7 +135,7 @@ Every function is fire-and-forget and self-guarding (no-op when `!isTelegramConf
 | Provider | File | Transport | Config gate |
 |---|---|---|---|
 | WhatsApp | `src/lib/whatsapp.ts` | Meta Cloud API **v21.0**, `POST graph.facebook.com/{ver}/{phoneId}/messages`, **template messages only** (required outside a 24-h customer session), lang default `en_GB`. | `WHATSAPP_PHONE_ID` + `WHATSAPP_ACCESS_TOKEN`. |
-| SMS | `src/lib/sms.ts` | SMS Works REST `POST api.thesmsworks.co.uk/v1/message/send`, content capped 1600. Sender = `SMS_WORKS_SENDER` (default `"1NW"`). Exported surface matches the retired Twilio driver. | `SMS_WORKS_JWT`. |
+| SMS | `src/lib/sms.ts` | httpsms REST `POST api.httpsms.com/v1/messages/send` (`x-api-key` auth), content capped 1600. Sends from `HTTPSMS_FROM` (the gateway phone's own number) via a dedicated Android phone. Send-only from our side — we never ingest inbound. `HTTPSMS_ENDPOINT` overrides the URL for self-hosting. Exported surface matches the retired Twilio/SMS Works drivers. | `HTTPSMS_API_KEY` + `HTTPSMS_FROM`. |
 | Telegram | `src/lib/telegram.ts` | Bot API REST, free, HTML parse mode. | `TELEGRAM_BOT_TOKEN`. |
 
 Both `whatsapp.ts` and `sms.ts` export a `normaliseE164` that accepts UK `07…` (→ `+44…`) and strict `+…` E.164.
@@ -192,4 +192,4 @@ Both `whatsapp.ts` and `sms.ts` export a `normaliseE164` that accepts UK `07…`
 - **No automatic retry of `FAILED`.** If you need retry, either re-`PENDING` the row (a small admin action) or design the caller to re-queue via `queueSmsOnce` (which ignores `FAILED`). Don't assume the per-minute cron will pick a `FAILED` row back up.
 - **Idempotency depends on stable `eventEntityId`.** A helper that queues with a `new Date()`-derived or otherwise varying id defeats `queueSmsOnce` — keep the id tied to the source row (or a stable composite like the pay-summary month key).
 - **`maxBatch = 50` per minute per channel** — a burst larger than 50 drains over successive minutes (ordered oldest-first). Raise `maxBatch` or the cron cadence if volume grows.
-- **Provider config is checked at drain time, not queue time** — rows queue fine before Meta/SMS Works is set up, then flip to `SKIPPED` with a diagnostic once the drainer runs. Watch `attempts`/`error` when debugging "nothing sent".
+- **Provider config is checked at drain time, not queue time** — rows queue fine before Meta/httpsms is set up, then flip to `SKIPPED` with a diagnostic once the drainer runs. Watch `attempts`/`error` when debugging "nothing sent".

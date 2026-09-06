@@ -34,7 +34,7 @@ The full module map is in [`README.md`](./README.md).
 - **Tailwind CSS** with brand tokens (`brand-blue` `#3B82F6`, `brand-navy` `#0F1929`) and a small primitive layer (`.btn`, `.input`, `.card`, `.table-default`…) in `src/app/globals.css`. See [`14-conventions-and-ui.md`](./14-conventions-and-ui.md).
 - **Vercel** hosting; auto-deploy from `main`. Build runs `prisma generate && prisma migrate deploy && next build`, so **every schema change needs a matching migration**. See [`15-deployment-and-ops.md`](./15-deployment-and-ops.md).
 - **Vercel Cron** drives 12 scheduled routes (materialise schedules, drain notification queues, status sweeps, invoice + contract-renewal reminders). See [`13-crons.md`](./13-crons.md).
-- **External services**: Anthropic Messages API (Telegram bot intent routing), Meta WhatsApp Cloud API, SMS Works (SMS), Vercel Blob (photos/signatures), bOnline (inbound calls), Leaflet/OSM (map), Sentry (errors), Upstash/Vercel KV (rate limiting).
+- **External services**: Anthropic Messages API (Telegram bot intent routing), Meta WhatsApp Cloud API, httpsms (SMS), Vercel Blob (photos/signatures), bOnline (inbound calls), Leaflet/OSM (map), Sentry (errors), Upstash/Vercel KV (rate limiting).
 
 ### Request lifecycle (typical)
 

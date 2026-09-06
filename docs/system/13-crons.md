@@ -21,7 +21,7 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 | `/api/cron/visit-statuses` | `0 * * * *` | hourly | Flip overdue visits `PENDING→LATE` (>1 h) and `PENDING/LATE/IN_PROGRESS→MISSED` (>24 h). | Status updates (in a tx) + `VISIT_LATE`/`VISIT_MISSED` notifications. |
 | `/api/cron/blob-cleanup` | `0 3 * * *` | daily 03:00 | Delete Vercel Blob media older than 180 days under `uploads/`. | Permanent blob deletion; submissions keep dead URLs. |
 | `/api/cron/whatsapp-queue` | `* * * * *` | every minute | `drainQueue()` — send `PENDING` WhatsApp rows via Meta. | `Notification` rows → `SENT`/`FAILED`/`SKIPPED`. |
-| `/api/cron/sms-queue` | `* * * * *` | every minute | `drainQueue("SMS")` — send `PENDING` SMS rows via SMS Works. | `Notification` rows → `SENT`/`FAILED`/`SKIPPED`. |
+| `/api/cron/sms-queue` | `* * * * *` | every minute | `drainQueue("SMS")` — send `PENDING` SMS rows via httpsms. | `Notification` rows → `SENT`/`FAILED`/`SKIPPED`. |
 | `/api/cron/shift-checks` | `*/15 * * * *` | every 15 min | **Three sweeps**: shift/job no-shows → `MISSED`; overdue in-progress check-ins; partner-update chase. | `Shift`→`MISSED`; `OFFICER_NO_SHOW`/`SHIFT_CHECK_OVERDUE` notifications; Telegram no-show + partner-chase; stamps `Job.lastPartnerChaseAt`. |
 | `/api/cron/telegram-brief` | `0 7 * * *` | daily 07:00 | Broadcast today's schedule to linked dispatch on Telegram. | Telegram DMs (no DB writes). |
 | `/api/cron/upcoming-reminders` | `*/5 * * * *` | every 5 min | Text officers about shifts/jobs starting in 30–60 min. | `SHIFT_REMINDER`/`JOB_REMINDER` SMS rows (deduped). |
