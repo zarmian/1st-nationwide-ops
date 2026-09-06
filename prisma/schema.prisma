@@ -295,6 +295,7 @@ enum NotificationChannel {
   WHATSAPP
   EMAIL
   SMS
+  TELEGRAM
 }
 
 enum NotificationKind {
@@ -1285,6 +1286,26 @@ model Notification {
   @@index([recipientUserId])
   @@index([eventEntity, eventEntityId])
   @@index([kind])
+}
+
+/// Admin-editable routing for each notification kind: who receives it
+/// (admins / dispatchers / the involved officer) and over which medium
+/// (Telegram / SMS / WhatsApp). One row per NotificationKind; a missing row
+/// means "use the built-in default" (see src/lib/notificationSettings.ts), so
+/// behaviour is unchanged until an admin saves the panel. The notification
+/// helpers read this at fire time — nothing is precomputed.
+model NotificationSetting {
+  kind            NotificationKind @id
+  enabled         Boolean          @default(true)
+  toAdmin         Boolean          @default(false)
+  toDispatcher    Boolean          @default(false)
+  toOfficer       Boolean          @default(false)
+  viaTelegram     Boolean          @default(false)
+  viaSms          Boolean          @default(false)
+  viaWhatsapp     Boolean          @default(false)
+  updatedByUserId String?          @db.Uuid
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 }
 
 /// A parsed-but-unconfirmed callout from the Telegram bot. The dispatcher

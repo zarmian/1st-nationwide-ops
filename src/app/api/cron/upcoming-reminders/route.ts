@@ -4,10 +4,10 @@ import { isAuthorisedCron } from "@/lib/cronAuth";
 import { notifyShiftReminder, notifyJobReminder } from "@/lib/notifications";
 
 /**
- * 5-min sweep that texts assigned officers about shifts + jobs starting
- * in the next 30-60 min. Each row gets a single reminder via the
- * idempotent queueSmsOnce path (Notification rows are unique per
- * Shift/Job id with kind=SHIFT_REMINDER / JOB_REMINDER).
+ * 5-min sweep that reminds assigned officers about shifts + jobs starting
+ * in the next 30-60 min. Each row gets a single reminder — the notify*
+ * helpers dedupe per (kind, Shift/Job id) across channels, so a repeated
+ * sweep won't re-send. Channel (SMS / Telegram) follows the routing settings.
  *
  * The 30-60 min window is wide enough that a 5-min cron will always
  * catch each upcoming row exactly once. Narrower windows risk missing

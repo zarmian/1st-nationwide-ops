@@ -118,76 +118,55 @@ const DISPATCH_ALERT_META: Record<string, { emoji: string; title: string }> = {
 };
 
 /**
+ * The emoji + heading + escaped body line for a domain event, ready to send as
+ * an HTML Telegram message. Exported so lib/notifications can target a
+ * specific, settings-resolved recipient set rather than every linked staffer.
+ */
+export function formatDispatchAlert(kind: string, body: string): string {
+  const meta = DISPATCH_ALERT_META[kind] ?? { emoji: "🔔", title: "Update" };
+  return `${meta.emoji} <b>${meta.title}</b>\n${escapeHtml(body)}`;
+}
+
+/**
+ * Send one HTML message to an explicit list of chat ids, returning a per-chat
+ * ok/failed result so the caller can record delivery. A no-op (empty result)
+ * when Telegram isn't configured. Text must already be HTML-escaped.
+ */
+export async function sendTelegramToChatIds(
+  chatIds: string[],
+  text: string,
+): Promise<{ chatId: string; ok: boolean }[]> {
+  if (!isTelegramConfigured()) return [];
+  return Promise.all(
+    chatIds.map(async (chatId) => {
+      const r = await sendTelegramMessage(chatId, text).catch(() => ({
+        ok: false as const,
+      }));
+      return { chatId, ok: r.ok };
+    }),
+  );
+}
+
+/**
  * Broadcast a domain event to every linked dispatcher/admin on Telegram.
- * The single Telegram funnel for everything that used to be WhatsApp-only —
- * called from lib/notifications' queueAll so each event reaches Telegram
- * regardless of whether any WhatsApp recipients are configured. `body` is the
- * same human-readable line the WhatsApp queue stores as bodyPreview.
+ * Retained for callers that still want the "all linked staff" fan-out; the
+ * settings-aware notification helpers resolve their own recipient set and call
+ * sendTelegramToChatIds instead. `body` is the same human-readable line the
+ * queue stores as bodyPreview.
  */
 export async function notifyDispatchTelegram(
   kind: string,
   body: string,
 ): Promise<number> {
   if (!isTelegramConfigured()) return 0;
-  const meta = DISPATCH_ALERT_META[kind] ?? { emoji: "🔔", title: "Update" };
-  const text = `${meta.emoji} <b>${meta.title}</b>\n${escapeHtml(body)}`;
-  return broadcastToLinkedStaff(text);
+  return broadcastToLinkedStaff(formatDispatchAlert(kind, body));
 }
 
-/** Missed inbound call → alert dispatch on Telegram. */
-export async function alertMissedCallTelegram(
-  callEventId: string,
-): Promise<number> {
-  const call = await prisma.callEvent.findUnique({
-    where: { id: callEventId },
-    select: { fromNumber: true, toNumber: true, occurredAt: true },
-  });
-  if (!call) return 0;
-  const from = call.fromNumber ?? "withheld / unknown number";
-  const when = call.occurredAt ? formatDateTime(call.occurredAt) : "just now";
-  const onLine = call.toNumber ? ` on ${escapeHtml(call.toNumber)}` : "";
-  return broadcastToLinkedStaff(
-    `📞 <b>Missed call</b>\nFrom ${escapeHtml(from)}${onLine}\n${escapeHtml(when)} — please call back.`,
-  );
-}
-
-/** Officer no-show on a shift/job → alert dispatch on Telegram. */
-export async function alertNoShowTelegram(
-  entity: "Shift" | "Job",
-  entityId: string,
-): Promise<number> {
-  if (entity === "Shift") {
-    const s = await prisma.shift.findUnique({
-      where: { id: entityId },
-      select: {
-        type: true,
-        scheduledStartsAt: true,
-        site: { select: { name: true } },
-        officer: { select: { name: true } },
-      },
-    });
-    if (!s) return 0;
-    const kind = s.type === "STATIC_GUARDING" ? "static" : "dog";
-    return broadcastToLinkedStaff(
-      `🔴 <b>No-show</b>\n${escapeHtml(s.officer?.name ?? "Officer")} hasn't started the ${kind} shift at ${escapeHtml(s.site?.name ?? "site")} (scheduled ${escapeHtml(formatDateTime(s.scheduledStartsAt))}).`,
-    );
-  }
-  const j = await prisma.job.findUnique({
-    where: { id: entityId },
-    select: {
-      type: true,
-      scheduledFor: true,
-      site: { select: { name: true } },
-      assignedTo: { select: { name: true } },
-    },
-  });
-  if (!j) return 0;
-  const what = JOB_TYPE_LABELS[j.type] || j.type.replace(/_/g, " ").toLowerCase();
-  const when = j.scheduledFor ? formatDateTime(j.scheduledFor) : "—";
-  return broadcastToLinkedStaff(
-    `🔴 <b>No-show</b>\n${escapeHtml(j.assignedTo?.name ?? "Officer")} not on site for ${escapeHtml(what)} at ${escapeHtml(j.site?.name ?? "site")} (scheduled ${escapeHtml(when)}).`,
-  );
-}
+// Missed-call and officer no-show alerts are now routed through
+// lib/notifications (notifyMissedCall / notifyOfficerNoShow), which resolve
+// recipients and channels from the settings matrix and reuse formatDispatchAlert
+// for the Telegram copy. The standalone broadcast helpers that used to live
+// here were removed when that routing was centralised.
 
 /**
  * Chase reminder for a job we've handed to a partner (e.g. Nexus). Their

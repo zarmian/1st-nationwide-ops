@@ -181,7 +181,7 @@ export async function approveReview(
 
   // Fire alarm-response ack SMS for alarm-response jobs on opted-in
   // customers. Outside the tx so an SMS outage can't roll back the
-  // approval. queueSmsOnce dedupes if the admin re-approves.
+  // approval. notifyAlarmCustomerAck dedupes per job if the admin re-approves.
   if (
     review.submission.job?.type === "ALARM_RESPONSE" &&
     review.submission.job.customer?.smsAlertsOn &&
