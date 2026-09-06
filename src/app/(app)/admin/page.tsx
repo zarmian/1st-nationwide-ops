@@ -9,6 +9,7 @@ import {
   MapPinned,
   PoundSterling,
   Bell,
+  MessageSquare,
   SlidersHorizontal,
   EyeOff,
 } from "lucide-react";
@@ -134,11 +135,21 @@ export default async function AdminHubPage() {
     {
       href: "/admin/notifications",
       title: "Notifications",
-      blurb: "WhatsApp queue — visit, alarm, and key-handover events sent to staff.",
+      blurb: "Outbound queue — visit, alarm, key-handover, reminder and alert messages sent to staff and officers.",
       stat: notifyPending,
       statLabel: "pending",
       icon: Bell,
       tone: "rose",
+    },
+    {
+      href: "/admin/sms-test",
+      title: "Test SMS",
+      blurb: "Send a one-off text to check the SMS gateway is working, and see how alerts are delivered.",
+      stat: 0,
+      statLabel: "tool",
+      icon: MessageSquare,
+      tone: "emerald",
+      tool: true,
     },
     {
       href: "/admin/options",
