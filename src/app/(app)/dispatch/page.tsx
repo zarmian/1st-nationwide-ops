@@ -313,6 +313,15 @@ export default async function DispatchPage({
     0,
     0,
   );
+  const tomorrowUk = ukDayPlus(now, 1);
+  const startOfTomorrowUtc = ukWallClockToUtc(
+    tomorrowUk.year,
+    tomorrowUk.month,
+    tomorrowUk.day,
+    0,
+    0,
+    0,
+  );
   const weekCutoffUk = ukDayPlus(now, -6);
   const weekSince = ukWallClockToUtc(
     weekCutoffUk.year,
@@ -855,12 +864,21 @@ export default async function DispatchPage({
   }
 
   // --- Operations analytics derivation --------------------------------------
-  // Completed today (UK) across jobs + visits.
+  // Completed today (UK) across jobs + visits — closed today AND belonging to
+  // today (scheduled today, or an immediate job with no schedule). A job/visit
+  // scheduled on a previous day but closed today is "previous activity" and is
+  // deliberately excluded so it can't inflate today's figure.
   const completedTodayJobs = weekJobs.filter(
-    (j) => j.completedAt && j.completedAt >= startOfTodayUtc,
+    (j) =>
+      j.completedAt &&
+      j.completedAt >= startOfTodayUtc &&
+      (j.scheduledFor == null || j.scheduledFor >= startOfTodayUtc),
   ).length;
   const completedTodayVisits = recentVisits.filter(
-    (v) => v.departedAt && v.departedAt >= startOfTodayUtc,
+    (v) =>
+      v.departedAt &&
+      v.departedAt >= startOfTodayUtc &&
+      v.scheduledAt >= startOfTodayUtc,
   ).length;
   const completedTodayTotal = completedTodayJobs + completedTodayVisits;
 
@@ -886,12 +904,63 @@ export default async function DispatchPage({
         )
       : null;
 
-  // Completion rate today: completed ÷ (completed + still-overdue) so the
-  // dispatcher sees how much of today's expected work is closed out.
-  const overdueNow = bucketCounts.missed;
+  // Completion rate today: of the work SCHEDULED for today (jobs, visits and
+  // shifts), how much is done. Anchored strictly on today's schedule, so the
+  // historical backlog of overdue items — and any backdated activity — can
+  // never move it.
+  const [
+    jobsSchedTotal,
+    jobsSchedDone,
+    visitsSchedTotal,
+    visitsSchedDone,
+    shiftsSchedTotal,
+    shiftsSchedDone,
+  ] = await prisma.$transaction([
+    prisma.job.count({
+      where: withHiddenJob({
+        scheduledFor: { gte: startOfTodayUtc, lt: startOfTomorrowUtc },
+        status: { not: "CANCELLED" },
+      }),
+    }),
+    prisma.job.count({
+      where: withHiddenJob({
+        scheduledFor: { gte: startOfTodayUtc, lt: startOfTomorrowUtc },
+        status: { in: COMPLETED_STATUSES as JobStatus[] },
+      }),
+    }),
+    prisma.patrolVisit.count({
+      where: withHiddenVisit({
+        scheduledAt: { gte: startOfTodayUtc, lt: startOfTomorrowUtc },
+      }),
+    }),
+    prisma.patrolVisit.count({
+      where: withHiddenVisit({
+        scheduledAt: { gte: startOfTodayUtc, lt: startOfTomorrowUtc },
+        status: "COMPLETED",
+      }),
+    }),
+    prisma.shift.count({
+      where: {
+        scheduledStartsAt: { gte: startOfTodayUtc, lt: startOfTomorrowUtc },
+        status: { not: "ABANDONED" },
+        AND: siteRefHiddenAnd(hidden),
+      },
+    }),
+    prisma.shift.count({
+      where: {
+        scheduledStartsAt: { gte: startOfTodayUtc, lt: startOfTomorrowUtc },
+        status: "COMPLETED",
+        AND: siteRefHiddenAnd(hidden),
+      },
+    }),
+  ]);
+  const todayScheduledTotal =
+    jobsSchedTotal + visitsSchedTotal + shiftsSchedTotal;
+  const todayScheduledDone =
+    jobsSchedDone + visitsSchedDone + shiftsSchedDone;
   const completionRate =
-    completedTodayTotal + overdueNow > 0
-      ? Math.round((completedTodayTotal / (completedTodayTotal + overdueNow)) * 100)
+    todayScheduledTotal > 0
+      ? Math.round((todayScheduledDone / todayScheduledTotal) * 100)
       : null;
 
   // Activity mix (last 7 days) by service type.
@@ -1110,7 +1179,11 @@ export default async function DispatchPage({
           tone="blue"
           label="Completion rate"
           value={completionRate == null ? "—" : `${completionRate}%`}
-          hint={overdueNow > 0 ? `${overdueNow} overdue now` : "nothing overdue"}
+          hint={
+            completionRate == null
+              ? "nothing scheduled today"
+              : `${todayScheduledDone}/${todayScheduledTotal} scheduled done`
+          }
           icon={Percent}
         />
         <StatCard
