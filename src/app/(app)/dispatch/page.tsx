@@ -865,12 +865,16 @@ export default async function DispatchPage({
   const completedTodayTotal = completedTodayJobs + completedTodayVisits;
 
   // Avg response time today: minutes between scheduledFor and startedAt for
-  // jobs that actually started, where the officer wasn't early. Directional.
+  // jobs SCHEDULED today that started late (officer wasn't early). Anchored on
+  // the job's own scheduled date — both scheduled and started today — so a
+  // previously-scheduled or backdated activity attended today never skews the
+  // figure. Directional.
   const responseSamples = weekJobs
     .filter(
       (j) =>
         j.startedAt &&
         j.scheduledFor &&
+        j.scheduledFor >= startOfTodayUtc &&
         j.startedAt >= startOfTodayUtc &&
         j.startedAt.getTime() - j.scheduledFor.getTime() > 0,
     )
