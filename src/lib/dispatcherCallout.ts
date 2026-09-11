@@ -10,6 +10,11 @@ import { parseUkDateTimeLocal } from "./dates";
 // How far back a dispatcher can set the start time. Admin bypasses.
 export const DISPATCHER_BACKDATE_DAYS = 30;
 
+// Callout job types a dispatcher can record. Static guarding and dog handling
+// are deliberately NOT here: guarding work is always recorded as a Shift (via
+// the Static guarding / Dog handling tabs on /dispatch/new), never as a job, so
+// there is one representation. The *_SHIFT job types still exist for historical
+// rows and as display keys, but nothing may create new ones.
 export const CALLOUT_JOB_TYPES = [
   "ALARM_RESPONSE",
   "PATROL",
@@ -17,7 +22,6 @@ export const CALLOUT_JOB_TYPES = [
   "UNLOCK",
   "VPI",
   "ADHOC",
-  "STATIC_GUARDING_SHIFT",
 ] as const;
 
 export const CALLOUT_SOURCES = [

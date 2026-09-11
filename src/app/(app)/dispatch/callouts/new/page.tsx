@@ -6,6 +6,9 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
+// Guarding work is always recorded as a Shift (Static guarding / Dog handling
+// tabs on /dispatch/new), never as a callout job — so the *_SHIFT types are not
+// offered here.
 const CALLOUT_TYPE_CODES = new Set([
   "ALARM_RESPONSE",
   "PATROL",
@@ -13,7 +16,6 @@ const CALLOUT_TYPE_CODES = new Set([
   "UNLOCK",
   "VPI",
   "ADHOC",
-  "STATIC_GUARDING_SHIFT",
 ]);
 
 const CALLOUT_SOURCE_CODES = new Set([

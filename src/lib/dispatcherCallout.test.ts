@@ -86,6 +86,13 @@ describe("CalloutInput — enums", () => {
     expect(r.success).toBe(false);
   });
 
+  it("rejects guarding types — static guarding is recorded as a Shift, not a callout", () => {
+    for (const type of ["STATIC_GUARDING_SHIFT", "DOG_HANDLER_SHIFT"]) {
+      const r = CalloutInput.safeParse(baseInput({ type }));
+      expect(r.success, `${type} should be rejected`).toBe(false);
+    }
+  });
+
   it("rejects SCHEDULED as a source (callouts are reactive, not scheduled)", () => {
     const r = CalloutInput.safeParse(baseInput({ source: "SCHEDULED" }));
     expect(r.success).toBe(false);
