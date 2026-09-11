@@ -4,7 +4,28 @@ import {
   periodKey,
   periodLabel,
   periodKeysBetween,
+  jobKindLabel,
 } from "./clientPortal";
+
+describe("jobKindLabel", () => {
+  it("folds shift-equivalent job types into the same label as real shifts", () => {
+    // A static-guarding job (with its own typeLabel) must read identically to
+    // a static-guarding Shift, so the portal shows one type, not two.
+    expect(jobKindLabel("STATIC_GUARDING_SHIFT", "Static guarding shift")).toBe(
+      "Static guarding",
+    );
+    expect(jobKindLabel("STATIC_GUARDING_SHIFT", null)).toBe("Static guarding");
+    expect(jobKindLabel("DOG_HANDLER_SHIFT", "Dog handler shift")).toBe(
+      "Dog handler",
+    );
+  });
+
+  it("keeps other job kinds as their label / mapping / prettified type", () => {
+    expect(jobKindLabel("ALARM_RESPONSE", null)).toBe("Alarm response");
+    expect(jobKindLabel("LOCK", "Custom lock label")).toBe("Custom lock label");
+    expect(jobKindLabel("SOMETHING_NEW", null)).toBe("SOMETHING NEW");
+  });
+});
 
 // Raw activity literals (structural match of the internal RawActivity type).
 const mk = (

@@ -50,6 +50,20 @@ const JOB_KIND: Record<string, string> = {
   PATROL: "Patrol",
 };
 
+/**
+ * Client-facing label for a job's kind. Static-guarding and dog-handler work
+ * can reach the portal as a Job (type STATIC_GUARDING_SHIFT / DOG_HANDLER_SHIFT)
+ * or as a Shift, and both must read as the same activity — otherwise the client
+ * sees "Static guarding" and "Static guarding shift" as two separate types. So
+ * these two job types are forced to the same canonical labels the Shift path
+ * uses, ignoring any per-job typeLabel.
+ */
+export function jobKindLabel(type: string, typeLabel: string | null): string {
+  if (type === "STATIC_GUARDING_SHIFT") return "Static guarding";
+  if (type === "DOG_HANDLER_SHIFT") return "Dog handler";
+  return typeLabel ?? JOB_KIND[type] ?? type.replace(/_/g, " ");
+}
+
 function jobStatus(s: string): ClientActivityStatus {
   if (s === "IN_PROGRESS") return "In progress";
   if (s === "OPEN" || s === "ASSIGNED") return "Scheduled";
@@ -144,7 +158,7 @@ async function fetchRaw(
     if (!j.site) continue;
     out.push({
       id: `job:${j.id}`,
-      kind: j.typeLabel ?? JOB_KIND[j.type] ?? j.type.replace(/_/g, " "),
+      kind: jobKindLabel(j.type, j.typeLabel),
       siteId: j.site.id,
       siteName: j.site.name,
       siteCode: j.site.code,
