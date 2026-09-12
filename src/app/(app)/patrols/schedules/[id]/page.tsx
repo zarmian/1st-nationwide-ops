@@ -76,6 +76,7 @@ export default async function PatrolScheduleDetailPage({
       },
       assignedOfficer: { select: { id: true, name: true } },
       handledByPartner: { select: { id: true, name: true } },
+      createdBy: { select: { name: true } },
       visits: {
         select: {
           id: true,
@@ -209,6 +210,19 @@ export default async function PatrolScheduleDetailPage({
             </Row>
             <Row label="Starts on">{fmtDate(schedule.startsOn)}</Row>
             <Row label="Ends on">{fmtDate(schedule.endsOn)}</Row>
+            <Row label="Set up by">
+              {schedule.createdBy?.name ? (
+                <>
+                  {schedule.createdBy.name}
+                  <span className="text-slate-400">
+                    {" "}
+                    · {fmtDate(schedule.createdAt)}
+                  </span>
+                </>
+              ) : (
+                <span className="text-slate-400">Not recorded</span>
+              )}
+            </Row>
           </dl>
         </div>
       </div>
