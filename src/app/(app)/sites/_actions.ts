@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { requireStaff } from "@/lib/authz";
+import { logActivity } from "@/lib/audit";
 import { prisma } from "@/lib/db";
 import { encryptString } from "@/lib/crypto";
 import { geocodePostcodes } from "@/lib/geocode";
@@ -229,6 +230,30 @@ function scheduleRowFromInput(
   };
 }
 
+/** Stable signature of a site's patrol/VPI schedule set, for change detection
+ *  in the audit log (order-independent). */
+function scheduleSignature(
+  rows: {
+    kind: string;
+    dayOfWeek: string;
+    timesOfDay?: string[];
+    timeOfDay?: string | null;
+  }[],
+): string {
+  return rows
+    .map((r) => {
+      const times =
+        r.timesOfDay && r.timesOfDay.length
+          ? r.timesOfDay
+          : r.timeOfDay
+            ? [r.timeOfDay]
+            : [];
+      return `${r.kind}:${r.dayOfWeek}:${times.join(",")}`;
+    })
+    .sort()
+    .join("|");
+}
+
 function safeJson<T>(raw: string | null | undefined, fallback: T): T {
   if (!raw) return fallback;
   try {
@@ -300,13 +325,20 @@ function parseFormData(formData: FormData) {
 
 type ParsedSite = z.infer<typeof SiteInput>;
 
-async function syncRelations(siteId: string, d: ParsedSite) {
+async function syncRelations(siteId: string, d: ParsedSite, userId: string) {
   const services = new Set(d.services);
   const wantsKeys = services.has("KEYHOLDING");
   const wantsLockUnlock = services.has("LOCKUP") || services.has("UNLOCK");
   const wantsPatrol = services.has("PATROL");
   const wantsVpi = services.has("VPI");
   const wantsAccess = services.has("ALARM_RESPONSE");
+
+  // Snapshot the current patrol/VPI schedule set before we replace it, so we
+  // can record in the audit log who changed a site's patrol setup (and when).
+  const beforeSchedules = await prisma.patrolSchedule.findMany({
+    where: { siteId, kind: { in: ["PATROL", "VPI"] } },
+    select: { kind: true, dayOfWeek: true, timesOfDay: true, timeOfDay: true },
+  });
 
   await prisma.$transaction(async (tx) => {
     // ── Keys ──────────────────────────────────────────────────────────────
@@ -419,7 +451,10 @@ async function syncRelations(siteId: string, d: ParsedSite) {
     });
     if (wantsPatrol && d.patrolDays.length) {
       await tx.patrolSchedule.createMany({
-        data: d.patrolDays.map((p) => scheduleRowFromInput(siteId, "PATROL", p)),
+        data: d.patrolDays.map((p) => ({
+          ...scheduleRowFromInput(siteId, "PATROL", p),
+          createdByUserId: userId,
+        })),
       });
     }
 
@@ -429,7 +464,10 @@ async function syncRelations(siteId: string, d: ParsedSite) {
     });
     if (wantsVpi && d.vpiDays.length) {
       await tx.patrolSchedule.createMany({
-        data: d.vpiDays.map((p) => scheduleRowFromInput(siteId, "VPI", p)),
+        data: d.vpiDays.map((p) => ({
+          ...scheduleRowFromInput(siteId, "VPI", p),
+          createdByUserId: userId,
+        })),
       });
     }
 
@@ -462,13 +500,38 @@ async function syncRelations(siteId: string, d: ParsedSite) {
       }
     }
   });
+
+  // Audit the patrol/VPI schedule setup: record who changed it, but only when
+  // the set actually changed (so an unrelated site edit doesn't log noise).
+  const afterRows = [
+    ...(wantsPatrol
+      ? d.patrolDays.map((p) => scheduleRowFromInput(siteId, "PATROL", p))
+      : []),
+    ...(wantsVpi
+      ? d.vpiDays.map((p) => scheduleRowFromInput(siteId, "VPI", p))
+      : []),
+  ];
+  const beforeSig = scheduleSignature(beforeSchedules);
+  const afterSig = scheduleSignature(afterRows);
+  if (beforeSig !== afterSig) {
+    await logActivity({
+      entity: "Site",
+      entityId: siteId,
+      action: beforeSig ? "patrol_schedule_changed" : "patrol_schedule_set",
+      userId,
+      diff: {
+        patrols: afterRows.filter((r) => r.kind === "PATROL").length,
+        vpi: afterRows.filter((r) => r.kind === "VPI").length,
+      } as any,
+    }).catch((e) => console.error("logActivity (patrol schedule) failed", e));
+  }
 }
 
 export async function createSite(
   _prev: SiteFormState,
   formData: FormData,
 ): Promise<SiteFormState> {
-  await requireStaff();
+  const me = await requireStaff();
   const parsed = parseFormData(formData);
   if (!parsed.success) {
     return {
@@ -523,7 +586,7 @@ export async function createSite(
     select: { id: true },
   });
 
-  await syncRelations(created.id, d);
+  await syncRelations(created.id, d, me.id);
 
   revalidatePath("/sites");
   redirect(`/sites/${created.id}`);
@@ -534,7 +597,7 @@ export async function updateSite(
   _prev: SiteFormState,
   formData: FormData,
 ): Promise<SiteFormState> {
-  await requireStaff();
+  const me = await requireStaff();
   const parsed = parseFormData(formData);
   if (!parsed.success) {
     return {
@@ -604,7 +667,7 @@ export async function updateSite(
     },
   });
 
-  await syncRelations(id, d);
+  await syncRelations(id, d, me.id);
 
   revalidatePath("/sites");
   revalidatePath(`/sites/${id}`);

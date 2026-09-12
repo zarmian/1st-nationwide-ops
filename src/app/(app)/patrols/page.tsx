@@ -7,9 +7,11 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { getSessionUser } from "@/lib/authz";
 import { FilterPanel } from "@/components/FilterPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard, type StatTone } from "@/components/StatCard";
+import { PatrolCleanupButton } from "./_components/PatrolCleanupButton";
 import {
   reassignJob,
   reassignLockUnlockSchedule,
@@ -71,6 +73,7 @@ export default async function PatrolsPage({
   const regionFilter = searchParams.region ? Number(searchParams.region) : null;
   const officerFilter = searchParams.officer ?? "";
   const kindFilter = searchParams.kind ?? "";
+  const me = await getSessionUser();
 
   const scheduleWhere: any = {};
   if (regionFilter && Number.isFinite(regionFilter)) {
@@ -204,6 +207,7 @@ export default async function PatrolsPage({
       <PageHeader
         title="Schedules"
         subtitle="Recurring work across all sites — patrols, VPI, lock-ups, unlocks — plus what's coming up over the next 14 days."
+        actions={me?.role === "ADMIN" ? <PatrolCleanupButton /> : undefined}
       />
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-2">

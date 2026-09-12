@@ -419,7 +419,8 @@ model User {
   updatedAt     DateTime @updatedAt
 
   defaultResponderForSites Site[]              @relation("DefaultResponder")
-  patrolSchedules          PatrolSchedule[]
+  patrolSchedules          PatrolSchedule[]    @relation("PatrolScheduleOfficer")
+  patrolSchedulesCreated   PatrolSchedule[]    @relation("PatrolScheduleCreatedBy")
   patrolVisits             PatrolVisit[]
   lockUnlockSchedules      LockUnlockSchedule[]
   alarmEventsAssigned      AlarmEvent[]        @relation("AlarmAssignedTo")
@@ -739,7 +740,12 @@ model PatrolSchedule {
   // holidays, one-off pauses.
   exceptionDates    String[]        @default([])
   assignedOfficerId String?         @db.Uuid
-  assignedOfficer   User?           @relation(fields: [assignedOfficerId], references: [id])
+  assignedOfficer   User?           @relation("PatrolScheduleOfficer", fields: [assignedOfficerId], references: [id])
+  /// Who last set up / changed this schedule (via the site's patrol settings).
+  /// Audit stamp — patrol visits are system-generated, so this is where "who
+  /// created the patrol" is answerable.
+  createdByUserId   String?         @db.Uuid
+  createdBy         User?           @relation("PatrolScheduleCreatedBy", fields: [createdByUserId], references: [id])
   /// Subcontracted patrols: assign the schedule to a partner instead of an
   /// internal officer (mutually exclusive with assignedOfficerId in the UI).
   handledByPartnerId String?        @db.Uuid
