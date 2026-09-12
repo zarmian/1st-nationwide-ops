@@ -36,17 +36,27 @@ const {
 
 const preview = String(NEXUS_PREVIEW).toLowerCase() === "true";
 
-function required(name, value) {
-  if (!value) {
-    console.error(`Missing required env: ${name}`);
-    process.exit(2);
-  }
+// Required config. If NONE is set the sync simply isn't configured yet, so a
+// scheduled run skips quietly (exit 0) instead of emailing a failure every
+// night. If SOME are set but others are missing, that's a real misconfig — fail
+// loudly (exit 2) so it gets fixed.
+const REQUIRED = {
+  NEXUS_PORTAL_URL,
+  NEXUS_USERNAME,
+  NEXUS_PASSWORD,
+  NEXUS_IMPORT_URL,
+  NEXUS_IMPORT_SECRET,
+};
+const present = Object.entries(REQUIRED).filter(([, v]) => v);
+const missing = Object.entries(REQUIRED).filter(([, v]) => !v).map(([k]) => k);
+if (present.length === 0) {
+  console.log("Nexus sync not configured yet (no secrets set) — skipping.");
+  process.exit(0);
 }
-required("NEXUS_PORTAL_URL", NEXUS_PORTAL_URL);
-required("NEXUS_USERNAME", NEXUS_USERNAME);
-required("NEXUS_PASSWORD", NEXUS_PASSWORD);
-required("NEXUS_IMPORT_URL", NEXUS_IMPORT_URL);
-required("NEXUS_IMPORT_SECRET", NEXUS_IMPORT_SECRET);
+if (missing.length > 0) {
+  console.error(`Nexus sync is misconfigured — missing: ${missing.join(", ")}`);
+  process.exit(2);
+}
 
 // Best-guess selectors; override via env once we've seen the real page.
 const USER_SEL =
