@@ -1,0 +1,67 @@
+name: Nexus sync
+
+# Logs into the Nexus portal, downloads the latest sites export, and posts it to
+# the app's secure import endpoint (/api/imports/nexus). Runs on a schedule and
+# can be triggered by hand from the Actions tab (Run workflow) for testing.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   NEXUS_PORTAL_URL      the portal login page URL
+#   NEXUS_USERNAME        portal login
+#   NEXUS_PASSWORD        portal password
+#   NEXUS_IMPORT_URL      https://1st-nationwide-ops.vercel.app/api/imports/nexus
+#   NEXUS_IMPORT_SECRET   same value set as NEXUS_IMPORT_SECRET in Vercel
+#
+# See docs/nexus-sync.md for the one-time setup and how to finish the scraper
+# selectors for the actual portal.
+
+on:
+  schedule:
+    - cron: "30 5 * * *" # 05:30 UTC daily (adjust as needed)
+  workflow_dispatch:
+    inputs:
+      preview:
+        description: "Preview only (don't write to the app)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: nexus-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Run Nexus sync
+        env:
+          NEXUS_PORTAL_URL: ${{ secrets.NEXUS_PORTAL_URL }}
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+          NEXUS_IMPORT_URL: ${{ secrets.NEXUS_IMPORT_URL }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
+          NEXUS_PREVIEW: ${{ inputs.preview }}
+        run: node scripts/nexus-sync.mjs
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexus-sync-debug
+          path: |
+            nexus-*.png
+            nexus-*.html
+          if-no-files-found: ignore
+          retention-days: 7
