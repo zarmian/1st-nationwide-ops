@@ -195,18 +195,36 @@ export async function materializePatrolVisits(opts: {
       }
 
       // One visit per configured time. Post-midnight times roll to the next
-      // calendar day but stay grouped under the night they started. Dedup is
-      // on the exact scheduledAt so re-runs (and the today/tomorrow overlap)
-      // never double up.
+      // calendar day but stay grouped under the night they started.
       const slots = resolvePatrolSlots(target, s.kind, s.timesOfDay, s.timeOfDay);
       let createdHere = 0;
       let existedHere = 0;
       for (const slot of slots) {
+        // Dedup on SITE + kind + exact time, NOT the schedule id. Saving a site
+        // deletes and recreates its patrol schedules with new ids, and existing
+        // visits are detached (patrolScheduleId → null, ON DELETE SET NULL)
+        // rather than removed. Keying dedup on the id alone would then miss the
+        // detached visit and create a duplicate at the same site and time. This
+        // keeps it to one visit per slot across schedule churn, and re-adopts a
+        // detached visit back onto the live schedule.
         const existing = await prisma.patrolVisit.findFirst({
-          where: { patrolScheduleId: s.id, scheduledAt: slot.scheduledAt },
-          select: { id: true },
+          where: {
+            siteId: s.siteId,
+            scheduledAt: slot.scheduledAt,
+            OR: [
+              { patrolScheduleId: null },
+              { patrolSchedule: { is: { kind: s.kind } } },
+            ],
+          },
+          select: { id: true, patrolScheduleId: true },
         });
         if (existing) {
+          if (existing.patrolScheduleId === null) {
+            await prisma.patrolVisit.update({
+              where: { id: existing.id },
+              data: { patrolScheduleId: s.id },
+            });
+          }
           existedHere++;
           continue;
         }
