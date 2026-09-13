@@ -41,6 +41,9 @@ const NEXUS_EXPORT_SELECTOR = env("NEXUS_EXPORT_SELECTOR");
 // best-effort auto-detect. VALUE is the option label / value to choose.
 const NEXUS_ACTIVE_FILTER_SELECTOR = env("NEXUS_ACTIVE_FILTER_SELECTOR");
 const NEXUS_ACTIVE_FILTER_VALUE = env("NEXUS_ACTIVE_FILTER_VALUE", "Active");
+// This portal needs an explicit "Apply filter" click before the list + export
+// button appear. Configurable; otherwise best-effort auto-detect.
+const NEXUS_APPLY_FILTER_SELECTOR = env("NEXUS_APPLY_FILTER_SELECTOR");
 
 const preview = String(NEXUS_PREVIEW).toLowerCase() === "true";
 
@@ -131,10 +134,46 @@ async function setActiveFilter(page) {
         );
       }
     }
+    // This portal only shows the list + Export CSV after "Apply filter" is
+    // clicked, so selecting the value isn't enough — click Apply.
+    await clickApplyFilter(page);
     await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
   } catch (e) {
     console.warn("Active filter: attempt failed —", e?.message ?? e);
   }
+}
+
+/** Click the "Apply filter" control so the list + export button render. */
+async function clickApplyFilter(page) {
+  const tryClick = async (loc, label) => {
+    if ((await loc.count()) > 0) {
+      await loc.first().click();
+      console.log(`Clicked "${label}".`);
+      return true;
+    }
+    return false;
+  };
+  if (NEXUS_APPLY_FILTER_SELECTOR) {
+    if (await tryClick(page.locator(NEXUS_APPLY_FILTER_SELECTOR), "apply filter (configured)"))
+      return;
+  }
+  const candidates = [
+    [page.getByRole("button", { name: /apply(\s*filter)?/i }), "Apply filter"],
+    [page.getByRole("link", { name: /apply(\s*filter)?/i }), "Apply filter"],
+    [
+      page.locator(
+        'button:has-text("Apply"), a:has-text("Apply"), input[type="submit"][value*="Apply" i]',
+      ),
+      "Apply",
+    ],
+    [page.getByRole("button", { name: /^(search|go|update|refresh)$/i }), "filter submit"],
+  ];
+  for (const [loc, label] of candidates) {
+    if (await tryClick(loc, label)) return;
+  }
+  console.warn(
+    'Apply-filter button not found — the list/export may not appear. Pin it with NEXUS_APPLY_FILTER_SELECTOR.',
+  );
 }
 
 async function run() {
