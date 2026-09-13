@@ -62,6 +62,7 @@ jobs:
           NEXUS_ACTIVE_FILTER_SELECTOR: ${{ secrets.NEXUS_ACTIVE_FILTER_SELECTOR }}
           NEXUS_ACTIVE_FILTER_VALUE: ${{ secrets.NEXUS_ACTIVE_FILTER_VALUE }}
           NEXUS_APPLY_FILTER_SELECTOR: ${{ secrets.NEXUS_APPLY_FILTER_SELECTOR }}
+          NEXUS_IMPORT_CHUNK: ${{ vars.NEXUS_IMPORT_CHUNK }}
           NEXUS_PREVIEW: ${{ inputs.preview }}
         run: node scripts/nexus-sync.mjs
 

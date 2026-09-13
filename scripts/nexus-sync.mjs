@@ -237,6 +237,67 @@ async function run() {
   await browser.close();
 
   // Hand the CSV to the app importer.
+  if (preview) {
+    // Preview is a cheap read — send it whole.
+    const { res, json } = await postCsv(csvText, true);
+    if (!res.ok || json.ok === false) {
+      console.error("Import endpoint rejected the file:", res.status, JSON.stringify(json));
+      process.exit(1);
+    }
+    console.log(
+      `Preview OK — would create ${json.toCreate}, update ${json.toUpdate}, write ${json.ratesToWrite} rates (read ${json.read} rows).`,
+    );
+    return;
+  }
+
+  // Real import writes each row in its own transaction, which can exceed the
+  // app's serverless time limit for the whole file. Send it in small chunks so
+  // each request finishes quickly. Upsert-only, so chunking is safe.
+  const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  const header = lines[0];
+  const rows = lines.slice(1);
+  const size = Number(process.env.NEXUS_IMPORT_CHUNK || "50") || 50;
+  let created = 0, updated = 0, rates = 0, skipped = 0, chunkNo = 0;
+
+  for (let i = 0; i < rows.length; i += size) {
+    const chunk = [header, ...rows.slice(i, i + size)].join("\n");
+    chunkNo++;
+    let ok = false;
+    let last = { status: 0, json: {} };
+    for (let attempt = 1; attempt <= 3 && !ok; attempt++) {
+      const { res, json } = await postCsv(chunk, false);
+      last = { status: res.status, json };
+      if (res.ok && json.ok !== false) {
+        ok = true;
+        created += json.created || 0;
+        updated += json.updated || 0;
+        rates += json.ratesWritten || 0;
+        skipped += json.skipped?.length || 0;
+      } else if (res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 2000 * attempt)); // transient — retry
+      } else {
+        break; // 4xx — won't fix itself
+      }
+    }
+    if (!ok) {
+      console.error(
+        `Chunk ${chunkNo} (rows ${i + 1}-${Math.min(i + size, rows.length)}) failed:`,
+        last.status,
+        JSON.stringify(last.json),
+      );
+      process.exit(1);
+    }
+    console.log(
+      `Chunk ${chunkNo}: ${Math.min(i + size, rows.length)}/${rows.length} rows → created ${created}, updated ${updated}, rates ${rates}`,
+    );
+  }
+
+  console.log(
+    `Import OK — created ${created}, updated ${updated}, rates ${rates}, skipped ${skipped} across ${chunkNo} chunks.`,
+  );
+}
+
+async function postCsv(csv, preview) {
   const url = preview ? `${NEXUS_IMPORT_URL}?preview=1` : NEXUS_IMPORT_URL;
   const res = await fetch(url, {
     method: "POST",
@@ -244,18 +305,10 @@ async function run() {
       Authorization: `Bearer ${NEXUS_IMPORT_SECRET}`,
       "Content-Type": "text/csv",
     },
-    body: csvText,
+    body: csv,
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok || json.ok === false) {
-    console.error("Import endpoint rejected the file:", res.status, JSON.stringify(json));
-    process.exit(1);
-  }
-  console.log(
-    preview
-      ? `Preview OK — would create ${json.toCreate}, update ${json.toUpdate}, write ${json.ratesToWrite} rates (read ${json.read} rows).`
-      : `Import OK — created ${json.created}, updated ${json.updated}, rates ${json.ratesWritten}, skipped ${json.skipped?.length ?? 0}.`,
-  );
+  return { res, json };
 }
 
 run().catch((e) => {
