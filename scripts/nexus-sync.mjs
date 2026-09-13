@@ -37,6 +37,10 @@ const NEXUS_SUBMIT_SELECTOR = env("NEXUS_SUBMIT_SELECTOR", 'button[type="submit"
 // Export target — leave unset to auto-detect; set one to pin it.
 const NEXUS_EXPORT_URL = env("NEXUS_EXPORT_URL");
 const NEXUS_EXPORT_SELECTOR = env("NEXUS_EXPORT_SELECTOR");
+// "Active sites" filter, applied before export. Configurable; otherwise
+// best-effort auto-detect. VALUE is the option label / value to choose.
+const NEXUS_ACTIVE_FILTER_SELECTOR = env("NEXUS_ACTIVE_FILTER_SELECTOR");
+const NEXUS_ACTIVE_FILTER_VALUE = env("NEXUS_ACTIVE_FILTER_VALUE", "Active");
 
 const preview = String(NEXUS_PREVIEW).toLowerCase() === "true";
 
@@ -62,16 +66,75 @@ if (missing.length > 0) {
 
 async function findExport(page) {
   if (NEXUS_EXPORT_SELECTOR) return page.locator(NEXUS_EXPORT_SELECTOR).first();
-  // Auto-detect a link/button that reads like an export control.
-  const byRole = page
-    .getByRole("link", { name: /export|csv|download/i })
-    .or(page.getByRole("button", { name: /export|csv|download/i }));
-  if (await byRole.count()) return byRole.first();
-  const byText = page.locator(
-    'a:has-text("Export"), button:has-text("Export"), a:has-text("CSV"), button:has-text("CSV"), a:has-text("Download"), button:has-text("Download")',
-  );
-  if (await byText.count()) return byText.first();
+  // Prefer an explicit "Export CSV" / "CSV" control (that's what the report
+  // has), then fall back to generic export/download.
+  const candidates = [
+    page.getByRole("link", { name: /export.*csv|csv|export to csv/i }),
+    page.getByRole("button", { name: /export.*csv|csv|export to csv/i }),
+    page.getByRole("link", { name: /export|download/i }),
+    page.getByRole("button", { name: /export|download/i }),
+    page.locator(
+      'a:has-text("Export CSV"), button:has-text("Export CSV"), a:has-text("CSV"), button:has-text("CSV"), a:has-text("Export"), button:has-text("Export")',
+    ),
+  ];
+  for (const c of candidates) {
+    if (await c.count()) return c.first();
+  }
   return null;
+}
+
+/** Set the report's filter to "active sites" before exporting. Uses the
+ *  configured control if given, else best-effort auto-detect. Logs what it did
+ *  so a Preview run reveals whether the right rows were exported. */
+async function setActiveFilter(page) {
+  try {
+    if (NEXUS_ACTIVE_FILTER_SELECTOR) {
+      const el = page.locator(NEXUS_ACTIVE_FILTER_SELECTOR).first();
+      await el.waitFor({ state: "visible", timeout: 15_000 });
+      const tag = (await el.evaluate((n) => n.tagName)).toLowerCase();
+      const type = (await el.getAttribute("type")) ?? "";
+      if (tag === "select") {
+        await el
+          .selectOption({ label: NEXUS_ACTIVE_FILTER_VALUE })
+          .catch(() => el.selectOption(NEXUS_ACTIVE_FILTER_VALUE));
+      } else if (type === "checkbox") {
+        await el.check();
+      } else {
+        await el.click();
+      }
+      console.log(`Active filter set via ${NEXUS_ACTIVE_FILTER_SELECTOR}.`);
+    } else {
+      let done = false;
+      // A status <select> that offers an "Active" option.
+      const selects = page.locator("select");
+      const n = await selects.count();
+      for (let i = 0; i < n && !done; i++) {
+        const opt = selects.nth(i).locator("option", { hasText: /^\s*active\s*$/i });
+        if (await opt.count()) {
+          await selects.nth(i).selectOption({ label: (await opt.first().innerText()).trim() });
+          console.log("Active filter: chose 'Active' in a dropdown.");
+          done = true;
+        }
+      }
+      // Else a checkbox labelled "Active".
+      if (!done) {
+        const cb = page.getByLabel(/active/i).first();
+        if ((await cb.count()) && (await cb.getAttribute("type")) === "checkbox") {
+          if (!(await cb.isChecked())) await cb.check();
+          console.log("Active filter: ticked an 'Active' checkbox.");
+          done = true;
+        }
+      }
+      if (!done) {
+        console.warn(
+          "Active filter: no control auto-detected — exporting the report's default view. Pin it with NEXUS_ACTIVE_FILTER_SELECTOR/VALUE (or send the page HTML).",
+        );
+      }
+    }
+    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+  } catch (e) {
+    console.warn("Active filter: attempt failed —", e?.message ?? e);
+  }
 }
 
 async function run() {
@@ -103,6 +166,9 @@ async function run() {
         await page.goto(NEXUS_REPORT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
       }
     }
+
+    // Filter to active sites before exporting.
+    await setActiveFilter(page);
 
     // Trigger the export and capture the download.
     const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
