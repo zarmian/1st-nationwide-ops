@@ -2,46 +2,48 @@
 /*
  * Nexus sync robot — runs in GitHub Actions (see .github/workflows/nexus-sync.yml).
  *
- * Logs into the Nexus portal, downloads the sites export, and POSTs it to the
- * app's secure import endpoint (/api/imports/nexus), which runs the existing
- * Nexus importer.
+ * Logs into the Nexus "Link" portal, opens the Sites report, downloads the
+ * export, and POSTs it to the app's secure import endpoint (/api/imports/nexus),
+ * which runs the existing Nexus importer.
  *
- * ─────────────────────────────────────────────────────────────────────────────
- *  FINISH ME: the login/download steps below use best-guess selectors because
- *  the real portal layout isn't known yet. Fill in the three spots marked
- *  `TODO(portal)` — or set the matching NEXUS_* env vars — once we've seen the
- *  actual login page and export button. Run the workflow with "Preview only"
- *  first; on failure it saves nexus-error.png / nexus-error.html as artifacts
- *  so we can read the real field names off the page.
- * ─────────────────────────────────────────────────────────────────────────────
+ * Login is fully pinned to the real portal (link.linkbynexus.co.uk):
+ *   - login page at "/", form posts to /login, fields #Username / #Password,
+ *     a "Login" submit button, an anti-forgery token (submitted automatically),
+ *     no two-factor.
+ *   - hitting the report URL while logged out 302s to "/?returnUrl=…", so we
+ *     just navigate to the report and fill the login it bounces us to.
+ *
+ * The one thing not yet pinned is the EXPORT control on the Sites report page
+ * (it's behind login). The script auto-detects a link/button labelled
+ * export/CSV/download; if the portal uses something else, set NEXUS_EXPORT_URL
+ * (a direct download link) or NEXUS_EXPORT_SELECTOR. On any failure it saves
+ * nexus-error.png / nexus-error.html as workflow artifacts so the real control
+ * can be read off the page.
  */
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
 
-const {
-  NEXUS_PORTAL_URL,
-  NEXUS_USERNAME,
-  NEXUS_PASSWORD,
-  NEXUS_IMPORT_URL,
-  NEXUS_IMPORT_SECRET,
-  NEXUS_PREVIEW,
-  // Optional selector overrides so we can tune without editing code:
-  NEXUS_USER_SELECTOR,
-  NEXUS_PASS_SELECTOR,
-  NEXUS_SUBMIT_SELECTOR,
-  NEXUS_LOGGED_IN_SELECTOR, // something only present AFTER login (confirms success)
-  NEXUS_EXPORT_URL, // if the export is a direct link once logged in
-  NEXUS_EXPORT_SELECTOR, // otherwise, the "export / download" button
-} = process.env;
+const { NEXUS_USERNAME, NEXUS_PASSWORD, NEXUS_IMPORT_URL, NEXUS_IMPORT_SECRET, NEXUS_PREVIEW } =
+  process.env;
+
+// Overridable, with real-portal defaults. Use `|| default` (not destructuring
+// defaults) because GitHub Actions sets an unset secret to "" — which would
+// otherwise wipe the default.
+const env = (k, d = "") => process.env[k] || d;
+const NEXUS_REPORT_URL = env("NEXUS_REPORT_URL", "https://link.linkbynexus.co.uk/Reports/Sites");
+const NEXUS_USER_SELECTOR = env("NEXUS_USER_SELECTOR", "#Username");
+const NEXUS_PASS_SELECTOR = env("NEXUS_PASS_SELECTOR", "#Password");
+const NEXUS_SUBMIT_SELECTOR = env("NEXUS_SUBMIT_SELECTOR", 'button[type="submit"]');
+// Export target — leave unset to auto-detect; set one to pin it.
+const NEXUS_EXPORT_URL = env("NEXUS_EXPORT_URL");
+const NEXUS_EXPORT_SELECTOR = env("NEXUS_EXPORT_SELECTOR");
 
 const preview = String(NEXUS_PREVIEW).toLowerCase() === "true";
 
-// Required config. If NONE is set the sync simply isn't configured yet, so a
-// scheduled run skips quietly (exit 0) instead of emailing a failure every
-// night. If SOME are set but others are missing, that's a real misconfig — fail
-// loudly (exit 2) so it gets fixed.
+// If NONE of the required secrets is set the sync just isn't configured yet, so
+// a scheduled run skips quietly. If SOME are set but not all, that's a real
+// misconfig — fail loudly.
 const REQUIRED = {
-  NEXUS_PORTAL_URL,
   NEXUS_USERNAME,
   NEXUS_PASSWORD,
   NEXUS_IMPORT_URL,
@@ -58,20 +60,18 @@ if (missing.length > 0) {
   process.exit(2);
 }
 
-// Best-guess selectors; override via env once we've seen the real page.
-const USER_SEL =
-  NEXUS_USER_SELECTOR ||
-  'input[name="username"], input[name="email"], input[type="email"], #username';
-const PASS_SEL =
-  NEXUS_PASS_SELECTOR || 'input[name="password"], input[type="password"], #password';
-const SUBMIT_SEL =
-  NEXUS_SUBMIT_SELECTOR ||
-  'button[type="submit"], input[type="submit"], button:has-text("Log in"), button:has-text("Sign in")';
-
-async function firstVisible(page, selector) {
-  const loc = page.locator(selector).first();
-  await loc.waitFor({ state: "visible", timeout: 30_000 });
-  return loc;
+async function findExport(page) {
+  if (NEXUS_EXPORT_SELECTOR) return page.locator(NEXUS_EXPORT_SELECTOR).first();
+  // Auto-detect a link/button that reads like an export control.
+  const byRole = page
+    .getByRole("link", { name: /export|csv|download/i })
+    .or(page.getByRole("button", { name: /export|csv|download/i }));
+  if (await byRole.count()) return byRole.first();
+  const byText = page.locator(
+    'a:has-text("Export"), button:has-text("Export"), a:has-text("CSV"), button:has-text("CSV"), a:has-text("Download"), button:has-text("Download")',
+  );
+  if (await byText.count()) return byText.first();
+  return null;
 }
 
 async function run() {
@@ -81,45 +81,49 @@ async function run() {
   let csvText = "";
 
   try {
-    // 1) Login page
-    await page.goto(NEXUS_PORTAL_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    // Navigate to the report; if logged out, the portal bounces us to the login
+    // page (with returnUrl back to the report).
+    await page.goto(NEXUS_REPORT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
 
-    // 2) TODO(portal): confirm these field selectors match the real login form.
-    await (await firstVisible(page, USER_SEL)).fill(NEXUS_USERNAME);
-    await (await firstVisible(page, PASS_SEL)).fill(NEXUS_PASSWORD);
-    await (await firstVisible(page, SUBMIT_SEL)).click();
-
-    // 3) Confirm login succeeded. TODO(portal): set NEXUS_LOGGED_IN_SELECTOR to
-    //    something only shown when logged in (e.g. a "Log out" link).
-    if (NEXUS_LOGGED_IN_SELECTOR) {
-      await page.locator(NEXUS_LOGGED_IN_SELECTOR).first().waitFor({ timeout: 30_000 });
-    } else {
-      await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});
+    const needsLogin = (await page.locator(NEXUS_PASS_SELECTOR).count()) > 0;
+    if (needsLogin) {
+      await page.locator(NEXUS_USER_SELECTOR).first().fill(NEXUS_USERNAME);
+      await page.locator(NEXUS_PASS_SELECTOR).first().fill(NEXUS_PASSWORD);
+      await Promise.all([
+        page.waitForLoadState("domcontentloaded", { timeout: 60_000 }),
+        page.locator(NEXUS_SUBMIT_SELECTOR).first().click(),
+      ]);
+      // Confirm we're through: the password field should be gone. If it's still
+      // there, the login was rejected.
+      if ((await page.locator(NEXUS_PASS_SELECTOR).count()) > 0) {
+        throw new Error("Login appears to have failed (still on the login page).");
+      }
+      // Make sure we're on the report (returnUrl usually handles this).
+      if (!page.url().includes("/Reports/Sites")) {
+        await page.goto(NEXUS_REPORT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
+      }
     }
 
-    // 4) Get to the export. Either a direct URL, or click a button that triggers
-    //    a file download. TODO(portal): set NEXUS_EXPORT_URL or NEXUS_EXPORT_SELECTOR.
+    // Trigger the export and capture the download.
     const downloadPromise = page.waitForEvent("download", { timeout: 60_000 });
     if (NEXUS_EXPORT_URL) {
       await page.goto(NEXUS_EXPORT_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    } else if (NEXUS_EXPORT_SELECTOR) {
-      await (await firstVisible(page, NEXUS_EXPORT_SELECTOR)).click();
     } else {
-      throw new Error(
-        "No export target configured. Set NEXUS_EXPORT_URL or NEXUS_EXPORT_SELECTOR.",
-      );
+      const exportEl = await findExport(page);
+      if (!exportEl) {
+        throw new Error(
+          "Couldn't find an export control on the Sites report. Set NEXUS_EXPORT_URL or NEXUS_EXPORT_SELECTOR (see nexus-error.html for the real control).",
+        );
+      }
+      await exportEl.click();
     }
     const download = await downloadPromise;
-    const path = await download.path();
-    csvText = await fs.readFile(path, "utf8");
+    csvText = await fs.readFile(await download.path(), "utf8");
     if (!csvText.trim()) throw new Error("Downloaded export was empty.");
     console.log(`Downloaded export: ${csvText.length} bytes`);
   } catch (err) {
-    // Save the page so we can read the real selectors off it, then fail.
     await page.screenshot({ path: "nexus-error.png", fullPage: true }).catch(() => {});
-    await fs
-      .writeFile("nexus-error.html", await page.content().catch(() => ""))
-      .catch(() => {});
+    await fs.writeFile("nexus-error.html", await page.content().catch(() => "")).catch(() => {});
     await browser.close();
     console.error("Nexus sync failed during login/download:", err?.message ?? err);
     process.exit(1);
@@ -127,7 +131,7 @@ async function run() {
 
   await browser.close();
 
-  // 5) Hand the CSV to the app importer.
+  // Hand the CSV to the app importer.
   const url = preview ? `${NEXUS_IMPORT_URL}?preview=1` : NEXUS_IMPORT_URL;
   const res = await fetch(url, {
     method: "POST",
