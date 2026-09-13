@@ -49,11 +49,19 @@ so no login selectors are needed. Optional overrides if anything ever moves:
 `NEXUS_REPORT_URL` (defaults to `…/Reports/Sites`), `NEXUS_EXPORT_URL` (a direct
 download link) or `NEXUS_EXPORT_SELECTOR` (the export button).
 
-### 3. Pin the export control (only if auto-detect misses it)
+### 3. Pin the "active" filter + export control (only if auto-detect misses them)
 
-The robot logs in and opens the Sites report on its own. The last unknown is the
-**export/download button** on that report — the script auto-detects a control
-labelled *Export / CSV / Download*. To check:
+The robot logs in, opens the Sites report, **sets the filter to active sites**,
+then clicks **Export CSV**. Both steps are best-effort auto-detect; pin them if
+needed:
+
+- `NEXUS_ACTIVE_FILTER_SELECTOR` + `NEXUS_ACTIVE_FILTER_VALUE` — the filter
+  control and the value/label for "active" (defaults to auto-detecting an
+  "Active" dropdown option or checkbox).
+- `NEXUS_EXPORT_URL` (a direct download link — best, if the button is a plain
+  link) or `NEXUS_EXPORT_SELECTOR` (the export button).
+
+To check:
 
 1. Actions tab → **Nexus sync** → **Run workflow**, tick **Preview only**.
 2. If it reports `Preview OK — would create … update …`, you're done — untick
