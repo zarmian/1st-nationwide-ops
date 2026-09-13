@@ -35,7 +35,6 @@ Repo → Settings → Secrets and variables → Actions → **New repository sec
 
 | Secret | Value |
 |---|---|
-| `NEXUS_PORTAL_URL` | The portal **login page** URL. |
 | `NEXUS_USERNAME` | Portal login. |
 | `NEXUS_PASSWORD` | Portal password. |
 | `NEXUS_IMPORT_URL` | `https://1st-nationwide-ops.vercel.app/api/imports/nexus` |
@@ -44,24 +43,26 @@ Repo → Settings → Secrets and variables → Actions → **New repository sec
 Credentials live only in GitHub's encrypted secrets — never in the code or the
 database.
 
-### 3. Finish the scraper for the real portal
+The login is already pinned to the real portal (`link.linkbynexus.co.uk`:
+fields `#Username` / `#Password`, "Login" button, anti-forgery token, no 2FA),
+so no login selectors are needed. Optional overrides if anything ever moves:
+`NEXUS_REPORT_URL` (defaults to `…/Reports/Sites`), `NEXUS_EXPORT_URL` (a direct
+download link) or `NEXUS_EXPORT_SELECTOR` (the export button).
 
-`scripts/nexus-sync.mjs` uses best-guess selectors for the login form and the
-export button (marked `TODO(portal)`). To lock them to the real site:
+### 3. Pin the export control (only if auto-detect misses it)
+
+The robot logs in and opens the Sites report on its own. The last unknown is the
+**export/download button** on that report — the script auto-detects a control
+labelled *Export / CSV / Download*. To check:
 
 1. Actions tab → **Nexus sync** → **Run workflow**, tick **Preview only**.
-2. If it fails, download the **nexus-sync-debug** artifact — it contains a
-   screenshot and the page HTML at the point of failure. Read the real field
-   names/buttons from it.
-3. Set the matching optional secrets (no code change needed) to pin them:
-   - `NEXUS_USER_SELECTOR`, `NEXUS_PASS_SELECTOR`, `NEXUS_SUBMIT_SELECTOR`
-   - `NEXUS_LOGGED_IN_SELECTOR` — something shown only after login (e.g. a
-     "Log out" link) so we can confirm the login worked.
-   - `NEXUS_EXPORT_URL` (if the export is a direct link once logged in) **or**
-     `NEXUS_EXPORT_SELECTOR` (the export/download button).
-4. Re-run in **Preview only** until it reports `Preview OK — would create … update …`.
-5. Then run it for real (untick Preview), and it'll go nightly on its own
-   (`30 5 * * *`, adjustable in the workflow file).
+2. If it reports `Preview OK — would create … update …`, you're done — untick
+   Preview and it runs nightly (`30 5 * * *`, adjustable in the workflow file).
+3. If it fails at the export step, download the **nexus-sync-debug** artifact
+   (screenshot + page HTML), find the real export control, and set either:
+   - `NEXUS_EXPORT_URL` — a direct download link, if the report offers one; or
+   - `NEXUS_EXPORT_SELECTOR` — a CSS selector for the export button.
+   Then re-run Preview. (Send me that screenshot/HTML and I'll set it for you.)
 
 ## Testing the endpoint by itself
 
