@@ -256,7 +256,7 @@ async function run() {
   const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const header = lines[0];
   const rows = lines.slice(1);
-  const size = Number(process.env.NEXUS_IMPORT_CHUNK || "50") || 50;
+  const size = Number(process.env.NEXUS_IMPORT_CHUNK || "20") || 20;
   let created = 0, updated = 0, rates = 0, skipped = 0, chunkNo = 0;
 
   for (let i = 0; i < rows.length; i += size) {
