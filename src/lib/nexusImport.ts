@@ -351,22 +351,26 @@ export async function runNexusImport(
       created++;
     }
 
-    const ops = [
+    // Replace this site's rates. Insert them in a single createMany (one
+    // round-trip) rather than one INSERT per rate — the per-rate round-trips
+    // were the main cost that pushed large imports past the serverless timeout.
+    await prisma.$transaction([
       prisma.siteRate.deleteMany({ where: { siteId } }),
-      ...r.rates.map((rate) =>
-        prisma.siteRate.create({
-          data: {
-            siteId,
-            service: rate.service as any,
-            amount: new Prisma.Decimal(rate.amount),
-            unit: rate.unit as any,
-            currency: "GBP",
-            source,
-          },
-        }),
-      ),
-    ];
-    await prisma.$transaction(ops);
+      ...(r.rates.length > 0
+        ? [
+            prisma.siteRate.createMany({
+              data: r.rates.map((rate) => ({
+                siteId,
+                service: rate.service as any,
+                amount: new Prisma.Decimal(rate.amount),
+                unit: rate.unit as any,
+                currency: "GBP",
+                source,
+              })),
+            }),
+          ]
+        : []),
+    ]);
     ratesWritten += r.rates.length;
   }
 
