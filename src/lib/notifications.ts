@@ -444,6 +444,49 @@ export async function notifyMissedCall(callEventId: string): Promise<number> {
   });
 }
 
+/**
+ * New Nexus dashboard callouts landed and need assigning. Sent to the office as
+ * one summary per import run, deduped on the run id so a re-run the same day
+ * doesn't re-alert. Fired from /api/imports/nexus-callouts after a real import;
+ * the historical backfill passes notify off so a bulk load can't flood.
+ */
+export async function notifyNexusCalloutsImported(
+  callouts: {
+    reference: string;
+    siteName: string | null;
+    postcode: string | null;
+    scheduledFor: Date | null;
+  }[],
+  runId: string,
+): Promise<number> {
+  if (callouts.length === 0) return 0;
+  const dueDate = (d: Date | null) =>
+    d
+      ? d.toLocaleDateString("en-GB", {
+          timeZone: TZ,
+          day: "2-digit",
+          month: "short",
+        })
+      : null;
+  const n = callouts.length;
+  const shown = callouts.slice(0, 6).map((c) => {
+    const where = c.siteName ?? c.postcode ?? "site";
+    const due = dueDate(c.scheduledFor);
+    return `${c.reference} — ${where}${due ? `, by ${due}` : ""}`;
+  });
+  const more = n > shown.length ? ` …and ${n - shown.length} more` : "";
+  const body = `1NW: ${n} new Nexus callout${n === 1 ? "" : "s"} to assign — ${shown.join("; ")}${more}.`;
+  return dispatchToStaff({
+    kind: "NEXUS_CALLOUT",
+    templateName: "NEXUS_CALLOUT",
+    templateParams: [],
+    bodyPreview: body,
+    eventEntity: "NexusCalloutImport",
+    eventEntityId: runId,
+    dedupe: true,
+  });
+}
+
 // ── Officer-targeted messages ──────────────────────────────────────────────
 
 /**

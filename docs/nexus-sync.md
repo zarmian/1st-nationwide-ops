@@ -139,6 +139,11 @@ in the notes so nothing is dropped.
   auto-cancelled (reversible). Only ever OPEN ones — anything an officer has
   picked up, or a human cancelled, is left alone. Guarded on a **non-empty**
   read, so a transient blank dashboard never cancels the board.
+- **Alert:** when a run creates new callouts, the office gets one summary
+  notification (the **New Nexus callout** kind — dispatchers + admins, Telegram
+  by default; change it on `/admin/notifications/settings`). Deduped per run, so
+  a re-run the same day doesn't re-alert. A backfill posts with `?notify=0` to
+  stay silent.
 
 ## Notes & caveats (both robots)
 

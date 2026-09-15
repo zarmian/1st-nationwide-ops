@@ -173,6 +173,20 @@ export const NOTIFICATION_KINDS: NotifKindMeta[] = [
     }),
   },
   {
+    kind: "NEXUS_CALLOUT",
+    label: "New Nexus callout",
+    description:
+      "New VPI callout(s) imported from the Nexus dashboard overnight, ready to assign an officer.",
+    group: GROUP_DISPATCH,
+    audiences: STAFF_AUDIENCES,
+    channels: ["TELEGRAM", "SMS"],
+    defaults: routing({
+      toAdmin: true,
+      toDispatcher: true,
+      viaTelegram: true,
+    }),
+  },
+  {
     kind: "SHIFT_REMINDER",
     label: "Shift reminder",
     description:
