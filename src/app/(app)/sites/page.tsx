@@ -10,6 +10,7 @@ import { siteOwner } from "@/lib/entityColor";
 import type { SitePin } from "@/components/map/MapInner";
 import { getSessionUser } from "@/lib/authz";
 import { loadHiddenScope, siteHiddenAnd } from "@/lib/hiddenAccounts";
+import { buildSiteWhereAnd, siteOrderBy } from "@/lib/siteFilters";
 import { STAT_TONE, type StatTone } from "@/components/StatCard";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +31,10 @@ export default async function SitesPage({
     region?: string;
     service?: string;
     type?: string;
+    partner?: string;
+    customer?: string;
+    status?: string;
+    sort?: string;
     page?: string;
   };
 }) {
@@ -37,6 +42,10 @@ export default async function SitesPage({
   const region = searchParams.region ?? "";
   const service = searchParams.service ?? "";
   const type = searchParams.type ?? "";
+  const partner = searchParams.partner ?? "";
+  const customer = searchParams.customer ?? "";
+  const status = searchParams.status ?? "active";
+  const sort = searchParams.sort ?? "code";
   const page = Math.max(1, Number(searchParams.page ?? "1") || 1);
 
   // Admin-only declutter: hide sites of hidden customers/partners. Non-admins
@@ -46,35 +55,11 @@ export default async function SitesPage({
 
   const where = {
     AND: [
-      q
-        ? {
-            OR: [
-              { name: { contains: q, mode: "insensitive" as const } },
-              { addressLine: { contains: q, mode: "insensitive" as const } },
-              {
-                postcode: {
-                  contains: q.replace(/\s+/g, ""),
-                  mode: "insensitive" as const,
-                },
-              },
-              { code: { contains: q, mode: "insensitive" as const } },
-              {
-                customer: {
-                  name: { contains: q, mode: "insensitive" as const },
-                },
-              },
-            ],
-          }
-        : {},
-      region
-        ? { region: { name: { equals: region, mode: "insensitive" as const } } }
-        : {},
-      service ? { services: { has: service as any } } : {},
-      type ? { type: type as any } : {},
-      { active: true },
+      ...buildSiteWhereAnd({ q, region, service, type, partner, customer, status }),
       ...siteHiddenAnd(hidden),
     ],
   };
+  const orderBy = siteOrderBy(sort);
 
   // The map shows every filtered site with coordinates — independent of the
   // table's pagination. The table still paginates so it stays readable.
@@ -96,7 +81,7 @@ export default async function SitesPage({
             take: 1,
           },
         },
-        orderBy: [{ code: "asc" }, { name: "asc" }],
+        orderBy,
         take: PAGE_SIZE,
         skip: (page - 1) * PAGE_SIZE,
       }),
@@ -191,6 +176,10 @@ export default async function SitesPage({
   if (region) exportQs.set("region", region);
   if (service) exportQs.set("service", service);
   if (type) exportQs.set("type", type);
+  if (partner) exportQs.set("partner", partner);
+  if (customer) exportQs.set("customer", customer);
+  if (status && status !== "active") exportQs.set("status", status);
+  if (sort && sort !== "code") exportQs.set("sort", sort);
 
   return (
     <div className="section">
@@ -206,10 +195,15 @@ export default async function SitesPage({
 
       <SitesToolbar
         regions={regions.map((r) => ({ name: r.name }))}
-        initial={{ q, region, service, type }}
+        customers={customers}
+        partners={partners}
+        initial={{ q, region, service, type, partner, customer, status, sort }}
       />
 
-      <KpiStrip kpis={kpis} current={{ q, region, service, type }} />
+      <KpiStrip
+        kpis={kpis}
+        current={{ q, region, service, type, partner, customer, status, sort }}
+      />
 
       <SitesMap pins={mapPins} legend={legend} />
 
@@ -273,15 +267,29 @@ function KpiStrip({
     lockUnlockSites: number;
     onboarding: number;
   };
-  current: { q: string; region: string; service: string; type: string };
+  current: {
+    q: string;
+    region: string;
+    service: string;
+    type: string;
+    partner: string;
+    customer: string;
+    status: string;
+    sort: string;
+  };
 }) {
-  // Build a /sites href that toggles the given service filter while
-  // preserving the search, region and type filters the user already has.
+  // Build a /sites href that toggles the given service filter while preserving
+  // the other filters the user already has.
   function siteFilterHref(service: string | null): string {
     const qs = new URLSearchParams();
     if (current.q) qs.set("q", current.q);
     if (current.region) qs.set("region", current.region);
     if (current.type) qs.set("type", current.type);
+    if (current.partner) qs.set("partner", current.partner);
+    if (current.customer) qs.set("customer", current.customer);
+    if (current.status && current.status !== "active")
+      qs.set("status", current.status);
+    if (current.sort && current.sort !== "code") qs.set("sort", current.sort);
     if (service) qs.set("service", service);
     return qs.toString() ? `/sites?${qs}` : "/sites";
   }

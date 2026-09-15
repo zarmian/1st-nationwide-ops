@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { buildSiteWhereAnd, siteOrderBy } from "@/lib/siteFilters";
 
 const ACTIVE_ONBOARDING_STAGES = [
   "PROPOSED",
@@ -23,41 +24,17 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const url = new URL(req.url);
-  const q = url.searchParams.get("q") || undefined;
-  const region = url.searchParams.get("region") || undefined;
-  const service = url.searchParams.get("service") || undefined;
-  const type = url.searchParams.get("type") || undefined;
-
+  const p = new URL(req.url).searchParams;
   const where = {
-    AND: [
-      q
-        ? {
-            OR: [
-              { name: { contains: q, mode: "insensitive" as const } },
-              { addressLine: { contains: q, mode: "insensitive" as const } },
-              {
-                postcode: {
-                  contains: q.replace(/\s+/g, ""),
-                  mode: "insensitive" as const,
-                },
-              },
-              { code: { contains: q, mode: "insensitive" as const } },
-              {
-                customer: {
-                  name: { contains: q, mode: "insensitive" as const },
-                },
-              },
-            ],
-          }
-        : {},
-      region
-        ? { region: { name: { equals: region, mode: "insensitive" as const } } }
-        : {},
-      service ? { services: { has: service as any } } : {},
-      type ? { type: type as any } : {},
-      { active: true },
-    ],
+    AND: buildSiteWhereAnd({
+      q: p.get("q") || undefined,
+      region: p.get("region") || undefined,
+      service: p.get("service") || undefined,
+      type: p.get("type") || undefined,
+      partner: p.get("partner") || undefined,
+      customer: p.get("customer") || undefined,
+      status: p.get("status") || undefined,
+    }),
   };
 
   const sites = await prisma.site.findMany({
@@ -72,7 +49,7 @@ export async function GET(req: Request) {
         take: 1,
       },
     },
-    orderBy: [{ code: "asc" }, { name: "asc" }],
+    orderBy: siteOrderBy(p.get("sort") || undefined),
   });
 
   const header = [

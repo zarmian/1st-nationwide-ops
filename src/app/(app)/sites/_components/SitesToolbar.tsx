@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { NONE_VALUE, SITE_SORTS } from "@/lib/siteFilters";
 
 type Lookup<K extends string | number> = { v: K; label: string };
 
@@ -26,12 +27,33 @@ const SERVICES: Lookup<string>[] = [
   { v: "ADHOC", label: "Ad-hoc" },
 ];
 
+const STATUSES: Lookup<string>[] = [
+  { v: "active", label: "Active only" },
+  { v: "inactive", label: "Inactive only" },
+  { v: "all", label: "Active + inactive" },
+];
+
+export type ToolbarInitial = {
+  q: string;
+  region: string;
+  service: string;
+  type: string;
+  partner: string;
+  customer: string;
+  status: string;
+  sort: string;
+};
+
 export function SitesToolbar({
   regions,
+  customers,
+  partners,
   initial,
 }: {
   regions: { name: string }[];
-  initial: { q: string; region: string; service: string; type: string };
+  customers: { id: string; name: string }[];
+  partners: { id: string; name: string }[];
+  initial: ToolbarInitial;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -92,8 +114,24 @@ export function SitesToolbar({
 
   const activeFilterCount =
     (initial.region ? 1 : 0) +
+    (initial.customer ? 1 : 0) +
+    (initial.partner ? 1 : 0) +
     (initial.service ? 1 : 0) +
-    (initial.type ? 1 : 0);
+    (initial.type ? 1 : 0) +
+    (initial.status && initial.status !== "active" ? 1 : 0);
+
+  const regionOptions = [
+    { v: NONE_VALUE, label: "— No region —" },
+    ...regions.map((r) => ({ v: r.name, label: r.name })),
+  ];
+  const customerOptions = [
+    { v: NONE_VALUE, label: "— No customer —" },
+    ...customers.map((c) => ({ v: c.id, label: c.name })),
+  ];
+  const partnerOptions = [
+    { v: NONE_VALUE, label: "— No partner —" },
+    ...partners.map((p) => ({ v: p.id, label: p.name })),
+  ];
 
   return (
     <div className="space-y-2">
@@ -120,28 +158,58 @@ export function SitesToolbar({
         </span>
         <FilterSelect
           ariaLabel="Region"
-          name="region"
           value={initial.region}
-          options={regions.map((r) => ({ v: r.name, label: r.name }))}
+          options={regionOptions}
           allLabel="All regions"
           onChange={(v) => pushParam("region", v)}
         />
         <FilterSelect
-          ariaLabel="Service"
-          name="service"
-          value={initial.service}
-          options={SERVICES}
-          allLabel="All services"
-          onChange={(v) => pushParam("service", v)}
+          ariaLabel="Customer"
+          value={initial.customer}
+          options={customerOptions}
+          allLabel="All customers"
+          onChange={(v) => pushParam("customer", v)}
+        />
+        <FilterSelect
+          ariaLabel="Partner"
+          value={initial.partner}
+          options={partnerOptions}
+          allLabel="All partners"
+          onChange={(v) => pushParam("partner", v)}
         />
         <FilterSelect
           ariaLabel="Type"
-          name="type"
           value={initial.type}
           options={SITE_TYPES}
           allLabel="All types"
           onChange={(v) => pushParam("type", v)}
         />
+        <FilterSelect
+          ariaLabel="Service"
+          value={initial.service}
+          options={SERVICES}
+          allLabel="All services"
+          onChange={(v) => pushParam("service", v)}
+        />
+
+        {/* Show/hide inactive sites. */}
+        <PlainSelect
+          ariaLabel="Show"
+          value={initial.status || "active"}
+          options={STATUSES}
+          onChange={(v) => pushParam("status", v === "active" ? "" : v)}
+        />
+
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-xs text-slate-500">Sort</span>
+          <PlainSelect
+            ariaLabel="Sort by"
+            value={initial.sort || "code"}
+            options={SITE_SORTS.map((s) => ({ v: s.v, label: s.label }))}
+            onChange={(v) => pushParam("sort", v === "code" ? "" : v)}
+          />
+        </div>
+
         {activeFilterCount > 0 && (
           <button
             type="button"
@@ -156,16 +224,21 @@ export function SitesToolbar({
   );
 }
 
+const selectClass = (active: boolean) =>
+  `rounded-xl border px-3 py-1.5 text-sm bg-white ${
+    active
+      ? "border-brand-blue text-brand-navy"
+      : "border-slate-300 text-slate-600"
+  } focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30`;
+
 function FilterSelect({
   ariaLabel,
-  name,
   value,
   options,
   allLabel,
   onChange,
 }: {
   ariaLabel: string;
-  name: string;
   value: string;
   options: { v: string; label: string }[];
   allLabel: string;
@@ -174,16 +247,40 @@ function FilterSelect({
   return (
     <select
       aria-label={ariaLabel}
-      name={name}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`rounded-xl border px-3 py-1.5 text-sm bg-white ${
-        value
-          ? "border-brand-blue text-brand-navy"
-          : "border-slate-300 text-slate-600"
-      } focus:border-brand-blue focus:outline-none focus:ring-2 focus:ring-brand-blue/30`}
+      className={selectClass(Boolean(value))}
     >
       <option value="">{allLabel}</option>
+      {options.map((o) => (
+        <option key={o.v} value={o.v}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Select with no "all" option and a real default (status, sort). */
+function PlainSelect({
+  ariaLabel,
+  value,
+  options,
+  onChange,
+}: {
+  ariaLabel: string;
+  value: string;
+  options: { v: string; label: string }[];
+  onChange: (v: string) => void;
+}) {
+  const isDefault = value === options[0]?.v;
+  return (
+    <select
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={selectClass(!isDefault)}
+    >
       {options.map((o) => (
         <option key={o.v} value={o.v}>
           {o.label}
