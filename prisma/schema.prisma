@@ -313,6 +313,7 @@ enum NotificationKind {
   PAY_SUMMARY
   SHIFT_LINK
   MISSED_CALL
+  NEXUS_CALLOUT
 }
 
 enum NotificationStatus {

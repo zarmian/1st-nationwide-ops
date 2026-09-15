@@ -57,6 +57,13 @@ export type CalloutResult = {
   /** Stubs written with no linked site. */
   unmatched: number;
   skipped: CalloutSkip[];
+  /** The callouts newly created this run — for the "new callouts" alert. */
+  newCallouts: {
+    reference: string;
+    siteName: string | null;
+    postcode: string | null;
+    scheduledFor: Date | null;
+  }[];
 };
 
 /** "07/09/2026 00:00" → Date (UTC). Also accepts a bare "07/09/2026". */
@@ -280,6 +287,7 @@ export async function runNexusCallouts(
   let created = 0;
   let updated = 0;
   let unmatched = 0;
+  const newCallouts: CalloutResult["newCallouts"] = [];
 
   for (const row of rows) {
     const siteId = matchSiteId(row, index, nexus.id);
@@ -337,6 +345,12 @@ export async function runNexusCallouts(
         },
       });
       created++;
+      newCallouts.push({
+        reference: row.reference,
+        siteName: row.siteName,
+        postcode: row.postcode,
+        scheduledFor: row.scheduledFor,
+      });
     }
   }
 
@@ -371,5 +385,5 @@ export async function runNexusCallouts(
     }
   }
 
-  return { created, updated, closed, unmatched, skipped };
+  return { created, updated, closed, unmatched, skipped, newCallouts };
 }

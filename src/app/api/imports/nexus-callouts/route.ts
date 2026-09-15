@@ -5,6 +5,7 @@ import {
   runNexusCallouts,
   type NexusActivity,
 } from "@/lib/nexusCallouts";
+import { notifyNexusCalloutsImported } from "@/lib/notifications";
 
 /**
  * Machine ingest for the Nexus dashboard callouts. The scheduled reader
@@ -60,18 +61,24 @@ export async function POST(req: Request) {
     );
   }
 
-  const preview = new URL(req.url).searchParams.get("preview") === "1";
+  const params = new URL(req.url).searchParams;
+  const preview = params.get("preview") === "1";
+  // Alert dispatch about new callouts by default; a bulk backfill passes
+  // ?notify=0 so it can't flood the office with a month of history.
+  const notify = params.get("notify") !== "0";
 
   try {
     if (preview) {
       const result = await previewNexusCallouts(prisma, activities);
       return NextResponse.json({ ok: true, preview: true, ...result });
     }
-    const result = await runNexusCallouts(
-      prisma,
-      activities,
-      `Nexus callouts auto-sync ${new Date().toISOString().slice(0, 10)}`,
-    );
+    const source = `Nexus callouts auto-sync ${new Date().toISOString().slice(0, 10)}`;
+    const result = await runNexusCallouts(prisma, activities, source);
+    if (notify && result.newCallouts.length > 0) {
+      await notifyNexusCalloutsImported(result.newCallouts, source).catch((e) =>
+        console.error("nexus callout alert failed", e),
+      );
+    }
     return NextResponse.json({ ok: true, preview: false, ...result });
   } catch (e: any) {
     return NextResponse.json(
