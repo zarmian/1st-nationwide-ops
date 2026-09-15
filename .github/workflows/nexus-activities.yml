@@ -1,0 +1,73 @@
+name: Nexus activities (discovery)
+
+# STAGE 1 — DISCOVERY. Opens the Nexus Activities page for a date window
+# (completed activities) and saves the table HTML + a screenshot + a generic
+# row parse as an artifact, so the real columns can be read and a precise
+# importer written. Writes nothing to the app.
+#
+# Run it by hand: Actions → "Nexus activities (discovery)" → Run workflow
+# (optionally set From/To/status). Then download "nexus-activities-page" and
+# send it over.
+#
+# Reuses the sites-sync login secrets:
+#   NEXUS_USERNAME / NEXUS_PORTAL_USERNAME, NEXUS_PASSWORD / NEXUS_PORTAL_PASSWORD
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "Due date from (YYYY-MM-DD). Blank = last 14 days."
+        type: string
+        required: false
+      to:
+        description: "Due date to (YYYY-MM-DD). Blank = today."
+        type: string
+        required: false
+      status:
+        description: "Activity status code (9 = completed)."
+        type: string
+        default: "9"
+        required: false
+
+concurrency:
+  group: nexus-activities
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Capture Nexus activities
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME || secrets.NEXUS_PORTAL_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD || secrets.NEXUS_PORTAL_PASSWORD }}
+          NEXUS_ACTIVITIES_URL: ${{ secrets.NEXUS_ACTIVITIES_URL }}
+          NEXUS_ACTIVITY_FROM: ${{ inputs.from }}
+          NEXUS_ACTIVITY_TO: ${{ inputs.to }}
+          NEXUS_ACTIVITY_STATUS: ${{ inputs.status }}
+        run: node scripts/nexus-activities.mjs
+
+      - name: Upload activities capture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nexus-activities-page
+          path: |
+            nexus-activities-rows.json
+            nexus-activities-page.html
+            nexus-activities-page.png
+          if-no-files-found: ignore
+          retention-days: 7
