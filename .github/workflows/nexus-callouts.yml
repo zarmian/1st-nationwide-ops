@@ -1,0 +1,54 @@
+name: Nexus callouts (discovery)
+
+# STAGE 1 — DISCOVERY. Logs into Nexus, opens the dashboard, and saves its HTML +
+# a screenshot as an artifact so the "due activities" markup can be read and a
+# precise reader written (they can't be exported like the Sites report).
+#
+# Run it by hand: Actions → "Nexus callouts (discovery)" → Run workflow. Then
+# download the "nexus-callouts-discovery" artifact and send it over.
+#
+# Reuses the same login secrets as the sites sync:
+#   NEXUS_USERNAME / NEXUS_PORTAL_USERNAME, NEXUS_PASSWORD / NEXUS_PORTAL_PASSWORD
+# Optional: NEXUS_DASHBOARD_URL (defaults to the portal root).
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: nexus-callouts
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Capture Nexus dashboard
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME || secrets.NEXUS_PORTAL_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD || secrets.NEXUS_PORTAL_PASSWORD }}
+          NEXUS_DASHBOARD_URL: ${{ secrets.NEXUS_DASHBOARD_URL }}
+        run: node scripts/nexus-callouts.mjs
+
+      - name: Upload dashboard capture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: nexus-callouts-discovery
+          path: |
+            nexus-dashboard.html
+            nexus-dashboard.png
+          if-no-files-found: ignore
+          retention-days: 7
