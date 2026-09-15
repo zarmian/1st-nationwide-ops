@@ -11,6 +11,7 @@ import type { SitePin } from "@/components/map/MapInner";
 import { getSessionUser } from "@/lib/authz";
 import { loadHiddenScope, siteHiddenAnd } from "@/lib/hiddenAccounts";
 import { buildSiteWhereAnd, siteOrderBy } from "@/lib/siteFilters";
+import { findDuplicateSites } from "@/lib/siteDuplicates";
 import { STAT_TONE, type StatTone } from "@/components/StatCard";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ export default async function SitesPage({
     customer?: string;
     status?: string;
     sort?: string;
+    dupes?: string;
     page?: string;
   };
 }) {
@@ -46,6 +48,7 @@ export default async function SitesPage({
   const customer = searchParams.customer ?? "";
   const status = searchParams.status ?? "active";
   const sort = searchParams.sort ?? "code";
+  const dupesOnly = searchParams.dupes === "1";
   const page = Math.max(1, Number(searchParams.page ?? "1") || 1);
 
   // Admin-only declutter: hide sites of hidden customers/partners. Non-admins
@@ -53,9 +56,19 @@ export default async function SitesPage({
   const me = await getSessionUser();
   const hidden = await loadHiddenScope(me?.role === "ADMIN");
 
+  // Suspected duplicates: computed across ALL active sites (not the filtered
+  // view) so a site is still flagged when its twin is on another page.
+  const allActive = await prisma.site.findMany({
+    where: { active: true },
+    select: { id: true, name: true, postcode: true },
+  });
+  const dupMap = findDuplicateSites(allActive);
+  const dupeCount = dupMap.size;
+
   const where = {
     AND: [
       ...buildSiteWhereAnd({ q, region, service, type, partner, customer, status }),
+      ...(dupesOnly ? [{ id: { in: Array.from(dupMap.keys()) } }] : []),
       ...siteHiddenAnd(hidden),
     ],
   };
@@ -164,6 +177,7 @@ export default async function SitesPage({
     customerName: s.customer?.name ?? null,
     partnerName: s.partner?.name ?? null,
     onboardingStage: s.onboardingPipelines[0]?.stage ?? null,
+    duplicate: dupMap.get(s.id) ?? null,
   }));
 
   const totalPages = Math.max(1, Math.ceil(totalShown / PAGE_SIZE));
@@ -197,7 +211,18 @@ export default async function SitesPage({
         regions={regions.map((r) => ({ name: r.name }))}
         customers={customers}
         partners={partners}
-        initial={{ q, region, service, type, partner, customer, status, sort }}
+        dupeCount={dupeCount}
+        initial={{
+          q,
+          region,
+          service,
+          type,
+          partner,
+          customer,
+          status,
+          sort,
+          dupes: dupesOnly ? "1" : "",
+        }}
       />
 
       <KpiStrip
