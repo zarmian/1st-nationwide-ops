@@ -91,6 +91,59 @@ curl -X POST "https://1st-nationwide-ops.vercel.app/api/imports/nexus?preview=1"
   when that happens the workflow fails and GitHub emails the repo owner; fix the
   selectors (step 3) and re-run.
 - **Terms of use:** confirm automated login is acceptable under Nexus's terms.
-- **Callouts (phase 2):** their callout list is also on the portal; once the
-  sites sync is proven, the same robot can scrape callouts into an internal
-  stub. Needs a callout parser + a `/api/imports/nexus-callouts` endpoint.
+
+## Callouts (dashboard → job stubs)
+
+The Nexus **dashboard**'s "Upcoming Activities" list (VPI callouts they've sent
+us) can't be exported like the Sites report, so a second robot reads it off the
+screen and turns each row into an internal **job stub** the office can assign.
+
+- **Workflow:** `.github/workflows/nexus-callouts.yml` — nightly at 06:00 UTC
+  (30 min after the sites sync, so callouts match against freshly-synced sites)
+  and on demand (Actions → **Nexus callouts** → Run workflow, with a **Preview**
+  toggle for a dry run).
+- **Reader:** `scripts/nexus-callouts.mjs` logs in (same pinned flow), opens
+  `/Dashboard`, parses each `LINK-…` activity, and POSTs them as JSON to
+  `/api/imports/nexus-callouts`. It also uploads a capture artifact
+  (`nexus-activities.json` + HTML + screenshot) every run for audit.
+- **Endpoint:** `/api/imports/nexus-callouts` — same `NEXUS_IMPORT_SECRET`
+  bearer, fail-closed. Body is `{ "activities": [ … ] }` (or a bare array);
+  `?preview=1` reports without writing.
+
+### Extra GitHub secret
+
+Add one secret alongside the sites-sync ones (login + `NEXUS_IMPORT_SECRET` are
+shared):
+
+| Secret | Value |
+| --- | --- |
+| `NEXUS_CALLOUTS_URL` | `https://1st-nationwide-ops.vercel.app/api/imports/nexus-callouts` |
+
+With `NEXUS_CALLOUTS_URL` unset the robot only parses + uploads the capture
+(discovery mode) — handy for confirming a parse before going live.
+
+### What the stubs look like
+
+Each callout becomes a `Job`: type **VPI**, `source = PARTNER_REQUEST`, tied to
+the **Nexus** partner, `reportedViaPartnerApp = true` (our officer fills Nexus's
+app — no ClientReport), status **OPEN**. `scheduledFor` is the window's end
+(the completion deadline); the full window, service code, Nexus status and
+address go in the notes. Sites are matched by postcode (then by name when a
+postcode is shared); an unmatched callout still becomes a stub with the address
+in the notes so nothing is dropped.
+
+- **Dedup key:** `Job.partnerActivityRef` (the `LINK-…` reference, UNIQUE). A
+  re-run updates the same stub; two genuine callouts on one site (different
+  references) stay two stubs.
+- **Auto-drop:** an **OPEN** stub that's no longer on the dashboard is
+  auto-cancelled (reversible). Only ever OPEN ones — anything an officer has
+  picked up, or a human cancelled, is left alone. Guarded on a **non-empty**
+  read, so a transient blank dashboard never cancels the board.
+
+## Notes & caveats (both robots)
+
+- **Idempotent:** upsert-only, so re-running is safe.
+- **Fragile by nature:** if Nexus redesign their dashboard the callouts parse
+  may return 0 rows — the robot then skips posting (empty-snapshot guard) and
+  fails the run so GitHub emails the owner. Check the capture artifact's
+  `nexus-dashboard.html` and adjust `scripts/nexus-callouts.mjs`.

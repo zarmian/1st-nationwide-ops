@@ -1,25 +1,38 @@
-name: Nexus callouts (discovery)
+name: Nexus callouts
 
-# STAGE 1 — DISCOVERY. Logs into Nexus, opens the dashboard, and saves its HTML +
-# a screenshot as an artifact so the "due activities" markup can be read and a
-# precise reader written (they can't be exported like the Sites report).
+# Reads the "Upcoming Activities" off the Nexus Link dashboard (they can't be
+# exported like the Sites report) and POSTs them to the app's secure endpoint
+# (/api/imports/nexus-callouts), which upserts a VPI job stub per callout so the
+# office can assign an officer. Runs nightly and on demand.
 #
-# Run it by hand: Actions → "Nexus callouts (discovery)" → Run workflow. Then
-# download the "nexus-callouts-discovery" artifact and send it over.
+# Required repo secrets (same login + secret as the sites sync):
+#   NEXUS_USERNAME  (or NEXUS_PORTAL_USERNAME)   portal login
+#   NEXUS_PASSWORD  (or NEXUS_PORTAL_PASSWORD)   portal password
+#   NEXUS_CALLOUTS_URL   https://1st-nationwide-ops.vercel.app/api/imports/nexus-callouts
+#   NEXUS_IMPORT_SECRET  same value set as NEXUS_IMPORT_SECRET in Vercel
+# Optional:
+#   NEXUS_DASHBOARD_URL  defaults to https://link.linkbynexus.co.uk/Dashboard
 #
-# Reuses the same login secrets as the sites sync:
-#   NEXUS_USERNAME / NEXUS_PORTAL_USERNAME, NEXUS_PASSWORD / NEXUS_PORTAL_PASSWORD
-# Optional: NEXUS_DASHBOARD_URL (defaults to the portal root).
+# With NEXUS_CALLOUTS_URL / NEXUS_IMPORT_SECRET unset it only parses + uploads
+# the capture artifact (discovery mode). Use the Preview toggle for a dry run
+# that reports what would change without writing.
 
 on:
+  schedule:
+    - cron: "0 6 * * *" # 06:00 UTC daily — 30 min after the sites sync
   workflow_dispatch:
+    inputs:
+      preview:
+        description: "Preview only (report what would change, write nothing)"
+        type: boolean
+        default: false
 
 concurrency:
   group: nexus-callouts
   cancel-in-progress: false
 
 jobs:
-  discover:
+  callouts:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -35,18 +48,21 @@ jobs:
           npm install playwright@1.48.0
           npx playwright install --with-deps chromium
 
-      - name: Capture Nexus dashboard
+      - name: Read + import Nexus callouts
         env:
           NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME || secrets.NEXUS_PORTAL_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD || secrets.NEXUS_PORTAL_PASSWORD }}
           NEXUS_DASHBOARD_URL: ${{ secrets.NEXUS_DASHBOARD_URL }}
+          NEXUS_CALLOUTS_URL: ${{ secrets.NEXUS_CALLOUTS_URL }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
+          NEXUS_PREVIEW: ${{ inputs.preview }}
         run: node scripts/nexus-callouts.mjs
 
       - name: Upload dashboard capture
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: nexus-callouts-discovery
+          name: nexus-callouts-capture
           path: |
             nexus-activities.json
             nexus-dashboard.html
