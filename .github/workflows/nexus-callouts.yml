@@ -48,6 +48,7 @@ jobs:
         with:
           name: nexus-callouts-discovery
           path: |
+            nexus-activities.json
             nexus-dashboard.html
             nexus-dashboard.png
           if-no-files-found: ignore
