@@ -12,10 +12,11 @@
  *   07/09/2026 00:00 - 21/09/2026 00:00
  *   Due Now
  *
- * STAGE 2a (this file): log in, open /Dashboard, parse the rows, and PRINT them
- * as JSON (plus save the HTML + a screenshot) so the parsing can be confirmed.
- * It does NOT post anything yet — the import endpoint + job stubs land once the
- * parse is verified.
+ * It logs in, opens /Dashboard, parses the rows, saves them (JSON + HTML +
+ * screenshot) as a workflow artifact AND — when the import endpoint is
+ * configured (NEXUS_CALLOUTS_URL + NEXUS_IMPORT_SECRET) — POSTs them to
+ * /api/imports/nexus-callouts, which upserts a VPI job stub per callout. With
+ * no endpoint set it just parses + saves, so it doubles as a discovery run.
  *
  * Login is the same pinned flow as the sites sync.
  */
@@ -32,6 +33,11 @@ const NEXUS_DASHBOARD_URL = env(
 const USER_SEL = env("NEXUS_USER_SELECTOR", "#Username");
 const PASS_SEL = env("NEXUS_PASS_SELECTOR", "#Password");
 const SUBMIT_SEL = env("NEXUS_SUBMIT_SELECTOR", 'button[type="submit"]');
+// Import endpoint. Leave unset to only parse + save (discovery). The bearer is
+// the same secret the sites sync uses.
+const NEXUS_CALLOUTS_URL = env("NEXUS_CALLOUTS_URL");
+const NEXUS_IMPORT_SECRET = env("NEXUS_IMPORT_SECRET");
+const preview = String(env("NEXUS_PREVIEW")).toLowerCase() === "true";
 
 if (!NEXUS_USERNAME || !NEXUS_PASSWORD) {
   console.log("Nexus callouts not configured (no username/password) — skipping.");
@@ -86,6 +92,7 @@ async function run() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
+  let activities = [];
 
   try {
     await page.goto(NEXUS_DASHBOARD_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
@@ -126,7 +133,7 @@ async function run() {
       return rows;
     });
 
-    const activities = rawRows.map(parseRow).filter((a) => a.reference);
+    activities = rawRows.map(parseRow).filter((a) => a.reference);
 
     // Save the page for reference + emit the parsed data for verification.
     await fs.writeFile("nexus-dashboard.html", await page.content());
@@ -149,6 +156,49 @@ async function run() {
   }
 
   await browser.close();
+
+  // Hand the parsed callouts to the app, if the endpoint is configured.
+  if (!NEXUS_CALLOUTS_URL || !NEXUS_IMPORT_SECRET) {
+    console.log(
+      "Import endpoint not configured (NEXUS_CALLOUTS_URL / NEXUS_IMPORT_SECRET) — parsed + saved only.",
+    );
+    return;
+  }
+  // Never POST an empty snapshot: a transient bad read shouldn't be treated as
+  // "no callouts" and auto-cancel the board. Skip and let the next run catch up.
+  if (activities.length === 0) {
+    console.warn("Parsed 0 activities — not posting (empty snapshot guard).");
+    process.exit(1);
+  }
+
+  const { res, json } = await postActivities(activities, preview);
+  if (!res.ok || json.ok === false) {
+    console.error("Callouts endpoint rejected the batch:", res.status, JSON.stringify(json));
+    process.exit(1);
+  }
+  if (preview) {
+    console.log(
+      `Preview OK — would create ${json.toCreate}, update ${json.toUpdate}, drop ${json.toClose}, ${json.unmatchedSites} unmatched-site (read ${json.read}).`,
+    );
+  } else {
+    console.log(
+      `Callouts OK — created ${json.created}, updated ${json.updated}, dropped ${json.closed}, ${json.unmatched} unmatched-site, skipped ${json.skipped?.length || 0}.`,
+    );
+  }
+}
+
+async function postActivities(activities, preview) {
+  const url = preview ? `${NEXUS_CALLOUTS_URL}?preview=1` : NEXUS_CALLOUTS_URL;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${NEXUS_IMPORT_SECRET}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ activities }),
+  });
+  const json = await res.json().catch(() => ({}));
+  return { res, json };
 }
 
 run().catch((e) => {

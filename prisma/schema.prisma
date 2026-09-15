@@ -1080,6 +1080,12 @@ model Job {
 
   reportedViaPartnerApp Boolean       @default(false)
   partnerReportRef      String?
+  /// Stable reference for a job imported from a partner portal's activity
+  /// list — currently the Nexus "Link" dashboard callouts (e.g. "LINK-2483487").
+  /// The nightly reader upserts on this so a re-run updates the same stub
+  /// instead of duplicating. Unique; null for everything not portal-imported
+  /// (Postgres treats multiple NULLs as distinct, so most jobs share null).
+  partnerActivityRef    String?       @unique
 
   invoiceId             String?       @db.Uuid
   invoice               Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
