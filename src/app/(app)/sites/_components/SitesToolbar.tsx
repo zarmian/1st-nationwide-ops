@@ -42,17 +42,20 @@ export type ToolbarInitial = {
   customer: string;
   status: string;
   sort: string;
+  dupes: string;
 };
 
 export function SitesToolbar({
   regions,
   customers,
   partners,
+  dupeCount,
   initial,
 }: {
   regions: { name: string }[];
   customers: { id: string; name: string }[];
   partners: { id: string; name: string }[];
+  dupeCount: number;
   initial: ToolbarInitial;
 }) {
   const router = useRouter();
@@ -199,6 +202,25 @@ export function SitesToolbar({
           options={STATUSES}
           onChange={(v) => pushParam("status", v === "active" ? "" : v)}
         />
+
+        {dupeCount > 0 && (
+          <button
+            type="button"
+            aria-pressed={initial.dupes === "1"}
+            onClick={() =>
+              pushParam("dupes", initial.dupes === "1" ? "" : "1")
+            }
+            className={
+              "inline-flex items-center gap-1 rounded-xl border px-3 py-1.5 text-sm transition-colors " +
+              (initial.dupes === "1"
+                ? "border-red-400 bg-red-50 text-red-700"
+                : "border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100")
+            }
+            title="Sites sharing a name or postcode with another — a manual add plus an import, say."
+          >
+            ⚠ {dupeCount} possible duplicate{dupeCount === 1 ? "" : "s"}
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-1.5">
           <span className="text-xs text-slate-500">Sort</span>

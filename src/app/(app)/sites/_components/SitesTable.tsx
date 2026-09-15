@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { bulkUpdateSites } from "../_actions";
+import { dupReason, type DupInfo } from "@/lib/siteDuplicates";
 
 export type SiteRow = {
   id: string;
@@ -16,6 +17,7 @@ export type SiteRow = {
   customerName: string | null;
   partnerName: string | null;
   onboardingStage: string | null;
+  duplicate: DupInfo | null;
 };
 
 const SERVICE_LABEL: Record<string, string> = {
@@ -108,7 +110,13 @@ export function SitesTable({
               return (
                 <tr
                   key={r.id}
-                  className={isSel ? "bg-brand-blue-light/30" : "hover:bg-slate-50"}
+                  className={
+                    isSel
+                      ? "bg-brand-blue-light/30"
+                      : r.duplicate
+                        ? "bg-amber-50/60 hover:bg-amber-50"
+                        : "hover:bg-slate-50"
+                  }
                 >
                   <td className="px-4 py-2.5">
                     <input
@@ -134,6 +142,17 @@ export function SitesTable({
                         <span className="chip-amber">
                           Onboarding · {prettyStage(r.onboardingStage)}
                         </span>
+                      )}
+                      {r.duplicate && (
+                        <Link
+                          href={`/sites?q=${encodeURIComponent(
+                            r.duplicate.byName ? r.name : r.postcodeFormatted,
+                          )}`}
+                          className="chip-red"
+                          title={`${dupReason(r.duplicate)}. Click to see the match.`}
+                        >
+                          ⚠ Possible duplicate
+                        </Link>
                       )}
                     </div>
                     {(r.customerName || r.partnerName) && (
