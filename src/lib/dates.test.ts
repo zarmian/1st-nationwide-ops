@@ -61,10 +61,21 @@ describe("formatTimeAgo", () => {
 });
 
 describe("parseIsoDate / toIsoDate", () => {
-  it("round-trips a valid YYYY-MM-DD", () => {
+  it("round-trips a valid YYYY-MM-DD in UK terms", () => {
     const d = parseIsoDate("2026-05-02");
     expect(d).not.toBeNull();
     expect(toIsoDate(d)).toBe("2026-05-02");
+  });
+
+  it("anchors the start of day on UK midnight, not server-local", () => {
+    // 2 May 2026 is BST (UTC+1) → UK midnight is 23:00 UTC the day before.
+    expect(parseIsoDate("2026-05-02")!.toISOString()).toBe(
+      "2026-05-01T23:00:00.000Z",
+    );
+    // 15 Jan 2026 is GMT (UTC+0) → UK midnight is UTC midnight.
+    expect(parseIsoDate("2026-01-15")!.toISOString()).toBe(
+      "2026-01-15T00:00:00.000Z",
+    );
   });
 
   it("returns null for malformed input", () => {
@@ -73,11 +84,22 @@ describe("parseIsoDate / toIsoDate", () => {
     expect(parseIsoDate("not a date")).toBeNull();
   });
 
-  it("end-of-day option sets the time to 23:59:59.999", () => {
-    const d = parseIsoDate("2026-05-02", true)!;
-    expect(d.getHours()).toBe(23);
-    expect(d.getMinutes()).toBe(59);
-    expect(d.getSeconds()).toBe(59);
+  it("end-of-day option is the last millisecond of the UK day", () => {
+    // BST: end of 2 May 2026 UK = 22:59:59.999 UTC.
+    expect(parseIsoDate("2026-05-02", true)!.toISOString()).toBe(
+      "2026-05-02T22:59:59.999Z",
+    );
+    // GMT: end of 15 Jan 2026 UK = 23:59:59.999 UTC.
+    expect(parseIsoDate("2026-01-15", true)!.toISOString()).toBe(
+      "2026-01-15T23:59:59.999Z",
+    );
+  });
+
+  it("a late-BST-evening instant still reads as its UK day", () => {
+    // 22:30 UTC on 31 May = 23:30 BST 31 May — still the 31st in UK terms.
+    expect(toIsoDate(new Date("2026-05-31T22:30:00Z"))).toBe("2026-05-31");
+    // 23:30 UTC on 31 May = 00:30 BST 1 June — rolled over to the 1st.
+    expect(toIsoDate(new Date("2026-05-31T23:30:00Z"))).toBe("2026-06-01");
   });
 
   it("toIsoDate returns empty string for null", () => {

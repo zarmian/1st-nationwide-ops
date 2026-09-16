@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { isAuthorisedCron } from "@/lib/cronAuth";
+import { ukWallClockToUtc, ukDayString } from "@/lib/dates";
 import { notifyOfficerPaySummary } from "@/lib/notifications";
 import {
   jobScheduledRange,
@@ -36,24 +37,21 @@ export async function GET(req: Request) {
   let monthStart: Date;
   let monthEnd: Date;
   let monthLabel: string;
+  // UK calendar-month boundaries (a pay month is a UK month, not a UTC one).
   if (force && /^\d{4}-\d{2}$/.test(force)) {
     const [y, m] = force.split("-").map(Number);
-    monthStart = new Date(y, m - 1, 1);
-    monthEnd = new Date(y, m, 0, 23, 59, 59, 999);
-    monthLabel = monthStart.toLocaleDateString("en-GB", {
-      timeZone: "Europe/London",
-      month: "long",
-      year: "numeric",
-    });
+    monthStart = ukWallClockToUtc(y, m, 1, 0, 0, 0);
+    monthEnd = new Date(ukWallClockToUtc(y, m + 1, 1, 0, 0, 0).getTime() - 1);
   } else {
-    monthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    monthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    monthLabel = monthStart.toLocaleDateString("en-GB", {
-      timeZone: "Europe/London",
-      month: "long",
-      year: "numeric",
-    });
+    const [uy, um] = ukDayString(now).split("-").map(Number);
+    monthStart = ukWallClockToUtc(uy, um - 1, 1, 0, 0, 0);
+    monthEnd = new Date(ukWallClockToUtc(uy, um, 1, 0, 0, 0).getTime() - 1);
   }
+  monthLabel = monthStart.toLocaleDateString("en-GB", {
+    timeZone: "Europe/London",
+    month: "long",
+    year: "numeric",
+  });
 
   const officers = await prisma.user.findMany({
     where: {

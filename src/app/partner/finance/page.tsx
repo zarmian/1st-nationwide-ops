@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { parseIsoDate } from "@/lib/dates";
+import { jobScheduledRange, shiftScheduledRange } from "@/lib/activityWhen";
 import { prisma } from "@/lib/db";
 import { requirePartner } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
@@ -28,20 +30,9 @@ function fmtMoney(n: number, currency = "GBP"): string {
   }).format(n);
 }
 
+// Filter days are Europe/London days (shared UK-aware parser).
 function parseLocalDate(s: string | undefined, end = false): Date | null {
-  if (!s) return null;
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const [, y, mo, d] = m;
-  return new Date(
-    Number(y),
-    Number(mo) - 1,
-    Number(d),
-    end ? 23 : 0,
-    end ? 59 : 0,
-    end ? 59 : 0,
-    end ? 999 : 0,
-  );
+  return parseIsoDate(s, end);
 }
 
 function ymd(d: Date): string {
@@ -111,15 +102,8 @@ export default async function PartnerFinancePage({
       where: {
         handledByPartnerId: me.partnerId,
         status: { not: "CANCELLED" },
-        AND: [
-          partnerAssigned,
-          {
-            OR: [
-              { completedAt: { gte: fromDate, lte: toDate } },
-              { scheduledFor: { gte: fromDate, lte: toDate } },
-            ],
-          },
-        ],
+        // Bill/margin counts a job in the month it was SCHEDULED, not closed.
+        AND: [partnerAssigned, jobScheduledRange(fromDate, toDate)],
       },
       select: {
         type: true,
@@ -132,15 +116,8 @@ export default async function PartnerFinancePage({
     prisma.shift.findMany({
       where: {
         handledByPartnerId: me.partnerId,
-        AND: [
-          partnerAssigned,
-          {
-            OR: [
-              { actualStartedAt: { gte: fromDate, lte: toDate } },
-              { scheduledStartsAt: { gte: fromDate, lte: toDate } },
-            ],
-          },
-        ],
+        // Window on the SCHEDULED start, never actual start.
+        AND: [partnerAssigned, shiftScheduledRange(fromDate, toDate)],
       },
       select: {
         type: true,

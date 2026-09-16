@@ -1,6 +1,7 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { ukWallClockToUtc, ukDayPlus } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
 import Link from "next/link";
 import { VisitCard } from "./_components/VisitCard";
@@ -48,12 +49,15 @@ export default async function OfficerTodayPage() {
     select: { onDuty: true },
   });
 
-  // Officer's "next 2 days" window: from now, up to end of (today + 2 days).
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfWindow = new Date();
-  endOfWindow.setDate(endOfWindow.getDate() + 2);
-  endOfWindow.setHours(23, 59, 59, 999);
+  // Officer's "next 2 days" window in UK terms: UK midnight today → end of
+  // (today + 2 UK days). Server-local boundaries would drop a just-after-
+  // midnight visit during BST.
+  const d0 = ukDayPlus(new Date(), 0);
+  const startOfDay = ukWallClockToUtc(d0.year, d0.month, d0.day, 0, 0, 0);
+  const d2 = ukDayPlus(new Date(), 2);
+  const endOfWindow = new Date(
+    ukWallClockToUtc(d2.year, d2.month, d2.day, 23, 59, 59).getTime() + 999,
+  );
 
   const [myVisits, jobs, myShifts] = await Promise.all([
     prisma.patrolVisit.findMany({

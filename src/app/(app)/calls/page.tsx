@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { parseIsoDate } from "@/lib/dates";
 import { Phone, PhoneMissed } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { getSessionUser } from "@/lib/authz";
@@ -38,15 +39,9 @@ function fmt(d: Date | null): string {
   });
 }
 
+// Filter days are Europe/London days (shared UK-aware parser).
 function parseLocalDate(s: string | undefined, endOfDay = false): Date | null {
-  if (!s) return null;
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const [, y, mo, d] = m;
-  const dt = endOfDay
-    ? new Date(Number(y), Number(mo) - 1, Number(d), 23, 59, 59, 999)
-    : new Date(Number(y), Number(mo) - 1, Number(d));
-  return Number.isFinite(dt.getTime()) ? dt : null;
+  return parseIsoDate(s, endOfDay);
 }
 
 function ymd(d: Date): string {

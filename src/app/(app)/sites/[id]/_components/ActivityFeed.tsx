@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { daysFromTodayUk } from "@/lib/dates";
 import type { ActivityEvent } from "../_lib/activity";
 
 const SEVERITY_BG: Record<ActivityEvent["severity"], string> = {
@@ -76,17 +77,10 @@ export function ActivityFeed({ events }: { events: ActivityEvent[] }) {
 }
 
 function formatRelative(d: Date): string {
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  const isYesterday =
-    d.getFullYear() === yesterday.getFullYear() &&
-    d.getMonth() === yesterday.getMonth() &&
-    d.getDate() === yesterday.getDate();
+  // Today / Yesterday by UK calendar day, not the server's UTC day.
+  const diff = daysFromTodayUk(d);
+  const sameDay = diff === 0;
+  const isYesterday = diff === -1;
 
   const time = d.toLocaleTimeString("en-GB", {
     timeZone: "Europe/London",

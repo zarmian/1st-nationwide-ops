@@ -39,7 +39,11 @@ import type {
 } from "@/components/map/MapInner";
 import { siteOwner } from "@/lib/entityColor";
 import { daysFromTodayUk, ukDayPlus, ukWallClockToUtc } from "@/lib/dates";
-import { jobScheduledRange, visitScheduledRange } from "@/lib/activityWhen";
+import {
+  jobScheduledRange,
+  visitScheduledRange,
+  shiftScheduledRange,
+} from "@/lib/activityWhen";
 import { getJobSourceLabels, getJobTypeLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -649,13 +653,14 @@ export default async function DispatchPage({
         })
       : Promise.resolve([]),
     prisma.shift.findMany({
+      // Windowed by the SCHEDULED start, like the recent jobs/visits beside it.
       where: {
         status: "COMPLETED",
-        actualEndedAt: { gte: recentSince, lte: now },
+        ...shiftScheduledRange(recentSince, now),
         AND: siteRefHiddenAnd(hidden),
       },
       include: shiftInclude,
-      orderBy: [{ actualEndedAt: "desc" }],
+      orderBy: [{ scheduledStartsAt: "desc" }],
       take: 100,
     }),
     prisma.shift.count({ where: shiftWhereFor("pending") ?? { id: emptyUuid() } }),

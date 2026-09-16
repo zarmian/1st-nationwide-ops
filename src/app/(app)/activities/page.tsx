@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { parseIsoDate } from "@/lib/dates";
 import { ClipboardList } from "lucide-react";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -79,15 +80,10 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Filter days are Europe/London days. Delegates to the shared UK-aware parser
+// so a late-night activity doesn't leak into the adjacent day's window.
 function parseLocalDate(s: string | undefined, endOfDay = false): Date | null {
-  if (!s) return null;
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const [, y, mo, d] = m;
-  const dt = endOfDay
-    ? new Date(Number(y), Number(mo) - 1, Number(d), 23, 59, 59, 999)
-    : new Date(Number(y), Number(mo) - 1, Number(d));
-  return Number.isFinite(dt.getTime()) ? dt : null;
+  return parseIsoDate(s, endOfDay);
 }
 
 type GroupBy = "none" | "day" | "week" | "month";

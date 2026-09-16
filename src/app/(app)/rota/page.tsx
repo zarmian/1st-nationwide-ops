@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { parseIsoDate } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
@@ -21,11 +22,9 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Week anchor is a Europe/London day (shared UK-aware parser).
 function parseLocalDate(s: string | undefined): Date | null {
-  if (!s) return null;
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return parseIsoDate(s);
 }
 
 function startOfWeek(d: Date): Date {
