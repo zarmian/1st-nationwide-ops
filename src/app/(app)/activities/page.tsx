@@ -466,6 +466,7 @@ export default async function ActivitiesPage({
     partnerName: string | null;
     officerId: string | null;
     officerName: string | null;
+    possibleDuplicate?: boolean;
   };
 
   const rows: Row[] = [];
@@ -528,6 +529,7 @@ export default async function ActivitiesPage({
       officerName: j.handledByPartner
         ? `${j.handledByPartner.name} (partner)`
         : j.assignedTo?.name ?? null,
+      possibleDuplicate: j.possibleDuplicate,
     });
   }
 
@@ -967,6 +969,14 @@ export default async function ActivitiesPage({
                         <div className="text-xs text-slate-500">
                           {r.regionName ?? "—"}
                         </div>
+                        {r.possibleDuplicate && (
+                          <span
+                            className="chip-red mt-0.5 inline-block"
+                            title="This imported activity looks like a job already entered by hand (same site, type and time). Check before billing/paying twice."
+                          >
+                            ⚠ Possible duplicate
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2 text-slate-700">
                         {r.customerName ?? r.partnerName ?? (

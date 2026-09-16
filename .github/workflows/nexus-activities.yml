@@ -1,28 +1,35 @@
-name: Nexus activities (discovery)
+name: Nexus activities
 
-# STAGE 1 — DISCOVERY. Opens the Nexus Activities page for a date window
-# (completed activities) and saves the table HTML + a screenshot + a generic
-# row parse as an artifact, so the real columns can be read and a precise
-# importer written. Writes nothing to the app.
+# Reads the Nexus "Activities" report (completed activities) for a date window
+# and imports each as a completed job stub via /api/imports/nexus-activities.
+# Runs nightly for a rolling recent window, and on demand for the one-time
+# June-to-today backfill (set From/To, tick Preview first for a dry run).
 #
-# Run it by hand: Actions → "Nexus activities (discovery)" → Run workflow
-# (optionally set From/To/status). Then download "nexus-activities-page" and
-# send it over.
-#
-# Reuses the sites-sync login secrets:
+# Required repo secrets (login + secret shared with the sites/callouts syncs):
 #   NEXUS_USERNAME / NEXUS_PORTAL_USERNAME, NEXUS_PASSWORD / NEXUS_PORTAL_PASSWORD
+#   NEXUS_ACTIVITIES_IMPORT_URL  https://1st-nationwide-ops.vercel.app/api/imports/nexus-activities
+#   NEXUS_IMPORT_SECRET          same value set in Vercel
+# Optional: NEXUS_ACTIVITIES_URL (defaults to the built-in filter URL).
+#
+# With NEXUS_ACTIVITIES_IMPORT_URL unset it only parses + uploads the capture.
 
 on:
+  schedule:
+    - cron: "30 6 * * *" # 06:30 UTC daily — after sites (05:30) + callouts (06:00)
   workflow_dispatch:
     inputs:
       from:
-        description: "Due date from (YYYY-MM-DD). Blank = last 14 days."
+        description: "Due date from (YYYY-MM-DD). Blank = last 3 days."
         type: string
         required: false
       to:
         description: "Due date to (YYYY-MM-DD). Blank = today."
         type: string
         required: false
+      preview:
+        description: "Preview only (report what would change, write nothing)."
+        type: boolean
+        default: false
       status:
         description: "Activity status code (9 = completed)."
         type: string
@@ -34,9 +41,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  discover:
+  activities:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -50,23 +57,26 @@ jobs:
           npm install playwright@1.48.0
           npx playwright install --with-deps chromium
 
-      - name: Capture Nexus activities
+      - name: Read + import Nexus activities
         env:
           NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME || secrets.NEXUS_PORTAL_USERNAME }}
           NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD || secrets.NEXUS_PORTAL_PASSWORD }}
           NEXUS_ACTIVITIES_URL: ${{ secrets.NEXUS_ACTIVITIES_URL }}
+          NEXUS_ACTIVITIES_IMPORT_URL: ${{ secrets.NEXUS_ACTIVITIES_IMPORT_URL }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
           NEXUS_ACTIVITY_FROM: ${{ inputs.from }}
           NEXUS_ACTIVITY_TO: ${{ inputs.to }}
           NEXUS_ACTIVITY_STATUS: ${{ inputs.status }}
+          NEXUS_PREVIEW: ${{ inputs.preview }}
         run: node scripts/nexus-activities.mjs
 
       - name: Upload activities capture
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: nexus-activities-page
+          name: nexus-activities-capture
           path: |
-            nexus-activities-rows.json
+            nexus-activities.json
             nexus-activities-page.html
             nexus-activities-page.png
           if-no-files-found: ignore
