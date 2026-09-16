@@ -2,6 +2,8 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requirePartner } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
+import { ukWallClockToUtc, ukDayString } from "@/lib/dates";
+import { jobScheduledRange } from "@/lib/activityWhen";
 import { ClipboardList, Users } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -18,17 +20,17 @@ export const dynamic = "force-dynamic";
 export default async function PartnerHomePage() {
   const me = await requirePartner();
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  // Start of this UK calendar month.
+  const [uy, um] = ukDayString(new Date()).split("-").map(Number);
+  const monthStart = ukWallClockToUtc(uy, um, 1, 0, 0, 0);
 
   const [activitiesThisMonth, officerCount, partner] = await Promise.all([
-    // Jobs we sent them (handledByPartnerId) that completed this month.
+    // Jobs we sent them (handledByPartnerId) SCHEDULED this month.
     prisma.job.count({
       where: {
         handledByPartnerId: me.partnerId,
-        completedAt: { gte: monthStart },
         status: { not: "CANCELLED" },
+        ...jobScheduledRange(monthStart, new Date()),
       },
     }),
     prisma.partnerOfficer.count({

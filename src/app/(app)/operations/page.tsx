@@ -15,6 +15,8 @@ import {
   Send,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { jobScheduledRange } from "@/lib/activityWhen";
+import { ukWallClockToUtc, ukDayPlus } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
 import { getSessionUser } from "@/lib/authz";
 import { loadComplianceRegister } from "@/lib/compliance";
@@ -48,8 +50,9 @@ export default async function OperationsHubPage() {
     prisma.shift.count({ where: { status: "PENDING" } }),
     prisma.key.count({ where: { status: "WITH_US" } }),
     prisma.job.count({
+      // Activities SCHEDULED in the last 7 days (not when the row was created).
       where: {
-        createdAt: { gte: new Date(Date.now() - 7 * 86_400_000) },
+        ...jobScheduledRange(new Date(Date.now() - 7 * 86_400_000), new Date()),
       },
     }),
     prisma.onboardingPipeline.count({
@@ -85,8 +88,15 @@ export default async function OperationsHubPage() {
     where: { name: { contains: "Shurgard", mode: "insensitive" } },
     select: { id: true },
   });
-  const reportDayStart = new Date();
-  reportDayStart.setHours(0, 0, 0, 0);
+  const reportToday = ukDayPlus(new Date(), 0);
+  const reportDayStart = ukWallClockToUtc(
+    reportToday.year,
+    reportToday.month,
+    reportToday.day,
+    0,
+    0,
+    0,
+  );
   const todayReportJobs = reportShurgard
     ? await prisma.job.count({
         where: {

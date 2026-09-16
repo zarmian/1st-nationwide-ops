@@ -1,4 +1,10 @@
 import Link from "next/link";
+import { parseIsoDate } from "@/lib/dates";
+import {
+  jobScheduledRange,
+  visitScheduledRange,
+  shiftScheduledRange,
+} from "@/lib/activityWhen";
 import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
@@ -76,15 +82,9 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Filter days are Europe/London days (shared UK-aware parser).
 function parseLocalDate(s: string | undefined, endOfDay = false): Date | null {
-  if (!s) return null;
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const [, y, mo, d] = m;
-  const dt = endOfDay
-    ? new Date(Number(y), Number(mo) - 1, Number(d), 23, 59, 59, 999)
-    : new Date(Number(y), Number(mo) - 1, Number(d));
-  return Number.isFinite(dt.getTime()) ? dt : null;
+  return parseIsoDate(s, endOfDay);
 }
 
 type GroupBy = "none" | "day" | "week" | "month";
@@ -205,40 +205,36 @@ export default async function ActivitiesPage({
   const page = Math.max(1, Number(searchParams.page ?? "1") || 1);
 
   // ── 2. Build the where clauses ──────────────────────────────────────────
-  // The page is "completed activities" by default — we anchor on the
-  // event's billed/completed date so finance + ops both line up. The user
-  // can change to "all" / "billed" / "paid" via the status filter.
-
-  // Field selection per status. PatrolVisit uses departedAt/billedAt/paidAt;
-  // Job uses completedAt/billedAt/paidAt. We keep them parallel.
-  const visitWhere: any = {};
-  const jobWhere: any = {};
-  const shiftWhere: any = {};
+  // The date window ALWAYS means the SCHEDULED date (the rota date), never
+  // completion/billed/paid — a job scheduled 30 Aug but closed 1 Sep counts in
+  // August. The status filter (completed / billed / paid) is applied as a
+  // separate not-null GATE on top of the scheduled window, not as the anchor.
+  const visitWhere: any = { ...visitScheduledRange(fromDate, toDate) };
+  const jobWhere: any = { ...jobScheduledRange(fromDate, toDate) };
+  const shiftWhere: any = { ...shiftScheduledRange(fromDate, toDate) };
 
   // Every status mode requires the work to actually be done. Jobs are
   // auto-billed by the cron at creation time, so without these guards a
   // scheduled lock-up that no one attended yet would show up here.
   if (status === "billed") {
     visitWhere.status = "COMPLETED";
-    visitWhere.billedAt = { gte: fromDate, lte: toDate };
+    visitWhere.billedAt = { not: null };
     jobWhere.completedAt = { not: null };
-    jobWhere.billedAt = { gte: fromDate, lte: toDate };
+    jobWhere.billedAt = { not: null };
     shiftWhere.status = "COMPLETED";
-    shiftWhere.billedAt = { gte: fromDate, lte: toDate };
+    shiftWhere.billedAt = { not: null };
   } else if (status === "paid") {
     visitWhere.status = "COMPLETED";
-    visitWhere.paidAt = { gte: fromDate, lte: toDate };
+    visitWhere.paidAt = { not: null };
     jobWhere.completedAt = { not: null };
-    jobWhere.paidAt = { gte: fromDate, lte: toDate };
+    jobWhere.paidAt = { not: null };
     shiftWhere.status = "COMPLETED";
-    shiftWhere.paidAt = { gte: fromDate, lte: toDate };
+    shiftWhere.paidAt = { not: null };
   } else {
     // default: completed
     visitWhere.status = "COMPLETED";
-    visitWhere.departedAt = { gte: fromDate, lte: toDate };
-    jobWhere.completedAt = { gte: fromDate, lte: toDate };
+    jobWhere.completedAt = { not: null };
     shiftWhere.status = "COMPLETED";
-    shiftWhere.actualEndedAt = { gte: fromDate, lte: toDate };
   }
 
   if (officerId) {

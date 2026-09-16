@@ -81,19 +81,29 @@ function formatDuration(ms: number): string {
 }
 
 /**
- * "YYYY-MM-DD" for HTML date inputs and URL params. Always local — never
- * shifts on a timezone change near midnight.
+ * "YYYY-MM-DD" for HTML date inputs and URL params, in **Europe/London** terms.
+ * Reads the UK calendar day of the instant so it round-trips with
+ * `parseIsoDate` (which anchors on the UK day) — filling a date input from a
+ * filter value shows the day the user picked, not the UTC day.
  */
 export function toIsoDate(d: Date | null | undefined): string {
   if (!d) return "";
-  if (!Number.isFinite(d.getTime())) return "";
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const dt = typeof d === "string" ? new Date(d) : d;
+  if (!Number.isFinite(dt.getTime())) return "";
+  return ukDayString(dt);
 }
 
 /**
- * Parse "YYYY-MM-DD" from form input / URL into a local-midnight Date.
- * Returns null for missing / malformed inputs so callers can fall back.
+ * Parse "YYYY-MM-DD" from a form input / URL date filter into the UTC instant
+ * for that **Europe/London** calendar day — 00:00 UK for the start, 23:59:59.999
+ * UK for the inclusive end.
+ *
+ * This is the anchor for every From/To filter. It MUST be UK-based, not
+ * server-local: the app runs on UTC (Vercel), so `new Date(y, mo-1, d)` would
+ * give UTC midnight, and during BST an activity scheduled just after UK
+ * midnight (stored ~23:xx UTC the day before) would fall on the wrong side of
+ * the window — the "shows previous/forward dates" bug. `ukWallClockToUtc`
+ * handles the offset and DST.
  */
 export function parseIsoDate(
   s: string | null | undefined,
@@ -102,10 +112,12 @@ export function parseIsoDate(
   if (!s) return null;
   const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
-  const [, y, mo, d] = m;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
   const dt = endOfDay
-    ? new Date(Number(y), Number(mo) - 1, Number(d), 23, 59, 59, 999)
-    : new Date(Number(y), Number(mo) - 1, Number(d));
+    ? new Date(ukWallClockToUtc(year, month, day, 23, 59, 59).getTime() + 999)
+    : ukWallClockToUtc(year, month, day, 0, 0, 0);
   return Number.isFinite(dt.getTime()) ? dt : null;
 }
 
