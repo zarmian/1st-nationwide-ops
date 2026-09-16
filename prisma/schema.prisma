@@ -1087,6 +1087,10 @@ model Job {
   /// instead of duplicating. Unique; null for everything not portal-imported
   /// (Postgres treats multiple NULLs as distinct, so most jobs share null).
   partnerActivityRef    String?       @unique
+  /// Set on an imported partner activity that looks like it may duplicate a
+  /// job someone entered by hand (same site, type and time, no
+  /// partnerActivityRef). Surfaces a ⚠ review badge; never blocks the import.
+  possibleDuplicate     Boolean       @default(false)
 
   invoiceId             String?       @db.Uuid
   invoice               Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)

@@ -145,6 +145,47 @@ in the notes so nothing is dropped.
   a re-run the same day doesn't re-alert. A backfill posts with `?notify=0` to
   stay silent.
 
+## Completed activities (Activities report → job stubs)
+
+Nexus's **Activities** report (`/Activities`, filtered to *Completed*) lists the
+work we've actually done for them — VPIs, mobile patrols, alarm responses,
+stop-the-clocks. Its filters live entirely in the URL (`ActivityStatus=9`, a
+`DueDateFrom`/`DueDateTo` window), so the robot just builds the URL, pages
+through the 50-rows-per-page results, and imports each row as a **completed**
+job stub.
+
+- **Workflow:** `.github/workflows/nexus-activities.yml` — nightly at 06:30 UTC
+  (a rolling last-3-days window) and on demand with **From / To / Preview**
+  inputs (use Preview + a wide window for the one-time June→today backfill).
+- **Reader:** `scripts/nexus-activities.mjs` — logs in, paginates, maps each
+  table row (Reference / Type / Site / Site Address / SIN / Customer / Due Date
+  / Time on/off Site / Status) and POSTs to `/api/imports/nexus-activities`.
+- **Endpoint / lib:** same `NEXUS_IMPORT_SECRET` bearer; `src/lib/nexusActivities.ts`.
+
+### Extra GitHub secret
+
+| Secret | Value |
+| --- | --- |
+| `NEXUS_ACTIVITIES_IMPORT_URL` | `https://1st-nationwide-ops.vercel.app/api/imports/nexus-activities` |
+
+### What the stubs look like
+
+A `Job` at status **APPROVED** (completed), tied to the **Nexus** partner,
+`reportedViaPartnerApp = true` (no client report). `scheduledFor` = the Due
+Date (window start), `startedAt` = Time on Site, `completedAt` = Time off Site;
+type mapped from Nexus's (VPI / PATROL / ALARM_RESPONSE / ADHOC). Sites are
+matched by **SIN** first (`Site.partnerSin`), then postcode + name.
+
+- **Dedup:** the `LINK-…` reference (`Job.partnerActivityRef`). A re-run updates
+  the same stub — and a completed activity we'd already imported as an upcoming
+  callout **upgrades that stub to completed** instead of duplicating.
+- **Possible-duplicate flag:** if an imported activity looks like a job someone
+  entered **by hand** (same site, type and time, no `LINK-` reference), the stub
+  is marked `possibleDuplicate` and shows a ⚠ badge on the Activities log — so
+  you can check before billing/paying twice. Nothing is blocked or merged.
+- **Note:** the report doesn't name which of *our* officers attended, so stubs
+  import unassigned; assign the officer if you need it for pay.
+
 ## Notes & caveats (both robots)
 
 - **Idempotent:** upsert-only, so re-running is safe.
