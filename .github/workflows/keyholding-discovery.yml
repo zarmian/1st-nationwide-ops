@@ -1,0 +1,57 @@
+name: Keyholding discovery
+
+# STAGE 1 — DISCOVERY for the Keyholding Company portal (Chase2Base, a
+# single-page app). Logs in, records the app's API/XHR calls (URLs only — no
+# bodies or tokens), and saves the DOM + screenshots of the login page,
+# post-login landing, and the Jobs screen. Writes nothing to our app.
+#
+# Run it by hand: Actions → "Keyholding discovery" → Run workflow, then send
+# the "keyholding-discovery" artifact.
+#
+# Required repo secrets:
+#   KEYHOLDING_PORTAL_USERNAME  (or KEYHOLDING_USERNAME)
+#   KEYHOLDING_PORTAL_PASSWORD  (or KEYHOLDING_PASSWORD)
+# Optional: KEYHOLDING_LOGIN_URL (defaults to https://chase2base.co.uk/app/#login)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: keyholding-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Capture Keyholding portal
+        env:
+          KEYHOLDING_PORTAL_USERNAME: ${{ secrets.KEYHOLDING_PORTAL_USERNAME || secrets.KEYHOLDING_USERNAME }}
+          KEYHOLDING_PORTAL_PASSWORD: ${{ secrets.KEYHOLDING_PORTAL_PASSWORD || secrets.KEYHOLDING_PASSWORD }}
+          KEYHOLDING_LOGIN_URL: ${{ secrets.KEYHOLDING_LOGIN_URL }}
+        run: node scripts/keyholding-discovery.mjs
+
+      - name: Upload discovery capture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: keyholding-discovery
+          path: |
+            keyholding-network.json
+            keyholding-*.html
+            keyholding-*.png
+          if-no-files-found: ignore
+          retention-days: 7
