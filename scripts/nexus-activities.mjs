@@ -108,32 +108,25 @@ async function extractPage(page) {
   });
 }
 
-/** Best-effort "next page" click. Returns false when there's no (enabled) next. */
-async function goToNext(page) {
-  const cands = [
-    page.getByRole("link", { name: /^\s*next\s*$/i }),
-    page.getByRole("button", { name: /^\s*next\s*$/i }),
-    page.locator('a[rel="next"]'),
-    page.locator('a[aria-label*="Next" i], button[aria-label*="Next" i]'),
-    page.locator('.pagination a:has-text("Next"), .pager a:has-text("Next"), li.next a'),
-    page.getByRole("link", { name: /^(›|»)$/ }),
-  ];
-  for (const c of cands) {
-    try {
-      if ((await c.count()) === 0) continue;
-      const first = c.first();
-      const dis = (await first.getAttribute("aria-disabled")) === "true";
-      const cls = (await first.getAttribute("class")) || "";
-      const parentCls =
-        (await first.evaluate((n) => n.parentElement?.className || "").catch(() => "")) || "";
-      if (dis || /disabled/i.test(cls) || /disabled/i.test(parentCls)) return false;
-      await first.click();
-      return true;
-    } catch {
-      /* try next selector */
-    }
-  }
-  return false;
+/** The report lazy-loads more rows as you reach the bottom (infinite scroll),
+ *  so drive the last row into view + scroll the window/any scroll container to
+ *  the bottom to trigger the next batch. */
+async function scrollToLoadMore(page) {
+  await page.evaluate(() => {
+    const scrollAll = (el) => {
+      try {
+        el.scrollTop = el.scrollHeight;
+      } catch {}
+    };
+    window.scrollTo(0, document.documentElement.scrollHeight);
+    document.querySelectorAll("div, main, section").forEach((el) => {
+      if (el.scrollHeight > el.clientHeight + 40) scrollAll(el);
+    });
+    const trs = document.querySelectorAll("table tr");
+    if (trs.length) trs[trs.length - 1].scrollIntoView({ block: "end" });
+  });
+  await page.waitForTimeout(800);
+  await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
 }
 
 async function postChunk(list, isPreview) {
@@ -175,8 +168,13 @@ async function run() {
     }
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
 
+    // Infinite scroll: extract what's rendered, scroll to load more, repeat
+    // until several scrolls in a row bring nothing new. Accumulate + dedup by
+    // reference so it's safe whether the list appends or virtualises rows.
     let headersSeen = [];
-    for (let pageNo = 1; pageNo <= MAX_PAGES; pageNo++) {
+    let stable = 0;
+    let scrolls = 0;
+    for (; scrolls < MAX_PAGES; scrolls++) {
       const { headers, rows } = await extractPage(page);
       if (headers.length) headersSeen = headers;
       const before = byRef.size;
@@ -187,12 +185,15 @@ async function run() {
         }
       }
       const added = byRef.size - before;
-      console.log(`Page ${pageNo}: +${added} rows (total ${byRef.size})`);
-      if (added === 0) break;
-      if (!(await goToNext(page))) break;
-      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-      await page.waitForTimeout(300);
+      if (added > 0) {
+        stable = 0;
+        console.log(`Loaded ${byRef.size} rows…`);
+      } else if (++stable >= 4) {
+        break; // no new rows after several scrolls → reached the end
+      }
+      await scrollToLoadMore(page);
     }
+    console.log(`Finished scrolling after ${scrolls} passes.`);
 
     const activities = Array.from(byRef.values());
     await fs.writeFile("nexus-activities-page.html", await page.content());
