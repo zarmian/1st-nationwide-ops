@@ -50,7 +50,7 @@ jobs:
         with:
           name: keyholding-discovery
           path: |
-            keyholding-network.json
+            keyholding-*.json
             keyholding-*.html
             keyholding-*.png
           if-no-files-found: ignore
