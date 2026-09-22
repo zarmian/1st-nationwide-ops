@@ -34,6 +34,19 @@ const FROM = env("KEYHOLDING_FROM", daysAgo(2));
 const TO = env("KEYHOLDING_TO", iso(today));
 const MAX_PAGES = Number(env("KEYHOLDING_MAX_PAGES", "300")) || 300;
 
+// The Jobs table's fixed column order (Carole's saved layout). Map row cells by
+// index against this — the live header read intermittently drops a column.
+const KH_COLUMNS = [
+  "#", "Client Job Number", "Source Type", "Type", "Service", "Date",
+  "Last Date", "Status", "Execution Status", "Property Number", "Property",
+  "Contract", "Addresses", "Route", "Partner Number", "Partner", "Executor",
+  "Login", "Executor Team", "Associated Cases", "Incident raised?",
+  "Image or Operative Note attached to job", "Appearance Date", "Allocated At",
+  "Accepted At", "Started At", "On Site At", "On Way At", "Finished At",
+  "Leave Site At", "Finishing Type", "Cancellation Type", "Done/Cancel Date",
+  "PO / WO",
+];
+
 if (!USERNAME || !PASSWORD) {
   console.log("Keyholding not configured (no username/password) — skipping.");
   process.exit(0);
@@ -65,18 +78,23 @@ async function openJobs(page) {
 async function setDatesAndFind(page) {
   const dfs = page.locator("input.v-datefield-textfield");
   const n = await dfs.count();
-  console.log(`Found ${n} date fields; setting From=${uk(FROM)} To=${uk(TO)}`);
-  // Commit each date with Tab (blur) — NOT Escape (closes the CUBA screen) and
-  // NOT Enter (can fire the screen's default action).
-  if (n >= 1) {
-    await dfs.nth(0).fill(uk(FROM));
-    await dfs.nth(0).press("Tab");
+  console.log(`Found ${n} date fields (From/To); setting ${uk(FROM)} → ${uk(TO)}`);
+  // Vaadin DateField ignores a raw .fill() — it needs real keystrokes so the
+  // GWT widget parses the value. Type char-by-char, then Tab to commit (NOT
+  // Escape: that closes the CUBA screen).
+  async function typeDate(field, value) {
+    await field.click();
+    await field.press("Control+a").catch(() => {});
+    await field.press("Delete").catch(() => {});
+    await field.pressSequentially(value, { delay: 40 });
+    await field.press("Tab");
+    await page.waitForTimeout(300);
   }
-  if (n >= 2) {
-    await dfs.nth(1).fill(uk(TO));
-    await dfs.nth(1).press("Tab");
-  }
-  await page.waitForTimeout(800);
+  if (n >= 1) await typeDate(dfs.nth(0), uk(FROM));
+  if (n >= 2) await typeDate(dfs.nth(1), uk(TO));
+  const vals = await dfs.evaluateAll((els) => els.map((e) => e.value));
+  console.log("Date fields now read:", JSON.stringify(vals));
+  await page.waitForTimeout(500);
   // Find is a Vaadin div-button; match its caption exactly.
   const find = page
     .locator('.v-button:has(.v-button-caption:text-is("Find"))')
@@ -86,20 +104,35 @@ async function setDatesAndFind(page) {
   await page.waitForTimeout(4000);
 }
 
-/** Read the visible v-table: header captions + each row's cell text. */
+/** Read the currently-rendered v-table rows (cell text) + the paging status. */
 async function extractTable(page) {
   return page.evaluate(() => {
     const txt = (el) => (el?.innerText || el?.textContent || "").trim();
-    const table = document.querySelector(".v-table");
-    if (!table) return { headers: [], rows: [], status: null };
-    const headers = Array.from(
-      table.querySelectorAll(".v-table-header-cell .v-table-caption-container"),
-    ).map(txt);
-    const rows = Array.from(table.querySelectorAll("tr.v-table-row")).map((tr) =>
-      Array.from(tr.querySelectorAll("td .v-table-cell-wrapper")).map(txt),
+    const rows = Array.from(document.querySelectorAll(".v-table tr.v-table-row")).map(
+      (tr) => Array.from(tr.querySelectorAll("td .v-table-cell-wrapper")).map(txt),
     );
     const status = txt(document.querySelector(".c-paging-status")) || null;
-    return { headers, rows, status };
+    return { rows, status };
+  });
+}
+
+/** Scroll the Vaadin table body one viewport to load the next block of
+ *  (vertically virtualised) rows. Returns false when it can't scroll further. */
+async function scrollTableBody(page) {
+  return page.evaluate(() => {
+    const table = document.querySelector(".v-table");
+    if (!table) return false;
+    let sc = null;
+    for (const el of table.querySelectorAll("*")) {
+      if (el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 40) {
+        sc = el;
+        break;
+      }
+    }
+    if (!sc) return false;
+    const before = sc.scrollTop;
+    sc.scrollTop = before + Math.max(sc.clientHeight - 40, 120);
+    return sc.scrollTop > before;
   });
 }
 
@@ -125,10 +158,10 @@ async function nextPage(page) {
   return false;
 }
 
-function mapRows(headers, rows) {
+function mapRows(rows) {
   return rows.map((cells) => {
     const o = {};
-    headers.forEach((h, i) => {
+    KH_COLUMNS.forEach((h, i) => {
       o[h] = (cells[i] ?? "").trim();
     });
     return o;
@@ -139,7 +172,6 @@ async function run() {
   const browser = await chromium.launch();
   const page = await (await browser.newContext()).newPage();
   const byRef = new Map();
-  let headersSeen = [];
   let lastStatus = null;
 
   try {
@@ -148,29 +180,47 @@ async function run() {
     await openJobs(page);
     await setDatesAndFind(page);
 
-    for (let p = 1; p <= MAX_PAGES; p++) {
-      const { headers, rows, status } = await extractTable(page);
-      if (headers.length) headersSeen = headers;
-      lastStatus = status;
-      const before = byRef.size;
-      for (const cells of rows) {
-        const ref = (cells[0] ?? "").trim();
-        if (ref) byRef.set(ref, cells);
+    for (let pagerPage = 1; pagerPage <= MAX_PAGES; pagerPage++) {
+      // Load every (vertically virtualised) row on this pager page by scrolling
+      // the table body until nothing new appears.
+      let stable = 0;
+      for (let s = 0; s < 400; s++) {
+        const { rows, status } = await extractTable(page);
+        lastStatus = status;
+        const before = byRef.size;
+        for (const cells of rows) {
+          const ref = (cells[0] ?? "").trim();
+          if (ref) byRef.set(ref, cells);
+        }
+        const scrolled = await scrollTableBody(page);
+        if (byRef.size === before && !scrolled) {
+          if (++stable >= 3) break;
+        } else {
+          stable = 0;
+        }
+        await page.waitForTimeout(400);
       }
-      const added = byRef.size - before;
-      console.log(`Page ${p}: +${added} rows (total ${byRef.size}) — status "${status}"`);
-      if (added === 0) break;
+      console.log(`Pager page ${pagerPage}: total ${byRef.size} — status "${lastStatus}"`);
       if (!(await nextPage(page))) break;
       await page.waitForTimeout(2500);
+      await page.evaluate(() => {
+        const t = document.querySelector(".v-table");
+        if (t)
+          for (const el of t.querySelectorAll("*"))
+            if (el.scrollHeight > el.clientHeight + 20) {
+              el.scrollTop = 0;
+              break;
+            }
+      });
     }
 
-    const jobs = mapRows(headersSeen, Array.from(byRef.values()));
+    const jobs = mapRows(Array.from(byRef.values()));
     await fs.writeFile("keyholding-jobs-page.html", await page.content());
     await page.screenshot({ path: "keyholding-jobs-page.png", fullPage: true }).catch(() => {});
     await fs.writeFile(
       "keyholding-jobs.json",
       JSON.stringify(
-        { window: { from: FROM, to: TO }, status: lastStatus, headers: headersSeen, count: jobs.length, jobs },
+        { window: { from: FROM, to: TO }, status: lastStatus, headers: KH_COLUMNS, count: jobs.length, jobs },
         null,
         2,
       ),
