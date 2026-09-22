@@ -147,27 +147,73 @@ async function run() {
       });
       console.log("Menu / button labels:", JSON.stringify(labels));
 
-      // Best-effort: open Jobs Management → Jobs and capture the grid.
+      // Open "Jobs Management" (click the menuitem itself — the caption span
+      // intercepts pointer events), then the "Jobs" item in the popup submenu.
       try {
-        const jm = page.getByText(/jobs management/i).first();
-        if (await jm.count()) {
-          await jm.click();
-          await page.waitForTimeout(1500);
+        const jm = page.getByRole("menuitem", { name: /jobs management/i }).first();
+        await jm.click({ timeout: 10_000 }).catch(() => {});
+        await page.waitForTimeout(1200);
+        let jobs = page.getByRole("menuitem", { name: "Jobs", exact: true }).first();
+        if ((await jobs.count()) === 0) {
+          jobs = page.locator(".v-menubar-popup").getByText("Jobs", { exact: true }).first();
         }
-        const jobs = page.getByText(/^\s*jobs\s*$/i).first();
-        if (await jobs.count()) {
-          await jobs.click();
-          await page.waitForTimeout(4000);
-        }
-        const exports = await page.evaluate(() =>
-          Array.from(
-            document.querySelectorAll("[role='button'], .v-button-caption, .v-menubar-menuitem"),
-          )
-            .map((el) => (el.textContent || "").trim())
-            .filter((t) => /export|excel|download|csv/i.test(t)),
+        await jobs.click({ timeout: 10_000 }).catch((e) =>
+          console.warn("Jobs submenu click failed:", e?.message ?? e),
         );
-        if (exports.length) console.log("Export controls:", JSON.stringify(exports));
+        await page.waitForTimeout(6000); // Jobs screen + grid load via UIDL
         await capture(page, "3-jobs", net);
+
+        // Structural dump of the Jobs screen — everything needed to build the
+        // reader: filter inputs, date fields, grid columns + a few sample rows.
+        const structure = await page.evaluate(() => {
+          const txt = (el) => (el.textContent || "").trim();
+          const inputs = Array.from(document.querySelectorAll("input")).map((i) => ({
+            type: i.type,
+            name: i.name || null,
+            placeholder: i.getAttribute("placeholder"),
+            cls: i.className,
+            hasValue: Boolean(i.value),
+          }));
+          const captions = Array.from(
+            document.querySelectorAll(".v-button-caption, .v-menubar-menuitem-caption, .v-caption"),
+          )
+            .map(txt)
+            .filter((t) => t && t.length <= 40);
+          const gridHeaders = Array.from(
+            document.querySelectorAll(
+              ".v-grid-header .v-grid-cell, .v-table-header-cell .v-table-caption-container, th",
+            ),
+          )
+            .map(txt)
+            .filter(Boolean);
+          const gridRows = Array.from(
+            document.querySelectorAll(".v-grid-body .v-grid-row, .v-table-row"),
+          )
+            .slice(0, 3)
+            .map((r) =>
+              Array.from(r.querySelectorAll(".v-grid-cell, .v-table-cell-wrapper, td")).map(txt),
+            );
+          const dateFields = Array.from(document.querySelectorAll(".v-datefield")).map(
+            (d) => d.className,
+          );
+          return {
+            inputCount: inputs.length,
+            inputs,
+            captions: Array.from(new Set(captions)).slice(0, 100),
+            gridHeaders,
+            gridRowSample: gridRows,
+            dateFieldClasses: Array.from(new Set(dateFields)),
+          };
+        });
+        await fs.writeFile(
+          "keyholding-jobs-structure.json",
+          JSON.stringify(structure, null, 2),
+        );
+        console.log(
+          `Jobs screen: ${structure.inputCount} inputs, grid headers ${JSON.stringify(structure.gridHeaders)}`,
+        );
+        const exports = structure.captions.filter((t) => /export|excel|download|csv/i.test(t));
+        if (exports.length) console.log("Export controls:", JSON.stringify(exports));
       } catch (e) {
         console.warn("Could not reach the Jobs screen automatically:", e?.message ?? e);
         await capture(page, "3-jobs", net).catch(() => {});
