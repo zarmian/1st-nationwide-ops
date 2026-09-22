@@ -74,8 +74,14 @@ async function setDatesAndFind(page) {
     await dfs.nth(1).fill(uk(TO));
     await dfs.nth(1).press("Enter");
   }
+  await page.keyboard.press("Escape").catch(() => {}); // close any date popup
   await page.waitForTimeout(500);
-  await page.getByRole("button", { name: /^find$/i }).first().click({ timeout: 10_000 });
+  // The Find button is a Vaadin div-button; match its caption exactly (its
+  // accessible name is polluted by the FontAwesome icon).
+  const find = page
+    .locator('.v-button:has(.v-button-caption:text-is("Find"))')
+    .first();
+  await find.click({ timeout: 15_000 });
   await page.waitForTimeout(4000);
 }
 
