@@ -1,0 +1,65 @@
+name: Keyholding jobs (read)
+
+# Reads the Keyholding Company (Chase2Base) Jobs screen for a date window and
+# saves the mapped jobs as an artifact. DRY-RUN for now (no import) so the
+# extraction + paging can be verified before wiring the import.
+#
+# Run: Actions → "Keyholding jobs (read)" → Run workflow, set From/To. Pick a
+# BUSY range (e.g. a full week) so the results span more than one page and the
+# pager gets exercised.
+#
+# Secrets: KEYHOLDING_PORTAL_USERNAME/PASSWORD (login).
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "From date (YYYY-MM-DD). Blank = last 2 days."
+        type: string
+        required: false
+      to:
+        description: "To date (YYYY-MM-DD). Blank = today."
+        type: string
+        required: false
+
+concurrency:
+  group: keyholding-jobs
+  cancel-in-progress: false
+
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Read Keyholding jobs
+        env:
+          KEYHOLDING_PORTAL_USERNAME: ${{ secrets.KEYHOLDING_PORTAL_USERNAME || secrets.KEYHOLDING_USERNAME }}
+          KEYHOLDING_PORTAL_PASSWORD: ${{ secrets.KEYHOLDING_PORTAL_PASSWORD || secrets.KEYHOLDING_PASSWORD }}
+          KEYHOLDING_LOGIN_URL: ${{ secrets.KEYHOLDING_LOGIN_URL }}
+          KEYHOLDING_FROM: ${{ inputs.from }}
+          KEYHOLDING_TO: ${{ inputs.to }}
+        run: node scripts/keyholding-jobs.mjs
+
+      - name: Upload jobs capture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: keyholding-jobs
+          path: |
+            keyholding-jobs.json
+            keyholding-jobs-page.html
+            keyholding-jobs-page.png
+          if-no-files-found: ignore
+          retention-days: 7
