@@ -66,22 +66,23 @@ async function setDatesAndFind(page) {
   const dfs = page.locator("input.v-datefield-textfield");
   const n = await dfs.count();
   console.log(`Found ${n} date fields; setting From=${uk(FROM)} To=${uk(TO)}`);
+  // Commit each date with Tab (blur) — NOT Escape (closes the CUBA screen) and
+  // NOT Enter (can fire the screen's default action).
   if (n >= 1) {
     await dfs.nth(0).fill(uk(FROM));
-    await dfs.nth(0).press("Enter");
+    await dfs.nth(0).press("Tab");
   }
   if (n >= 2) {
     await dfs.nth(1).fill(uk(TO));
-    await dfs.nth(1).press("Enter");
+    await dfs.nth(1).press("Tab");
   }
-  await page.keyboard.press("Escape").catch(() => {}); // close any date popup
-  await page.waitForTimeout(500);
-  // The Find button is a Vaadin div-button; match its caption exactly (its
-  // accessible name is polluted by the FontAwesome icon).
+  await page.waitForTimeout(800);
+  // Find is a Vaadin div-button; match its caption exactly.
   const find = page
     .locator('.v-button:has(.v-button-caption:text-is("Find"))')
     .first();
-  await find.click({ timeout: 15_000 });
+  await find.waitFor({ state: "visible", timeout: 15_000 });
+  await find.click();
   await page.waitForTimeout(4000);
 }
 
