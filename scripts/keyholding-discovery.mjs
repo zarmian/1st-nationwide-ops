@@ -30,24 +30,20 @@ if (!USERNAME || !PASSWORD) {
   process.exit(0);
 }
 
+// Chase2Base is CUBA/Vaadin 8 — the login uses named Vaadin components.
 const USER_SELECTORS = [
-  "#username", "#Username", "#email", "#Email",
-  "input[name='username']", "input[name='email']", "input[name='Username']",
-  "input[type='email']",
-  "input[formcontrolname='username']", "input[formcontrolname='email']",
-  "input[autocomplete='username']",
+  "input.c-login-username", "input[name='loginField']", "input[placeholder='Login']",
+  "#username", "input[name='username']", "input[type='email']",
 ];
 const PASS_SELECTORS = [
-  "#password", "#Password",
-  "input[name='password']", "input[name='Password']",
+  "input.c-login-password", "input[name='passwordField']",
   "input[type='password']",
-  "input[formcontrolname='password']",
-  "input[autocomplete='current-password']",
 ];
+// The submit is a Vaadin div-button (role=button), not a real <button>.
 const SUBMIT_SELECTORS = [
-  "button[type='submit']", "input[type='submit']",
-  "button:has-text('Log in')", "button:has-text('Login')",
-  "button:has-text('Sign in')", "button:has-text('Log In')",
+  ".c-login-submit-button",
+  "div[role='button']:has-text('Submit')",
+  "button[type='submit']",
 ];
 
 /** Keep only the interesting (non-asset) requests; never record bodies. */
@@ -129,25 +125,52 @@ async function run() {
       } else {
         await pass.loc.press("Enter");
       }
-      await page.waitForTimeout(2500);
+      // Vaadin swaps in the main UI after login; PUSH keeps a long-poll open
+      // so networkidle never fires — use fixed waits.
+      await page.waitForTimeout(5000);
       await capture(page, "2-after-login", net);
+
+      const stillLogin =
+        (await page.locator("input.c-login-password, input[type='password']").count()) > 0;
+      console.log(stillLogin ? "Still on login page — check credentials." : "Login succeeded.");
+
+      // Dump the top-level menu / button labels so navigation can be pinned.
+      const labels = await page.evaluate(() => {
+        const out = [];
+        document
+          .querySelectorAll(".v-menubar-menuitem, [role='button'], .v-button-caption, .v-caption")
+          .forEach((el) => {
+            const t = (el.textContent || "").trim();
+            if (t && t.length <= 40 && el.offsetParent !== null) out.push(t);
+          });
+        return Array.from(new Set(out)).slice(0, 150);
+      });
+      console.log("Menu / button labels:", JSON.stringify(labels));
 
       // Best-effort: open Jobs Management → Jobs and capture the grid.
       try {
         const jm = page.getByText(/jobs management/i).first();
         if (await jm.count()) {
           await jm.click();
-          await page.waitForTimeout(800);
+          await page.waitForTimeout(1500);
         }
         const jobs = page.getByText(/^\s*jobs\s*$/i).first();
         if (await jobs.count()) {
           await jobs.click();
-          await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
-          await page.waitForTimeout(1500);
+          await page.waitForTimeout(4000);
         }
+        const exports = await page.evaluate(() =>
+          Array.from(
+            document.querySelectorAll("[role='button'], .v-button-caption, .v-menubar-menuitem"),
+          )
+            .map((el) => (el.textContent || "").trim())
+            .filter((t) => /export|excel|download|csv/i.test(t)),
+        );
+        if (exports.length) console.log("Export controls:", JSON.stringify(exports));
         await capture(page, "3-jobs", net);
       } catch (e) {
         console.warn("Could not reach the Jobs screen automatically:", e?.message ?? e);
+        await capture(page, "3-jobs", net).catch(() => {});
       }
     }
 
