@@ -804,6 +804,10 @@ model PatrolVisit {
   lng                Float?
   locatedAt          DateTime?
   status             VisitStatus     @default(PENDING)
+  /// A partner-portal activity this visit IS (e.g. a Keyholding job number
+  /// "J21733903"). Imported patrols link here instead of becoming a separate
+  /// job, so re-runs find the same visit. UNIQUE; null for everything else.
+  partnerActivityRef String?         @unique
   gpsLat             Float?
   gpsLng             Float?
   photoUrls          String[]        @default([])

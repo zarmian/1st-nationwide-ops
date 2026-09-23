@@ -244,8 +244,10 @@ async function run() {
       // from later ones automatically).
       const CHUNK = preview ? jobs.length : 60;
       const tot = {
-        created: 0, linked: 0, updated: 0, unmatched: 0,
-        toCreate: 0, toLink: 0, toUpdate: 0, unmatchedSites: 0,
+        created: 0, linked: 0, linkedVisits: 0, merged: 0, keptForReview: 0,
+        updated: 0, unmatched: 0,
+        toCreate: 0, toLink: 0, toLinkVisit: 0, toMerge: 0, toReview: 0,
+        toUpdate: 0, unmatchedSites: 0,
       };
       let failed = false;
       let customerName = null;
@@ -286,8 +288,8 @@ async function run() {
         console.log(`Keyholding customer: ${customerName ?? "(unknown)"}`);
         console.log(
           preview
-            ? `Preview OK — would LINK ${tot.toLink} to jobs already in the system, CREATE ${tot.toCreate} new, update ${tot.toUpdate} previously imported, ${tot.unmatchedSites} unmatched-site.`
-            : `Import OK — linked ${tot.linked} existing jobs, created ${tot.created} new, updated ${tot.updated}, ${tot.unmatched} unmatched-site.`,
+            ? `Preview OK — would LINK ${tot.toLink} existing jobs + ${tot.toLinkVisit} patrol visits, MERGE ${tot.toMerge} duplicate patrol jobs into their visits (${tot.toReview} left for review), CREATE ${tot.toCreate} new, update ${tot.toUpdate} previously imported, ${tot.unmatchedSites} unmatched-site.`
+            : `Import OK — linked ${tot.linked} existing jobs + ${tot.linkedVisits} patrol visits, merged ${tot.merged} duplicate patrol jobs into their visits (${tot.keptForReview} left for review), created ${tot.created} new, updated ${tot.updated}, ${tot.unmatched} unmatched-site.`,
         );
       }
     }

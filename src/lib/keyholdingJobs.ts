@@ -20,6 +20,13 @@
  *     but only ever moves a job FORWARD (never un-completes it), only fills
  *     times that are missing, never touches the officer, customer/partner or
  *     billing, and appends (never replaces) a note.
+ *   - PATROLS live as PatrolVisits (generated from the site's patrol schedule),
+ *     not Jobs — so a Keyholding patrol links to the matching VISIT (same site,
+ *     ±3h, nearest, one-to-one; ref stored in PatrolVisit.partnerActivityRef).
+ *     A patrol job an earlier import created that duplicates a visit is merged
+ *     into it (ref moved to the visit, the copy deleted) — but only if nobody
+ *     has touched it (no officer, invoice or form); otherwise it's left and
+ *     reported for review.
  *   - Only a job with no match is CREATED — tied to the Keyholding customer,
  *     reportedViaPartnerApp, unallocated for the office to assign.
  *   - Officers are never taken from Keyholding's Executor column.
@@ -96,6 +103,12 @@ export type KhSummary = {
   toCreate: number;
   /** Existing jobs (from a schedule / entered by hand) that would be linked. */
   toLink: number;
+  /** Existing patrol VISITS (from the site's patrol schedule) that would be linked. */
+  toLinkVisit: number;
+  /** Patrol jobs an earlier import created that duplicate a visit — would be merged away. */
+  toMerge: number;
+  /** Such duplicates someone has already worked on — left alone, for review. */
+  toReview: number;
   /** Jobs already linked/imported on an earlier run that would be refreshed. */
   toUpdate: number;
   unmatchedSites: number;
@@ -107,6 +120,12 @@ export type KhResult = {
   customer: string;
   created: number;
   linked: number;
+  /** Keyholding patrols linked to the patrol visit our schedule made. */
+  linkedVisits: number;
+  /** Duplicate patrol jobs (made by an earlier import) merged into their visit. */
+  merged: number;
+  /** Duplicate patrol jobs left alone because someone had already touched them. */
+  keptForReview: number;
   updated: number;
   unmatched: number;
   skipped: KhSkip[];
@@ -394,6 +413,124 @@ function pickCandidate(
   return best;
 }
 
+// ── Patrol visits ────────────────────────────────────────────────────────────
+// Patrols live as PatrolVisits (generated from the site's patrol schedule), not
+// Jobs — so a Keyholding patrol must link to the VISIT or it duplicates it.
+
+type VisitStatusT = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "LATE" | "MISSED" | "CANCELLED";
+
+type VisitCandidate = {
+  id: string;
+  siteId: string;
+  status: VisitStatusT;
+  scheduledAt: Date;
+  arrivedAt: Date | null;
+  departedAt: Date | null;
+  notes: string | null;
+};
+
+type VisitIndex = Map<string, VisitCandidate[]>; // key: siteId
+
+/** One query: unlinked, non-cancelled visits at the batch's sites over its date span. */
+async function prefetchVisitCandidates(
+  prisma: PrismaClient,
+  wanted: { siteId: string | null; scheduledFor: Date | null }[],
+): Promise<VisitIndex> {
+  const index: VisitIndex = new Map();
+  const usable = wanted.filter(
+    (w): w is { siteId: string; scheduledFor: Date } => Boolean(w.siteId && w.scheduledFor),
+  );
+  if (usable.length === 0) return index;
+  let min = Infinity;
+  let max = -Infinity;
+  for (const u of usable) {
+    const t = u.scheduledFor.getTime();
+    if (t < min) min = t;
+    if (t > max) max = t;
+  }
+  const visits = await prisma.patrolVisit.findMany({
+    where: {
+      siteId: { in: Array.from(new Set(usable.map((u) => u.siteId))) },
+      partnerActivityRef: null,
+      status: { not: "CANCELLED" },
+      scheduledAt: {
+        gte: new Date(min - LINK_WINDOW_MS),
+        lte: new Date(max + LINK_WINDOW_MS),
+      },
+    },
+    select: {
+      id: true,
+      siteId: true,
+      status: true,
+      scheduledAt: true,
+      arrivedAt: true,
+      departedAt: true,
+      notes: true,
+    },
+  });
+  for (const v of visits) {
+    const list = index.get(v.siteId) ?? [];
+    list.push(v as VisitCandidate);
+    index.set(v.siteId, list);
+  }
+  return index;
+}
+
+/** The patrol visit this Keyholding patrol IS — same site, ±3h, nearest, unclaimed. */
+function pickVisit(
+  index: VisitIndex,
+  siteId: string,
+  scheduledFor: Date | null,
+  claimed: Set<string>,
+): VisitCandidate | null {
+  if (!scheduledFor) return null;
+  const t = scheduledFor.getTime();
+  let best: VisitCandidate | null = null;
+  let bestGap = Infinity;
+  for (const v of index.get(siteId) ?? []) {
+    if (claimed.has(v.id)) continue;
+    const gap = Math.abs(v.scheduledAt.getTime() - t);
+    if (gap <= LINK_WINDOW_MS && gap < bestGap) {
+      best = v;
+      bestGap = gap;
+    }
+  }
+  return best;
+}
+
+/**
+ * Visit status given Keyholding's, or null to leave it. Only moves forward:
+ * Done → COMPLETED (including one our system had marked LATE/MISSED — the
+ * officer recorded it in Keyholding's app); never touches a completed or
+ * cancelled visit; cancels only one nobody has started.
+ */
+export function mergeKhVisitStatus(current: VisitStatusT, kh: KhStatus): VisitStatusT | null {
+  if (current === "CANCELLED" || current === "COMPLETED") return null;
+  if (kh === "APPROVED") return "COMPLETED";
+  if (kh === "IN_PROGRESS") return current === "IN_PROGRESS" ? null : "IN_PROGRESS";
+  if (kh === "CANCELLED") return current === "IN_PROGRESS" ? null : "CANCELLED";
+  return null; // Keyholding still has it open — leave ours as it is
+}
+
+/** Update for bringing a linked visit up to date (status forward, fill missing times). */
+function visitLinkedUpdate(
+  current: { status: VisitStatusT; arrivedAt: Date | null; departedAt: Date | null },
+  r: { status: KhStatus; startedAt: Date | null; completedAt: Date | null },
+) {
+  const next = mergeKhVisitStatus(current.status, r.status);
+  return {
+    ...(next ? { status: next } : {}),
+    ...(next === "CANCELLED"
+      ? { cancelledAt: new Date(), statusBeforeCancel: current.status as any }
+      : {}),
+    ...(!current.arrivedAt && r.startedAt ? { arrivedAt: r.startedAt } : {}),
+    ...(!current.departedAt && r.completedAt ? { departedAt: r.completedAt } : {}),
+  };
+}
+
+const linkNote = (existing: string | null, ref: string, label: string | null, status: string) =>
+  `${existing ? `${existing}\n` : ""}[Linked to Keyholding job ${ref} — ${label ?? "patrol"}, Keyholding status: ${status}]`;
+
 /** Update fields for bringing a job we LINKED (not created) up to date. */
 function linkedUpdate(
   current: { status: string; startedAt: Date | null; completedAt: Date | null },
@@ -410,62 +547,185 @@ function linkedUpdate(
   };
 }
 
+
+// ── Planning: one decision per row, shared by preview and the real run ─────
+
+type ExistingJob = {
+  id: string;
+  status: string;
+  cancelledByUserId: string | null;
+  siteId: string | null;
+  startedAt: Date | null;
+  completedAt: Date | null;
+  notes: string | null;
+  type: string;
+  assignedToUserId: string | null;
+  invoiceId: string | null;
+  partnerActivityRef: string | null;
+  _count: { formSubmissions: number };
+};
+
+type ExistingVisit = {
+  id: string;
+  status: VisitStatusT;
+  arrivedAt: Date | null;
+  departedAt: Date | null;
+  partnerActivityRef: string | null;
+};
+
+type Action =
+  | { kind: "updateJob"; job: ExistingJob }
+  | { kind: "updateVisit"; visit: ExistingVisit }
+  | { kind: "merge"; job: ExistingJob; visit: VisitCandidate }
+  | { kind: "review"; job: ExistingJob }
+  | { kind: "linkJob"; cand: Candidate }
+  | { kind: "linkVisit"; visit: VisitCandidate }
+  | { kind: "create" };
+
+/**
+ * Decide what to do with every row — without writing anything. Preview counts
+ * the decisions; the real run executes them, so the two can't disagree.
+ *
+ *   - already on a visit (J… ref)            → update the visit
+ *   - a patrol JOB an earlier import created that duplicates a visit:
+ *       untouched (no officer / invoice / form) → MERGE into the visit
+ *       touched                                 → leave it, flag for review
+ *   - already on a job (J… ref)              → update the job
+ *   - an existing job at the site (same type, ±3h)   → link it
+ *   - a patrol with an existing visit (±3h)          → link the visit
+ *   - otherwise                                      → create a job
+ */
+async function planRows(prisma: PrismaClient, ok: Prepared[], customerId: string) {
+  const index = await loadSiteIndex(prisma, ok);
+  const siteIds = ok.map((r) => matchKhSiteId(r, index, customerId));
+  const refs = ok.map((r) => r.reference);
+
+  // Sequential, not Promise.all — concurrent queries exhaust the pooled
+  // connections on Vercel.
+  const jobs = (await prisma.job.findMany({
+    where: { partnerActivityRef: { in: refs } },
+    select: {
+      id: true,
+      status: true,
+      cancelledByUserId: true,
+      siteId: true,
+      startedAt: true,
+      completedAt: true,
+      notes: true,
+      type: true,
+      assignedToUserId: true,
+      invoiceId: true,
+      partnerActivityRef: true,
+      _count: { select: { formSubmissions: true } },
+    },
+  })) as ExistingJob[];
+  const visits = (await prisma.patrolVisit.findMany({
+    where: { partnerActivityRef: { in: refs } },
+    select: {
+      id: true,
+      status: true,
+      arrivedAt: true,
+      departedAt: true,
+      partnerActivityRef: true,
+    },
+  })) as ExistingVisit[];
+  const jobByRef = new Map(jobs.map((j) => [j.partnerActivityRef as string, j]));
+  const visitByRef = new Map(visits.map((v) => [v.partnerActivityRef as string, v]));
+
+  const jobPool = await prefetchCandidates(
+    prisma,
+    ok.map((r, i) =>
+      jobByRef.has(r.reference) || visitByRef.has(r.reference)
+        ? { siteId: null, scheduledFor: null }
+        : { siteId: siteIds[i], scheduledFor: r.scheduledFor },
+    ),
+  );
+  const visitPool = await prefetchVisitCandidates(
+    prisma,
+    ok.map((r, i) =>
+      r.jobType === "PATROL" && !visitByRef.has(r.reference)
+        ? { siteId: siteIds[i], scheduledFor: r.scheduledFor }
+        : { siteId: null, scheduledFor: null },
+    ),
+  );
+
+  const claimedJobs = new Set<string>();
+  const claimedVisits = new Set<string>();
+  const actions: Action[] = [];
+  for (let i = 0; i < ok.length; i++) {
+    const r = ok[i];
+    const siteId = siteIds[i];
+
+    const ev = visitByRef.get(r.reference);
+    if (ev) {
+      actions.push({ kind: "updateVisit", visit: ev });
+      continue;
+    }
+
+    const ej = jobByRef.get(r.reference);
+    if (ej) {
+      const createdByUs = (ej.notes ?? "").startsWith(CREATED_NOTE_PREFIX);
+      if (createdByUs && r.jobType === "PATROL" && siteId && ej.status !== "CANCELLED") {
+        const v = pickVisit(visitPool, siteId, r.scheduledFor, claimedVisits);
+        if (v) {
+          const untouched =
+            !ej.assignedToUserId && !ej.invoiceId && ej._count.formSubmissions === 0;
+          if (untouched) {
+            claimedVisits.add(v.id);
+            actions.push({ kind: "merge", job: ej, visit: v });
+          } else {
+            actions.push({ kind: "review", job: ej });
+          }
+          continue;
+        }
+      }
+      actions.push({ kind: "updateJob", job: ej });
+      continue;
+    }
+
+    const jc = siteId
+      ? pickCandidate(jobPool, siteId, r.jobType, r.scheduledFor, claimedJobs)
+      : null;
+    if (jc) {
+      claimedJobs.add(jc.id);
+      actions.push({ kind: "linkJob", cand: jc });
+      continue;
+    }
+    if (r.jobType === "PATROL" && siteId) {
+      const v = pickVisit(visitPool, siteId, r.scheduledFor, claimedVisits);
+      if (v) {
+        claimedVisits.add(v.id);
+        actions.push({ kind: "linkVisit", visit: v });
+        continue;
+      }
+    }
+    actions.push({ kind: "create" });
+  }
+  return { siteIds, actions };
+}
+
 export async function previewKeyholdingJobs(
   prisma: PrismaClient,
   rows: KeyholdingRow[],
 ): Promise<KhSummary> {
   const { ok, skipped } = split(rows);
-  const existing = await prisma.job.findMany({
-    where: { partnerActivityRef: { in: ok.map((r) => r.reference) } },
-    select: { partnerActivityRef: true },
-  });
-  const seen = new Set(existing.map((j) => j.partnerActivityRef).filter(Boolean) as string[]);
   // Fail the preview the same way the real run would, so it's caught here.
   const customer = await resolveKeyholdingCustomer(prisma);
   if (!customer) throw await customerNotFoundError(prisma);
-  const index = await loadSiteIndex(prisma, ok);
-  const siteIds = ok.map((r) => matchKhSiteId(r, index, customer.id));
-  const pool = await prefetchCandidates(
-    prisma,
-    ok.map((r, i) =>
-      seen.has(r.reference)
-        ? { siteId: null, scheduledFor: null }
-        : { siteId: siteIds[i], scheduledFor: r.scheduledFor },
-    ),
-  );
-
-  let toCreate = 0;
-  let toLink = 0;
-  let toUpdate = 0;
-  let unmatchedSites = 0;
+  const { siteIds, actions } = await planRows(prisma, ok, customer.id);
+  const count = (k: Action["kind"]) => actions.filter((a) => a.kind === k).length;
   const byStatus: Record<string, number> = {};
-  const claimed = new Set<string>();
-  for (let i = 0; i < ok.length; i++) {
-    const r = ok[i];
-    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
-    const siteId = siteIds[i];
-    if (!siteId) unmatchedSites++;
-    if (seen.has(r.reference)) {
-      toUpdate++;
-      continue;
-    }
-    const cand = siteId
-      ? pickCandidate(pool, siteId, r.jobType, r.scheduledFor, claimed)
-      : null;
-    if (cand) {
-      claimed.add(cand.id);
-      toLink++;
-    } else {
-      toCreate++;
-    }
-  }
+  for (const r of ok) byStatus[r.status] = (byStatus[r.status] ?? 0) + 1;
   return {
     customer: customer.name,
     read: rows.length,
-    toCreate,
-    toLink,
-    toUpdate,
-    unmatchedSites,
+    toCreate: count("create"),
+    toLink: count("linkJob"),
+    toLinkVisit: count("linkVisit"),
+    toMerge: count("merge"),
+    toReview: count("review"),
+    toUpdate: count("updateJob") + count("updateVisit"),
+    unmatchedSites: siteIds.filter((s) => !s).length,
     byStatus,
     skipped,
   };
@@ -479,127 +739,153 @@ export async function runKeyholdingJobs(
   if (!customer) throw await customerNotFoundError(prisma);
 
   const { ok, skipped } = split(rows);
-  const index = await loadSiteIndex(prisma, ok);
-  const siteIds = ok.map((r) => matchKhSiteId(r, index, customer.id));
-  const knownRefs = new Set(
-    (
-      await prisma.job.findMany({
-        where: { partnerActivityRef: { in: ok.map((r) => r.reference) } },
-        select: { partnerActivityRef: true },
-      })
-    )
-      .map((j) => j.partnerActivityRef)
-      .filter(Boolean) as string[],
-  );
-  const pool = await prefetchCandidates(
-    prisma,
-    ok.map((r, i) =>
-      knownRefs.has(r.reference)
-        ? { siteId: null, scheduledFor: null }
-        : { siteId: siteIds[i], scheduledFor: r.scheduledFor },
-    ),
-  );
+  const { siteIds, actions } = await planRows(prisma, ok, customer.id);
   let created = 0;
   let linked = 0;
+  let linkedVisits = 0;
+  let merged = 0;
+  let keptForReview = 0;
   let updated = 0;
-  let unmatched = 0;
-  const claimed = new Set<string>();
 
   for (let i = 0; i < ok.length; i++) {
     const r = ok[i];
     const siteId = siteIds[i];
-    if (!siteId) unmatched++;
+    const a = actions[i];
 
-    // 1. Already imported / linked on an earlier run.
-    const existing = await prisma.job.findUnique({
-      where: { partnerActivityRef: r.reference },
-      select: {
-        id: true,
-        status: true,
-        cancelledByUserId: true,
-        siteId: true,
-        startedAt: true,
-        completedAt: true,
-        notes: true,
-      },
-    });
-    if (existing) {
-      // A cancel the office made by hand wins — leave it.
-      if (existing.status === "CANCELLED" && existing.cancelledByUserId !== null) {
+    switch (a.kind) {
+      case "updateVisit": {
+        await prisma.patrolVisit.update({
+          where: { id: a.visit.id },
+          data: visitLinkedUpdate(a.visit, r),
+        });
         updated++;
-        continue;
+        break;
       }
-      const createdByUs = (existing.notes ?? "").startsWith(CREATED_NOTE_PREFIX);
-      await prisma.job.update({
-        where: { id: existing.id },
-        data: createdByUs
-          ? {
-              // Our own record — keep it in step with Keyholding (but never
-              // touch the office's officer allocation).
-              type: r.jobType as any,
-              typeLabel: r.typeLabel,
-              status: r.status,
-              scheduledFor: r.scheduledFor ?? undefined,
-              startedAt: r.startedAt ?? undefined,
-              completedAt: r.completedAt ?? undefined,
-              notes: r.notes,
-              ...(siteId && existing.siteId === null ? { siteId } : {}),
-              ...(r.status === "CANCELLED" && existing.status !== "CANCELLED"
-                ? { cancelledAt: new Date(), statusBeforeCancel: existing.status as any }
-                : {}),
-              ...(r.status !== "CANCELLED" && existing.status === "CANCELLED"
-                ? { cancelledAt: null, statusBeforeCancel: null }
-                : {}),
-            }
-          : // A job we linked to — only move it forward / fill gaps.
-            linkedUpdate(existing, r),
-      });
-      updated++;
-      continue;
-    }
 
-    // 2. Link to the job the site's schedule (or the office) already made.
-    const cand = siteId
-      ? pickCandidate(pool, siteId, r.jobType, r.scheduledFor, claimed)
-      : null;
-    if (cand) {
-      claimed.add(cand.id);
-      await prisma.job.update({
-        where: { id: cand.id },
-        data: {
-          partnerActivityRef: r.reference,
-          possibleDuplicate: false,
-          ...linkedUpdate(cand, r),
-          notes: `${cand.notes ? `${cand.notes}\n` : ""}[Linked to Keyholding job ${r.reference} — ${r.typeLabel ?? r.jobType}, Keyholding status: ${r.status}]`,
-        },
-      });
-      linked++;
-      continue;
-    }
+      case "merge": {
+        // The duplicate was made by an earlier import and nobody has touched
+        // it: put the Keyholding reference on the real visit and drop the copy.
+        await prisma.$transaction([
+          prisma.patrolVisit.update({
+            where: { id: a.visit.id },
+            data: {
+              partnerActivityRef: r.reference,
+              ...visitLinkedUpdate(a.visit, r),
+              notes: linkNote(a.visit.notes, r.reference, r.typeLabel, r.status),
+            },
+          }),
+          prisma.job.delete({ where: { id: a.job.id } }),
+        ]);
+        merged++;
+        break;
+      }
 
-    // 3. Genuinely new — create it for the Keyholding customer, unallocated
-    //    for the office. Source mirrors Keyholding's: a scheduled job vs an
-    //    on-demand booking from the customer.
-    await prisma.job.create({
-      data: {
-        type: r.jobType as any,
-        typeLabel: r.typeLabel,
-        source: r.scheduledSource ? "SCHEDULED" : "CUSTOMER_REQUEST",
-        status: r.status,
-        priority: "MEDIUM",
-        siteId: siteId ?? undefined,
-        customerId: customer.id,
-        reportedViaPartnerApp: true,
-        partnerActivityRef: r.reference,
-        scheduledFor: r.scheduledFor ?? undefined,
-        startedAt: r.startedAt ?? undefined,
-        completedAt: r.completedAt ?? undefined,
-        cancelledAt: r.status === "CANCELLED" ? new Date() : undefined,
-        notes: r.notes,
-      },
-    });
-    created++;
+      case "review": {
+        keptForReview++; // someone's worked on it — leave both, report it
+        break;
+      }
+
+      case "updateJob": {
+        const existing = a.job;
+        // A cancel the office made by hand wins — leave it.
+        if (existing.status === "CANCELLED" && existing.cancelledByUserId !== null) {
+          updated++;
+          break;
+        }
+        const createdByUs = (existing.notes ?? "").startsWith(CREATED_NOTE_PREFIX);
+        await prisma.job.update({
+          where: { id: existing.id },
+          data: createdByUs
+            ? {
+                // Our own record — keep it in step with Keyholding (but never
+                // touch the office's officer allocation).
+                type: r.jobType as any,
+                typeLabel: r.typeLabel,
+                status: r.status,
+                scheduledFor: r.scheduledFor ?? undefined,
+                startedAt: r.startedAt ?? undefined,
+                completedAt: r.completedAt ?? undefined,
+                notes: r.notes,
+                ...(siteId && existing.siteId === null ? { siteId } : {}),
+                ...(r.status === "CANCELLED" && existing.status !== "CANCELLED"
+                  ? { cancelledAt: new Date(), statusBeforeCancel: existing.status as any }
+                  : {}),
+                ...(r.status !== "CANCELLED" && existing.status === "CANCELLED"
+                  ? { cancelledAt: null, statusBeforeCancel: null }
+                  : {}),
+              }
+            : // A job we linked to — only move it forward / fill gaps.
+              linkedUpdate(existing, r),
+        });
+        updated++;
+        break;
+      }
+
+      case "linkJob": {
+        const cand = a.cand;
+        await prisma.job.update({
+          where: { id: cand.id },
+          data: {
+            partnerActivityRef: r.reference,
+            possibleDuplicate: false,
+            ...linkedUpdate(cand, r),
+            notes: `${cand.notes ? `${cand.notes}\n` : ""}[Linked to Keyholding job ${r.reference} — ${r.typeLabel ?? r.jobType}, Keyholding status: ${r.status}]`,
+          },
+        });
+        linked++;
+        break;
+      }
+
+      case "linkVisit": {
+        await prisma.patrolVisit.update({
+          where: { id: a.visit.id },
+          data: {
+            partnerActivityRef: r.reference,
+            ...visitLinkedUpdate(a.visit, r),
+            notes: linkNote(a.visit.notes, r.reference, r.typeLabel, r.status),
+          },
+        });
+        linkedVisits++;
+        break;
+      }
+
+      case "create": {
+        // Genuinely new — create it for the Keyholding customer, unallocated
+        // for the office. Source mirrors Keyholding's: a scheduled job vs an
+        // on-demand booking from the customer.
+        await prisma.job.create({
+          data: {
+            type: r.jobType as any,
+            typeLabel: r.typeLabel,
+            source: r.scheduledSource ? "SCHEDULED" : "CUSTOMER_REQUEST",
+            status: r.status,
+            priority: "MEDIUM",
+            siteId: siteId ?? undefined,
+            customerId: customer.id,
+            reportedViaPartnerApp: true,
+            partnerActivityRef: r.reference,
+            scheduledFor: r.scheduledFor ?? undefined,
+            startedAt: r.startedAt ?? undefined,
+            completedAt: r.completedAt ?? undefined,
+            cancelledAt: r.status === "CANCELLED" ? new Date() : undefined,
+            notes: r.notes,
+          },
+        });
+        created++;
+        break;
+      }
+    }
   }
 
-  return { customer: customer.name, created, linked, updated, unmatched, skipped };
+  return {
+    customer: customer.name,
+    created,
+    linked,
+    linkedVisits,
+    merged,
+    keptForReview,
+    updated,
+    unmatched: siteIds.filter((s) => !s).length,
+    skipped,
+  };
 }

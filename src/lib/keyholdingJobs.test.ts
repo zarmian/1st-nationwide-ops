@@ -5,8 +5,27 @@ import {
   mapKhStatus,
   matchKhSiteId,
   mergeKhStatus,
+  mergeKhVisitStatus,
   resolveKeyholdingCustomer,
 } from "./keyholdingJobs";
+
+describe("mergeKhVisitStatus (linking a Keyholding patrol to our patrol visit)", () => {
+  it("completes a visit Keyholding says is done — even one we'd marked late/missed", () => {
+    expect(mergeKhVisitStatus("PENDING", "APPROVED")).toBe("COMPLETED");
+    expect(mergeKhVisitStatus("LATE", "APPROVED")).toBe("COMPLETED");
+    expect(mergeKhVisitStatus("MISSED", "APPROVED")).toBe("COMPLETED");
+  });
+  it("never un-completes and never touches a cancelled visit", () => {
+    expect(mergeKhVisitStatus("COMPLETED", "OPEN")).toBeNull();
+    expect(mergeKhVisitStatus("COMPLETED", "CANCELLED")).toBeNull();
+    expect(mergeKhVisitStatus("CANCELLED", "APPROVED")).toBeNull();
+  });
+  it("leaves an open Keyholding job alone and won't cancel a visit in progress", () => {
+    expect(mergeKhVisitStatus("PENDING", "OPEN")).toBeNull();
+    expect(mergeKhVisitStatus("PENDING", "CANCELLED")).toBe("CANCELLED");
+    expect(mergeKhVisitStatus("IN_PROGRESS", "CANCELLED")).toBeNull();
+  });
+});
 
 /** Minimal stand-in for prisma.customer, enough for the resolver. */
 function fakePrisma(names: string[]) {
