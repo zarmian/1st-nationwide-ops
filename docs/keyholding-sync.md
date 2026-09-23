@@ -54,7 +54,18 @@ tick **Preview** for a dry run.
   never touches a cancelled one, only fills attend/finish times that are
   missing, never changes the officer, customer/partner or billing, and
   **appends** a note rather than replacing. Only a job with **no** match is
-  created. (The June→Sept backfill preview: 628 jobs, ~423 link to existing
+  created.
+- **Patrols link to patrol visits.** Patrols live as `PatrolVisit`s (made by
+  the site's patrol schedule), not jobs — so a Keyholding patrol links to the
+  matching visit (same site, ±3h, nearest; ref in
+  `PatrolVisit.partnerActivityRef`): Done → visit completed (even one we'd
+  marked late/missed) with the arrive/leave times filled if blank; never
+  un-completes, never cancels one in progress, never changes the officer.
+- **Self-healing:** a patrol *job* an earlier import created that duplicates a
+  visit is merged into it (reference moved to the visit, the copy deleted) —
+  only when nobody has touched it (no officer, invoice or form). Touched ones
+  are left and counted "for review". Re-running a window cleans up any
+  duplicates in it. (The June→Sept backfill preview: 628 jobs, ~423 link to existing
   schedule jobs, the rest are new — on-demand jobs, alarm calls, etc.)
 
 ## Secrets
