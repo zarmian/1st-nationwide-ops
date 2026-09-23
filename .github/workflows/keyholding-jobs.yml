@@ -1,26 +1,35 @@
-name: Keyholding jobs (read)
+name: Keyholding jobs
 
 # Reads the Keyholding Company (Chase2Base) Jobs screen for a date window and
-# saves the mapped jobs as an artifact. DRY-RUN for now (no import) so the
-# extraction + paging can be verified before wiring the import.
+# imports each job via /api/imports/keyholding-jobs (partner = Keyholding,
+# officers left to allocate, deduped by the J… job number, matched to existing
+# sites by postcode, overlaps with existing scheduled jobs flagged).
 #
-# Run: Actions → "Keyholding jobs (read)" → Run workflow, set From/To. Pick a
-# BUSY range (e.g. a full week) so the results span more than one page and the
-# pager gets exercised.
+# Nightly: last 3 days → next 7 days (recent completions + upcoming jobs).
+# On demand: set From/To for a backfill; tick Preview for a dry run first.
 #
-# Secrets: KEYHOLDING_PORTAL_USERNAME/PASSWORD (login).
+# Secrets: KEYHOLDING_PORTAL_USERNAME / KEYHOLDING_PORTAL_PASSWORD (login),
+#          KEYHOLDING_JOBS_IMPORT_URL (…/api/imports/keyholding-jobs),
+#          NEXUS_IMPORT_SECRET (shared import secret).
+# With KEYHOLDING_JOBS_IMPORT_URL unset it reads + saves only (dry run).
 
 on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC daily — after the Nexus syncs
   workflow_dispatch:
     inputs:
       from:
-        description: "From date (YYYY-MM-DD). Blank = last 2 days."
+        description: "From date (YYYY-MM-DD). Blank = 3 days ago."
         type: string
         required: false
       to:
-        description: "To date (YYYY-MM-DD). Blank = today."
+        description: "To date (YYYY-MM-DD). Blank = 7 days ahead."
         type: string
         required: false
+      preview:
+        description: "Preview only (report what would change, write nothing)."
+        type: boolean
+        default: false
 
 concurrency:
   group: keyholding-jobs
@@ -29,7 +38,7 @@ concurrency:
 jobs:
   read:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -43,13 +52,16 @@ jobs:
           npm install playwright@1.48.0
           npx playwright install --with-deps chromium
 
-      - name: Read Keyholding jobs
+      - name: Read + import Keyholding jobs
         env:
           KEYHOLDING_PORTAL_USERNAME: ${{ secrets.KEYHOLDING_PORTAL_USERNAME || secrets.KEYHOLDING_USERNAME }}
           KEYHOLDING_PORTAL_PASSWORD: ${{ secrets.KEYHOLDING_PORTAL_PASSWORD || secrets.KEYHOLDING_PASSWORD }}
           KEYHOLDING_LOGIN_URL: ${{ secrets.KEYHOLDING_LOGIN_URL }}
+          KEYHOLDING_JOBS_IMPORT_URL: ${{ secrets.KEYHOLDING_JOBS_IMPORT_URL }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
           KEYHOLDING_FROM: ${{ inputs.from }}
           KEYHOLDING_TO: ${{ inputs.to }}
+          KEYHOLDING_PREVIEW: ${{ inputs.preview }}
         run: node scripts/keyholding-jobs.mjs
 
       - name: Upload jobs capture
