@@ -4,7 +4,26 @@ import {
   mapKhService,
   mapKhStatus,
   matchKhSiteId,
+  mergeKhStatus,
 } from "./keyholdingJobs";
+
+describe("mergeKhStatus (linking to an existing scheduled job)", () => {
+  it("moves a job forward when Keyholding says it's done", () => {
+    expect(mergeKhStatus("OPEN", "APPROVED")).toBe("APPROVED");
+    expect(mergeKhStatus("ASSIGNED", "APPROVED")).toBe("APPROVED");
+    expect(mergeKhStatus("OPEN", "IN_PROGRESS")).toBe("IN_PROGRESS");
+  });
+  it("never moves a job backwards", () => {
+    expect(mergeKhStatus("ASSIGNED", "OPEN")).toBeNull(); // keep the allocation
+    expect(mergeKhStatus("APPROVED", "OPEN")).toBeNull();
+    expect(mergeKhStatus("APPROVED", "APPROVED")).toBeNull();
+  });
+  it("cancels only work that isn't done, and never touches a cancelled job", () => {
+    expect(mergeKhStatus("OPEN", "CANCELLED")).toBe("CANCELLED");
+    expect(mergeKhStatus("APPROVED", "CANCELLED")).toBeNull();
+    expect(mergeKhStatus("CANCELLED", "APPROVED")).toBeNull();
+  });
+});
 
 describe("parseKhDateTime", () => {
   it("reads dd/MM/yyyy HH:mm as UK wall-clock", () => {

@@ -238,10 +238,14 @@ async function run() {
     } else if (jobs.length === 0) {
       console.warn("No jobs read — not posting.");
     } else {
-      const CHUNK = 60;
+      // Preview goes in one request so the one-to-one linking count is exact
+      // across the whole window; a real import is chunked to stay inside the
+      // serverless time limit (links written by earlier chunks are excluded
+      // from later ones automatically).
+      const CHUNK = preview ? jobs.length : 60;
       const tot = {
-        created: 0, updated: 0, unmatched: 0, possibleDuplicates: 0,
-        toCreate: 0, toUpdate: 0, unmatchedSites: 0,
+        created: 0, linked: 0, updated: 0, unmatched: 0,
+        toCreate: 0, toLink: 0, toUpdate: 0, unmatchedSites: 0,
       };
       for (let i = 0; i < jobs.length; i += CHUNK) {
         const chunk = jobs.slice(i, i + CHUNK);
@@ -270,8 +274,8 @@ async function run() {
       }
       console.log(
         preview
-          ? `Preview OK — would create ${tot.toCreate}, update ${tot.toUpdate}, ${tot.unmatchedSites} unmatched-site, ${tot.possibleDuplicates} possible duplicates.`
-          : `Import OK — created ${tot.created}, updated ${tot.updated}, ${tot.unmatched} unmatched-site, ${tot.possibleDuplicates} possible duplicates.`,
+          ? `Preview OK — would LINK ${tot.toLink} to jobs already in the system, CREATE ${tot.toCreate} new, update ${tot.toUpdate} previously imported, ${tot.unmatchedSites} unmatched-site.`
+          : `Import OK — linked ${tot.linked} existing jobs, created ${tot.created} new, updated ${tot.updated}, ${tot.unmatched} unmatched-site.`,
       );
     }
   } catch (err) {
