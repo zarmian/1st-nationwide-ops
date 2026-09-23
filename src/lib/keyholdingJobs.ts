@@ -2,8 +2,11 @@
  * Keyholding Company jobs — turn the rows read off the Chase2Base "Jobs"
  * screen (scripts/keyholding-jobs.mjs) into job records.
  *
- * Operating-model mode 2 (partner-as-customer): Keyholding sends us the work,
- * our officer attends and files in their app, and we keep a record.
+ * Keyholding Company is one of our CUSTOMERS (set up as a Customer, not a
+ * Partner): they dispatch work through their own platform, our officers attend
+ * and file it in their app (Chase2Base), and we keep the job record here —
+ * tied to the Keyholding customer, reportedViaPartnerApp (their app holds the
+ * report, so no /submit or client report from us).
  *
  * Rules agreed with the operator ("map properly, or if any is missed, update
  * or create"):
@@ -17,7 +20,7 @@
  *     but only ever moves a job FORWARD (never un-completes it), only fills
  *     times that are missing, never touches the officer, customer/partner or
  *     billing, and appends (never replaces) a note.
- *   - Only a job with no match is CREATED — tied to the Keyholding partner,
+ *   - Only a job with no match is CREATED — tied to the Keyholding customer,
  *     reportedViaPartnerApp, unallocated for the office to assign.
  *   - Officers are never taken from Keyholding's Executor column.
  *   - Status follows Keyholding's Execution Status (Done → completed,
@@ -28,27 +31,30 @@ import { normalisePostcode } from "@/lib/nexusImport";
 import { normaliseNameKey } from "@/lib/siteDuplicates";
 import { ukWallClockToUtc } from "@/lib/dates";
 
-export const KEYHOLDING_PARTNER_NAME = "Keyholding Company";
+export const KEYHOLDING_CUSTOMER_NAME = "Keyholding Company";
 
 /**
- * Our Keyholding partner record. The seed names it "Keyholding Company", but
- * live partners were set up by hand ("Keyholding Co", "KHC", …). Order: an
- * explicit KEYHOLDING_PARTNER_NAME env override → the seed name → the single
- * partner whose name contains "keyholding" (or, failing that, "khc"). Returns
- * null when there's none or it's ambiguous — callers report the names on file.
+ * Our Keyholding CUSTOMER record (Keyholding is set up as a customer, not a
+ * partner). Order: an explicit KEYHOLDING_CUSTOMER_NAME env override → the
+ * name "Keyholding Company" → the single customer whose name contains
+ * "keyholding" (or, failing that, "khc"). Returns null when there's none or
+ * it's ambiguous — callers then report the customers on file.
  */
-export async function resolveKeyholdingPartner(
+export async function resolveKeyholdingCustomer(
   prisma: PrismaClient,
 ): Promise<{ id: string; name: string } | null> {
   const select = { id: true, name: true } as const;
-  const configured = process.env.KEYHOLDING_PARTNER_NAME?.trim();
+  const configured = process.env.KEYHOLDING_CUSTOMER_NAME?.trim();
   if (configured) {
-    const hit = await prisma.partner.findUnique({ where: { name: configured }, select });
+    const hit = await prisma.customer.findUnique({ where: { name: configured }, select });
     if (hit) return hit;
   }
-  const exact = await prisma.partner.findUnique({ where: { name: KEYHOLDING_PARTNER_NAME }, select });
+  const exact = await prisma.customer.findUnique({
+    where: { name: KEYHOLDING_CUSTOMER_NAME },
+    select,
+  });
   if (exact) return exact;
-  const fuzzy = await prisma.partner.findMany({
+  const fuzzy = await prisma.customer.findMany({
     where: {
       OR: [
         { name: { contains: "keyholding", mode: "insensitive" } },
@@ -57,7 +63,7 @@ export async function resolveKeyholdingPartner(
     },
     select,
   });
-  const named = fuzzy.filter((p) => /keyholding/i.test(p.name));
+  const named = fuzzy.filter((c) => /keyholding/i.test(c.name));
   if (named.length === 1) return named[0];
   if (named.length === 0 && fuzzy.length === 1) return fuzzy[0];
   return null; // none, or ambiguous
@@ -66,14 +72,14 @@ export async function resolveKeyholdingPartner(
 /** A setup problem (not a transient failure) — the endpoint answers 422. */
 export class KhConfigError extends Error {}
 
-async function partnerNotFoundError(prisma: PrismaClient): Promise<KhConfigError> {
+async function customerNotFoundError(prisma: PrismaClient): Promise<KhConfigError> {
   const names = (
-    await prisma.partner.findMany({ select: { name: true }, orderBy: { name: "asc" } })
-  ).map((p) => p.name);
+    await prisma.customer.findMany({ select: { name: true }, orderBy: { name: "asc" } })
+  ).map((c) => c.name);
   return new KhConfigError(
-    `No single Keyholding partner found. Partners on file: ${
+    `No single Keyholding customer found. Customers on file: ${
       names.length ? names.join(" | ") : "(none)"
-    }. Tell us which one is Keyholding (or set KEYHOLDING_PARTNER_NAME).`,
+    }. Tell us which one is Keyholding (or set KEYHOLDING_CUSTOMER_NAME).`,
   );
 }
 
@@ -83,8 +89,8 @@ export type KeyholdingRow = Record<string, string | null | undefined>;
 export type KhSkip = { reference: string | null; reason: string };
 
 export type KhSummary = {
-  /** The partner record jobs attach to (null = none found — see error). */
-  partner: string | null;
+  /** The customer record new jobs attach to. */
+  customer: string;
   read: number;
   /** New jobs that would be created (no existing match). */
   toCreate: number;
@@ -98,7 +104,7 @@ export type KhSummary = {
 };
 
 export type KhResult = {
-  partner: string;
+  customer: string;
   created: number;
   linked: number;
   updated: number;
@@ -184,6 +190,8 @@ type Prepared = {
   reference: string;
   jobType: string;
   typeLabel: string | null;
+  /** Keyholding's Source Type — "Scheduled" jobs vs "Booked" (on-demand). */
+  scheduledSource: boolean;
   status: KhStatus;
   siteName: string | null;
   postcode: string | null;
@@ -226,6 +234,7 @@ function prepare(r: KeyholdingRow):
       reference,
       jobType: mapKhService(service),
       typeLabel: service || null,
+      scheduledSource: /^scheduled$/i.test(cell(r, "Source Type")),
       status,
       siteName: cell(r, "Property") || null,
       postcode: pc ? normalisePostcode(`${pc[1]}${pc[2]}`) : null,
@@ -240,19 +249,19 @@ function prepare(r: KeyholdingRow):
   };
 }
 
-type SiteRef = { id: string; name: string; partnerId: string | null };
+type SiteRef = { id: string; name: string; customerId: string | null };
 
 export function matchKhSiteId(
   row: { postcode: string | null; siteName: string | null },
   byPostcode: Map<string, SiteRef[]>,
-  partnerId: string | null,
+  customerId: string | null,
 ): string | null {
   if (!row.postcode) return null;
   const candidates = byPostcode.get(row.postcode);
   if (!candidates || candidates.length === 0) return null;
   if (candidates.length === 1) return candidates[0].id;
-  const partnerOnes = partnerId ? candidates.filter((c) => c.partnerId === partnerId) : [];
-  const pool = partnerOnes.length > 0 ? partnerOnes : candidates;
+  const ownOnes = customerId ? candidates.filter((c) => c.customerId === customerId) : [];
+  const pool = ownOnes.length > 0 ? ownOnes : candidates;
   if (row.siteName) {
     const wanted = normaliseNameKey(row.siteName);
     const exact = pool.find((c) => normaliseNameKey(c.name) === wanted);
@@ -274,12 +283,12 @@ async function loadSiteIndex(prisma: PrismaClient, rows: Prepared[]) {
   if (postcodes.length === 0) return byPostcode;
   const sites = await prisma.site.findMany({
     where: { postcode: { in: postcodes } },
-    select: { id: true, name: true, partnerId: true, postcode: true },
+    select: { id: true, name: true, customerId: true, postcode: true },
   });
   for (const s of sites) {
     if (!s.postcode) continue;
     const list = byPostcode.get(s.postcode) ?? [];
-    list.push({ id: s.id, name: s.name, partnerId: s.partnerId });
+    list.push({ id: s.id, name: s.name, customerId: s.customerId });
     byPostcode.set(s.postcode, list);
   }
   return byPostcode;
@@ -412,10 +421,10 @@ export async function previewKeyholdingJobs(
   });
   const seen = new Set(existing.map((j) => j.partnerActivityRef).filter(Boolean) as string[]);
   // Fail the preview the same way the real run would, so it's caught here.
-  const partner = await resolveKeyholdingPartner(prisma);
-  if (!partner) throw await partnerNotFoundError(prisma);
+  const customer = await resolveKeyholdingCustomer(prisma);
+  if (!customer) throw await customerNotFoundError(prisma);
   const index = await loadSiteIndex(prisma, ok);
-  const siteIds = ok.map((r) => matchKhSiteId(r, index, partner.id));
+  const siteIds = ok.map((r) => matchKhSiteId(r, index, customer.id));
   const pool = await prefetchCandidates(
     prisma,
     ok.map((r, i) =>
@@ -451,7 +460,7 @@ export async function previewKeyholdingJobs(
     }
   }
   return {
-    partner: partner.name,
+    customer: customer.name,
     read: rows.length,
     toCreate,
     toLink,
@@ -466,12 +475,12 @@ export async function runKeyholdingJobs(
   prisma: PrismaClient,
   rows: KeyholdingRow[],
 ): Promise<KhResult> {
-  const partner = await resolveKeyholdingPartner(prisma);
-  if (!partner) throw await partnerNotFoundError(prisma);
+  const customer = await resolveKeyholdingCustomer(prisma);
+  if (!customer) throw await customerNotFoundError(prisma);
 
   const { ok, skipped } = split(rows);
   const index = await loadSiteIndex(prisma, ok);
-  const siteIds = ok.map((r) => matchKhSiteId(r, index, partner.id));
+  const siteIds = ok.map((r) => matchKhSiteId(r, index, customer.id));
   const knownRefs = new Set(
     (
       await prisma.job.findMany({
@@ -568,16 +577,18 @@ export async function runKeyholdingJobs(
       continue;
     }
 
-    // 3. Genuinely new — create it, unallocated for the office.
+    // 3. Genuinely new — create it for the Keyholding customer, unallocated
+    //    for the office. Source mirrors Keyholding's: a scheduled job vs an
+    //    on-demand booking from the customer.
     await prisma.job.create({
       data: {
         type: r.jobType as any,
         typeLabel: r.typeLabel,
-        source: "PARTNER_REQUEST",
+        source: r.scheduledSource ? "SCHEDULED" : "CUSTOMER_REQUEST",
         status: r.status,
         priority: "MEDIUM",
         siteId: siteId ?? undefined,
-        partnerId: partner.id,
+        customerId: customer.id,
         reportedViaPartnerApp: true,
         partnerActivityRef: r.reference,
         scheduledFor: r.scheduledFor ?? undefined,
@@ -590,5 +601,5 @@ export async function runKeyholdingJobs(
     created++;
   }
 
-  return { partner: partner.name, created, linked, updated, unmatched, skipped };
+  return { customer: customer.name, created, linked, updated, unmatched, skipped };
 }

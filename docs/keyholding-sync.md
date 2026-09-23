@@ -28,8 +28,14 @@ tick **Preview** for a dry run.
 
 - One job per Keyholding job number (`#`, e.g. `J21634508`), stored in
   `Job.partnerActivityRef` — re-runs update, never duplicate.
-- Tied to the **Keyholding Company** partner, `reportedViaPartnerApp = true`
-  (their app is the record — no client report).
+- Keyholding is one of our **customers** (a Customer record, not a Partner).
+  New jobs are tied to that customer (`customerId`), with
+  `reportedViaPartnerApp = true` — their app is the record, so no /submit or
+  client report from us. Source follows Keyholding's: "Scheduled" → scheduled,
+  "Booked" → customer request. The customer is found by name ("Keyholding
+  Company", or the single customer whose name contains "keyholding"/"khc";
+  override with `KEYHOLDING_CUSTOMER_NAME`). If none/ambiguous, the run stops
+  and lists the customers on file. Site matching prefers that customer's sites.
 - **Type** from Service: Unlock / Lock / Patrol (external & internal) /
   Alarm response / Survey / Ad-hoc (welfare checks).
 - **Status** from Execution Status: Done → completed, Cancelled → cancelled,
