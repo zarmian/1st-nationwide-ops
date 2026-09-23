@@ -30,8 +30,10 @@ const daysAgo = (n) => {
   d.setUTCDate(d.getUTCDate() - n);
   return iso(d);
 };
-const FROM = env("KEYHOLDING_FROM", daysAgo(2));
-const TO = env("KEYHOLDING_TO", iso(today));
+// Default window: the last 3 days (completions) through the next 7 (upcoming
+// jobs to allocate), so the nightly run catches both.
+const FROM = env("KEYHOLDING_FROM", daysAgo(3));
+const TO = env("KEYHOLDING_TO", daysAgo(-7));
 const MAX_PAGES = Number(env("KEYHOLDING_MAX_PAGES", "300")) || 300;
 
 // The Jobs table's fixed column order (Carole's saved layout). Map row cells by
@@ -224,7 +226,54 @@ async function run() {
       ),
     );
     console.log(`Collected ${jobs.length} jobs. Paging status: "${lastStatus}".`);
-    console.log("Dry run — not importing (verification stage). See keyholding-jobs.json.");
+
+    // Hand the rows to the app (chunked), or stop at a saved dry run.
+    const IMPORT_URL = env("KEYHOLDING_JOBS_IMPORT_URL");
+    const SECRET = env("NEXUS_IMPORT_SECRET");
+    const preview = String(env("KEYHOLDING_PREVIEW")).toLowerCase() === "true";
+    if (!IMPORT_URL || !SECRET) {
+      console.log(
+        "Import endpoint not configured (KEYHOLDING_JOBS_IMPORT_URL / NEXUS_IMPORT_SECRET) — dry run, saved only.",
+      );
+    } else if (jobs.length === 0) {
+      console.warn("No jobs read — not posting.");
+    } else {
+      const CHUNK = 60;
+      const tot = {
+        created: 0, updated: 0, unmatched: 0, possibleDuplicates: 0,
+        toCreate: 0, toUpdate: 0, unmatchedSites: 0,
+      };
+      for (let i = 0; i < jobs.length; i += CHUNK) {
+        const chunk = jobs.slice(i, i + CHUNK);
+        let ok = false;
+        let last = { status: 0, json: {} };
+        for (let a = 1; a <= 3 && !ok; a++) {
+          const res = await fetch(preview ? `${IMPORT_URL}?preview=1` : IMPORT_URL, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${SECRET}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ jobs: chunk }),
+          });
+          const json = await res.json().catch(() => ({}));
+          last = { status: res.status, json };
+          if (res.ok && json.ok !== false) {
+            ok = true;
+            for (const k of Object.keys(tot)) tot[k] += Number(json[k]) || 0;
+          } else if (res.status >= 500) {
+            await new Promise((r) => setTimeout(r, 2000 * a));
+          } else break;
+        }
+        if (!ok) {
+          console.error(`Chunk ${i / CHUNK + 1} failed:`, last.status, JSON.stringify(last.json));
+          process.exitCode = 1;
+          break;
+        }
+      }
+      console.log(
+        preview
+          ? `Preview OK — would create ${tot.toCreate}, update ${tot.toUpdate}, ${tot.unmatchedSites} unmatched-site, ${tot.possibleDuplicates} possible duplicates.`
+          : `Import OK — created ${tot.created}, updated ${tot.updated}, ${tot.unmatched} unmatched-site, ${tot.possibleDuplicates} possible duplicates.`,
+      );
+    }
   } catch (err) {
     await page.screenshot({ path: "keyholding-jobs-page.png", fullPage: true }).catch(() => {});
     await fs.writeFile("keyholding-jobs-page.html", await page.content().catch(() => "")).catch(() => {});
