@@ -162,7 +162,11 @@ function mapRows(rows) {
 
 async function run() {
   const browser = await chromium.launch();
-  const page = await (await browser.newContext()).newPage();
+  // A very tall viewport makes the Vaadin Table (height:100%) render a whole
+  // 50-row CUBA page at once, so we don't have to fight its row virtualisation.
+  const page = await (
+    await browser.newContext({ viewport: { width: 1680, height: 5200 } })
+  ).newPage();
   const byRef = new Map();
   let lastStatus = null;
 
