@@ -6,10 +6,10 @@
  * Jobs, sets the From/To date filter, clicks Find, and reads the results table
  * (mapping the 33 columns by header), paging through with the CUBA pager.
  *
- * DRY-RUN by default: saves the mapped jobs to keyholding-jobs.json + a capture
- * so the extraction/paging can be verified. When KEYHOLDING_JOBS_IMPORT_URL +
- * NEXUS_IMPORT_SECRET are set it will POST them (import wiring added once the
- * read is confirmed).
+ * Always saves the mapped jobs to keyholding-jobs.json + a capture. When
+ * KEYHOLDING_JOBS_IMPORT_URL + NEXUS_IMPORT_SECRET are set it POSTs them to
+ * /api/imports/keyholding-jobs (KEYHOLDING_PREVIEW=true for a dry run), which
+ * links each to the existing job or creates it for the Keyholding customer.
  */
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
@@ -248,7 +248,7 @@ async function run() {
         toCreate: 0, toLink: 0, toUpdate: 0, unmatchedSites: 0,
       };
       let failed = false;
-      let partnerName = null;
+      let customerName = null;
       for (let i = 0; i < jobs.length; i += CHUNK) {
         const chunk = jobs.slice(i, i + CHUNK);
         let ok = false;
@@ -263,7 +263,7 @@ async function run() {
           last = { status: res.status, json };
           if (res.ok && json.ok !== false) {
             ok = true;
-            partnerName = json.partner ?? partnerName;
+            customerName = json.customer ?? customerName;
             for (const k of Object.keys(tot)) tot[k] += Number(json[k]) || 0;
           } else if (res.status >= 500) {
             await new Promise((r) => setTimeout(r, 2000 * a));
@@ -283,7 +283,7 @@ async function run() {
             : "Import STOPPED at the failed chunk — see the error above. Earlier chunks (if any) were applied.",
         );
       } else {
-        console.log(`Partner: ${partnerName ?? "(unknown)"}`);
+        console.log(`Keyholding customer: ${customerName ?? "(unknown)"}`);
         console.log(
           preview
             ? `Preview OK — would LINK ${tot.toLink} to jobs already in the system, CREATE ${tot.toCreate} new, update ${tot.toUpdate} previously imported, ${tot.unmatchedSites} unmatched-site.`

@@ -5,19 +5,19 @@ import {
   mapKhStatus,
   matchKhSiteId,
   mergeKhStatus,
-  resolveKeyholdingPartner,
+  resolveKeyholdingCustomer,
 } from "./keyholdingJobs";
 
-/** Minimal stand-in for prisma.partner, enough for the resolver. */
+/** Minimal stand-in for prisma.customer, enough for the resolver. */
 function fakePrisma(names: string[]) {
-  const partners = names.map((name, i) => ({ id: `p${i}`, name }));
+  const customers = names.map((name, i) => ({ id: `c${i}`, name }));
   return {
-    partner: {
+    customer: {
       findUnique: async ({ where }: any) =>
-        partners.find((p) => p.name === where.name) ?? null,
+        customers.find((p) => p.name === where.name) ?? null,
       findMany: async ({ where }: any) => {
-        if (!where) return partners;
-        return partners.filter((p) =>
+        if (!where) return customers;
+        return customers.filter((p) =>
           (where.OR as any[]).some((o) =>
             p.name.toLowerCase().includes(String(o.name.contains).toLowerCase()),
           ),
@@ -27,24 +27,24 @@ function fakePrisma(names: string[]) {
   } as any;
 }
 
-describe("resolveKeyholdingPartner", () => {
+describe("resolveKeyholdingCustomer (Keyholding is a customer)", () => {
   it("uses the seed name when it exists", async () => {
-    const p = await resolveKeyholdingPartner(fakePrisma(["Nexus Security", "Keyholding Company"]));
+    const p = await resolveKeyholdingCustomer(fakePrisma(["Shurgard", "Keyholding Company"]));
     expect(p?.name).toBe("Keyholding Company");
   });
-  it("finds a hand-named partner like 'Keyholding Co'", async () => {
-    const p = await resolveKeyholdingPartner(fakePrisma(["Nexus Security", "Keyholding Co"]));
+  it("finds a hand-named customer like 'Keyholding Co'", async () => {
+    const p = await resolveKeyholdingCustomer(fakePrisma(["Shurgard", "Keyholding Co"]));
     expect(p?.name).toBe("Keyholding Co");
   });
-  it("falls back to a KHC-named partner", async () => {
-    const p = await resolveKeyholdingPartner(fakePrisma(["KHC Ltd", "Nexus Security"]));
+  it("falls back to a KHC-named customer", async () => {
+    const p = await resolveKeyholdingCustomer(fakePrisma(["KHC Ltd", "Shurgard"]));
     expect(p?.name).toBe("KHC Ltd");
   });
   it("refuses to guess when it's ambiguous or missing", async () => {
     expect(
-      await resolveKeyholdingPartner(fakePrisma(["Keyholding Co", "Keyholding Co (old)"])),
+      await resolveKeyholdingCustomer(fakePrisma(["Keyholding Co", "Keyholding Co (old)"])),
     ).toBeNull();
-    expect(await resolveKeyholdingPartner(fakePrisma(["Nexus Security"]))).toBeNull();
+    expect(await resolveKeyholdingCustomer(fakePrisma(["Shurgard"]))).toBeNull();
   });
 });
 
@@ -107,12 +107,12 @@ describe("mapKhStatus", () => {
 
 describe("matchKhSiteId", () => {
   const idx = new Map([
-    ["BR11NX", [{ id: "bromley", name: "Bromley", partnerId: "kh" }]],
+    ["BR11NX", [{ id: "bromley", name: "Bromley", customerId: "kh" }]],
     [
       "BR53FQ",
       [
-        { id: "sic", name: "Science and Innovation Centre", partnerId: "kh" },
-        { id: "other", name: "Other Unit", partnerId: null },
+        { id: "sic", name: "Science and Innovation Centre", customerId: "kh" },
+        { id: "other", name: "Other Unit", customerId: null },
       ],
     ],
   ]);
