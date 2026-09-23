@@ -122,13 +122,12 @@ async function scrollTableBody(page) {
   return page.evaluate(() => {
     const table = document.querySelector(".v-table");
     if (!table) return false;
-    let sc = null;
-    for (const el of table.querySelectorAll("*")) {
-      if (el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 40) {
-        sc = el;
-        break;
-      }
-    }
+    const sc =
+      table.querySelector(".v-scrollable") ||
+      table.querySelector(".v-table-body-wrapper") ||
+      Array.from(table.querySelectorAll("*")).find(
+        (el) => el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 40,
+      );
     if (!sc) return false;
     const before = sc.scrollTop;
     sc.scrollTop = before + Math.max(sc.clientHeight - 40, 120);
@@ -136,26 +135,15 @@ async function scrollTableBody(page) {
   });
 }
 
-/** Best-effort: click the pager's "next" control. Returns false if none/last. */
+/** Click the CUBA pager's Next button (.c-paging-next). False when it's absent
+ *  or disabled (last page). */
 async function nextPage(page) {
-  const cands = [
-    ".c-paging-wrap [class*='angle-right']:not([class*='double'])",
-    ".c-paging-wrap .v-button:not(.v-disabled) .fa-angle-right",
-    ".c-paging-wrap [title='Next']",
-    ".c-paging-wrap a:has-text('›')",
-  ];
-  for (const sel of cands) {
-    const loc = page.locator(sel).first();
-    try {
-      if ((await loc.count()) > 0 && (await loc.isVisible())) {
-        await loc.click({ timeout: 5_000 });
-        return true;
-      }
-    } catch {
-      /* try next */
-    }
-  }
-  return false;
+  const next = page.locator(".c-paging-next").first();
+  if ((await next.count()) === 0) return false;
+  const cls = (await next.getAttribute("class").catch(() => "")) || "";
+  if (/v-disabled/.test(cls)) return false;
+  await next.click({ timeout: 8_000 }).catch(() => {});
+  return true;
 }
 
 function mapRows(rows) {
@@ -184,7 +172,7 @@ async function run() {
       // Load every (vertically virtualised) row on this pager page by scrolling
       // the table body until nothing new appears.
       let stable = 0;
-      for (let s = 0; s < 400; s++) {
+      for (let s = 0; s < 150; s++) {
         const { rows, status } = await extractTable(page);
         lastStatus = status;
         const before = byRef.size;
@@ -193,12 +181,15 @@ async function run() {
           if (ref) byRef.set(ref, cells);
         }
         const scrolled = await scrollTableBody(page);
+        // Vaadin lazy-loads rows from the server on scroll, so wait for the
+        // round-trip. Only stop once we can't scroll further AND no new rows
+        // arrive for several passes.
         if (byRef.size === before && !scrolled) {
-          if (++stable >= 3) break;
+          if (++stable >= 4) break;
         } else {
           stable = 0;
         }
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(750);
       }
       console.log(`Pager page ${pagerPage}: total ${byRef.size} — status "${lastStatus}"`);
       if (!(await nextPage(page))) break;
