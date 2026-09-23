@@ -5,7 +5,48 @@ import {
   mapKhStatus,
   matchKhSiteId,
   mergeKhStatus,
+  resolveKeyholdingPartner,
 } from "./keyholdingJobs";
+
+/** Minimal stand-in for prisma.partner, enough for the resolver. */
+function fakePrisma(names: string[]) {
+  const partners = names.map((name, i) => ({ id: `p${i}`, name }));
+  return {
+    partner: {
+      findUnique: async ({ where }: any) =>
+        partners.find((p) => p.name === where.name) ?? null,
+      findMany: async ({ where }: any) => {
+        if (!where) return partners;
+        return partners.filter((p) =>
+          (where.OR as any[]).some((o) =>
+            p.name.toLowerCase().includes(String(o.name.contains).toLowerCase()),
+          ),
+        );
+      },
+    },
+  } as any;
+}
+
+describe("resolveKeyholdingPartner", () => {
+  it("uses the seed name when it exists", async () => {
+    const p = await resolveKeyholdingPartner(fakePrisma(["Nexus Security", "Keyholding Company"]));
+    expect(p?.name).toBe("Keyholding Company");
+  });
+  it("finds a hand-named partner like 'Keyholding Co'", async () => {
+    const p = await resolveKeyholdingPartner(fakePrisma(["Nexus Security", "Keyholding Co"]));
+    expect(p?.name).toBe("Keyholding Co");
+  });
+  it("falls back to a KHC-named partner", async () => {
+    const p = await resolveKeyholdingPartner(fakePrisma(["KHC Ltd", "Nexus Security"]));
+    expect(p?.name).toBe("KHC Ltd");
+  });
+  it("refuses to guess when it's ambiguous or missing", async () => {
+    expect(
+      await resolveKeyholdingPartner(fakePrisma(["Keyholding Co", "Keyholding Co (old)"])),
+    ).toBeNull();
+    expect(await resolveKeyholdingPartner(fakePrisma(["Nexus Security"]))).toBeNull();
+  });
+});
 
 describe("mergeKhStatus (linking to an existing scheduled job)", () => {
   it("moves a job forward when Keyholding says it's done", () => {
