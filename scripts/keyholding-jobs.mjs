@@ -108,7 +108,7 @@ async function setDatesAndFind(page) {
 async function extractTable(page) {
   return page.evaluate(() => {
     const txt = (el) => (el?.innerText || el?.textContent || "").trim();
-    const rows = Array.from(document.querySelectorAll(".v-table tr.v-table-row")).map(
+    const rows = Array.from(document.querySelectorAll(".v-table tr[class*='v-table-row']")).map(
       (tr) => Array.from(tr.querySelectorAll("td .v-table-cell-wrapper")).map(txt),
     );
     const status = txt(document.querySelector(".c-paging-status")) || null;
@@ -122,7 +122,7 @@ async function extractTable(page) {
 async function scrollTableBody(page) {
   return page.evaluate(() => {
     const table = document.querySelector(".v-table");
-    const inDom = document.querySelectorAll(".v-table tr.v-table-row").length;
+    const inDom = document.querySelectorAll(".v-table tr[class*='v-table-row']").length;
     if (!table) return { scrolled: false, inDom };
     const sc =
       table.querySelector(".v-table-body-wrapper") ||
