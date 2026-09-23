@@ -38,11 +38,18 @@ tick **Preview** for a dry run.
   → completed.
 - **Officer: left unallocated** — the Executor column is ignored and the
   office allocates; re-imports never touch an allocation.
-- **Site:** matched by the postcode in Addresses (then property name). Jobs
-  that look like one already in the system (same site, type and time — hand
-  entered or generated from a schedule) are created with the ⚠ **Possible
-  duplicate** flag so the office can reconcile them; nothing is merged
-  silently.
+- **Site:** matched by the postcode in Addresses (then property name).
+- **Link, don't duplicate.** Most of these jobs already exist — generated from
+  the site's lock/unlock/patrol schedule, or entered by hand. So each Keyholding
+  job is first **linked** to the existing job at the same site, same type,
+  scheduled within ±3h (nearest in time, one-to-one, never one already linked).
+  Linking attaches the `J…` number and brings the job up to date from
+  Keyholding — but only ever moves it **forward** (never un-completes it),
+  never touches a cancelled one, only fills attend/finish times that are
+  missing, never changes the officer, customer/partner or billing, and
+  **appends** a note rather than replacing. Only a job with **no** match is
+  created. (The June→Sept backfill preview: 628 jobs, ~423 link to existing
+  schedule jobs, the rest are new — on-demand jobs, alarm calls, etc.)
 
 ## Secrets
 
