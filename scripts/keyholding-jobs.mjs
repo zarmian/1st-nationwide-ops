@@ -116,22 +116,26 @@ async function extractTable(page) {
   });
 }
 
-/** Scroll the Vaadin table body one viewport to load the next block of
- *  (vertically virtualised) rows. Returns false when it can't scroll further. */
+/** Scroll the Vaadin table body by HALF a viewport so consecutive reads overlap
+ *  (a full-viewport jump skips the rows that render between positions). Returns
+ *  { scrolled, inDom } — inDom is how many rows are currently in the DOM. */
 async function scrollTableBody(page) {
   return page.evaluate(() => {
     const table = document.querySelector(".v-table");
-    if (!table) return false;
+    const inDom = document.querySelectorAll(".v-table tr.v-table-row").length;
+    if (!table) return { scrolled: false, inDom };
     const sc =
-      table.querySelector(".v-scrollable") ||
       table.querySelector(".v-table-body-wrapper") ||
       Array.from(table.querySelectorAll("*")).find(
-        (el) => el.scrollHeight > el.clientHeight + 20 && el.clientHeight > 40,
+        (el) =>
+          el.scrollHeight > el.clientHeight + 20 &&
+          el.clientHeight > 40 &&
+          /wrapper|scroll|body/i.test(el.className),
       );
-    if (!sc) return false;
+    if (!sc) return { scrolled: false, inDom };
     const before = sc.scrollTop;
-    sc.scrollTop = before + Math.max(sc.clientHeight - 40, 120);
-    return sc.scrollTop > before;
+    sc.scrollTop = before + Math.max(Math.floor(sc.clientHeight / 2), 80);
+    return { scrolled: sc.scrollTop > before, inDom };
   });
 }
 
@@ -180,16 +184,15 @@ async function run() {
           const ref = (cells[0] ?? "").trim();
           if (ref) byRef.set(ref, cells);
         }
-        const scrolled = await scrollTableBody(page);
-        // Vaadin lazy-loads rows from the server on scroll, so wait for the
-        // round-trip. Only stop once we can't scroll further AND no new rows
-        // arrive for several passes.
+        const { scrolled } = await scrollTableBody(page);
+        // Stop only once we can't scroll further AND no new rows arrive for
+        // several passes (Vaadin lazy-loads on scroll).
         if (byRef.size === before && !scrolled) {
-          if (++stable >= 4) break;
+          if (++stable >= 5) break;
         } else {
           stable = 0;
         }
-        await page.waitForTimeout(750);
+        await page.waitForTimeout(500);
       }
       console.log(`Pager page ${pagerPage}: total ${byRef.size} — status "${lastStatus}"`);
       if (!(await nextPage(page))) break;
