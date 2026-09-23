@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
+  KhConfigError,
   previewKeyholdingJobs,
   runKeyholdingJobs,
   type KeyholdingRow,
@@ -61,9 +62,11 @@ export async function POST(req: Request) {
     const result = await runKeyholdingJobs(prisma, rows);
     return NextResponse.json({ ok: true, preview: false, ...result });
   } catch (e: any) {
+    // A setup problem (e.g. no Keyholding partner on file) won't fix itself on
+    // retry — answer 422 so the robot reports it straight away.
     return NextResponse.json(
       { ok: false, error: e?.message ?? "Import failed" },
-      { status: 500 },
+      { status: e instanceof KhConfigError ? 422 : 500 },
     );
   }
 }

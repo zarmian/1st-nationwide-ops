@@ -30,12 +30,61 @@ import { ukWallClockToUtc } from "@/lib/dates";
 
 export const KEYHOLDING_PARTNER_NAME = "Keyholding Company";
 
+/**
+ * Our Keyholding partner record. The seed names it "Keyholding Company", but
+ * live partners were set up by hand ("Keyholding Co", "KHC", …). Order: an
+ * explicit KEYHOLDING_PARTNER_NAME env override → the seed name → the single
+ * partner whose name contains "keyholding" (or, failing that, "khc"). Returns
+ * null when there's none or it's ambiguous — callers report the names on file.
+ */
+export async function resolveKeyholdingPartner(
+  prisma: PrismaClient,
+): Promise<{ id: string; name: string } | null> {
+  const select = { id: true, name: true } as const;
+  const configured = process.env.KEYHOLDING_PARTNER_NAME?.trim();
+  if (configured) {
+    const hit = await prisma.partner.findUnique({ where: { name: configured }, select });
+    if (hit) return hit;
+  }
+  const exact = await prisma.partner.findUnique({ where: { name: KEYHOLDING_PARTNER_NAME }, select });
+  if (exact) return exact;
+  const fuzzy = await prisma.partner.findMany({
+    where: {
+      OR: [
+        { name: { contains: "keyholding", mode: "insensitive" } },
+        { name: { contains: "khc", mode: "insensitive" } },
+      ],
+    },
+    select,
+  });
+  const named = fuzzy.filter((p) => /keyholding/i.test(p.name));
+  if (named.length === 1) return named[0];
+  if (named.length === 0 && fuzzy.length === 1) return fuzzy[0];
+  return null; // none, or ambiguous
+}
+
+/** A setup problem (not a transient failure) — the endpoint answers 422. */
+export class KhConfigError extends Error {}
+
+async function partnerNotFoundError(prisma: PrismaClient): Promise<KhConfigError> {
+  const names = (
+    await prisma.partner.findMany({ select: { name: true }, orderBy: { name: "asc" } })
+  ).map((p) => p.name);
+  return new KhConfigError(
+    `No single Keyholding partner found. Partners on file: ${
+      names.length ? names.join(" | ") : "(none)"
+    }. Tell us which one is Keyholding (or set KEYHOLDING_PARTNER_NAME).`,
+  );
+}
+
 /** One row off the Jobs table, keyed by its column header. */
 export type KeyholdingRow = Record<string, string | null | undefined>;
 
 export type KhSkip = { reference: string | null; reason: string };
 
 export type KhSummary = {
+  /** The partner record jobs attach to (null = none found — see error). */
+  partner: string | null;
   read: number;
   /** New jobs that would be created (no existing match). */
   toCreate: number;
@@ -49,6 +98,7 @@ export type KhSummary = {
 };
 
 export type KhResult = {
+  partner: string;
   created: number;
   linked: number;
   updated: number;
@@ -361,12 +411,11 @@ export async function previewKeyholdingJobs(
     select: { partnerActivityRef: true },
   });
   const seen = new Set(existing.map((j) => j.partnerActivityRef).filter(Boolean) as string[]);
-  const partner = await prisma.partner.findUnique({
-    where: { name: KEYHOLDING_PARTNER_NAME },
-    select: { id: true },
-  });
+  // Fail the preview the same way the real run would, so it's caught here.
+  const partner = await resolveKeyholdingPartner(prisma);
+  if (!partner) throw await partnerNotFoundError(prisma);
   const index = await loadSiteIndex(prisma, ok);
-  const siteIds = ok.map((r) => matchKhSiteId(r, index, partner?.id ?? null));
+  const siteIds = ok.map((r) => matchKhSiteId(r, index, partner.id));
   const pool = await prefetchCandidates(
     prisma,
     ok.map((r, i) =>
@@ -401,20 +450,24 @@ export async function previewKeyholdingJobs(
       toCreate++;
     }
   }
-  return { read: rows.length, toCreate, toLink, toUpdate, unmatchedSites, byStatus, skipped };
+  return {
+    partner: partner.name,
+    read: rows.length,
+    toCreate,
+    toLink,
+    toUpdate,
+    unmatchedSites,
+    byStatus,
+    skipped,
+  };
 }
 
 export async function runKeyholdingJobs(
   prisma: PrismaClient,
   rows: KeyholdingRow[],
 ): Promise<KhResult> {
-  const partner = await prisma.partner.findUnique({
-    where: { name: KEYHOLDING_PARTNER_NAME },
-    select: { id: true },
-  });
-  if (!partner) {
-    throw new Error(`Partner "${KEYHOLDING_PARTNER_NAME}" not found. Run \`npm run db:seed\` first.`);
-  }
+  const partner = await resolveKeyholdingPartner(prisma);
+  if (!partner) throw await partnerNotFoundError(prisma);
 
   const { ok, skipped } = split(rows);
   const index = await loadSiteIndex(prisma, ok);
@@ -537,5 +590,5 @@ export async function runKeyholdingJobs(
     created++;
   }
 
-  return { created, linked, updated, unmatched, skipped };
+  return { partner: partner.name, created, linked, updated, unmatched, skipped };
 }

@@ -247,6 +247,8 @@ async function run() {
         created: 0, linked: 0, updated: 0, unmatched: 0,
         toCreate: 0, toLink: 0, toUpdate: 0, unmatchedSites: 0,
       };
+      let failed = false;
+      let partnerName = null;
       for (let i = 0; i < jobs.length; i += CHUNK) {
         const chunk = jobs.slice(i, i + CHUNK);
         let ok = false;
@@ -261,6 +263,7 @@ async function run() {
           last = { status: res.status, json };
           if (res.ok && json.ok !== false) {
             ok = true;
+            partnerName = json.partner ?? partnerName;
             for (const k of Object.keys(tot)) tot[k] += Number(json[k]) || 0;
           } else if (res.status >= 500) {
             await new Promise((r) => setTimeout(r, 2000 * a));
@@ -269,14 +272,24 @@ async function run() {
         if (!ok) {
           console.error(`Chunk ${i / CHUNK + 1} failed:`, last.status, JSON.stringify(last.json));
           process.exitCode = 1;
+          failed = true;
           break;
         }
       }
-      console.log(
-        preview
-          ? `Preview OK — would LINK ${tot.toLink} to jobs already in the system, CREATE ${tot.toCreate} new, update ${tot.toUpdate} previously imported, ${tot.unmatchedSites} unmatched-site.`
-          : `Import OK — linked ${tot.linked} existing jobs, created ${tot.created} new, updated ${tot.updated}, ${tot.unmatched} unmatched-site.`,
-      );
+      if (failed) {
+        console.error(
+          preview
+            ? "Preview FAILED — see the error above. Nothing was changed."
+            : "Import STOPPED at the failed chunk — see the error above. Earlier chunks (if any) were applied.",
+        );
+      } else {
+        console.log(`Partner: ${partnerName ?? "(unknown)"}`);
+        console.log(
+          preview
+            ? `Preview OK — would LINK ${tot.toLink} to jobs already in the system, CREATE ${tot.toCreate} new, update ${tot.toUpdate} previously imported, ${tot.unmatchedSites} unmatched-site.`
+            : `Import OK — linked ${tot.linked} existing jobs, created ${tot.created} new, updated ${tot.updated}, ${tot.unmatched} unmatched-site.`,
+        );
+      }
     }
   } catch (err) {
     await page.screenshot({ path: "keyholding-jobs-page.png", fullPage: true }).catch(() => {});
