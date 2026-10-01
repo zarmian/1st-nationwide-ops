@@ -93,6 +93,7 @@ async function run() {
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
   let activities = [];
+  let emptyDashboard = false;
 
   try {
     await page.goto(NEXUS_DASHBOARD_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
@@ -109,6 +110,36 @@ async function run() {
       await page.goto(NEXUS_DASHBOARD_URL, { waitUntil: "domcontentloaded", timeout: 60_000 });
     }
     await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
+
+    // What did Nexus actually show us? It can intercept the dashboard with its
+    // annual "Review Details" wizard — a declaration about the business that a
+    // PERSON must complete (the robot never clicks through it).
+    const wizard = await page.evaluate(() => {
+      const t = document.body?.textContent || "";
+      return (
+        /wizard/i.test(document.title || "") ||
+        /review details/i.test(t) ||
+        /reviewed the data that nexus hold/i.test(t)
+      );
+    });
+    if (wizard) {
+      throw new Error(
+        "Nexus is showing its annual 'Review Details' check instead of the dashboard. " +
+          "Someone needs to log in to Nexus (link.linkbynexus.co.uk) with the sync account " +
+          "and complete the review — the callouts sync resumes on its own after that.",
+      );
+    }
+    // The activity list renders client-side — give it a moment to appear.
+    const onDashboard = await page.evaluate(() =>
+      /upcoming activities/i.test(document.body?.textContent || ""),
+    );
+    if (onDashboard) {
+      await page
+        .waitForFunction(() => /LINK-\d+/.test(document.body?.textContent || ""), null, {
+          timeout: 8_000,
+        })
+        .catch(() => {}); // nothing listed — a genuinely empty dashboard
+    }
 
     // Pull each activity row's visible lines: find every "LINK-…" reference and
     // climb to the ancestor that also holds the date window — that's the row.
@@ -143,9 +174,12 @@ async function run() {
     console.log(`Parsed ${activities.length} upcoming activities:`);
     console.log(JSON.stringify(activities, null, 2));
     if (activities.length === 0) {
-      console.warn(
-        "No activities parsed — check nexus-dashboard.html in the artifact (layout may differ).",
-      );
+      if (!onDashboard) {
+        throw new Error(
+          `Didn't reach the Nexus dashboard (page: "${await page.title()}") — see nexus-dashboard.html in the artifact.`,
+        );
+      }
+      emptyDashboard = true;
     }
   } catch (err) {
     await page.screenshot({ path: "nexus-dashboard.png", fullPage: true }).catch(() => {});
@@ -164,9 +198,14 @@ async function run() {
     );
     return;
   }
-  // Never POST an empty snapshot: a transient bad read shouldn't be treated as
-  // "no callouts" and auto-cancel the board. Skip and let the next run catch up.
+  // Never POST an empty snapshot: a bad read shouldn't be treated as "no
+  // callouts" and auto-cancel the board. A dashboard that loaded fine with
+  // nothing listed is a normal quiet hour — succeed without importing.
   if (activities.length === 0) {
+    if (emptyDashboard) {
+      console.log("Dashboard loaded — no upcoming activities listed right now. Nothing to import.");
+      return;
+    }
     console.warn("Parsed 0 activities — not posting (empty snapshot guard).");
     process.exit(1);
   }

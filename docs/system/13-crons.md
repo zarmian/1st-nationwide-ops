@@ -75,6 +75,19 @@ Window `from = now + 30 min`, `to = now + 60 min`. In parallel: `PENDING` shifts
 ### `daily-client-report` (`0 7 * * *`)
 `runtime = "nodejs"`, `force-dynamic`. Covers **yesterday** (`ukDayPlus(now, -1)` — the last complete UK day). Gated four ways before it sends: a Shurgard customer must exist, `dailyReportOn` must be `true` (**off by default** — the safety catch so nothing reaches a client before the format is agreed), a recipient must resolve (`dailyReportRecipient → contactEmail`), and no `ClientReportSend` row may already be `SENT` for that day (idempotency). When all pass, `deliverShurgardReport` (`src/lib/reports/clientReportDelivery.ts`) renders the existing PDF, emails it with an HTML+text body, and logs the attempt. Manual sends come from the `/reports` page's delivery panel, not this cron. See [`07-officer-reports-forms.md`](./07-officer-reports-forms.md).
 
+## Portal syncs (GitHub Actions, not Vercel)
+
+The partner-portal robots need a real browser, which Vercel can't run, so they're **GitHub Actions workflows** (`.github/workflows/*.yml`) that POST to `/api/imports/*` with the shared `NEXUS_IMPORT_SECRET` bearer. The activity syncs are staggered across the hour, off GitHub's busy top-of-hour.
+
+| Workflow | Schedule (UTC) | What it reads | Doc |
+|---|---|---|---|
+| `nexus-callouts.yml` | `7 * * * *` — hourly at :07 | Nexus dashboard "Upcoming Activities" → open VPI job stubs (+ **New Nexus callout** alert) | [`docs/nexus-sync.md`](../nexus-sync.md) |
+| `nexus-activities.yml` | `22 * * * *` — hourly at :22 | Nexus Activities report, completed, last 3 days → completed job stubs | [`docs/nexus-sync.md`](../nexus-sync.md) |
+| `keyholding-jobs.yml` | `37 * * * *` — hourly at :37 | Keyholding (Chase2Base) Jobs, last 3 days → next 7 days → linked/created jobs + patrol visits | [`docs/keyholding-sync.md`](../keyholding-sync.md) |
+| `nexus-sync.yml` | `30 5 * * *` — daily 05:30 | Nexus Sites report → sites + rates | [`docs/nexus-sync.md`](../nexus-sync.md) |
+
+GitHub treats `schedule:` as best-effort: on a busy day it starts runs late or skips some, so the hourly cadence is "about hourly", never exact. Every import is idempotent (deduped on the partner's reference), so a late, skipped or doubled run is harmless — the rolling windows overlap and the next run catches up. Each workflow also has **Run workflow** (with Preview / date inputs) for an immediate or backfill run.
+
 ## Business rules & invariants
 
 - **Idempotency is the design principle.** Every cron is safe to re-run: materialisers de-dupe by natural key; status sweeps re-select only rows still in the pre-flip state; notification helpers use `queueSmsOnce` / marker rows / composite ids. This tolerates Vercel's "approximately on schedule, at least once" delivery.

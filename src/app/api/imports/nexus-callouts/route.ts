@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import {
@@ -75,7 +76,17 @@ export async function POST(req: Request) {
     const source = `Nexus callouts auto-sync ${new Date().toISOString().slice(0, 10)}`;
     const result = await runNexusCallouts(prisma, activities, source);
     if (notify && result.newCallouts.length > 0) {
-      await notifyNexusCalloutsImported(result.newCallouts, source).catch((e) =>
+      // De-dupe the alert on WHICH callouts are new, not on the day: the sync
+      // runs hourly, and a callout is only ever "new" once (it's created once),
+      // so each batch alerts exactly once and later batches the same day still
+      // get through.
+      const refs = result.newCallouts
+        .map((c) => c.reference)
+        .sort()
+        .join(",");
+      const batchId =
+        refs.length <= 200 ? refs : createHash("sha1").update(refs).digest("hex");
+      await notifyNexusCalloutsImported(result.newCallouts, batchId).catch((e) =>
         console.error("nexus callout alert failed", e),
       );
     }

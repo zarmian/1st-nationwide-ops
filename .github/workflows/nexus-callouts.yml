@@ -3,7 +3,7 @@ name: Nexus callouts
 # Reads the "Upcoming Activities" off the Nexus Link dashboard (they can't be
 # exported like the Sites report) and POSTs them to the app's secure endpoint
 # (/api/imports/nexus-callouts), which upserts a VPI job stub per callout so the
-# office can assign an officer. Runs nightly and on demand.
+# office can assign an officer. Runs hourly and on demand.
 #
 # Required repo secrets (same login + secret as the sites sync):
 #   NEXUS_USERNAME  (or NEXUS_PORTAL_USERNAME)   portal login
@@ -19,7 +19,7 @@ name: Nexus callouts
 
 on:
   schedule:
-    - cron: "0 6 * * *" # 06:00 UTC daily — 30 min after the sites sync
+    - cron: "7 * * * *" # hourly at :07 (syncs staggered :07/:22/:37, off GitHub's busy top-of-hour)
   workflow_dispatch:
     inputs:
       preview:

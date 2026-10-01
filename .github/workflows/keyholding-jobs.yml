@@ -5,7 +5,7 @@ name: Keyholding jobs
 # officers left to allocate, deduped by the J… job number, matched to existing
 # sites by postcode, overlaps with existing scheduled jobs flagged).
 #
-# Nightly: last 3 days → next 7 days (recent completions + upcoming jobs).
+# Hourly: last 3 days → next 7 days (recent completions + upcoming jobs).
 # On demand: set From/To for a backfill; tick Preview for a dry run first.
 #
 # Secrets: KEYHOLDING_PORTAL_USERNAME / KEYHOLDING_PORTAL_PASSWORD (login),
@@ -15,7 +15,7 @@ name: Keyholding jobs
 
 on:
   schedule:
-    - cron: "0 7 * * *" # 07:00 UTC daily — after the Nexus syncs
+    - cron: "37 * * * *" # hourly at :37 — staggered after the Nexus syncs (:07, :22)
   workflow_dispatch:
     inputs:
       from:

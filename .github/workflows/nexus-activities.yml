@@ -2,7 +2,7 @@ name: Nexus activities
 
 # Reads the Nexus "Activities" report (completed activities) for a date window
 # and imports each as a completed job stub via /api/imports/nexus-activities.
-# Runs nightly for a rolling recent window, and on demand for the one-time
+# Runs hourly for a rolling recent window, and on demand for the one-time
 # June-to-today backfill (set From/To, tick Preview first for a dry run).
 #
 # Required repo secrets (login + secret shared with the sites/callouts syncs):
@@ -15,7 +15,7 @@ name: Nexus activities
 
 on:
   schedule:
-    - cron: "30 6 * * *" # 06:30 UTC daily — after sites (05:30) + callouts (06:00)
+    - cron: "22 * * * *" # hourly at :22 — staggered after the callouts sync (:07)
   workflow_dispatch:
     inputs:
       from:
