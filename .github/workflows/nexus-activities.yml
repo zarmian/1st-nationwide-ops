@@ -70,8 +70,11 @@ jobs:
           NEXUS_PREVIEW: ${{ inputs.preview }}
         run: node scripts/nexus-activities.mjs
 
+      # The repo is public, so captures (which hold client site data) are kept
+      # only when a run fails or is started by hand — never for routine
+      # scheduled runs — and only for 1 day.
       - name: Upload activities capture
-        if: always()
+        if: failure() || github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: nexus-activities-capture
@@ -80,4 +83,4 @@ jobs:
             nexus-activities-page.html
             nexus-activities-page.png
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 1

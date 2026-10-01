@@ -88,6 +88,8 @@ The partner-portal robots need a real browser, which Vercel can't run, so they'r
 
 GitHub treats `schedule:` as best-effort: on a busy day it starts runs late or skips some, so the hourly cadence is "about hourly", never exact. Every import is idempotent (deduped on the partner's reference), so a late, skipped or doubled run is harmless — the rolling windows overlap and the next run catches up. Each workflow also has **Run workflow** (with Preview / date inputs) for an immediate or backfill run.
 
+**The repository is public**, so Actions logs are world-readable and run artifacts downloadable by any signed-in GitHub user. The robots therefore log **counts only**, and their captures (parsed rows + page HTML + screenshot — client site names and addresses) are uploaded only when a run **fails or is started by hand**, with `retention-days: 1`. Never print rows, addresses or customer lists in a robot or in an import endpoint's error message.
+
 ## Business rules & invariants
 
 - **Idempotency is the design principle.** Every cron is safe to re-run: materialisers de-dupe by natural key; status sweeps re-select only rows still in the pre-flip state; notification helpers use `queueSmsOnce` / marker rows / composite ids. This tolerates Vercel's "approximately on schedule, at least once" delivery.
