@@ -35,7 +35,8 @@ tick **Preview** for a dry run.
   "Booked" → customer request. The customer is found by name ("Keyholding
   Company", or the single customer whose name contains "keyholding"/"khc";
   override with `KEYHOLDING_CUSTOMER_NAME`). If none/ambiguous, the run stops
-  and lists the customers on file. Site matching prefers that customer's sites.
+  and says so (naming only customers that look like Keyholding — never the
+  whole customer list, as the run log is public). Site matching prefers that customer's sites.
 - **Type** from Service: Unlock / Lock / Patrol (external & internal) /
   Alarm response / Survey / Ad-hoc (welfare checks).
 - **Status** from Execution Status: Done → completed, Cancelled → cancelled,
@@ -77,6 +78,10 @@ tick **Preview** for a dry run.
 | `NEXUS_IMPORT_SECRET` | shared import secret (already set) |
 
 Without `KEYHOLDING_JOBS_IMPORT_URL` the robot reads + saves the capture only.
+
+**Public repo:** the run log shows counts only, and the capture (jobs JSON +
+page HTML + screenshot) is uploaded only when a run fails or is started by
+hand, kept 1 day — routine hourly runs publish no client data.
 
 `scripts/keyholding-discovery.mjs` (workflow **Keyholding discovery**) is the
 capture tool used to reverse-engineer the screens — re-run it if Chase2Base

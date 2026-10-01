@@ -80,13 +80,26 @@ export async function resolveKeyholdingCustomer(
 export class KhConfigError extends Error {}
 
 async function customerNotFoundError(prisma: PrismaClient): Promise<KhConfigError> {
-  const names = (
-    await prisma.customer.findMany({ select: { name: true }, orderBy: { name: "asc" } })
-  ).map((c) => c.name);
+  // Never list the whole customer base: this message lands in the sync's run
+  // log, which is public. Only name the records that look like Keyholding.
+  const [total, lookalikes] = await Promise.all([
+    prisma.customer.count(),
+    prisma.customer.findMany({
+      where: {
+        OR: [
+          { name: { contains: "keyholding", mode: "insensitive" } },
+          { name: { contains: "khc", mode: "insensitive" } },
+        ],
+      },
+      select: { name: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const near = lookalikes.map((c) => c.name);
   return new KhConfigError(
-    `No single Keyholding customer found. Customers on file: ${
-      names.length ? names.join(" | ") : "(none)"
-    }. Tell us which one is Keyholding (or set KEYHOLDING_CUSTOMER_NAME).`,
+    `No single Keyholding customer found among ${total} customers (${
+      near.length ? `possible matches: ${near.join(" | ")}` : "none named like Keyholding"
+    }). Name the Keyholding customer "${KEYHOLDING_CUSTOMER_NAME}" (or set KEYHOLDING_CUSTOMER_NAME).`,
   );
 }
 

@@ -171,8 +171,9 @@ async function run() {
     await page.screenshot({ path: "nexus-dashboard.png", fullPage: true }).catch(() => {});
     await fs.writeFile("nexus-activities.json", JSON.stringify(activities, null, 2));
 
-    console.log(`Parsed ${activities.length} upcoming activities:`);
-    console.log(JSON.stringify(activities, null, 2));
+    // Count only: run logs on this public repo are world-readable, so the
+    // callouts themselves (sites, addresses) stay in nexus-activities.json.
+    console.log(`Parsed ${activities.length} upcoming activities.`);
     if (activities.length === 0) {
       if (!onDashboard) {
         throw new Error(

@@ -113,8 +113,9 @@ screen and turns each row into an internal **job stub** the office can assign.
   run (nothing imported, nothing auto-dropped), not a failure.
 - **Reader:** `scripts/nexus-callouts.mjs` logs in (same pinned flow), opens
   `/Dashboard`, parses each `LINK-…` activity, and POSTs them as JSON to
-  `/api/imports/nexus-callouts`. It also uploads a capture artifact
-  (`nexus-activities.json` + HTML + screenshot) every run for audit.
+  `/api/imports/nexus-callouts`. The log shows counts only. A capture
+  (`nexus-activities.json` + HTML + screenshot) is kept only when a run fails
+  or is started by hand, for 1 day — see *Public repo* below.
 - **Endpoint:** `/api/imports/nexus-callouts` — same `NEXUS_IMPORT_SECRET`
   bearer, fail-closed. Body is `{ "activities": [ … ] }` (or a bare array);
   `?preview=1` reports without writing.
@@ -128,8 +129,9 @@ shared):
 | --- | --- |
 | `NEXUS_CALLOUTS_URL` | `https://1st-nationwide-ops.vercel.app/api/imports/nexus-callouts` |
 
-With `NEXUS_CALLOUTS_URL` unset the robot only parses + uploads the capture
-(discovery mode) — handy for confirming a parse before going live.
+With `NEXUS_CALLOUTS_URL` unset the robot only parses + saves the capture
+(discovery mode; start it by hand to get the capture) — handy for confirming a
+parse before going live.
 
 ### What the stubs look like
 
@@ -198,6 +200,13 @@ matched by **SIN** first (`Site.partnerSin`), then postcode + name.
 
 ## Notes & caveats (both robots)
 
+- **Public repo — no client data in logs or captures.** This repository is
+  public: anyone can read the Actions logs, and any signed-in GitHub user can
+  download run captures. So the robots log **counts only**, and captures
+  (parsed rows + page HTML + screenshot, which hold site names and addresses)
+  are uploaded **only when a run fails or is started by hand**, kept **1 day**.
+  Routine scheduled runs publish nothing else. Keep it that way when changing
+  a robot.
 - **Idempotent:** upsert-only, so re-running is safe.
 - **Fragile by nature:** if Nexus redesign their dashboard the callouts parse
   may return 0 rows — the robot then skips posting (empty-snapshot guard) and
