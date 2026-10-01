@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     const result = await runNexusCallouts(prisma, activities, source);
     if (notify && result.newCallouts.length > 0) {
       // De-dupe the alert on WHICH callouts are new, not on the day: the sync
-      // runs hourly, and a callout is only ever "new" once (it's created once),
+      // runs several times a day, and a callout is only ever "new" once (it's created once),
       // so each batch alerts exactly once and later batches the same day still
       // get through.
       const refs = result.newCallouts

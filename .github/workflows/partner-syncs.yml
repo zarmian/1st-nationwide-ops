@@ -1,0 +1,109 @@
+name: Partner syncs
+
+# Every 4 hours, one after the other in a single run:
+#   1. Nexus callouts      — dashboard "Upcoming Activities" → open VPI job stubs
+#   2. Nexus activities    — completed activities, last 3 days → completed stubs
+#   3. Keyholding jobs     — Chase2Base jobs, last 3 days → next 7 days
+#
+# One job instead of three: the browser is installed once and GitHub bills one
+# rounded-up job, which keeps the private repo inside the free Actions minutes
+# (see docs/system/13-crons.md). Each sync still has its own workflow
+# (nexus-callouts.yml / nexus-activities.yml / keyholding-jobs.yml) for running
+# it by hand with Preview or a date window. The Nexus site list syncs daily in
+# nexus-sync.yml.
+#
+# A failing sync doesn't stop the others; the run is marked failed afterwards
+# (so GitHub emails the owner) and the captures are kept for 1 day.
+#
+# Secrets: the same ones the three individual workflows use.
+
+on:
+  schedule:
+    - cron: "7 1-23/4 * * *" # 01:07 05:07 09:07 13:07 17:07 21:07 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: partner-syncs # shared with the three manual workflows so imports never overlap
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Nexus callouts
+        id: callouts
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME || secrets.NEXUS_PORTAL_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD || secrets.NEXUS_PORTAL_PASSWORD }}
+          NEXUS_DASHBOARD_URL: ${{ secrets.NEXUS_DASHBOARD_URL }}
+          NEXUS_CALLOUTS_URL: ${{ secrets.NEXUS_CALLOUTS_URL }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
+        run: node scripts/nexus-callouts.mjs
+
+      - name: Nexus completed activities
+        id: activities
+        continue-on-error: true
+        timeout-minutes: 15
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME || secrets.NEXUS_PORTAL_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD || secrets.NEXUS_PORTAL_PASSWORD }}
+          NEXUS_ACTIVITIES_URL: ${{ secrets.NEXUS_ACTIVITIES_URL }}
+          NEXUS_ACTIVITIES_IMPORT_URL: ${{ secrets.NEXUS_ACTIVITIES_IMPORT_URL }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
+        run: node scripts/nexus-activities.mjs
+
+      - name: Keyholding jobs
+        id: keyholding
+        continue-on-error: true
+        timeout-minutes: 20
+        env:
+          KEYHOLDING_PORTAL_USERNAME: ${{ secrets.KEYHOLDING_PORTAL_USERNAME || secrets.KEYHOLDING_USERNAME }}
+          KEYHOLDING_PORTAL_PASSWORD: ${{ secrets.KEYHOLDING_PORTAL_PASSWORD || secrets.KEYHOLDING_PASSWORD }}
+          KEYHOLDING_LOGIN_URL: ${{ secrets.KEYHOLDING_LOGIN_URL }}
+          KEYHOLDING_JOBS_IMPORT_URL: ${{ secrets.KEYHOLDING_JOBS_IMPORT_URL }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
+        run: node scripts/keyholding-jobs.mjs
+
+      - name: Fail the run if any sync failed
+        if: steps.callouts.outcome != 'success' || steps.activities.outcome != 'success' || steps.keyholding.outcome != 'success'
+        run: |
+          echo "Nexus callouts:   ${{ steps.callouts.outcome }}"
+          echo "Nexus activities: ${{ steps.activities.outcome }}"
+          echo "Keyholding jobs:  ${{ steps.keyholding.outcome }}"
+          echo "See the failed step's log above for the reason."
+          exit 1
+
+      # Captures hold client site data, so keep them only when something
+      # failed (or the run was started by hand), for 1 day.
+      - name: Upload captures
+        if: failure() || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: partner-syncs-capture
+          path: |
+            nexus-callouts.json
+            nexus-dashboard.html
+            nexus-dashboard.png
+            nexus-activities.json
+            nexus-activities-page.html
+            nexus-activities-page.png
+            keyholding-jobs.json
+            keyholding-jobs-page.html
+            keyholding-jobs-page.png
+          if-no-files-found: ignore
+          retention-days: 1

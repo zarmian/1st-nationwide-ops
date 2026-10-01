@@ -2,8 +2,9 @@ name: Nexus activities
 
 # Reads the Nexus "Activities" report (completed activities) for a date window
 # and imports each as a completed job stub via /api/imports/nexus-activities.
-# Runs hourly for a rolling recent window, and on demand for the one-time
-# June-to-today backfill (set From/To, tick Preview first for a dry run).
+# The scheduled run (every 4 hours, rolling last-3-days window) is in
+# partner-syncs.yml; use this workflow by hand for a backfill (set From/To,
+# tick Preview first for a dry run).
 #
 # Required repo secrets (login + secret shared with the sites/callouts syncs):
 #   NEXUS_USERNAME / NEXUS_PORTAL_USERNAME, NEXUS_PASSWORD / NEXUS_PORTAL_PASSWORD
@@ -14,8 +15,6 @@ name: Nexus activities
 # With NEXUS_ACTIVITIES_IMPORT_URL unset it only parses + uploads the capture.
 
 on:
-  schedule:
-    - cron: "22 * * * *" # hourly at :22 — staggered after the callouts sync (:07)
   workflow_dispatch:
     inputs:
       from:
@@ -37,7 +36,7 @@ on:
         required: false
 
 concurrency:
-  group: nexus-activities
+  group: partner-syncs # shared with partner-syncs.yml so imports never overlap
   cancel-in-progress: false
 
 jobs:
@@ -70,11 +69,10 @@ jobs:
           NEXUS_PREVIEW: ${{ inputs.preview }}
         run: node scripts/nexus-activities.mjs
 
-      # The repo is public, so captures (which hold client site data) are kept
-      # only when a run fails or is started by hand — never for routine
-      # scheduled runs — and only for 1 day.
+      # Manual runs only, so keep the capture for debugging — 1 day (it holds
+      # client site data).
       - name: Upload activities capture
-        if: failure() || github.event_name == 'workflow_dispatch'
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: nexus-activities-capture

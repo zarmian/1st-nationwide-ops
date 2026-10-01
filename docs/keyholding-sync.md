@@ -20,9 +20,10 @@ Vaadin UIDL). So a robot drives the real screen, like a person would.
    CUBA **`.c-paging-next`** button (50 rows/page).
 5. POSTs the rows (chunked) to `/api/imports/keyholding-jobs`.
 
-**Hourly** (at :37) it reads the **last 3 days → next 7 days** (recent
-completions + upcoming jobs). On demand you can set any From/To (backfill) and
-tick **Preview** for a dry run.
+Every **4 hours** (the last step of the **Partner syncs** workflow) it reads
+the **last 3 days → next 7 days** (recent completions + upcoming jobs). By hand
+(workflow **Keyholding jobs**) you can set any From/To (backfill) and tick
+**Preview** for a dry run.
 
 ## What lands in the system (`src/lib/keyholdingJobs.ts`)
 
@@ -36,7 +37,7 @@ tick **Preview** for a dry run.
   Company", or the single customer whose name contains "keyholding"/"khc";
   override with `KEYHOLDING_CUSTOMER_NAME`). If none/ambiguous, the run stops
   and says so (naming only customers that look like Keyholding — never the
-  whole customer list, as the run log is public). Site matching prefers that customer's sites.
+  whole customer list, which doesn't belong in a run log). Site matching prefers that customer's sites.
 - **Type** from Service: Unlock / Lock / Patrol (external & internal) /
   Alarm response / Survey / Ad-hoc (welfare checks).
 - **Status** from Execution Status: Done → completed, Cancelled → cancelled,
@@ -79,9 +80,9 @@ tick **Preview** for a dry run.
 
 Without `KEYHOLDING_JOBS_IMPORT_URL` the robot reads + saves the capture only.
 
-**Public repo:** the run log shows counts only, and the capture (jobs JSON +
-page HTML + screenshot) is uploaded only when a run fails or is started by
-hand, kept 1 day — routine hourly runs publish no client data.
+**Logs and captures:** the run log shows counts only, and the capture (jobs
+JSON + page HTML + screenshot) is uploaded only when a run fails or is started
+by hand, kept 1 day — routine scheduled runs keep no client data.
 
 `scripts/keyholding-discovery.mjs` (workflow **Keyholding discovery**) is the
 capture tool used to reverse-engineer the screens — re-run it if Chase2Base

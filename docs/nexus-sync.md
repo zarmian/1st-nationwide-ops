@@ -67,7 +67,7 @@ To check:
 2. If it reports `Preview OK — would create … update …`, you're done — untick
    Preview and it runs daily at 05:30 UTC (`30 5 * * *`, adjustable in the
    workflow file). The site list changes rarely, so it stays daily; the
-   activity syncs below run hourly.
+   activity syncs below run every 4 hours.
 3. If it fails at the export step, download the **nexus-sync-debug** artifact
    (screenshot + page HTML), find the real export control, and set either:
    - `NEXUS_EXPORT_URL` — a direct download link, if the report offers one; or
@@ -100,10 +100,11 @@ The Nexus **dashboard**'s "Upcoming Activities" list (VPI callouts they've sent
 us) can't be exported like the Sites report, so a second robot reads it off the
 screen and turns each row into an internal **job stub** the office can assign.
 
-- **Workflow:** `.github/workflows/nexus-callouts.yml` — **hourly** at :07
-  (the activity syncs are staggered :07 / :22 / :37 and kept off GitHub's busy
-  top-of-hour) and on demand (Actions → **Nexus callouts** → Run workflow, with a **Preview**
-  toggle for a dry run).
+- **Schedule:** every **4 hours** as the first step of **Partner syncs**
+  (`.github/workflows/partner-syncs.yml`, at 01:07 / 05:07 / 09:07 / 13:07 /
+  17:07 / 21:07 UTC — callouts, then completed activities, then Keyholding, in
+  one run). By hand: Actions → **Nexus callouts** → Run workflow, with a
+  **Preview** toggle for a dry run.
 - **Nexus's annual "Review Details" check:** once a year Nexus intercepts the
   dashboard with a 4-step review of the business details it holds. A person
   must complete it (the robot never clicks through a declaration); until then
@@ -114,8 +115,8 @@ screen and turns each row into an internal **job stub** the office can assign.
 - **Reader:** `scripts/nexus-callouts.mjs` logs in (same pinned flow), opens
   `/Dashboard`, parses each `LINK-…` activity, and POSTs them as JSON to
   `/api/imports/nexus-callouts`. The log shows counts only. A capture
-  (`nexus-activities.json` + HTML + screenshot) is kept only when a run fails
-  or is started by hand, for 1 day — see *Public repo* below.
+  (`nexus-callouts.json` + HTML + screenshot) is kept only when a run fails
+  or is started by hand, for 1 day — see *Logs and captures* below.
 - **Endpoint:** `/api/imports/nexus-callouts` — same `NEXUS_IMPORT_SECRET`
   bearer, fail-closed. Body is `{ "activities": [ … ] }` (or a bare array);
   `?preview=1` reports without writing.
@@ -166,9 +167,9 @@ stop-the-clocks. Its filters live entirely in the URL (`ActivityStatus=9`, a
 through the 50-rows-per-page results, and imports each row as a **completed**
 job stub.
 
-- **Workflow:** `.github/workflows/nexus-activities.yml` — **hourly** at :22
-  (a rolling last-3-days window) and on demand with **From / To / Preview**
-  inputs (use Preview + a wide window for the one-time June→today backfill).
+- **Schedule:** every **4 hours** in **Partner syncs** (a rolling
+  last-3-days window). By hand: `.github/workflows/nexus-activities.yml` with
+  **From / To / Preview** inputs (use Preview + a wide window for a backfill).
 - **Reader:** `scripts/nexus-activities.mjs` — logs in, paginates, maps each
   table row (Reference / Type / Site / Site Address / SIN / Customer / Due Date
   / Time on/off Site / Status) and POSTs to `/api/imports/nexus-activities`.
@@ -200,13 +201,12 @@ matched by **SIN** first (`Site.partnerSin`), then postcode + name.
 
 ## Notes & caveats (both robots)
 
-- **Public repo — no client data in logs or captures.** This repository is
-  public: anyone can read the Actions logs, and any signed-in GitHub user can
-  download run captures. So the robots log **counts only**, and captures
-  (parsed rows + page HTML + screenshot, which hold site names and addresses)
-  are uploaded **only when a run fails or is started by hand**, kept **1 day**.
-  Routine scheduled runs publish nothing else. Keep it that way when changing
-  a robot.
+- **Logs and captures — keep client data out.** Treat Actions logs and
+  artifacts as visible to anyone with access to the repository (it was public
+  until October 2026). So the robots log **counts only**, and captures (parsed
+  rows + page HTML + screenshot, which hold site names and addresses) are
+  uploaded **only when a run fails or is started by hand**, kept **1 day**.
+  Keep it that way when changing a robot.
 - **Idempotent:** upsert-only, so re-running is safe.
 - **Fragile by nature:** if Nexus redesign their dashboard the callouts parse
   may return 0 rows — the robot then skips posting (empty-snapshot guard) and

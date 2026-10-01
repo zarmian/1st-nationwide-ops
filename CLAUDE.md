@@ -128,5 +128,6 @@ tailwind.config.ts         # brand tokens
 - Don't add `--accept-data-loss` to migrations once we have real data.
 - Brand voice for any user-facing copy: clear, no jargon, no security industry clichés.
 - The user is non-technical. When asking the user a question, give 2–4 concrete options rather than open-ended.
-- The GitHub repo is **public** (Actions logs + artifacts included). Portal-sync robots and import endpoints must never print client data (rows, sites, addresses, customer lists) to logs; captures upload only on failure/manual runs with 1-day retention.
+- GitHub Actions logs/artifacts are visible to anyone with repo access (the repo was public until Oct 2026). Portal-sync robots and import endpoints must never print client data (rows, sites, addresses, customer lists) to logs; captures upload only on failure/manual runs with 1-day retention.
+- The repo is private, so GitHub Actions minutes are capped (2,000/month on the free plan, each job rounded up to a whole minute). The partner syncs run every 4 hours as ONE combined job (`partner-syncs.yml`) to stay inside it — check the budget in `docs/system/13-crons.md` before adding a schedule or making a sync more frequent.
 - UI work follows Vercel's Web Interface Guidelines in `AGENTS.md` (accessibility, forms, focus states, touch targets, `Intl` dates/numbers, reduced motion, etc.). Run `/web-interface-guidelines <file>` to audit a page/component against them.
