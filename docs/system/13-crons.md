@@ -77,18 +77,19 @@ Window `from = now + 30 min`, `to = now + 60 min`. In parallel: `PENDING` shifts
 
 ## Portal syncs (GitHub Actions, not Vercel)
 
-The partner-portal robots need a real browser, which Vercel can't run, so they're **GitHub Actions workflows** (`.github/workflows/*.yml`) that POST to `/api/imports/*` with the shared `NEXUS_IMPORT_SECRET` bearer. The activity syncs are staggered across the hour, off GitHub's busy top-of-hour.
+The partner-portal robots need a real browser, which Vercel can't run, so they're **GitHub Actions workflows** (`.github/workflows/*.yml`) that POST to `/api/imports/*` with the shared `NEXUS_IMPORT_SECRET` bearer. The three activity syncs run **one after another in a single job** (`partner-syncs.yml`) — one browser install and one billed job instead of three.
 
 | Workflow | Schedule (UTC) | What it reads | Doc |
 |---|---|---|---|
-| `nexus-callouts.yml` | `7 * * * *` — hourly at :07 | Nexus dashboard "Upcoming Activities" → open VPI job stubs (+ **New Nexus callout** alert) | [`docs/nexus-sync.md`](../nexus-sync.md) |
-| `nexus-activities.yml` | `22 * * * *` — hourly at :22 | Nexus Activities report, completed, last 3 days → completed job stubs | [`docs/nexus-sync.md`](../nexus-sync.md) |
-| `keyholding-jobs.yml` | `37 * * * *` — hourly at :37 | Keyholding (Chase2Base) Jobs, last 3 days → next 7 days → linked/created jobs + patrol visits | [`docs/keyholding-sync.md`](../keyholding-sync.md) |
+| `partner-syncs.yml` | `7 1-23/4 * * *` — every 4 h (01:07, 05:07 … 21:07) | 1. Nexus dashboard "Upcoming Activities" → open VPI job stubs (+ **New Nexus callout** alert) · 2. Nexus Activities report, completed, last 3 days → completed job stubs · 3. Keyholding (Chase2Base) Jobs, last 3 days → next 7 days → linked/created jobs + patrol visits | [`docs/nexus-sync.md`](../nexus-sync.md), [`docs/keyholding-sync.md`](../keyholding-sync.md) |
 | `nexus-sync.yml` | `30 5 * * *` — daily 05:30 | Nexus Sites report → sites + rates | [`docs/nexus-sync.md`](../nexus-sync.md) |
+| `nexus-callouts.yml` · `nexus-activities.yml` · `keyholding-jobs.yml` | manual only | The same three syncs one at a time, with Preview / From–To inputs for dry runs and backfills | — |
 
-GitHub treats `schedule:` as best-effort: on a busy day it starts runs late or skips some, so the hourly cadence is "about hourly", never exact. Every import is idempotent (deduped on the partner's reference), so a late, skipped or doubled run is harmless — the rolling windows overlap and the next run catches up. Each workflow also has **Run workflow** (with Preview / date inputs) for an immediate or backfill run.
+GitHub treats `schedule:` as best-effort: on a busy day it starts runs late or skips some, so "every 4 hours" is approximate. Every import is idempotent (deduped on the partner's reference), so a late, skipped or doubled run is harmless — the rolling windows overlap and the next run catches up. All four sync workflows share the `partner-syncs` concurrency group, so two imports never overlap. In the combined job a failing sync doesn't stop the others; the run is marked failed afterwards, so GitHub emails the owner.
 
-**The repository is public**, so Actions logs are world-readable and run artifacts downloadable by any signed-in GitHub user. The robots therefore log **counts only**, and their captures (parsed rows + page HTML + screenshot — client site names and addresses) are uploaded only when a run **fails or is started by hand**, with `retention-days: 1`. Never print rows, addresses or customer lists in a robot or in an import endpoint's error message.
+**Actions minutes budget.** The repository is private, and GitHub's free plan includes **2,000 Actions minutes a month** for private repos (each job is rounded **up** to a whole minute). Rough usage: partner syncs ~4 min × 6 a day ≈ 750, the Nexus site sync ~14 min a day ≈ 430, CI ~2 min per run (PR + push to `main`) ≈ 200 → **~1,400 a month**. If the allowance runs out, scheduled runs stop until the 1st of the next month unless a payment method/budget is set. Check this budget before adding a schedule or making a sync more frequent.
+
+**Logs and captures.** Treat Actions logs and artifacts as visible to anyone with repository access (the repo was public until October 2026). The robots log **counts only**, and their captures (parsed rows + page HTML + screenshot — client site names and addresses) are uploaded only when a run **fails or is started by hand**, with `retention-days: 1`. Never print rows, addresses or customer lists in a robot or in an import endpoint's error message.
 
 ## Business rules & invariants
 

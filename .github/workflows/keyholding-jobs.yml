@@ -1,12 +1,13 @@
 name: Keyholding jobs
 
 # Reads the Keyholding Company (Chase2Base) Jobs screen for a date window and
-# imports each job via /api/imports/keyholding-jobs (partner = Keyholding,
-# officers left to allocate, deduped by the J… job number, matched to existing
-# sites by postcode, overlaps with existing scheduled jobs flagged).
+# imports each job via /api/imports/keyholding-jobs (attached to the Keyholding
+# customer, officers left to allocate, deduped by the J… job number, linked to
+# the matching scheduled job / patrol visit instead of duplicating it).
 #
-# Hourly: last 3 days → next 7 days (recent completions + upcoming jobs).
-# On demand: set From/To for a backfill; tick Preview for a dry run first.
+# The scheduled run (every 4 hours: last 3 days → next 7 days) is in
+# partner-syncs.yml; use this workflow by hand for a backfill (set From/To;
+# tick Preview for a dry run first).
 #
 # Secrets: KEYHOLDING_PORTAL_USERNAME / KEYHOLDING_PORTAL_PASSWORD (login),
 #          KEYHOLDING_JOBS_IMPORT_URL (…/api/imports/keyholding-jobs),
@@ -14,8 +15,6 @@ name: Keyholding jobs
 # With KEYHOLDING_JOBS_IMPORT_URL unset it reads + saves only (dry run).
 
 on:
-  schedule:
-    - cron: "37 * * * *" # hourly at :37 — staggered after the Nexus syncs (:07, :22)
   workflow_dispatch:
     inputs:
       from:
@@ -32,7 +31,7 @@ on:
         default: false
 
 concurrency:
-  group: keyholding-jobs
+  group: partner-syncs # shared with partner-syncs.yml so imports never overlap
   cancel-in-progress: false
 
 jobs:
@@ -64,11 +63,10 @@ jobs:
           KEYHOLDING_PREVIEW: ${{ inputs.preview }}
         run: node scripts/keyholding-jobs.mjs
 
-      # The repo is public, so captures (which hold client site data) are kept
-      # only when a run fails or is started by hand — never for routine
-      # scheduled runs — and only for 1 day.
+      # Manual runs only, so keep the capture for debugging — 1 day (it holds
+      # client site data).
       - name: Upload jobs capture
-        if: failure() || github.event_name == 'workflow_dispatch'
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: keyholding-jobs

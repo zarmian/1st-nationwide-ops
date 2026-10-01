@@ -3,7 +3,8 @@ name: Nexus callouts
 # Reads the "Upcoming Activities" off the Nexus Link dashboard (they can't be
 # exported like the Sites report) and POSTs them to the app's secure endpoint
 # (/api/imports/nexus-callouts), which upserts a VPI job stub per callout so the
-# office can assign an officer. Runs hourly and on demand.
+# office can assign an officer. The scheduled run (every 4 hours) is in
+# partner-syncs.yml; use this workflow to run it by hand (with Preview).
 #
 # Required repo secrets (same login + secret as the sites sync):
 #   NEXUS_USERNAME  (or NEXUS_PORTAL_USERNAME)   portal login
@@ -18,8 +19,6 @@ name: Nexus callouts
 # that reports what would change without writing.
 
 on:
-  schedule:
-    - cron: "7 * * * *" # hourly at :07 (syncs staggered :07/:22/:37, off GitHub's busy top-of-hour)
   workflow_dispatch:
     inputs:
       preview:
@@ -28,7 +27,7 @@ on:
         default: false
 
 concurrency:
-  group: nexus-callouts
+  group: partner-syncs # shared with partner-syncs.yml so imports never overlap
   cancel-in-progress: false
 
 jobs:
@@ -58,16 +57,15 @@ jobs:
           NEXUS_PREVIEW: ${{ inputs.preview }}
         run: node scripts/nexus-callouts.mjs
 
-      # The repo is public, so captures (which hold client site data) are kept
-      # only when a run fails or is started by hand — never for routine
-      # scheduled runs — and only for 1 day.
+      # Manual runs only, so keep the capture for debugging — 1 day (it holds
+      # client site data).
       - name: Upload dashboard capture
-        if: failure() || github.event_name == 'workflow_dispatch'
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: nexus-callouts-capture
           path: |
-            nexus-activities.json
+            nexus-callouts.json
             nexus-dashboard.html
             nexus-dashboard.png
           if-no-files-found: ignore
