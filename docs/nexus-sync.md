@@ -6,7 +6,7 @@ feeds it straight into the app's existing Nexus importer — no manual upload.
 ## How it fits together
 
 ```
-GitHub Actions (nightly)         Nexus portal            The app (Vercel)
+GitHub Actions (daily)           Nexus portal            The app (Vercel)
 ────────────────────────         ────────────            ────────────────
 scripts/nexus-sync.mjs  ──login──►  download CSV
         │
@@ -65,7 +65,9 @@ To check:
 
 1. Actions tab → **Nexus sync** → **Run workflow**, tick **Preview only**.
 2. If it reports `Preview OK — would create … update …`, you're done — untick
-   Preview and it runs nightly (`30 5 * * *`, adjustable in the workflow file).
+   Preview and it runs daily at 05:30 UTC (`30 5 * * *`, adjustable in the
+   workflow file). The site list changes rarely, so it stays daily; the
+   activity syncs below run hourly.
 3. If it fails at the export step, download the **nexus-sync-debug** artifact
    (screenshot + page HTML), find the real export control, and set either:
    - `NEXUS_EXPORT_URL` — a direct download link, if the report offers one; or
@@ -98,10 +100,17 @@ The Nexus **dashboard**'s "Upcoming Activities" list (VPI callouts they've sent
 us) can't be exported like the Sites report, so a second robot reads it off the
 screen and turns each row into an internal **job stub** the office can assign.
 
-- **Workflow:** `.github/workflows/nexus-callouts.yml` — nightly at 06:00 UTC
-  (30 min after the sites sync, so callouts match against freshly-synced sites)
-  and on demand (Actions → **Nexus callouts** → Run workflow, with a **Preview**
+- **Workflow:** `.github/workflows/nexus-callouts.yml` — **hourly** at :07
+  (the activity syncs are staggered :07 / :22 / :37 and kept off GitHub's busy
+  top-of-hour) and on demand (Actions → **Nexus callouts** → Run workflow, with a **Preview**
   toggle for a dry run).
+- **Nexus's annual "Review Details" check:** once a year Nexus intercepts the
+  dashboard with a 4-step review of the business details it holds. A person
+  must complete it (the robot never clicks through a declaration); until then
+  the callouts run fails with a message saying exactly that. The Activities and
+  Sites pages aren't blocked, so those syncs keep working.
+- **Quiet hours:** a dashboard that loads fine with nothing listed is a normal
+  run (nothing imported, nothing auto-dropped), not a failure.
 - **Reader:** `scripts/nexus-callouts.mjs` logs in (same pinned flow), opens
   `/Dashboard`, parses each `LINK-…` activity, and POSTs them as JSON to
   `/api/imports/nexus-callouts`. It also uploads a capture artifact
@@ -141,9 +150,10 @@ in the notes so nothing is dropped.
   read, so a transient blank dashboard never cancels the board.
 - **Alert:** when a run creates new callouts, the office gets one summary
   notification (the **New Nexus callout** kind — dispatchers + admins, Telegram
-  by default; change it on `/admin/notifications/settings`). Deduped per run, so
-  a re-run the same day doesn't re-alert. A backfill posts with `?notify=0` to
-  stay silent.
+  by default; change it on `/admin/notifications/settings`). Deduped on *which*
+  callouts are new (a callout is only ever new once), so each new batch alerts
+  exactly once — later batches the same day still get through. A backfill posts
+  with `?notify=0` to stay silent.
 
 ## Completed activities (Activities report → job stubs)
 
@@ -154,7 +164,7 @@ stop-the-clocks. Its filters live entirely in the URL (`ActivityStatus=9`, a
 through the 50-rows-per-page results, and imports each row as a **completed**
 job stub.
 
-- **Workflow:** `.github/workflows/nexus-activities.yml` — nightly at 06:30 UTC
+- **Workflow:** `.github/workflows/nexus-activities.yml` — **hourly** at :22
   (a rolling last-3-days window) and on demand with **From / To / Preview**
   inputs (use Preview + a wide window for the one-time June→today backfill).
 - **Reader:** `scripts/nexus-activities.mjs` — logs in, paginates, maps each

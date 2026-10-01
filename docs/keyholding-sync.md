@@ -20,7 +20,7 @@ Vaadin UIDL). So a robot drives the real screen, like a person would.
    CUBA **`.c-paging-next`** button (50 rows/page).
 5. POSTs the rows (chunked) to `/api/imports/keyholding-jobs`.
 
-Nightly at **07:00 UTC** it reads the **last 3 days → next 7 days** (recent
+**Hourly** (at :37) it reads the **last 3 days → next 7 days** (recent
 completions + upcoming jobs). On demand you can set any From/To (backfill) and
 tick **Preview** for a dry run.
 
