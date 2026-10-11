@@ -450,6 +450,9 @@ model User {
   /// roster row this login backs.
   partnerOfficerSeat       PartnerOfficer?     @relation("PartnerOfficerLogin")
   telegramCalloutDrafts    TelegramCalloutDraft[] @relation("TelegramDraftCreatedBy")
+  /// Claude connector: each "Allow" this user gave a Claude app on the
+  /// /oauth/authorize consent screen.
+  mcpGrants                McpGrant[]          @relation("McpGrantUser")
 
   @@index([regionId, role])
   @@index([partnerId])
@@ -1816,4 +1819,107 @@ model RecurringChargeRun {
 
   @@unique([recurringChargeId, periodKey])
   @@index([invoiceId])
+}
+
+// ── Claude connector (MCP) ─────────────────────────────────────────────────
+// Lets an admin (and, if allowed, office staff) connect Claude to this system
+// through the MCP endpoint /api/mcp. The app is its own OAuth 2.1
+// authorisation server: Claude identifies itself with Anthropic's published
+// Client ID Metadata Document, the person signs in with their 1NW login and
+// approves on /oauth/authorize, and Claude gets short-lived bearer tokens.
+// Only SHA-256 hashes of codes and tokens are stored. Read-only by design —
+// see docs/system/17-claude-connector.md.
+
+/// One approved connection: a user allowed a Claude app (claude.ai apps or
+/// Claude Code) to read the system on their behalf. Revoking it (admin
+/// "Disconnect") invalidates every code and token issued under it.
+model McpGrant {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String        @db.Uuid
+  user            User          @relation("McpGrantUser", fields: [userId], references: [id], onDelete: Cascade)
+  /// OAuth client_id — the Client ID Metadata Document URL Claude sent.
+  clientId        String
+  /// Display name from that document ("Claude", "Claude Code").
+  clientName      String
+  /// Host the authorisation code went back to (claude.ai, or localhost for
+  /// Claude Code on someone's computer).
+  redirectHost    String
+  scope           String
+  /// The MCP resource the tokens are bound to (RFC 8707 audience).
+  resource        String
+  createdAt       DateTime      @default(now())
+  lastUsedAt      DateTime?
+  revokedAt       DateTime?
+  revokedByUserId String?       @db.Uuid
+  codes           McpAuthCode[]
+  tokens          McpToken[]
+  toolCalls       McpToolCall[]
+
+  @@index([userId])
+  @@index([revokedAt])
+}
+
+/// Single-use authorisation code (5 minutes), bound to the PKCE challenge
+/// and redirect URI it was issued for.
+model McpAuthCode {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  codeHash      String    @unique
+  grantId       String    @db.Uuid
+  grant         McpGrant  @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  redirectUri   String
+  /// S256 PKCE challenge (base64url SHA-256 of the client's verifier).
+  codeChallenge String
+  expiresAt     DateTime
+  usedAt        DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([grantId])
+}
+
+enum McpTokenKind {
+  ACCESS
+  REFRESH
+}
+
+/// Bearer tokens. Access tokens live 1 hour; refresh tokens 30 days and are
+/// rotated on every use (the old one is revoked in the same response).
+model McpToken {
+  id        String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash String       @unique
+  kind      McpTokenKind
+  grantId   String       @db.Uuid
+  grant     McpGrant     @relation(fields: [grantId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime     @default(now())
+
+  @@index([grantId, kind])
+}
+
+/// Audit trail: every tool Claude ran, as whom, with what filters. Shown to
+/// admins on /admin/claude.
+model McpToolCall {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  grantId    String?   @db.Uuid
+  grant      McpGrant? @relation(fields: [grantId], references: [id], onDelete: SetNull)
+  userId     String    @db.Uuid
+  tool       String
+  args       Json?
+  ok         Boolean
+  error      String?
+  durationMs Int
+  createdAt  DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Connector settings (single row, id = 1). Missing row = defaults.
+model McpSettings {
+  id               Int      @id @default(1)
+  /// Admins can always connect. When true, office staff (DISPATCHER) can too,
+  /// each seeing only what their role sees in the app (no finance).
+  allowDispatchers Boolean  @default(false)
+  updatedByUserId  String?  @db.Uuid
+  updatedAt        DateTime @updatedAt
 }

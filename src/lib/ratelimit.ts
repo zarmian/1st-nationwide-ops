@@ -58,6 +58,21 @@ export const adminInitLimiter = build({
   windowSeconds: 60 * 10,
 });
 
+// Claude connector: OAuth token/revoke/consent posts per IP, and MCP calls per
+// connection. Claude makes a handful of requests per question, so these only
+// bite on abuse.
+export const oauthLimiter = build({
+  prefix: "oauth",
+  limit: 60,
+  windowSeconds: 60,
+});
+
+export const mcpLimiter = build({
+  prefix: "mcp",
+  limit: 240,
+  windowSeconds: 60,
+});
+
 /**
  * Extract a stable client identifier from a Request. Prefer the
  * Vercel-provided forwarding header, fall back to "anon" so the limiter

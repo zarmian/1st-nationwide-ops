@@ -144,6 +144,10 @@ All **throw** on failure (server actions turn thrown errors into a generic 500; 
 - `/duty/[token]` is **public** (middleware-excluded). The officer starts / checks in / ends the shift there with no login; those mutations live in `src/app/duty/[token]/_actions.ts` and log to `ActivityLog` with `userId: null`. The `IN_PROGRESS` + check-in cadence they drive is swept by the `shift-checks` cron ([`13-crons.md`](./13-crons.md)).
 - `dutyUrl` derives its base from `NEXTAUTH_URL` (fallback `VERCEL_URL`); it lives outside any `"use server"` module so non-action code can import it.
 
+### Claude connector tokens (`/api/mcp`)
+
+- `/api/mcp` doesn't use the NextAuth session at all: it takes `Authorization: Bearer` tokens issued by the app's own OAuth server (`/oauth/authorize` → `/api/oauth/token`). Only ADMIN (and DISPATCHER when `McpSettings.allowDispatchers`) can approve a connection, re-checked against the database on every request. Full details in [`17-claude-connector.md`](./17-claude-connector.md).
+
 ## Business rules & invariants
 
 - **`active = false` blocks login** (`authorize` rejects) and excludes a user from every notification recipient query.
