@@ -31,6 +31,7 @@ Every module doc follows the same shape, so you can skim consistently:
 | 14 | [Conventions & UI System](./14-conventions-and-ui.md) | Dates/money, activity attribution, server-action pattern, UI primitives, a11y, testing. |
 | 15 | [Deployment & Operations](./15-deployment-and-ops.md) | Build pipeline, env vars, migrations, bootstrap, seeding, runbook. |
 | 16 | [Officer Compliance & Vetting](./16-officer-compliance.md) | SIA/RTW/DBS + training certs, the `/compliance` register, expiry status, the weekly alert cron. |
+| 17 | [Claude Connector (MCP)](./17-claude-connector.md) | Connecting Claude to the system: the read-only MCP server at `/api/mcp`, the built-in OAuth server (Claude-only, PKCE, hashed tokens), the tools, `/admin/claude`. |
 
 ## Suggested reading order for a rebuild
 

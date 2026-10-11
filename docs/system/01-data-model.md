@@ -266,6 +266,9 @@ Raw phone-provider (bOnline) webhook events for the call log + missed-call alert
 #### ActivityLog
 Generic audit trail. `userId?`, `entity String`, `entityId String`, `action String`, `diff Json?`, `createdAt`. Indexes `[entity, entityId]`, `[userId, createdAt]`.
 
+#### Claude connector — McpGrant · McpAuthCode · McpToken · McpToolCall · McpSettings
+The app's own OAuth server for Claude (see [`17-claude-connector.md`](./17-claude-connector.md)). `McpGrant` = one approved connection (`userId` → User, cascade; `clientId` CIMD URL, `clientName`, `redirectHost`, `scope`, `resource`, `lastUsedAt`, `revokedAt`, `revokedByUserId`). `McpAuthCode` (single-use, 5 min, `codeHash` unique, `codeChallenge`, `redirectUri`) and `McpToken` (`kind McpTokenKind` ACCESS/REFRESH, `tokenHash` unique, `expiresAt`, `revokedAt`) hang off a grant, cascade-deleted with it; only SHA-256 hashes are stored. `McpToolCall` = audit of every tool call (`userId`, `grantId?` SetNull, `tool`, `args Json?`, `ok`, `error?`, `durationMs`). `McpSettings` = single row (id 1), `allowDispatchers` (default false).
+
 ---
 
 ## Relationships at a glance

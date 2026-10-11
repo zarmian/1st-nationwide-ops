@@ -12,6 +12,7 @@ import {
   MessageSquare,
   SlidersHorizontal,
   EyeOff,
+  Bot,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
@@ -34,6 +35,7 @@ export default async function AdminHubPage() {
     pickerOptions,
     hiddenCustomers,
     hiddenPartners,
+    claudeConnections,
   ] = await prisma.$transaction([
     prisma.customer.count({ where: { active: true } }),
     prisma.partner.count({ where: { active: true } }),
@@ -45,6 +47,7 @@ export default async function AdminHubPage() {
     prisma.jobTypeOption.count({ where: { active: true } }),
     prisma.customer.count({ where: { hidden: true } }),
     prisma.partner.count({ where: { hidden: true } }),
+    prisma.mcpGrant.count({ where: { revokedAt: null, tokens: { some: {} } } }),
   ]);
 
   const cards: HubCard[] = [
@@ -168,6 +171,15 @@ export default async function AdminHubPage() {
       statLabel: "hidden",
       icon: EyeOff,
       tone: "rose",
+    },
+    {
+      href: "/admin/claude",
+      title: "Claude",
+      blurb: "Connect Claude to look things up in this system by asking. Read-only; see who's connected and what it looked up.",
+      stat: claudeConnections,
+      statLabel: "connected",
+      icon: Bot,
+      tone: "indigo",
     },
   ];
 

@@ -11,7 +11,7 @@ import {
   visitScheduledRange,
 } from "@/lib/activityWhen";
 
-const KIND_LABEL: Record<string, string> = {
+export const KIND_LABEL: Record<string, string> = {
   ALARM_RESPONSE: "Alarm response",
   PATROL: "Patrol",
   LOCK: "Lock-up",
@@ -29,7 +29,7 @@ const KIND_LABEL: Record<string, string> = {
   SHIFT_DOG_HANDLER: "Dog-handler shift",
 };
 
-const STATUS_GROUPS: Record<string, Set<string>> = {
+export const STATUS_GROUPS: Record<string, Set<string>> = {
   scheduled: new Set(["OPEN", "ASSIGNED", "PENDING", "DRAFT"]),
   in_progress: new Set(["IN_PROGRESS", "SUBMITTED", "REVIEW_PENDING", "LATE"]),
   completed: new Set([
