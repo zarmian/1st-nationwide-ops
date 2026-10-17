@@ -164,13 +164,16 @@ async function loadSiteIndex(prisma: PrismaClient, rows: Prepared[]) {
   );
   const bySin = new Map<string, SiteRef>();
   const byPostcode = new Map<string, SiteRef[]>();
+  // Only look up what the rows actually carry. (A blank `{ id: "" }`
+  // placeholder used to stand in for a missing list, and Postgres rejects ""
+  // as a UUID — so a window whose rows had no SIN failed the whole import.)
+  const lookups = [
+    ...(sins.length ? [{ partnerSin: { in: sins } }] : []),
+    ...(postcodes.length ? [{ postcode: { in: postcodes } }] : []),
+  ];
+  if (!lookups.length) return { bySin, byPostcode };
   const sites = await prisma.site.findMany({
-    where: {
-      OR: [
-        sins.length ? { partnerSin: { in: sins } } : { id: "" },
-        postcodes.length ? { postcode: { in: postcodes } } : { id: "" },
-      ],
-    },
+    where: { OR: lookups },
     select: { id: true, name: true, partnerId: true, partnerSin: true, postcode: true },
   });
   for (const s of sites) {
