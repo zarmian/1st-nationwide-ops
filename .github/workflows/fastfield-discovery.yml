@@ -6,17 +6,17 @@ name: FastField discovery
 # the app. The capture is kept for 1 day.
 #
 # Secrets: FASTFIELD_USERNAME, FASTFIELD_PASSWORD (the FastField login).
-# Optional: FASTFIELD_PORTAL_URL (default: try the UK portal, then the global
-# one), FASTFIELD_ORG_ID (if one login has several FastField accounts).
+# Optional: FASTFIELD_ORG_ID (if one login has several FastField accounts).
+# 1NW's account is on the global portal, portal.fastfieldforms.com.
 
 on:
   workflow_dispatch:
     inputs:
       portal:
-        description: "Which FastField site (auto tries UK, then global)"
+        description: "Which FastField site"
         type: choice
-        options: [auto, uk, global]
-        default: auto
+        options: [global, uk]
+        default: global
 
 concurrency:
   group: fastfield-discovery
@@ -44,7 +44,7 @@ jobs:
           FASTFIELD_USERNAME: ${{ secrets.FASTFIELD_USERNAME }}
           FASTFIELD_PASSWORD: ${{ secrets.FASTFIELD_PASSWORD }}
           FASTFIELD_ORG_ID: ${{ secrets.FASTFIELD_ORG_ID }}
-          FASTFIELD_PORTAL_URL: ${{ inputs.portal == 'uk' && 'https://uk-portal.fastfieldforms.com' || (inputs.portal == 'global' && 'https://portal.fastfieldforms.com' || secrets.FASTFIELD_PORTAL_URL) }}
+          FASTFIELD_PORTAL_URL: ${{ inputs.portal == 'uk' && 'https://uk-portal.fastfieldforms.com' || 'https://portal.fastfieldforms.com' }}
         run: node scripts/fastfield-discovery.mjs
 
       - name: Upload discovery capture

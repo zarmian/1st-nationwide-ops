@@ -16,9 +16,9 @@
  * artifacts can be public).
  *
  * Env: FASTFIELD_USERNAME, FASTFIELD_PASSWORD (required);
- *      FASTFIELD_PORTAL_URL (optional — default tries the UK portal, then the
- *      global one); FASTFIELD_ORG_ID (optional, if one login has several
- *      FastField accounts).
+ *      FASTFIELD_PORTAL_URL (optional — default https://portal.fastfieldforms.com,
+ *      where 1NW's account is); FASTFIELD_ORG_ID (optional, if one login has
+ *      several FastField accounts).
  */
 import { chromium } from "playwright";
 import fs from "node:fs/promises";
@@ -27,9 +27,10 @@ const env = (k, d = "") => process.env[k] || d;
 const USER = env("FASTFIELD_USERNAME");
 const PASS = env("FASTFIELD_PASSWORD");
 const ORG_ID = env("FASTFIELD_ORG_ID");
-const PORTALS = env("FASTFIELD_PORTAL_URL")
-  ? [env("FASTFIELD_PORTAL_URL").replace(/\/+$/, "")]
-  : ["https://uk-portal.fastfieldforms.com", "https://portal.fastfieldforms.com"];
+// 1NW's account lives on the global portal (portal.fastfieldforms.com).
+const PORTALS = [
+  (env("FASTFIELD_PORTAL_URL") || "https://portal.fastfieldforms.com").replace(/\/+$/, ""),
+];
 
 if (!USER || !PASS) {
   console.log("FastField login not configured (FASTFIELD_USERNAME / FASTFIELD_PASSWORD) — skipping.");
