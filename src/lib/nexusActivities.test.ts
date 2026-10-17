@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseNexusDateTime, mapJobType, matchSiteId } from "./nexusActivities";
+import { parseNexusDateTime, mapJobType, matchSiteId, previewNexusActivities } from "./nexusActivities";
 
 describe("parseNexusDateTime", () => {
   it("parses dd/mm/yyyy HH:MM as UK wall-clock", () => {
@@ -76,5 +76,53 @@ describe("matchSiteId", () => {
     expect(
       matchSiteId({ sin: null, postcode: "N1 1AA", siteName: "x" }, index, "nexus"),
     ).toBeNull();
+  });
+});
+
+describe("site lookup when Nexus rows carry no SIN", () => {
+  // Regression: a window whose completed activities had no SIN used to put a
+  // blank `{ id: "" }` placeholder into the site query, which Postgres rejects
+  // as a UUID — failing every sync until those rows left the window.
+  const activity = (sin: string | null, address: string | null) => ({
+    reference: "LINK-999001",
+    type: "VPI",
+    siteName: "Test site",
+    address,
+    sin,
+    customer: "Test",
+    dueDate: "14/10/2026 18:00",
+    timeOnSite: "14/10/2026 18:30",
+    timeOffSite: "14/10/2026 18:45",
+    timeCallReceived: null,
+    status: "Completed",
+  });
+
+  function fakePrisma() {
+    const siteQueries: unknown[] = [];
+    const prisma = {
+      job: { findMany: async () => [], findFirst: async () => null },
+      partner: { findUnique: async () => null },
+      site: {
+        findMany: async (args: unknown) => {
+          siteQueries.push(args);
+          return [];
+        },
+      },
+    };
+    return { prisma: prisma as never, siteQueries };
+  }
+
+  it("never queries with a blank id", async () => {
+    const { prisma, siteQueries } = fakePrisma();
+    await previewNexusActivities(prisma, [activity(null, "1 Test Street, London, SW1A 1AA")]);
+    expect(JSON.stringify(siteQueries)).not.toContain('"id":""');
+    expect(JSON.stringify(siteQueries)).toContain("postcode");
+  });
+
+  it("skips the site lookup entirely when there's nothing to match on", async () => {
+    const { prisma, siteQueries } = fakePrisma();
+    const res = await previewNexusActivities(prisma, [activity(null, null)]);
+    expect(siteQueries).toHaveLength(0);
+    expect(res.unmatchedSites).toBe(1);
   });
 });
