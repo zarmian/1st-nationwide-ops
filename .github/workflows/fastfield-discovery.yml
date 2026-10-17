@@ -1,0 +1,57 @@
+name: FastField discovery
+
+# Run by hand. Logs into the FastField web portal and records how it works —
+# the login outcome, the portal's JSON calls and page layouts, with every form
+# value masked — so the FastField import robot can be built. Writes nothing to
+# the app. The capture is kept for 1 day.
+#
+# Secrets: FASTFIELD_USERNAME, FASTFIELD_PASSWORD (the FastField login).
+# Optional: FASTFIELD_ORG_ID (if one login has several FastField accounts).
+# 1NW's account is on the global portal, portal.fastfieldforms.com.
+
+on:
+  workflow_dispatch:
+    inputs:
+      portal:
+        description: "Which FastField site"
+        type: choice
+        options: [global, uk]
+        default: global
+
+concurrency:
+  group: fastfield-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Explore FastField (values masked)
+        env:
+          FASTFIELD_USERNAME: ${{ secrets.FASTFIELD_USERNAME }}
+          FASTFIELD_PASSWORD: ${{ secrets.FASTFIELD_PASSWORD }}
+          FASTFIELD_ORG_ID: ${{ secrets.FASTFIELD_ORG_ID }}
+          FASTFIELD_PORTAL_URL: ${{ inputs.portal == 'uk' && 'https://uk-portal.fastfieldforms.com' || 'https://portal.fastfieldforms.com' }}
+        run: node scripts/fastfield-discovery.mjs
+
+      - name: Upload discovery capture
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fastfield-discovery
+          path: fastfield-discovery.json
+          if-no-files-found: ignore
+          retention-days: 1
