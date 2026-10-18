@@ -619,7 +619,7 @@ async function applyDecision(
 export async function retryUnmatched(
   opts: { ids?: string[]; sinceDays?: number; limit?: number } = {},
 ): Promise<ImportSummary> {
-  const since = new Date(Date.now() - (opts.sinceDays ?? 14) * 86_400_000);
+  const since = new Date(Date.now() - (opts.sinceDays ?? 7) * 86_400_000);
   const rows = await prisma.fastFieldReport.findMany({
     where: {
       status: "UNMATCHED",
@@ -627,7 +627,7 @@ export async function retryUnmatched(
       form: { enabled: true },
     },
     orderBy: { submittedAt: "asc" },
-    take: opts.limit ?? 200,
+    take: opts.limit ?? 100,
     select: {
       id: true,
       siteId: true,

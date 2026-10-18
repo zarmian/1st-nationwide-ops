@@ -1,0 +1,67 @@
+name: FastField forms
+
+# Reads FastField submissions for a date window and attaches each report to
+# the activity it's about via /api/imports/fastfield (photos copied too). The
+# scheduled run (every 4 hours, last 3 days) is in partner-syncs.yml; use this
+# by hand for the backfill — tick Preview first to see what would happen.
+# Only forms switched on at /admin/fastfield are imported (a preview also
+# shows forms that have a client set). A run that hits the time limit stops
+# cleanly; run it again to carry on.
+#
+# Secrets: FASTFIELD_USERNAME, FASTFIELD_PASSWORD (the FastField login) and
+# NEXUS_IMPORT_SECRET (the app's import secret, same as the other syncs).
+# The log shows counts only — no sites, names or answers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "From (YYYY-MM-DD). Blank = last 3 days."
+        type: string
+        required: false
+      to:
+        description: "To (YYYY-MM-DD). Blank = today."
+        type: string
+        required: false
+      preview:
+        description: "Preview only (say what would happen, import nothing)."
+        type: boolean
+        default: true
+      portal:
+        description: "Which FastField site"
+        type: choice
+        options: [global, uk]
+        default: global
+
+concurrency:
+  group: partner-syncs # shared with partner-syncs.yml so imports never overlap
+  cancel-in-progress: false
+
+jobs:
+  forms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 130
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Install Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install --with-deps chromium
+
+      - name: Read + import FastField forms
+        env:
+          FASTFIELD_USERNAME: ${{ secrets.FASTFIELD_USERNAME }}
+          FASTFIELD_PASSWORD: ${{ secrets.FASTFIELD_PASSWORD }}
+          FASTFIELD_PORTAL_URL: ${{ inputs.portal == 'uk' && 'https://uk-portal.fastfieldforms.com' || 'https://portal.fastfieldforms.com' }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
+          FASTFIELD_FROM: ${{ inputs.from }}
+          FASTFIELD_TO: ${{ inputs.to }}
+          FASTFIELD_PREVIEW: ${{ inputs.preview }}
+          FASTFIELD_MAX_MINUTES: "110"
+        run: node scripts/fastfield-forms.mjs
