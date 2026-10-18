@@ -35,6 +35,7 @@ import {
   keywordIncidents,
   reportIssues,
   reportText,
+  samePlaceIds,
   type CheckActivity,
 } from "@/lib/dailyCheckRules";
 
@@ -183,7 +184,7 @@ type JobRow = {
   reportedViaPartnerApp: boolean;
   handledByPartnerId: string | null;
   patrolVisitId: string | null;
-  site: { name: string; partnerId: string | null; customerId: string | null } | null;
+  site: { name: string; postcode: string; partnerId: string | null; customerId: string | null } | null;
   fastfieldReports: { id: string }[];
   _count: { formSubmissions: number; fastfieldReports: number };
 };
@@ -344,7 +345,7 @@ export async function runDailyCheck(opts: {
         reportedViaPartnerApp: true,
         handledByPartnerId: true,
         patrolVisitId: true,
-        site: { select: { name: true, partnerId: true, customerId: true } },
+        site: { select: { name: true, postcode: true, partnerId: true, customerId: true } },
         fastfieldReports: { where: { jobCreated: true }, select: { id: true }, take: 1 },
         _count: { select: { formSubmissions: true, fastfieldReports: true } },
       },
@@ -363,7 +364,7 @@ export async function runDailyCheck(opts: {
         handledByPartnerId: true,
         patrolScheduleId: true,
         patrolSchedule: { select: { kind: true } },
-        site: { select: { name: true, partnerId: true, customerId: true } },
+        site: { select: { name: true, postcode: true, partnerId: true, customerId: true } },
         _count: { select: { formSubmissions: true, fastfieldReports: true } },
       },
       take: 5000,
@@ -425,13 +426,25 @@ export async function runDailyCheck(opts: {
     found.set(v.id, { kind: "visit", id: v.id, type, source: a.source, at: a.main.toISOString(), status: v.status });
   }
 
-  // 1. Possible duplicates with at least one half in the period.
+  // 1. Possible duplicates with at least one half in the period. Site records
+  //    that are one place (a partner import's copy of a site we set up) are
+  //    compared as one, so the same job on both still shows.
+  const sitePostcodes = new Map<string, string>();
+  for (const j of jobs as JobRow[]) if (j.siteId && j.site) sitePostcodes.set(j.siteId, j.site.postcode);
+  for (const v of visits) sitePostcodes.set(v.siteId, v.site.postcode);
+  const places = samePlaceIds(
+    Array.from(siteNames.entries()).map(([id, name]) => ({ id, name, postcode: sitePostcodes.get(id) ?? null })),
+  );
+  for (const a of acts) a.placeId = places.get(a.siteId);
   const duplicates: DuplicateFinding[] = findDuplicatePairs(acts)
     .filter(([a, b]) => inPeriod(a.main, from, until) || inPeriod(b.main, from, until))
     .slice(0, 100)
     .map(([a, b]) => ({
       siteId: a.siteId,
-      siteName: siteNames.get(a.siteId) ?? "Unknown site",
+      siteName:
+        a.siteId === b.siteId
+          ? (siteNames.get(a.siteId) ?? "Unknown site")
+          : `${siteNames.get(a.siteId) ?? "Unknown site"} / ${siteNames.get(b.siteId) ?? "Unknown site"} — one place on two site records`,
       items: [found.get(a.id)!, found.get(b.id)!],
     }));
 

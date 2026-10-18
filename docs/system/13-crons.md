@@ -16,7 +16,7 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 
 | Path | Schedule (UTC) | Cadence | What it does | Key side effects |
 |---|---|---|---|---|
-| `/api/cron/patrol-visits` | `5 0 * * *` | daily 00:05 | Materialise `PatrolVisit`s from active `PatrolSchedule`s for today + tomorrow (UK), cancel exact duplicates, and merge this month's Nexus patrol stubs into the visit they duplicate. | Inserts `PatrolVisit` rows (idempotent); cancels extra PENDING visits; links Nexus references onto visits and deletes the untouched stubs. |
+| `/api/cron/patrol-visits` | `5 0 * * *` | daily 00:05 | Materialise `PatrolVisit`s from active `PatrolSchedule`s for today + tomorrow (UK), cancel exact duplicates, merge the duplicate site records in `SITE_MERGES`, and merge Nexus patrol stubs (back to Sept 2026) into the visit they duplicate. | Inserts `PatrolVisit` rows (idempotent); cancels extra PENDING visits; moves a duplicate site's records to the real one; links Nexus references onto visits and deletes the untouched stubs. |
 | `/api/cron/lockunlock-jobs` | `10 0 * * *` | daily 00:10 | Materialise lock/unlock `Job`s from active `LockUnlockSchedule`s for today + tomorrow (UK). | Inserts `LOCK`/`UNLOCK` `Job` rows (idempotent). |
 | `/api/cron/visit-statuses` | `0 * * * *` | hourly | Flip overdue visits `PENDING→LATE` (>1 h) and `PENDING/LATE/IN_PROGRESS→MISSED` (>24 h). | Status updates (in a tx) + `VISIT_LATE`/`VISIT_MISSED` notifications. |
 | `/api/cron/blob-cleanup` | `0 3 * * *` | daily 03:00 | Delete Vercel Blob media older than 180 days under `uploads/`. | Permanent blob deletion; submissions keep dead URLs. |
@@ -37,11 +37,12 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 ### `patrol-visits` (`5 0 * * *`)
 Thin wrapper over `materializePatrolVisits({ anchor, offsets })` in `src/lib/scheduleSync.ts`. Default: `anchor = now`, `offsets = [0, 1]` (today **and** tomorrow in UK terms, giving dispatch a day-ahead view). `?date=YYYY-MM-DD` sets `offsets = [0]` for a single-day back-fill without spilling into tomorrow; an unparseable date → `400`. The same lib function backs the dispatcher's "Sync schedules" button, so cron and button share one code path. Materialisation is idempotent (re-running does not duplicate visits).
 
-It then runs two clean-ups, the same ones as **Patrols → Clean up duplicates**:
+It then runs three clean-ups, the same ones as **Patrols → Clean up duplicates**:
 - `dedupePatrolVisits` (`lib/patrolDedup.ts`) cancels extra PENDING visits at the exact same site, time and kind. It never cancels one linked to a partner's activity.
-- `mergeNexusDuplicates` (`lib/nexusVisits.ts`) merges this month's completed Nexus patrol / VPI stubs into the visit on our schedule they duplicate. See [`docs/nexus-sync.md`](../nexus-sync.md#patrols-already-on-our-schedule).
+- `runSiteMerges` (`lib/siteMerge.ts`) merges the duplicate site records listed in `SITE_MERGES` into the real site. Swail House was the first.
+- `mergeNexusDuplicates` (`lib/nexusVisits.ts`) merges the completed Nexus patrol / VPI stubs, back to September 2026, into the visit on our schedule they duplicate. See [`docs/nexus-sync.md`](../nexus-sync.md#patrols-already-on-our-schedule).
 
-The response carries both results (`dedupe`, `nexus`).
+The response carries the results (`dedupe`, `sites`, `nexus`). It allows 120 s.
 
 ### `lockunlock-jobs` (`10 0 * * *`)
 Wrapper over `materializeLockUnlockJobs` (same `anchor`/`offsets` semantics and `?date=` override). For each UK day it loads active `LockUnlockSchedule`s whose `days` array contains that weekday, skips inactive sites, and for each schedule's `unlockTime` / `lockdownTime` calls `maybeCreateLockUnlock` to insert an `UNLOCK` / `LOCK` `Job` — carrying the site's `customerId`, `partnerId`, and `assignedOfficerId`. Returns per-day counts `{ createdUnlock, createdLock, skipped }`. Runs 5 min after `patrol-visits` to stagger the midnight load.

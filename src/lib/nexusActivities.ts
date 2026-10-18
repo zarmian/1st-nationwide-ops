@@ -201,7 +201,7 @@ function prepare(a: NexusCompletedActivity):
   };
 }
 
-type SiteRef = { id: string; name: string; partnerId: string | null };
+type SiteRef = { id: string; name: string; partnerId: string | null; active?: boolean };
 
 async function loadSiteIndex(prisma: PrismaClient, rows: Prepared[]) {
   const sins = Array.from(
@@ -222,10 +222,10 @@ async function loadSiteIndex(prisma: PrismaClient, rows: Prepared[]) {
   if (!lookups.length) return { bySin, byPostcode };
   const sites = await prisma.site.findMany({
     where: { OR: lookups },
-    select: { id: true, name: true, partnerId: true, partnerSin: true, postcode: true },
+    select: { id: true, name: true, partnerId: true, partnerSin: true, postcode: true, active: true },
   });
   for (const s of sites) {
-    const ref: SiteRef = { id: s.id, name: s.name, partnerId: s.partnerId };
+    const ref: SiteRef = { id: s.id, name: s.name, partnerId: s.partnerId, active: s.active };
     if (s.partnerSin) bySin.set(s.partnerSin, ref);
     if (s.postcode) {
       const list = byPostcode.get(s.postcode) ?? [];
@@ -252,7 +252,12 @@ export function matchSiteId(
   const nexusOnes = nexusPartnerId
     ? candidates.filter((c) => c.partnerId === nexusPartnerId)
     : [];
-  const pool = nexusOnes.length > 0 ? nexusOnes : candidates;
+  const partnerPool = nexusOnes.length > 0 ? nexusOnes : candidates;
+  // A switched-off site loses to a live one at the same postcode — e.g. a
+  // duplicate record merged into the real site (lib/siteMerge.ts).
+  const live = partnerPool.filter((c) => c.active !== false);
+  const pool = live.length > 0 ? live : partnerPool;
+  if (pool.length === 1) return pool[0].id;
   if (row.siteName) {
     const wanted = normaliseNameKey(row.siteName);
     const exact = pool.find((c) => normaliseNameKey(c.name) === wanted);

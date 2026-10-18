@@ -16,7 +16,7 @@ export function PatrolCleanupButton() {
         onClick={() => {
           if (
             !confirm(
-              "Remove duplicate patrols? Where the same site has more than one patrol at the exact same time, this keeps one and cancels the extras (only ones not yet started). It also merges this month's Nexus copies of patrols on our schedule into the patrol itself. Safe to run any time.",
+              "Remove duplicate patrols? Where the same site has more than one patrol at the exact same time, this keeps one and cancels the extras (only ones not yet started). It also merges Nexus's copies of patrols on our schedule into the patrol itself, and any duplicate site records we've agreed to merge. Safe to run any time.",
             )
           )
             return;
@@ -32,6 +32,9 @@ export function PatrolCleanupButton() {
               parts.push(
                 `${r.cancelled} duplicate patrol${r.cancelled === 1 ? "" : "s"} cancelled across ${r.groups} slot${r.groups === 1 ? "" : "s"}`,
               );
+            }
+            if (r.sitesMerged?.length) {
+              parts.push(`merged the duplicate site record${r.sitesMerged.length === 1 ? "" : "s"} for ${r.sitesMerged.join(", ")}`);
             }
             if (r.nexusMerged) {
               parts.push(

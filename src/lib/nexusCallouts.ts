@@ -189,7 +189,7 @@ function prepare(a: NexusActivity):
  */
 export function matchSiteId(
   row: { postcode: string | null; siteName: string | null },
-  byPostcode: Map<string, { id: string; name: string; partnerId: string | null }[]>,
+  byPostcode: Map<string, { id: string; name: string; partnerId: string | null; active?: boolean }[]>,
   nexusPartnerId: string | null,
 ): string | null {
   if (!row.postcode) return null;
@@ -200,7 +200,12 @@ export function matchSiteId(
   const nexusOnes = nexusPartnerId
     ? candidates.filter((c) => c.partnerId === nexusPartnerId)
     : [];
-  const pool = nexusOnes.length > 0 ? nexusOnes : candidates;
+  const partnerPool = nexusOnes.length > 0 ? nexusOnes : candidates;
+  // A switched-off site loses to a live one at the same postcode — e.g. a
+  // duplicate record merged into the real site (lib/siteMerge.ts).
+  const live = partnerPool.filter((c) => c.active !== false);
+  const pool = live.length > 0 ? live : partnerPool;
+  if (pool.length === 1) return pool[0].id;
 
   if (row.siteName) {
     const wanted = normaliseNameKey(row.siteName);
@@ -222,17 +227,17 @@ async function loadSiteIndex(prisma: PrismaClient, rows: Prepared[]) {
   );
   const map = new Map<
     string,
-    { id: string; name: string; partnerId: string | null }[]
+    { id: string; name: string; partnerId: string | null; active: boolean }[]
   >();
   if (postcodes.length === 0) return map;
   const sites = await prisma.site.findMany({
     where: { postcode: { in: postcodes } },
-    select: { id: true, name: true, postcode: true, partnerId: true },
+    select: { id: true, name: true, postcode: true, partnerId: true, active: true },
   });
   for (const s of sites) {
     if (!s.postcode) continue;
     const list = map.get(s.postcode) ?? [];
-    list.push({ id: s.id, name: s.name, partnerId: s.partnerId });
+    list.push({ id: s.id, name: s.name, partnerId: s.partnerId, active: s.active });
     map.set(s.postcode, list);
   }
   return map;

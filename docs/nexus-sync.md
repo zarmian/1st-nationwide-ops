@@ -225,11 +225,20 @@ on our schedule, and its `LINK-…` reference goes on the visit
   - Its time must fit. For a completed activity, that's within **3 hours** of
     when the officer was on site. For an upcoming one, it's inside the **due
     window**, with an hour's slack either side.
-  - Windows longer than a day, such as a week-long VPI window, can't be pinned
-    to one visit, so they still make a stub. The completed activity merges
-    that stub later.
+  - **Weekly VPIs:** a window longer than a day matches the one visit of ours
+    inside it. The Queen of the South is the example: Nexus gives a week
+    from Monday 00:00, our VPI is scheduled Monday 20:00, and the officer
+    often does it the following Monday morning. When the end of the window
+    isn't known, it runs to when the officer was on site. If several of our
+    visits fall inside the window (daily patrols against a weekly VPI), it
+    matches none of them and stays a stub.
   - Best fit first, one visit per activity, so a site with two patrols a night
     pairs each with its own Nexus activity.
+  - **One site, two records:** a Nexus job only meets our patrol if both are
+    on the same site record. Swail House was set up by hand, then the Nexus
+    site import created a second record for it. The two records have been
+    merged (`src/lib/siteMerge.ts`, see below). When two sites share a
+    postcode, both Nexus imports prefer the live one over a switched-off copy.
 - **Completed:**
   - The visit moves forward to **completed**, never back. That includes one we
     had marked late or missed, because the officer recorded it in Nexus's app.
@@ -247,12 +256,37 @@ on our schedule, and its `LINK-…` reference goes on the visit
     hand, and not a different officer from the visit's.
   - Otherwise it stays, marked ⚠ possible duplicate, for the office to decide.
 - **The clean-up:**
-  - The imports only see the last few days, so this month's older stubs are
-    merged nightly by the `patrol-visits` cron, and on demand by **Patrols →
-    Clean up duplicates**.
-  - Earlier months are left as they were, because their pay and billing are
-    already done.
+  - The imports only see the last few days. So the older completed stubs, back
+    to September 2026 when the Nexus imports began, are merged nightly by the
+    `patrol-visits` cron, and on demand by **Patrols → Clean up duplicates**.
+    The owner chose to include September (October 2026).
+  - A visit the clean-up completes gets its billing and pay at its own
+    scheduled date. For September, only The Queen of the South on 28 September
+    changed from missed to done; the others were already done.
+  - It runs straight after the site merges, so jobs moved onto the real site
+    are matched the same night.
 - **The robots' logs** count the links, merges and ⚠ flags (counts only).
+
+### Merging a duplicate site record
+
+`src/lib/siteMerge.ts` (`mergeSiteInto`, run for each pair in `SITE_MERGES`):
+- **What moves:** every job, patrol, schedule, shift, alarm, key, key set,
+  report, form template and onboarding record moves from the copy to the real
+  site.
+- **One-per-site items:** access instructions and each service's rate stay on
+  the copy when the real site already has its own.
+- **Partner references:** the real site takes the copy's partner, Nexus
+  reference, SIN and other Nexus metadata wherever it has none. So the daily
+  Nexus site sync then updates the real site (name, address, flags and rates
+  from Nexus, as for every Nexus site) and doesn't recreate the copy.
+- **The copy:** it's switched off and keeps a note saying where it went. Both
+  sites' history shows the merge.
+- **Re-runs** do nothing.
+- **When it runs:** nightly from the `patrol-visits` cron and from **Clean up
+  duplicates**.
+- **Adding a merge:** add the pair to `SITE_MERGES` once the office has
+  confirmed the two records are one site. The Sites list already highlights
+  suspected duplicates (same name or postcode).
 
 ## Notes & caveats (both robots)
 
