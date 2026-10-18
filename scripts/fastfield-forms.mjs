@@ -153,8 +153,8 @@ async function readSetup(page) {
   return { dashboard, card, forms };
 }
 
-/** Every submission in the window, oldest first. */
-async function listSubmissions(page, setup) {
+/** Every submission in the window for one user filter, newest first. */
+async function listFor(page, setup, selectedUser, selectedUserGroup) {
   const start = new Date(`${FROM}T00:00:00Z`);
   start.setUTCHours(start.getUTCHours() - 1); // UK midnight in summer time
   const end = new Date(`${TO}T23:59:59Z`);
@@ -165,8 +165,8 @@ async function listSubmissions(page, setup) {
       dashboardId: setup.dashboard.dashboardId,
       startDate: start.toISOString(),
       endDate: end.toISOString(),
-      selectedUser: "All Users",
-      selectedUserGroup: "All User Groups",
+      selectedUser,
+      selectedUserGroup,
       dashboardFilters: [],
       card: setup.card,
       page: p,
@@ -174,7 +174,7 @@ async function listSubmissions(page, setup) {
       maxResults: PAGE_SIZE,
       sorters: [],
     });
-    if (json?.warning) throw new Error(`FastField wouldn't list submissions: ${String(json.warning).slice(0, 120)}`);
+    if (json?.warning) return { rows: [], warning: String(json.warning).slice(0, 120) };
     const records = Array.isArray(json?.records) ? json.records : [];
     for (const r of records) {
       if (typeof r?.submissionId === "string" && r.submissionId && !seen.has(r.submissionId)) {
@@ -183,10 +183,23 @@ async function listSubmissions(page, setup) {
     }
     if (records.length < PAGE_SIZE) break;
   }
-  // The list comes newest first; import oldest first.
-  return Array.from(seen.entries())
-    .reverse()
-    .map(([submissionId, formName]) => ({ submissionId, formName }));
+  return { rows: Array.from(seen.entries()).map(([submissionId, formName]) => ({ submissionId, formName })) };
+}
+
+/** Every submission in the window, oldest first: everyone's, or — if this
+ *  login may not list all users — the dashboard's own user filter. */
+async function listSubmissions(page, setup) {
+  let result = await listFor(page, setup, "All Users", "All User Groups");
+  const own = setup.dashboard.selectedUser;
+  if (!result.rows.length && own && own !== "All Users") {
+    const fallback = await listFor(page, setup, own, setup.dashboard.selectedUserGroup || "All User Groups");
+    if (fallback.rows.length || !result.warning) {
+      if (fallback.rows.length) console.log("Listed with the dashboard's own user filter (this login can't list all users).");
+      result = fallback;
+    }
+  }
+  if (result.warning) throw new Error(`FastField wouldn't list submissions: ${result.warning}`);
+  return result.rows.reverse(); // the list comes newest first; import oldest first
 }
 
 // ── Reading one submission ────────────────────────────────────────────────
