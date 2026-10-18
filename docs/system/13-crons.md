@@ -1,6 +1,6 @@
 # Scheduled jobs (crons)
 
-> Fourteen Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, chase overdue invoices daily, remind about contract renewals and officer-compliance expiries weekly, email the daily client report each morning, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
+> Fifteen Vercel Cron routes under `src/app/api/cron/*` — they materialise schedules into work, sweep statuses to LATE/MISSED, drain the WhatsApp and SMS queues every minute, chase partners and check-ins every 15 minutes, chase overdue invoices daily, remind about contract renewals and officer-compliance expiries weekly, email the daily client report each morning, and send reminders/briefs/pay summaries — each a `GET` gated by `CRON_SECRET`.
 
 ## Purpose & scope
 
@@ -29,6 +29,7 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 | `/api/cron/invoice-reminders` | `0 8 * * *` | daily 08:00 | Email customers whose `SENT` invoices have crossed an overdue threshold (1/7/14/30 days), highest unsent stage only. | Reminder emails + `InvoiceReminder` rows (one per invoice/stage). No-op until email is configured. |
 | `/api/cron/contract-renewals` | `0 8 * * 1` | Mon 08:00 | Email a digest of active `Contract`s renewing within 30 days (or overdue). | One digest email to `ADMIN_EMAIL`/`COMPANY.email`. No-op until email + a recipient are set. |
 | `/api/cron/compliance-alerts` | `30 8 * * 1` | Mon 08:30 | Email a digest of officer vetting items expired / expiring ≤30 days / (SIA) unrecorded — licences, right-to-work, DBS, training certs. | One digest email to `ADMIN_EMAIL`/`COMPANY.email`. No-op until email + a recipient are set. |
+| `/api/cron/daily-check` | `30 6 * * *` | daily 06:30 | Look over everything since the last morning check: the same visit recorded twice, our own work with no report, FastField reports whose GPS / site / form / officer don't fit, incidents Claude finds in the reports, late syncs. See [`19-daily-check.md`](./19-daily-check.md). | A `DailyCheck` row + one email to the office (Admin → Daily check). Read-only; on by default. |
 | `/api/cron/daily-client-report` | `0 7 * * *` | daily 07:00 | Email **yesterday's** Shurgard report (PDF attached), **only** when the Shurgard customer has `dailyReportOn = true`. | One email to the configured recipient + a `ClientReportSend` row. Idempotent (skips a day already `SENT`). Off by default. |
 
 ## Per-cron mechanics

@@ -33,6 +33,7 @@ Every module doc follows the same shape, so you can skim consistently:
 | 16 | [Officer Compliance & Vetting](./16-officer-compliance.md) | SIA/RTW/DBS + training certs, the `/compliance` register, expiry status, the weekly alert cron. |
 | 17 | [Claude Connector (MCP)](./17-claude-connector.md) | Connecting Claude to the system: the read-only MCP server at `/api/mcp`, the built-in OAuth server (Claude-only, PKCE, hashed tokens), the tools, `/admin/claude`. |
 | 18 | [FastField Reports](./18-fastfield.md) | The FastField robot: officers' FastField reports matched to their site (postcode, name, GPS) and to the static shift or activity they're about, attached (billed, paid), Shurgard jobs created, `/admin/fastfield`. |
+| 19 | [Daily Check](./19-daily-check.md) | The morning check: duplicates (e.g. our patrol + the Nexus stub for it), work with no report, FastField reports that don't fit, incidents Claude finds in the reports, late syncs — emailed, history on `/admin/daily-check`. |
 
 ## Suggested reading order for a rebuild
 

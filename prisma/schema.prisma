@@ -2040,3 +2040,40 @@ model FastFieldReport {
   @@index([patrolVisitId])
   @@index([shiftId])
 }
+
+// ── Daily check ────────────────────────────────────────────────────────────
+// Each morning (cron daily-check) the app looks over everything since the
+// last check: activities recorded twice, our own activities with no report,
+// FastField reports whose GPS / site name / form don't fit, incidents Claude
+// finds in the reports, and whether the portal syncs are running. Emailed to
+// the office; history on Admin → Daily check. See docs/system/19-daily-check.md.
+
+/// One run of the daily check.
+model DailyCheck {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Activities whose time falls in [periodStart, periodEnd) were checked.
+  periodStart DateTime
+  periodEnd   DateTime
+  /// What was found, by section (see lib/dailyCheck.ts DailyCheckFindings).
+  findings    Json
+  /// How many items need a look, by section.
+  counts      Json
+  /// Claude's plain-English overview; null when Claude wasn't available.
+  overview    String?
+  /// "cron", or "manual" for Run now (which doesn't move the cron's period).
+  trigger     String
+  emailedTo   String?
+  emailedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([trigger, createdAt])
+}
+
+/// Single row (id 1): whether the morning check runs, and who it emails.
+model DailyCheckSettings {
+  id         Int      @id @default(1)
+  enabled    Boolean  @default(true)
+  /// Comma-separated email addresses. Empty = the ADMIN_EMAIL address.
+  recipients String?
+  updatedAt  DateTime @updatedAt
+}
