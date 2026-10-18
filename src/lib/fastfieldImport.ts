@@ -632,7 +632,7 @@ export async function retryUnmatched(
       form: { enabled: true },
     },
     orderBy: { submittedAt: "asc" },
-    take: opts.limit ?? 100,
+    take: opts.limit ?? 50,
     select: {
       id: true,
       siteId: true,

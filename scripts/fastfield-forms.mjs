@@ -37,7 +37,7 @@ const IMPORT_URL = (
 const preview = env("FASTFIELD_PREVIEW").toLowerCase() === "true";
 const MAX_MINUTES = Number(env("FASTFIELD_MAX_MINUTES", "10")) || 10;
 
-const PAGE_SIZE = 500; // submissions per list request
+const PAGE_SIZE = 200; // submissions per list request (the size FastField is known to honour)
 const REPORTS_AT_ONCE = 3; // reports read + photos copied in parallel
 const PHOTOS_AT_ONCE = 4; // per report
 const MAX_PHOTOS = 60; // per report
@@ -176,12 +176,15 @@ async function listFor(page, setup, selectedUser, selectedUserGroup) {
     });
     if (json?.warning) return { rows: [], warning: String(json.warning).slice(0, 120) };
     const records = Array.isArray(json?.records) ? json.records : [];
+    const before = seen.size;
     for (const r of records) {
       if (typeof r?.submissionId === "string" && r.submissionId && !seen.has(r.submissionId)) {
         seen.set(r.submissionId, String(r.formName ?? ""));
       }
     }
-    if (records.length < PAGE_SIZE) break;
+    const total = Number(json?.totalCount);
+    if (records.length < PAGE_SIZE || seen.size === before) break; // last page, or paging ignored
+    if (Number.isFinite(total) && total > 0 && seen.size >= total) break;
   }
   return { rows: Array.from(seen.entries()).map(([submissionId, formName]) => ({ submissionId, formName })) };
 }
@@ -558,7 +561,10 @@ async function run() {
           (photoCounts.failed ? `, ${photoCounts.failed} couldn't be copied` : "") +
           ".",
       );
-      const retry = await postApp({ action: "retry" });
+      const retry = await postApp({ action: "retry" }).catch((e) => {
+        console.warn(`Re-checking earlier unmatched reports didn't finish: ${String(e?.message ?? e).slice(0, 120)}`);
+        return {};
+      });
       if ((retry.linked ?? 0) + (retry.created ?? 0) > 0) {
         console.log(`Earlier unmatched reports now attached: linked ${retry.linked ?? 0}, created ${retry.created ?? 0}.`);
       }
