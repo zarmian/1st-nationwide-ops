@@ -15,12 +15,33 @@
  * shared); an unmatched activity still becomes a stub with the address in the
  * notes so nothing is silently dropped.
  *
+ * A patrol or VPI at a site that's on our own patrol schedule doesn't get a
+ * stub: it links to the matching patrol visit (inside its due window), and an
+ * open stub an earlier run made for it is merged into the visit
+ * (lib/nexusVisits.ts). The auto-drop below only ever cancels job stubs —
+ * never a visit on our schedule.
+ *
  * Used by the machine endpoint (/api/imports/nexus-callouts). Pure-ish: all DB
  * work goes through the passed PrismaClient.
  */
 import type { PrismaClient } from "@prisma/client";
 import { NEXUS_PARTNER_NAME, normalisePostcode } from "@/lib/nexusImport";
 import { normaliseNameKey } from "@/lib/siteDuplicates";
+import { ukWallClockToUtc } from "@/lib/dates";
+import { mapJobType } from "@/lib/nexusActivities";
+import {
+  NEXUS_STUB_SELECT,
+  assignVisits,
+  errCode,
+  isPatrolFamily,
+  linkNexusVisit,
+  loadVisitPool,
+  nexusLinkNote,
+  stubBlocker,
+  type NexusStub,
+  type NexusTiming,
+  type NexusVisit,
+} from "@/lib/nexusVisits";
 
 /** One parsed row from the dashboard reader. Matches nexus-callouts.mjs. */
 export type NexusActivity = {
@@ -42,6 +63,12 @@ export type CalloutSummary = {
   read: number;
   toCreate: number;
   toUpdate: number;
+  /** Patrols / VPIs that would link to the matching visit on our schedule. */
+  toLinkVisit: number;
+  /** Open stubs that would be merged into the visit they duplicate. */
+  toMerge: number;
+  /** Stubs that duplicate a visit but someone has worked on — flagged ⚠. */
+  toReview: number;
   /** OPEN stubs that would be auto-dropped (fell off Nexus's list). */
   toClose: number;
   /** Activities with a reference but no matching site (still importable). */
@@ -52,6 +79,9 @@ export type CalloutSummary = {
 export type CalloutResult = {
   created: number;
   updated: number;
+  linkedVisits: number;
+  merged: number;
+  keptForReview: number;
   /** OPEN stubs auto-cancelled because they're no longer on the dashboard. */
   closed: number;
   /** Stubs written with no linked site. */
@@ -66,7 +96,9 @@ export type CalloutResult = {
   }[];
 };
 
-/** "07/09/2026 00:00" → Date (UTC). Also accepts a bare "07/09/2026". */
+/** "07/09/2026 00:00" → Date. The dashboard shows UK wall-clock times (as the
+ *  Activities report does), so 19:00 in summer is 18:00 UTC. Also accepts a
+ *  bare "07/09/2026" (UK midnight). */
 export function parseNexusDateTime(s: string | null | undefined): Date | null {
   if (!s) return null;
   const m = s
@@ -74,14 +106,13 @@ export function parseNexusDateTime(s: string | null | undefined): Date | null {
     .match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{2}):(\d{2}))?$/);
   if (!m) return null;
   const [, d, mo, y, hh, mm] = m;
-  const dt = new Date(
-    Date.UTC(
-      Number(y),
-      Number(mo) - 1,
-      Number(d),
-      hh ? Number(hh) : 0,
-      mm ? Number(mm) : 0,
-    ),
+  const dt = ukWallClockToUtc(
+    Number(y),
+    Number(mo),
+    Number(d),
+    hh ? Number(hh) : 0,
+    mm ? Number(mm) : 0,
+    0,
   );
   return Number.isFinite(dt.getTime()) ? dt : null;
 }
@@ -92,6 +123,12 @@ type Prepared = {
   postcode: string | null; // normalised, or null
   typeLabel: string | null;
   scheduledFor: Date | null;
+  /** A patrol or VPI by its type — the kind that can be a visit on our schedule. */
+  patrol: boolean;
+  /** Due window, for matching a visit on our schedule. */
+  timing: NexusTiming;
+  /** The window as Nexus shows it, for the visit's note. */
+  window: string;
   notes: string;
 };
 
@@ -128,14 +165,18 @@ function prepare(a: NexusActivity):
     .filter(Boolean)
     .join(" ");
 
+  const typeLabel = (a.type ?? "").trim() || null;
   return {
     ok: true,
     row: {
       reference,
       siteName: (a.siteName ?? "").trim() || null,
       postcode,
-      typeLabel: (a.type ?? "").trim() || null,
+      typeLabel,
       scheduledFor,
+      patrol: isPatrolFamily(mapJobType(typeLabel)),
+      timing: { start, end, onSite: null },
+      window,
       notes,
     },
   };
@@ -208,6 +249,74 @@ function splitActivities(activities: NexusActivity[]) {
   return { rows, skipped };
 }
 
+// ── Planning: one decision per row, shared by preview and the real run ─────
+
+type ExistingStub = NexusStub & { possibleDuplicate: boolean };
+
+type Action =
+  | { kind: "onVisit" }
+  | { kind: "merge"; job: ExistingStub; visit: NexusVisit }
+  | { kind: "review"; job: ExistingStub }
+  | { kind: "updateJob"; job: ExistingStub }
+  | { kind: "linkVisit"; visit: NexusVisit }
+  | { kind: "create" };
+
+/**
+ * Decide what to do with every row without writing anything:
+ *
+ *   - already on a visit (LINK ref)                    → nothing to change
+ *   - a stub with the ref that duplicates a visit:
+ *       nobody's worked on it                          → merge it into the visit
+ *       worked on                                      → keep it, flag ⚠ for review
+ *   - a stub with the ref                              → refresh the stub
+ *   - a patrol / VPI with a visit inside its window    → link the visit
+ *   - otherwise                                        → create a stub
+ */
+async function planCallouts(
+  prisma: PrismaClient,
+  rows: Prepared[],
+  nexusPartnerId: string | null,
+) {
+  const index = await loadSiteIndex(prisma, rows);
+  const siteIds = rows.map((r) => matchSiteId(r, index, nexusPartnerId));
+  const refs = rows.map((r) => r.reference);
+  if (refs.length === 0) return { siteIds, actions: [] as Action[] };
+
+  // Sequential, not Promise.all — concurrent queries exhaust the pooled
+  // connections on Vercel.
+  const jobs = (await prisma.job.findMany({
+    where: { partnerActivityRef: { in: refs } },
+    select: { ...NEXUS_STUB_SELECT, possibleDuplicate: true },
+  })) as ExistingStub[];
+  const onVisits = await prisma.patrolVisit.findMany({
+    where: { partnerActivityRef: { in: refs } },
+    select: { partnerActivityRef: true },
+  });
+  const jobByRef = new Map(jobs.map((j) => [j.partnerActivityRef as string, j]));
+  const visitRefs = new Set(onVisits.map((v) => v.partnerActivityRef as string));
+
+  const wanted = rows.map((r, i) => {
+    const siteId = siteIds[i];
+    const job = jobByRef.get(r.reference);
+    if (!siteId || !r.patrol || visitRefs.has(r.reference)) return null;
+    if (job?.status === "CANCELLED" && job.cancelledByUserId) return null; // a human cancel wins
+    return { siteId, timing: r.timing };
+  });
+  const picks = assignVisits(wanted, await loadVisitPool(prisma, wanted));
+
+  const actions = rows.map((r, i): Action => {
+    if (visitRefs.has(r.reference)) return { kind: "onVisit" };
+    const job = jobByRef.get(r.reference);
+    const visit = picks[i];
+    if (job) {
+      if (!visit) return { kind: "updateJob", job };
+      return stubBlocker(job, visit) ? { kind: "review", job } : { kind: "merge", job, visit };
+    }
+    return visit ? { kind: "linkVisit", visit } : { kind: "create" };
+  });
+  return { siteIds, actions };
+}
+
 /** Report what an import would do, writing nothing. */
 export async function previewNexusCallouts(
   prisma: PrismaClient,
@@ -215,25 +324,12 @@ export async function previewNexusCallouts(
 ): Promise<CalloutSummary> {
   const { rows, skipped } = splitActivities(activities);
   const refs = rows.map((r) => r.reference);
-
-  const existing = await prisma.job.findMany({
-    where: { partnerActivityRef: { in: refs } },
-    select: { partnerActivityRef: true },
-  });
-  const existingRefs = new Set(
-    existing.map((j) => j.partnerActivityRef).filter(Boolean) as string[],
-  );
-  const toUpdate = rows.filter((r) => existingRefs.has(r.reference)).length;
-  const toCreate = rows.length - toUpdate;
-
-  const index = await loadSiteIndex(prisma, rows);
   const nexus = await prisma.partner.findUnique({
     where: { name: NEXUS_PARTNER_NAME },
     select: { id: true },
   });
-  const unmatchedSites = rows.filter(
-    (r) => matchSiteId(r, index, nexus?.id ?? null) === null,
-  ).length;
+  const { siteIds, actions } = await planCallouts(prisma, rows, nexus?.id ?? null);
+  const count = (k: Action["kind"]) => actions.filter((a) => a.kind === k).length;
 
   // Would-drop count: OPEN Nexus stubs not present in this (non-empty) batch.
   let toClose = 0;
@@ -252,19 +348,65 @@ export async function previewNexusCallouts(
 
   return {
     read: activities.length,
-    toCreate,
-    toUpdate,
+    toCreate: count("create"),
+    toUpdate: count("updateJob") + count("onVisit"),
+    toLinkVisit: count("linkVisit"),
+    toMerge: count("merge"),
+    toReview: count("review"),
     toClose,
-    unmatchedSites,
+    unmatchedSites: siteIds.filter((s) => !s).length,
     skipped,
   };
 }
 
+/** Refresh an existing stub from the dashboard (the pre-linking behaviour). */
+async function updateStub(
+  prisma: PrismaClient,
+  existing: ExistingStub,
+  row: Prepared,
+  siteId: string | null,
+  nexusPartnerId: string,
+  extra: { possibleDuplicate?: boolean } = {},
+): Promise<void> {
+  // Revive a stub *we* auto-dropped earlier that Nexus is now listing again.
+  const revive = existing.status === "CANCELLED" && existing.cancelledByUserId === null;
+  // Only refresh the human-facing fields while the stub is still untouched
+  // (OPEN) or being revived. Once a dispatcher has picked it up or edited
+  // it, we must not clobber their notes / reschedule — just keep the link
+  // and backfill a missing site match.
+  if (existing.status === "OPEN" || revive) {
+    await prisma.job.update({
+      where: { id: existing.id },
+      data: {
+        typeLabel: row.typeLabel,
+        scheduledFor: row.scheduledFor,
+        notes: row.notes,
+        reportedViaPartnerApp: true,
+        partnerId: nexusPartnerId,
+        ...(siteId ? { siteId } : {}),
+        ...(revive ? { status: "OPEN", cancelledAt: null, statusBeforeCancel: null } : {}),
+        ...extra,
+      },
+    });
+  } else if ((siteId && existing.siteId === null) || (extra.possibleDuplicate && !existing.possibleDuplicate)) {
+    await prisma.job.update({
+      where: { id: existing.id },
+      data: {
+        ...(siteId && existing.siteId === null
+          ? { siteId, partnerId: nexusPartnerId, reportedViaPartnerApp: true }
+          : {}),
+        ...extra,
+      },
+    });
+  }
+}
+
 /**
  * Import for real. Upserts one stub per activity (keyed on the LINK- reference)
- * and, when the batch is non-empty, auto-cancels OPEN stubs that dropped off
- * the dashboard. Never touches stubs an officer has already picked up
- * (ASSIGNED / IN_PROGRESS / …) or that a human cancelled.
+ * — or links it to the visit on our schedule — and, when the batch is
+ * non-empty, auto-cancels OPEN stubs that dropped off the dashboard. Never
+ * touches stubs an officer has already picked up (ASSIGNED / IN_PROGRESS / …)
+ * or that a human cancelled, and never a patrol visit.
  */
 export async function runNexusCallouts(
   prisma: PrismaClient,
@@ -282,80 +424,101 @@ export async function runNexusCallouts(
   }
 
   const { rows, skipped } = splitActivities(activities);
-  const index = await loadSiteIndex(prisma, rows);
+  const { siteIds, actions } = await planCallouts(prisma, rows, nexus.id);
 
   let created = 0;
   let updated = 0;
-  let unmatched = 0;
+  let linkedVisits = 0;
+  let merged = 0;
+  let keptForReview = 0;
   const newCallouts: CalloutResult["newCallouts"] = [];
 
-  for (const row of rows) {
-    const siteId = matchSiteId(row, index, nexus.id);
-    if (!siteId) unmatched++;
-
-    const existing = await prisma.job.findUnique({
-      where: { partnerActivityRef: row.reference },
-      select: { id: true, status: true, cancelledByUserId: true, siteId: true },
+  const createStub = async (row: Prepared, siteId: string | null) => {
+    await prisma.job.create({
+      data: {
+        type: "VPI",
+        typeLabel: row.typeLabel,
+        source: "PARTNER_REQUEST",
+        status: "OPEN",
+        priority: "MEDIUM",
+        siteId: siteId ?? undefined,
+        partnerId: nexus.id,
+        reportedViaPartnerApp: true,
+        partnerActivityRef: row.reference,
+        scheduledFor: row.scheduledFor ?? undefined,
+        notes: row.notes,
+      },
     });
+    created++;
+    newCallouts.push({
+      reference: row.reference,
+      siteName: row.siteName,
+      postcode: row.postcode,
+      scheduledFor: row.scheduledFor,
+    });
+  };
 
-    if (existing) {
-      // Revive a stub *we* auto-dropped earlier that Nexus is now listing again.
-      const revive =
-        existing.status === "CANCELLED" && existing.cancelledByUserId === null;
-      // Only refresh the human-facing fields while the stub is still untouched
-      // (OPEN) or being revived. Once a dispatcher has picked it up or edited
-      // it, we must not clobber their notes / reschedule — just keep the link
-      // and backfill a missing site match.
-      if (existing.status === "OPEN" || revive) {
-        await prisma.job.update({
-          where: { id: existing.id },
-          data: {
-            typeLabel: row.typeLabel,
-            scheduledFor: row.scheduledFor,
-            notes: row.notes,
-            reportedViaPartnerApp: true,
-            partnerId: nexus.id,
-            ...(siteId ? { siteId } : {}),
-            ...(revive
-              ? { status: "OPEN", cancelledAt: null, statusBeforeCancel: null }
-              : {}),
-          },
-        });
-      } else if (siteId && existing.siteId === null) {
-        await prisma.job.update({
-          where: { id: existing.id },
-          data: { siteId, partnerId: nexus.id, reportedViaPartnerApp: true },
-        });
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const siteId = siteIds[i];
+    const a = actions[i];
+
+    switch (a.kind) {
+      case "onVisit": {
+        // Already the visit on our schedule — nothing to change until it's
+        // done (the activities import completes it).
+        updated++;
+        break;
       }
-      updated++;
-    } else {
-      await prisma.job.create({
-        data: {
-          type: "VPI",
-          typeLabel: row.typeLabel,
-          source: "PARTNER_REQUEST",
-          status: "OPEN",
-          priority: "MEDIUM",
-          siteId: siteId ?? undefined,
-          partnerId: nexus.id,
-          reportedViaPartnerApp: true,
-          partnerActivityRef: row.reference,
-          scheduledFor: row.scheduledFor ?? undefined,
-          notes: row.notes,
-        },
-      });
-      created++;
-      newCallouts.push({
-        reference: row.reference,
-        siteName: row.siteName,
-        postcode: row.postcode,
-        scheduledFor: row.scheduledFor,
-      });
+
+      case "linkVisit":
+      case "merge": {
+        try {
+          await linkNexusVisit(prisma, {
+            visit: a.visit,
+            ref: row.reference,
+            outcome: { done: false, onSite: null, offSite: null },
+            notes: nexusLinkNote(a.visit.notes, row.reference, row.typeLabel, `due ${row.window}`),
+            stub: a.kind === "merge" ? { id: a.job.id, assignedToUserId: a.job.assignedToUserId } : null,
+          });
+          if (a.kind === "merge") merged++;
+          else linkedVisits++;
+        } catch (e) {
+          // The stub or visit changed since planning — fall back to a stub,
+          // as before linking existed, so nothing is dropped.
+          console.error("Nexus visit link failed:", errCode(e));
+          if (a.kind === "merge") {
+            await updateStub(prisma, a.job, row, siteId, nexus.id);
+            updated++;
+          } else {
+            await createStub(row, siteId);
+          }
+        }
+        break;
+      }
+
+      case "review": {
+        await updateStub(prisma, a.job, row, siteId, nexus.id, { possibleDuplicate: true });
+        keptForReview++;
+        break;
+      }
+
+      case "updateJob": {
+        await updateStub(prisma, a.job, row, siteId, nexus.id);
+        updated++;
+        break;
+      }
+
+      case "create": {
+        await createStub(row, siteId);
+        break;
+      }
     }
   }
 
   // Auto-drop: OPEN Nexus stubs no longer on the dashboard. Guarded on a
   // non-empty batch so a transient empty read never cancels the whole board.
+  // Job stubs only — a visit on our schedule is never cancelled from here.
   let closed = 0;
   if (rows.length > 0) {
     const refs = rows.map((r) => r.reference);
@@ -385,5 +548,15 @@ export async function runNexusCallouts(
     }
   }
 
-  return { created, updated, closed, unmatched, skipped, newCallouts };
+  return {
+    created,
+    updated,
+    linkedVisits,
+    merged,
+    keptForReview,
+    closed,
+    unmatched: siteIds.filter((s) => !s).length,
+    skipped,
+    newCallouts,
+  };
 }

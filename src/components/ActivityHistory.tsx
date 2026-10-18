@@ -17,6 +17,8 @@ export const ACTION_LABEL: Record<string, string> = {
   started_on_duty: "Started (on duty)",
   ended_on_duty: "Ended (on duty)",
   link_sent: "Officer link sent",
+  linked_nexus: "Linked to its Nexus activity",
+  merged_nexus: "Merged with its Nexus copy",
 };
 
 export function actionLabel(action: string): string {

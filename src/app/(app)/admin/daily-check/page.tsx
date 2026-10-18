@@ -107,7 +107,7 @@ export default async function DailyCheckPage({
             title="Possible duplicates"
             count={f.duplicates.length}
             empty="Nothing recorded twice."
-            help="The same visit at the same site and time, from two places — e.g. our scheduled patrol and the Nexus activity for it. Keep one and cancel the other."
+            help="The same visit at the same site and time, from two places — e.g. a callout logged by the office and again from a FastField report. Nexus copies of patrols on our schedule are merged into the patrol automatically; one still listed here has been worked on (an officer, billing or a report), so keep one and cancel the other."
           >
             {f.duplicates.map((d, n) => (
               <li key={n} className="px-4 py-2.5 text-sm space-y-1">

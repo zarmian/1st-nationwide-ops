@@ -18,11 +18,32 @@
  * unmatched activity still becomes a stub (address in the notes). A conservative
  * possible-duplicate flag is set when the activity looks like a job someone
  * entered by hand (same site, type, and time — no partnerActivityRef).
+ *
+ * A patrol or VPI at a site that's on our own patrol schedule doesn't get a
+ * stub: it links to the matching patrol visit, which it completes — and a stub
+ * an earlier import made for it is merged into the visit (lib/nexusVisits.ts).
  */
 import type { PrismaClient } from "@prisma/client";
 import { NEXUS_PARTNER_NAME, normalisePostcode } from "@/lib/nexusImport";
 import { normaliseNameKey } from "@/lib/siteDuplicates";
 import { ukWallClockToUtc } from "@/lib/dates";
+import { snapshotVisitFinanceIfNeeded } from "@/lib/billing";
+import {
+  NEXUS_STUB_SELECT,
+  assignVisits,
+  doneDetail,
+  errCode,
+  isPatrolFamily,
+  linkNexusVisit,
+  loadVisitPool,
+  nexusLinkNote,
+  stubBlocker,
+  updateLinkedVisit,
+  type NexusStub,
+  type NexusTiming,
+  type NexusVisit,
+  type VisitStatusT,
+} from "@/lib/nexusVisits";
 
 /** One row off the Activities report, as mapped by the robot (header → field). */
 export type NexusCompletedActivity = {
@@ -45,6 +66,12 @@ export type ActivitiesSummary = {
   read: number;
   toCreate: number;
   toUpdate: number;
+  /** Patrols / VPIs that would link to the matching visit on our schedule. */
+  toLinkVisit: number;
+  /** Earlier stubs that would be merged into the visit they duplicate. */
+  toMerge: number;
+  /** Stubs that duplicate a visit but someone has worked on — flagged ⚠. */
+  toReview: number;
   unmatchedSites: number;
   possibleDuplicates: number;
   skipped: ActivitySkip[];
@@ -53,6 +80,9 @@ export type ActivitiesSummary = {
 export type ActivitiesResult = {
   created: number;
   updated: number;
+  linkedVisits: number;
+  merged: number;
+  keptForReview: number;
   unmatched: number;
   possibleDuplicates: number;
   skipped: ActivitySkip[];
@@ -75,6 +105,21 @@ export function parseNexusDateTime(s: string | null | undefined): Date | null {
     m[5] ? Number(m[5]) : 0,
     0,
   );
+}
+
+/** The end of a "start - end" due window ("dd/mm/yyyy HH:MM", or a bare
+ *  "HH:MM" on the start's day), or null when it's a single time. */
+export function parseNexusWindowEnd(s: string | null | undefined): Date | null {
+  if (!s) return null;
+  const parts = s.split(/\s+-\s+/);
+  if (parts.length < 2) return null;
+  const end = parts[1].trim();
+  const full = parseNexusDateTime(end);
+  if (full) return full;
+  const t = end.match(/^(\d{2}):(\d{2})$/);
+  const d = parts[0].trim().match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!t || !d) return null;
+  return ukWallClockToUtc(Number(d[3]), Number(d[2]), Number(d[1]), Number(t[1]), Number(t[2]), 0);
 }
 
 /** Map Nexus's activity type text to one of our JobTypes. */
@@ -100,6 +145,8 @@ type Prepared = {
   scheduledFor: Date | null;
   startedAt: Date | null;
   completedAt: Date | null;
+  /** Due window + on-site time, for matching a visit on our schedule. */
+  timing: NexusTiming;
   notes: string;
 };
 
@@ -148,6 +195,7 @@ function prepare(a: NexusCompletedActivity):
       scheduledFor,
       startedAt,
       completedAt,
+      timing: { start: scheduledFor, end: parseNexusWindowEnd(a.dueDate), onSite: startedAt },
       notes,
     },
   };
@@ -253,34 +301,101 @@ async function looksLikeManualDuplicate(
   return Boolean(hit);
 }
 
+// ── Planning: one decision per row, shared by preview and the real run ─────
+
+type ExistingJob = NexusStub & { possibleDuplicate: boolean };
+type LinkedVisit = {
+  id: string;
+  status: VisitStatusT;
+  arrivedAt: Date | null;
+  departedAt: Date | null;
+};
+
+type Action =
+  | { kind: "updateVisit"; visit: LinkedVisit }
+  | { kind: "merge"; job: ExistingJob; visit: NexusVisit }
+  | { kind: "review"; job: ExistingJob }
+  | { kind: "updateJob"; job: ExistingJob }
+  | { kind: "linkVisit"; visit: NexusVisit }
+  | { kind: "create" };
+
+/**
+ * Decide what to do with every row without writing anything. Preview counts
+ * the decisions; the real run carries them out, so the two can't disagree.
+ *
+ *   - already on a visit (LINK ref)                → bring the visit up to date
+ *   - a stub with the ref that duplicates a visit:
+ *       nobody's worked on it                      → merge it into the visit
+ *       worked on                                  → update it, flag ⚠ for review
+ *   - a stub with the ref                          → update the stub
+ *   - a patrol / VPI matching a visit on our schedule → link the visit
+ *   - otherwise                                    → create a stub
+ */
+async function planActivities(
+  prisma: PrismaClient,
+  rows: Prepared[],
+  nexusPartnerId: string | null,
+) {
+  const index = await loadSiteIndex(prisma, rows);
+  const siteIds = rows.map((r) => matchSiteId(r, index, nexusPartnerId));
+  const refs = rows.map((r) => r.reference);
+  if (refs.length === 0) return { siteIds, actions: [] as Action[] };
+
+  // Sequential, not Promise.all — concurrent queries exhaust the pooled
+  // connections on Vercel.
+  const jobs = (await prisma.job.findMany({
+    where: { partnerActivityRef: { in: refs } },
+    select: { ...NEXUS_STUB_SELECT, possibleDuplicate: true },
+  })) as ExistingJob[];
+  const visits = await prisma.patrolVisit.findMany({
+    where: { partnerActivityRef: { in: refs } },
+    select: { id: true, status: true, arrivedAt: true, departedAt: true, partnerActivityRef: true },
+  });
+  const jobByRef = new Map(jobs.map((j) => [j.partnerActivityRef as string, j]));
+  const visitByRef = new Map(visits.map((v) => [v.partnerActivityRef as string, v]));
+
+  const wanted = rows.map((r, i) => {
+    const siteId = siteIds[i];
+    const job = jobByRef.get(r.reference);
+    if (!siteId || !isPatrolFamily(r.jobType) || visitByRef.has(r.reference)) return null;
+    if (job?.status === "CANCELLED" && job.cancelledByUserId) return null; // a human cancel wins
+    return { siteId, timing: r.timing };
+  });
+  const picks = assignVisits(wanted, await loadVisitPool(prisma, wanted));
+
+  const actions = rows.map((r, i): Action => {
+    const linked = visitByRef.get(r.reference);
+    if (linked) return { kind: "updateVisit", visit: linked as LinkedVisit };
+    const job = jobByRef.get(r.reference);
+    const visit = picks[i];
+    if (job) {
+      if (!visit) return { kind: "updateJob", job };
+      return stubBlocker(job, visit) ? { kind: "review", job } : { kind: "merge", job, visit };
+    }
+    return visit ? { kind: "linkVisit", visit } : { kind: "create" };
+  });
+  return { siteIds, actions };
+}
+
 export async function previewNexusActivities(
   prisma: PrismaClient,
   activities: NexusCompletedActivity[],
 ): Promise<ActivitiesSummary> {
   const { rows, skipped } = splitActivities(activities);
-  const refs = rows.map((r) => r.reference);
-  const existing = await prisma.job.findMany({
-    where: { partnerActivityRef: { in: refs } },
-    select: { partnerActivityRef: true },
-  });
-  const existingRefs = new Set(
-    existing.map((j) => j.partnerActivityRef).filter(Boolean) as string[],
-  );
-  const toUpdate = rows.filter((r) => existingRefs.has(r.reference)).length;
-
-  const index = await loadSiteIndex(prisma, rows);
   const nexus = await prisma.partner.findUnique({
     where: { name: NEXUS_PARTNER_NAME },
     select: { id: true },
   });
-  let unmatchedSites = 0;
+  const { siteIds, actions } = await planActivities(prisma, rows, nexus?.id ?? null);
+  const count = (k: Action["kind"]) => actions.filter((a) => a.kind === k).length;
+
   let possibleDuplicates = 0;
-  for (const r of rows) {
-    const siteId = matchSiteId(r, index, nexus?.id ?? null);
-    if (!siteId) unmatchedSites++;
-    else if (
-      !existingRefs.has(r.reference) &&
-      (await looksLikeManualDuplicate(prisma, siteId, r.jobType, r.scheduledFor))
+  for (let i = 0; i < rows.length; i++) {
+    const siteId = siteIds[i];
+    if (
+      actions[i].kind === "create" &&
+      siteId &&
+      (await looksLikeManualDuplicate(prisma, siteId, rows[i].jobType, rows[i].scheduledFor))
     ) {
       possibleDuplicates++;
     }
@@ -288,17 +403,86 @@ export async function previewNexusActivities(
 
   return {
     read: activities.length,
-    toCreate: rows.length - toUpdate,
-    toUpdate,
-    unmatchedSites,
+    toCreate: count("create"),
+    toUpdate: count("updateJob") + count("updateVisit"),
+    toLinkVisit: count("linkVisit"),
+    toMerge: count("merge"),
+    toReview: count("review"),
+    unmatchedSites: siteIds.filter((s) => !s).length,
     possibleDuplicates,
     skipped,
   };
 }
 
+/** Bring an existing stub up to date (e.g. an upcoming callout → completed). */
+async function updateStub(
+  prisma: PrismaClient,
+  existing: ExistingJob,
+  row: Prepared,
+  siteId: string | null,
+  nexusPartnerId: string,
+  extra: { possibleDuplicate?: boolean } = {},
+): Promise<void> {
+  // A human cancel wins — don't resurrect it.
+  if (existing.status === "CANCELLED" && existing.cancelledByUserId !== null) return;
+  await prisma.job.update({
+    where: { id: existing.id },
+    data: {
+      type: row.jobType as any,
+      typeLabel: row.typeLabel,
+      status: "APPROVED",
+      partnerId: nexusPartnerId,
+      reportedViaPartnerApp: true,
+      scheduledFor: row.scheduledFor ?? undefined,
+      startedAt: row.startedAt ?? undefined,
+      completedAt: row.completedAt ?? undefined,
+      notes: row.notes,
+      ...(siteId && existing.siteId === null ? { siteId } : {}),
+      ...(existing.status === "CANCELLED"
+        ? { cancelledAt: null, statusBeforeCancel: null }
+        : {}),
+      ...extra,
+    },
+  });
+}
+
+async function createStub(
+  prisma: PrismaClient,
+  row: Prepared,
+  siteId: string | null,
+  nexusPartnerId: string,
+): Promise<boolean> {
+  const flagged = siteId
+    ? await looksLikeManualDuplicate(prisma, siteId, row.jobType, row.scheduledFor)
+    : false;
+  await prisma.job.create({
+    data: {
+      type: row.jobType as any,
+      typeLabel: row.typeLabel,
+      source: "PARTNER_REQUEST",
+      status: "APPROVED",
+      priority: "MEDIUM",
+      siteId: siteId ?? undefined,
+      partnerId: nexusPartnerId,
+      reportedViaPartnerApp: true,
+      partnerActivityRef: row.reference,
+      scheduledFor: row.scheduledFor ?? undefined,
+      startedAt: row.startedAt ?? undefined,
+      completedAt: row.completedAt ?? undefined,
+      possibleDuplicate: flagged,
+      notes: row.notes,
+    },
+  });
+  return flagged;
+}
+
 export async function runNexusActivities(
   prisma: PrismaClient,
   activities: NexusCompletedActivity[],
+  opts: {
+    /** Billing + pay snapshot for a visit this completes (tests stub it). */
+    snapshotVisit?: (visitId: string) => Promise<void>;
+  } = {},
 ): Promise<ActivitiesResult> {
   const nexus = await prisma.partner.findUnique({
     where: { name: NEXUS_PARTNER_NAME },
@@ -309,78 +493,97 @@ export async function runNexusActivities(
       `Partner "${NEXUS_PARTNER_NAME}" not found. Run \`npm run db:seed\` first.`,
     );
   }
+  const snapshot = opts.snapshotVisit ?? snapshotVisitFinanceIfNeeded;
+  const finance = (visitId: string) =>
+    snapshot(visitId).catch((e) => console.error("Nexus visit finance failed:", errCode(e)));
 
   const { rows, skipped } = splitActivities(activities);
-  const index = await loadSiteIndex(prisma, rows);
+  const { siteIds, actions } = await planActivities(prisma, rows, nexus.id);
 
   let created = 0;
   let updated = 0;
-  let unmatched = 0;
+  let linkedVisits = 0;
+  let merged = 0;
+  let keptForReview = 0;
   let possibleDuplicates = 0;
 
-  for (const row of rows) {
-    const siteId = matchSiteId(row, index, nexus.id);
-    if (!siteId) unmatched++;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const siteId = siteIds[i];
+    const a = actions[i];
+    const outcome = { done: true, onSite: row.startedAt, offSite: row.completedAt };
 
-    const existing = await prisma.job.findUnique({
-      where: { partnerActivityRef: row.reference },
-      select: { id: true, status: true, cancelledByUserId: true, siteId: true },
-    });
-
-    if (existing) {
-      // A human cancel wins — don't resurrect it.
-      if (existing.status === "CANCELLED" && existing.cancelledByUserId !== null) {
+    switch (a.kind) {
+      case "updateVisit": {
+        const { completed } = await updateLinkedVisit(prisma, a.visit, outcome);
+        if (completed) await finance(a.visit.id);
         updated++;
-        continue;
+        break;
       }
-      // Upgrade the stub (e.g. an upcoming callout) to completed.
-      await prisma.job.update({
-        where: { id: existing.id },
-        data: {
-          type: row.jobType as any,
-          typeLabel: row.typeLabel,
-          status: "APPROVED",
-          partnerId: nexus.id,
-          reportedViaPartnerApp: true,
-          scheduledFor: row.scheduledFor ?? undefined,
-          startedAt: row.startedAt ?? undefined,
-          completedAt: row.completedAt ?? undefined,
-          notes: row.notes,
-          ...(siteId && existing.siteId === null ? { siteId } : {}),
-          ...(existing.status === "CANCELLED"
-            ? { cancelledAt: null, statusBeforeCancel: null }
-            : {}),
-        },
-      });
-      updated++;
-      continue;
+
+      case "linkVisit":
+      case "merge": {
+        try {
+          const { completed } = await linkNexusVisit(prisma, {
+            visit: a.visit,
+            ref: row.reference,
+            outcome,
+            notes: nexusLinkNote(
+              a.visit.notes,
+              row.reference,
+              row.typeLabel,
+              doneDetail(row.startedAt, row.completedAt),
+            ),
+            stub: a.kind === "merge" ? { id: a.job.id, assignedToUserId: a.job.assignedToUserId } : null,
+          });
+          if (completed) await finance(a.visit.id);
+          if (a.kind === "merge") merged++;
+          else linkedVisits++;
+        } catch (e) {
+          // The stub or visit changed since planning — fall back to keeping a
+          // stub, as before linking existed, so nothing is dropped.
+          console.error("Nexus visit link failed:", errCode(e));
+          if (a.kind === "merge") {
+            await updateStub(prisma, a.job, row, siteId, nexus.id);
+            updated++;
+          } else {
+            if (await createStub(prisma, row, siteId, nexus.id)) possibleDuplicates++;
+            created++;
+          }
+        }
+        break;
+      }
+
+      case "review": {
+        // Duplicates a visit on our schedule, but someone's worked on it —
+        // keep it up to date and flag it for the office.
+        await updateStub(prisma, a.job, row, siteId, nexus.id, { possibleDuplicate: true });
+        keptForReview++;
+        break;
+      }
+
+      case "updateJob": {
+        await updateStub(prisma, a.job, row, siteId, nexus.id);
+        updated++;
+        break;
+      }
+
+      case "create": {
+        if (await createStub(prisma, row, siteId, nexus.id)) possibleDuplicates++;
+        created++;
+        break;
+      }
     }
-
-    const flagged = siteId
-      ? await looksLikeManualDuplicate(prisma, siteId, row.jobType, row.scheduledFor)
-      : false;
-    if (flagged) possibleDuplicates++;
-
-    await prisma.job.create({
-      data: {
-        type: row.jobType as any,
-        typeLabel: row.typeLabel,
-        source: "PARTNER_REQUEST",
-        status: "APPROVED",
-        priority: "MEDIUM",
-        siteId: siteId ?? undefined,
-        partnerId: nexus.id,
-        reportedViaPartnerApp: true,
-        partnerActivityRef: row.reference,
-        scheduledFor: row.scheduledFor ?? undefined,
-        startedAt: row.startedAt ?? undefined,
-        completedAt: row.completedAt ?? undefined,
-        possibleDuplicate: flagged,
-        notes: row.notes,
-      },
-    });
-    created++;
   }
 
-  return { created, updated, unmatched, possibleDuplicates, skipped };
+  return {
+    created,
+    updated,
+    linkedVisits,
+    merged,
+    keptForReview,
+    unmatched: siteIds.filter((s) => !s).length,
+    possibleDuplicates,
+    skipped,
+  };
 }

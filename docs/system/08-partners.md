@@ -22,6 +22,8 @@
 
 The load-bearing distinction: **`Site.partnerId`/`Job.partnerId` (mode 2, partner *is the customer*) vs `Job.handledByPartnerId` (mode 3, partner *did the work for us*) mean opposite things.** A partner can be both (`PartnerRole.BOTH`) — Nexus and Keyholding Co are.
 
+Mode 2 has one exception to "stub `Job` only". A partner's patrol or VPI at a site that's on our own patrol schedule doesn't get a stub. Its reference goes on that `PatrolVisit` (`PatrolVisit.partnerActivityRef`), so the one patrol isn't recorded twice. This applies to both Nexus imports and to Keyholding. See [`docs/nexus-sync.md`](../nexus-sync.md#patrols-already-on-our-schedule) and [`docs/keyholding-sync.md`](../keyholding-sync.md).
+
 ## Data model
 
 Source: `prisma/schema.prisma`. Money is `Decimal(10,2)`.

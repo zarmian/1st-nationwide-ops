@@ -13,10 +13,12 @@ import {
   durationMinutes,
   jobTypeToRateService,
   payForOfficer,
+  snapshotVisitFinanceIfNeeded,
 } from "@/lib/billing";
 import { reassignJobCore } from "@/lib/jobActions";
 import { logActivity } from "@/lib/audit";
 import { dedupePatrolVisits as dedupePatrolVisitsCore } from "@/lib/patrolDedup";
+import { mergeNexusDuplicates } from "@/lib/nexusVisits";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),
@@ -447,22 +449,34 @@ export async function restorePatrolVisit(
 /**
  * Admin "Clean up duplicates" button. Duplicates are also cleaned automatically
  * by the daily patrol-visits cron; this is the on-demand path. Shares the core
- * in lib/patrolDedup. Admin only.
+ * in lib/patrolDedup, then merges this month's Nexus patrol stubs into the
+ * visit on our schedule they duplicate (lib/nexusVisits). Admin only.
  */
 export async function dedupePatrolVisits(): Promise<{
   ok: boolean;
   groups?: number;
   cancelled?: number;
+  nexusMerged?: number;
+  nexusKept?: number;
   error?: string;
 }> {
   const me = await requireAdmin();
   try {
     const r = await dedupePatrolVisitsCore({ cancelledByUserId: me.id });
+    const n = await mergeNexusDuplicates(prisma, {
+      snapshotVisit: snapshotVisitFinanceIfNeeded,
+    });
     revalidatePath("/patrols");
     revalidatePath("/dispatch");
     revalidatePath("/activities");
     revalidatePath("/finance");
-    return { ok: true, groups: r.groups, cancelled: r.cancelled };
+    return {
+      ok: true,
+      groups: r.groups,
+      cancelled: r.cancelled,
+      nexusMerged: n.merged,
+      nexusKept: n.keptForReview,
+    };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Clean-up failed." };
   }

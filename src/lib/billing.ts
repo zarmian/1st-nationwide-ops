@@ -533,6 +533,47 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
   }
 }
 
+/**
+ * The PatrolVisit counterpart of snapshotJobFinanceIfNeeded: billing + officer
+ * pay onto a completed visit, filling only columns that are still null, at the
+ * visit's accounting date (the scheduled night). For visits completed outside
+ * the officer's own report — e.g. a Nexus import marking it done — so finance
+ * treats them like one the office closed for the officer. Officer pay only
+ * for our own officers (not a partner-handled visit).
+ */
+export async function snapshotVisitFinanceIfNeeded(visitId: string): Promise<void> {
+  const v = await prisma.patrolVisit.findUnique({
+    where: { id: visitId },
+    select: {
+      id: true,
+      siteId: true,
+      status: true,
+      officerId: true,
+      handledByPartnerId: true,
+      arrivedAt: true,
+      departedAt: true,
+      scheduledAt: true,
+      scheduleDate: true,
+      billedAmount: true,
+      paidAmount: true,
+      patrolSchedule: { select: { kind: true } },
+    },
+  });
+  if (!v || v.status !== "COMPLETED") return;
+  const service = jobTypeToRateService(v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL");
+  if (!service) return;
+  const duration = durationMinutes(v.arrivedAt, v.departedAt);
+  const at = visitAccountingDate(v);
+  if (v.billedAmount == null) {
+    const bill = await billForSite(v.siteId, service, duration);
+    if (bill.ok) await applyBillingToVisit(v.id, bill, at);
+  }
+  if (v.officerId && !v.handledByPartnerId && v.paidAmount == null) {
+    const pay = await payForOfficer(v.officerId, service, duration);
+    if (pay.ok) await applyPayToVisit(v.id, pay, at);
+  }
+}
+
 /** Mirrors applyPayToJob — writes the officer-pay snapshot onto a Shift. */
 export async function applyPayToShift(
   shiftId: string,

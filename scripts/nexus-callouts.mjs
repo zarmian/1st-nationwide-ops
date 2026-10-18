@@ -218,11 +218,11 @@ async function run() {
   }
   if (preview) {
     console.log(
-      `Preview OK — would create ${json.toCreate}, update ${json.toUpdate}, drop ${json.toClose}, ${json.unmatchedSites} unmatched-site (read ${json.read}).`,
+      `Preview OK — would create ${json.toCreate}, update ${json.toUpdate}, link ${json.toLinkVisit || 0} to our patrols, merge ${json.toMerge || 0}, flag ${json.toReview || 0} for review, drop ${json.toClose}, ${json.unmatchedSites} unmatched-site (read ${json.read}).`,
     );
   } else {
     console.log(
-      `Callouts OK — created ${json.created}, updated ${json.updated}, dropped ${json.closed}, ${json.unmatched} unmatched-site, skipped ${json.skipped?.length || 0}.`,
+      `Callouts OK — created ${json.created}, updated ${json.updated}, linked ${json.linkedVisits || 0} to our patrols, merged ${json.merged || 0}, flagged ${json.keptForReview || 0} for review, dropped ${json.closed}, ${json.unmatched} unmatched-site, skipped ${json.skipped?.length || 0}.`,
     );
   }
 }

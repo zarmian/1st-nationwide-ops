@@ -147,10 +147,18 @@ in the notes so nothing is dropped.
 - **Dedup key:** `Job.partnerActivityRef` (the `LINK-…` reference, UNIQUE). A
   re-run updates the same stub; two genuine callouts on one site (different
   references) stay two stubs.
+- **Patrols already on our schedule** get no stub — the callout links to the
+  patrol visit instead (see [below](#patrols-already-on-our-schedule)). It
+  isn't a new callout, so no alert.
 - **Auto-drop:** an **OPEN** stub that's no longer on the dashboard is
   auto-cancelled (reversible). Only ever OPEN ones — anything an officer has
-  picked up, or a human cancelled, is left alone. Guarded on a **non-empty**
-  read, so a transient blank dashboard never cancels the board.
+  picked up, or a human cancelled, is left alone, and never a patrol visit.
+  Guarded on a **non-empty** read, so a transient blank dashboard never
+  cancels the board.
+- **Times** on the dashboard are UK time (BST in summer), like the Activities
+  report. Before October 2026 the callouts import read them as UTC, so in
+  summer a callout's deadline showed an hour late; open stubs correct
+  themselves on the next run.
 - **Alert:** when a run creates new callouts, the office gets one summary
   notification (the **New Nexus callout** kind — dispatchers + admins, Telegram
   by default; change it on `/admin/notifications/settings`). Deduped on *which*
@@ -198,6 +206,53 @@ matched by **SIN** first (`Site.partnerSin`), then postcode + name.
   you can check before billing/paying twice. Nothing is blocked or merged.
 - **Note:** the report doesn't name which of *our* officers attended, so stubs
   import unassigned; assign the officer if you need it for pay.
+- **Patrols already on our schedule** get no stub — the activity completes the
+  patrol visit instead (see below).
+
+### Patrols already on our schedule
+
+Some Nexus sites are on our own patrol schedule too. Swail House is one: our
+schedule makes a 22:00 patrol, and Nexus sends the same patrol with a
+19:00–23:00 window. Each Nexus import used to make a job stub for it, so the
+one patrol showed twice. Now a Nexus **patrol or VPI** is matched to the visit
+on our schedule, and its `LINK-…` reference goes on the visit
+(`PatrolVisit.partnerActivityRef`), the way Keyholding patrols link
+(`src/lib/nexusVisits.ts`):
+
+- **Match:**
+  - The visit must be at the same site, not cancelled, and not linked to
+    another activity.
+  - Its time must fit. For a completed activity, that's within **3 hours** of
+    when the officer was on site. For an upcoming one, it's inside the **due
+    window**, with an hour's slack either side.
+  - Windows longer than a day, such as a week-long VPI window, can't be pinned
+    to one visit, so they still make a stub. The completed activity merges
+    that stub later.
+  - Best fit first, one visit per activity, so a site with two patrols a night
+    pairs each with its own Nexus activity.
+- **Completed:**
+  - The visit moves forward to **completed**, never back. That includes one we
+    had marked late or missed, because the officer recorded it in Nexus's app.
+  - Arrival and departure times it lacks are filled in from Nexus.
+  - Billing and officer pay are snapshotted where missing, as when the office
+    closes a visit for an officer.
+  - The visit's officer, client and partner are never taken from Nexus.
+  - A note on the visit records the reference and the on-site times, and the
+    visit's history shows *Linked to its Nexus activity*.
+- **Stubs from before:** a stub an earlier import made for the patrol is
+  **merged** into the visit. The reference moves to the visit, the stub is
+  deleted, and the stub's officer is carried over if the visit has none.
+  - A stub is only merged if nobody has worked on it: no invoice, billing or
+    pay, no report, not in progress, not handed to a partner, not cancelled by
+    hand, and not a different officer from the visit's.
+  - Otherwise it stays, marked ⚠ possible duplicate, for the office to decide.
+- **The clean-up:**
+  - The imports only see the last few days, so this month's older stubs are
+    merged nightly by the `patrol-visits` cron, and on demand by **Patrols →
+    Clean up duplicates**.
+  - Earlier months are left as they were, because their pay and billing are
+    already done.
+- **The robots' logs** count the links, merges and ⚠ flags (counts only).
 
 ## Notes & caveats (both robots)
 
