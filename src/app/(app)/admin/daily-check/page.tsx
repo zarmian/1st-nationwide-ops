@@ -172,7 +172,9 @@ export default async function DailyCheckPage({
             <ul className="space-y-1">
               {f.syncs.map((s) => (
                 <li key={s.name} className="flex flex-wrap items-center gap-x-2">
-                  <span className={s.stale ? "chip-red" : "chip-mint"}>{s.stale ? "late" : "ok"}</span>
+                  <span className={!s.lastSeen ? "chip-slate" : s.stale ? "chip-red" : "chip-mint"}>
+                    {!s.lastSeen ? "no data" : s.stale ? "late" : "ok"}
+                  </span>
                   <span className="text-slate-800">{s.name}</span>
                   <span className="text-xs text-slate-500">
                     last {s.lastSeen ? formatDateTime(s.lastSeen) : "— not run yet"}
