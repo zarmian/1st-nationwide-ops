@@ -501,6 +501,8 @@ model Customer {
   recurringCharges RecurringCharge[]
   creditNotes     CreditNote[]
   contracts       Contract[]
+  /// FastField forms that report work for this customer (Admin → FastField).
+  fastfieldForms  FastFieldForm[] @relation("FastFieldFormCustomer")
 
   @@index([name])
   @@index([hidden])
@@ -576,6 +578,8 @@ model Site {
   formTemplates         FormTemplate[]
   rates                 SiteRate[]
   shifts                Shift[]
+  /// FastField reports matched to this site.
+  fastfieldReports FastFieldReport[] @relation("FastFieldReportSite")
 
   @@index([regionId])
   @@index([customerId])
@@ -826,6 +830,8 @@ model PatrolVisit {
 
   job                Job?
   formSubmissions    FormSubmission[]
+  /// FastField reports attached to this visit.
+  fastfieldReports FastFieldReport[] @relation("FastFieldReportVisit")
 
   @@index([siteId, scheduledAt])
   @@index([officerId, scheduledAt])
@@ -1123,6 +1129,8 @@ model Job {
   updatedAt             DateTime      @updatedAt
 
   formSubmissions       FormSubmission[]
+  /// FastField reports attached to (or that created) this job.
+  fastfieldReports FastFieldReport[] @relation("FastFieldReportJob")
 
   @@index([siteId, status])
   @@index([assignedToUserId, status])
@@ -1160,6 +1168,8 @@ model FormSubmission {
   submittedAt         DateTime        @default(now())
 
   review              ReportReview?
+  /// Set when this submission was imported from FastField.
+  fastfieldReport FastFieldReport? @relation("FastFieldReportSubmission")
 
   @@index([siteId, submittedAt])
   @@index([jobId])
@@ -1922,4 +1932,87 @@ model McpSettings {
   allowDispatchers Boolean  @default(false)
   updatedByUserId  String?  @db.Uuid
   updatedAt        DateTime @updatedAt
+}
+
+// ── FastField import ───────────────────────────────────────────────────────
+// Officers fill FastField forms for callouts (Shurgard and a couple of other
+// clients). A robot (scripts/fastfield-forms.mjs, in Partner syncs) reads
+// them from the FastField portal and POSTs them to /api/imports/fastfield,
+// which stores each one here and attaches it to the matching activity (same
+// site, within 3 hours) — creating the callout job for forms set to do so
+// (Shurgard). See docs/fastfield-sync.md.
+
+enum FastFieldReportStatus {
+  LINKED
+  CREATED
+  UNMATCHED
+  IGNORED
+}
+
+/// A FastField form, and how its submissions are imported. Managed on
+/// Admin → FastField. Rows appear as the robot sees the forms.
+model FastFieldForm {
+  /// FastField's own form id (e.g. 549243 = the Shurgard form).
+  formId     Int               @id
+  name       String
+  /// The client this form reports work for. Sites are matched within it.
+  customerId String?           @db.Uuid
+  customer   Customer?         @relation("FastFieldFormCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  /// Import this form's submissions at all.
+  enabled    Boolean           @default(false)
+  /// When nothing matches, create the callout job (on for Shurgard).
+  createJobs Boolean           @default(false)
+  /// Type of the job created when nothing matches.
+  jobType    JobType           @default(ALARM_RESPONSE)
+  lastSeenAt DateTime          @default(now())
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  reports    FastFieldReport[]
+}
+
+/// One FastField submission as imported: the answers (in form order), photos
+/// and signature (copied into our storage), GPS and times, and what it was
+/// attached to.
+model FastFieldReport {
+  id               String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// FastField's submission id — re-imports update, never duplicate.
+  submissionId     String                @unique
+  formId           Int
+  form             FastFieldForm         @relation(fields: [formId], references: [formId])
+  /// When it was submitted in FastField.
+  submittedAt      DateTime
+  /// Form opened / finished on the officer's device (≈ arrival / departure).
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  /// FastField user who submitted it, and the officer named in the form.
+  submittedBy      String?
+  officerText      String?
+  /// The site as typed in the form.
+  siteText         String?
+  lat              Float?
+  lng              Float?
+  /// [{ key, label, type, value }] in form order.
+  answers          Json                  @default("[]")
+  photoUrls        String[]              @default([])
+  signatureUrl     String?
+  status           FastFieldReportStatus @default(UNMATCHED)
+  /// Why it's unmatched, or how it was matched.
+  note             String?
+  siteId           String?               @db.Uuid
+  site             Site?                 @relation("FastFieldReportSite", fields: [siteId], references: [id], onDelete: SetNull)
+  jobId            String?               @db.Uuid
+  job              Job?                  @relation("FastFieldReportJob", fields: [jobId], references: [id], onDelete: SetNull)
+  patrolVisitId    String?               @db.Uuid
+  patrolVisit      PatrolVisit?          @relation("FastFieldReportVisit", fields: [patrolVisitId], references: [id], onDelete: SetNull)
+  formSubmissionId String?               @unique @db.Uuid
+  formSubmission   FormSubmission?       @relation("FastFieldReportSubmission", fields: [formSubmissionId], references: [id], onDelete: SetNull)
+  /// True when the import created the job (rather than linking an existing one).
+  jobCreated       Boolean               @default(false)
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@index([status, submittedAt])
+  @@index([siteId])
+  @@index([jobId])
+  @@index([patrolVisitId])
 }
