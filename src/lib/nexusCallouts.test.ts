@@ -2,18 +2,23 @@ import { describe, it, expect } from "vitest";
 import { parseNexusDateTime, matchSiteId } from "./nexusCallouts";
 
 describe("parseNexusDateTime", () => {
-  it("parses the dashboard's dd/mm/yyyy HH:MM as UTC", () => {
+  it("parses the dashboard's dd/mm/yyyy HH:MM as UK time", () => {
+    // September / October 2026 are BST (UTC+1).
     expect(parseNexusDateTime("07/09/2026 00:00")?.toISOString()).toBe(
-      "2026-09-07T00:00:00.000Z",
+      "2026-09-06T23:00:00.000Z",
     );
     expect(parseNexusDateTime("15/10/2026 13:30")?.toISOString()).toBe(
-      "2026-10-15T13:30:00.000Z",
+      "2026-10-15T12:30:00.000Z",
+    );
+    // December is GMT (UTC+0).
+    expect(parseNexusDateTime("01/12/2026 19:00")?.toISOString()).toBe(
+      "2026-12-01T19:00:00.000Z",
     );
   });
 
-  it("accepts a bare date (defaults to midnight)", () => {
+  it("accepts a bare date (defaults to UK midnight)", () => {
     expect(parseNexusDateTime("28/08/2026")?.toISOString()).toBe(
-      "2026-08-28T00:00:00.000Z",
+      "2026-08-27T23:00:00.000Z",
     );
   });
 

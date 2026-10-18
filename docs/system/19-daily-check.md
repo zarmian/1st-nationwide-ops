@@ -7,7 +7,7 @@ Every morning the app looks over everything since the last check and tells the o
 | Section | What it catches |
 |---|---|
 | **Incidents and security issues** | **Claude** reads the FastField reports that came in and lists real incidents, each rated high / medium / low: break-ins, damage, intruders, police or fire called, doors or gates found open, alarm faults, injuries, people locked in. If Claude isn't configured or can't be reached, a keyword scan stands in. |
-| **Possible duplicates** | The same visit recorded twice at a site. The motivating case is **Swail House**: our patrol schedule makes a 22:00 visit, and the Nexus activities import adds a stub for the same patrol (window 19:00–23:00). Another case is a callout logged by the office that was also made from a FastField report. |
+| **Possible duplicates** | The same visit recorded twice at a site. The motivating case was **Swail House**: our patrol schedule makes a 22:00 visit, and the Nexus imports added a stub for the same patrol (window 19:00–23:00). The Nexus imports now link such patrols to the visit, and merge the stubs they made before. So a Nexus pair listed here is one someone has worked on (marked ⚠). Another case is a callout logged by the office that was also made from a FastField report. |
 | **Missing reports** | Our own officers' jobs, patrols and static / dog-handler shifts with no report attached. A report can be a FormSubmission, a FastField report, or a shift check-in. Work reported in a partner's own app is left out: `reportedViaPartnerApp`, partner-handled work, Nexus sites, Keyholding sites, and Keyholding customer sites. This section runs only once at least one FastField form is **On**. |
 | **FastField report problems** | The phone's GPS was more than 500 m from the site, or beyond the site's own geofence if that is larger. The typed site name reads like a different site, or the typed postcode is another site's. The form doesn't fit the job (a patrol form on a callout, a callout form on a patrol or shift, an unlock on a lock-up). The named officer isn't on the staff list, so pay can't be matched. |
 | **Syncs** | When FastField, Nexus and Keyholding last synced. A sync is flagged *late* after 8 hours, which is two missed 4-hourly runs. Also shows how many FastField reports are waiting to be linked by hand. |
@@ -72,6 +72,11 @@ Migration `20261018180000_daily_check`, additive.
 
 ## Extension points & gotchas
 
-- **Root cause of the Swail House duplicate.** `nexusActivities.ts` only flags a stub as a `possibleDuplicate` against manually entered jobs, not against our own patrol visits. Linking a Nexus activity to the matching patrol visit at import time (as `keyholdingJobs.ts` does) would stop these duplicates at source. Until then, the daily check lists them for the office to cancel one.
+- **Swail House duplicates are fixed at source.**
+  - Both Nexus imports now link a patrol or VPI to the matching visit on our schedule, instead of making a stub (`lib/nexusVisits.ts`).
+  - The stubs they made before are merged into the visit nightly.
+  - A stub someone has worked on is left for the office and marked ⚠. The check still lists that pair.
+  - See [`docs/nexus-sync.md`](../nexus-sync.md#patrols-already-on-our-schedule).
+- **Sync health.** The Nexus line uses the newest Nexus job stub's update time. Patrols that link to a visit don't touch a stub. A quiet spell with only such patrols could therefore show *late* while the sync is fine. Alarm responses and other activities still make stubs, so this is unlikely.
 - **Partner apps.** The "reported elsewhere" partners are found by name: `NEXUS_PARTNER_NAME`, any partner whose name contains "keyholding", and the Keyholding customer. A new partner whose app our officers fill in would need adding.
 - **Claude model.** It uses `ANTHROPIC_MODEL`, or the default in `lib/anthropic.ts`, the same as the Telegram bot.

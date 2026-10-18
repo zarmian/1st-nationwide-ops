@@ -5,8 +5,9 @@
  * A duplicate is more than one non-cancelled visit for the same site, exact
  * scheduled time and kind — the artefact of the old schedule-churn bug. We keep
  * one visit per slot and cancel the extras, only ever cancelling PENDING visits
- * (never actioned/completed work), preferring to keep an actioned or a
- * schedule-linked visit. Safe to run repeatedly.
+ * (never actioned/completed work, nor one linked to a partner's activity, e.g.
+ * a Nexus or Keyholding reference), preferring to keep an actioned, a
+ * partner-linked or a schedule-linked visit. Safe to run repeatedly.
  */
 import { prisma } from "@/lib/db";
 import { logActivity } from "@/lib/audit";
@@ -29,6 +30,7 @@ export async function dedupePatrolVisits(opts?: {
       scheduledAt: true,
       status: true,
       patrolScheduleId: true,
+      partnerActivityRef: true,
       patrolSchedule: { select: { kind: true } },
     },
     orderBy: { createdAt: "asc" },
@@ -50,16 +52,22 @@ export async function dedupePatrolVisits(opts?: {
   for (const arr of groups.values()) {
     if (arr.length < 2) continue;
     dupGroups++;
-    // Keep one: an actioned visit if any (never cancel real work), else a
-    // schedule-linked PENDING, else the earliest (arr is createdAt-ascending).
+    // Keep one: an actioned visit if any (never cancel real work), else one
+    // linked to a partner's activity, else a schedule-linked PENDING, else the
+    // earliest (arr is createdAt-ascending).
     const actioned = arr.filter((v) => v.status !== "PENDING");
     const keeperId =
       actioned.length > 0
         ? actioned[0].id
-        : (arr.find((v) => v.patrolScheduleId !== null) ?? arr[0]).id;
+        : (
+            arr.find((v) => v.partnerActivityRef !== null) ??
+            arr.find((v) => v.patrolScheduleId !== null) ??
+            arr[0]
+          ).id;
     for (const v of arr) {
       if (v.id === keeperId) continue;
       if (v.status !== "PENDING") continue; // never cancel actioned work
+      if (v.partnerActivityRef !== null) continue; // nor a partner's activity
       toCancel.push(v.id);
     }
   }

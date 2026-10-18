@@ -217,7 +217,9 @@ async function run() {
 
     // POST in chunks so each request stays within the serverless time limit.
     let created = 0, updated = 0, unmatched = 0, dupes = 0, skipped = 0;
+    let linked = 0, merged = 0, review = 0;
     let pCreate = 0, pUpdate = 0, pUnmatched = 0, pDupes = 0;
+    let pLink = 0, pMerge = 0, pReview = 0;
     for (let i = 0; i < activities.length; i += CHUNK) {
       const chunk = activities.slice(i, i + CHUNK);
       let ok = false, last = { status: 0, json: {} };
@@ -231,12 +233,18 @@ async function run() {
             pUpdate += json.toUpdate || 0;
             pUnmatched += json.unmatchedSites || 0;
             pDupes += json.possibleDuplicates || 0;
+            pLink += json.toLinkVisit || 0;
+            pMerge += json.toMerge || 0;
+            pReview += json.toReview || 0;
           } else {
             created += json.created || 0;
             updated += json.updated || 0;
             unmatched += json.unmatched || 0;
             dupes += json.possibleDuplicates || 0;
             skipped += json.skipped?.length || 0;
+            linked += json.linkedVisits || 0;
+            merged += json.merged || 0;
+            review += json.keptForReview || 0;
           }
         } else if (res.status >= 500) {
           await new Promise((r) => setTimeout(r, 2000 * attempt));
@@ -250,9 +258,9 @@ async function run() {
     }
 
     if (preview) {
-      console.log(`Preview OK — would create ${pCreate}, update ${pUpdate}, ${pUnmatched} unmatched-site, ${pDupes} possible duplicates.`);
+      console.log(`Preview OK — would create ${pCreate}, update ${pUpdate}, link ${pLink} to our patrols, merge ${pMerge}, flag ${pReview} for review, ${pUnmatched} unmatched-site, ${pDupes} possible duplicates.`);
     } else {
-      console.log(`Activities OK — created ${created}, updated ${updated}, ${unmatched} unmatched-site, ${dupes} possible duplicates, skipped ${skipped}.`);
+      console.log(`Activities OK — created ${created}, updated ${updated}, linked ${linked} to our patrols, merged ${merged}, flagged ${review} for review, ${unmatched} unmatched-site, ${dupes} possible duplicates, skipped ${skipped}.`);
     }
   } catch (err) {
     await page.screenshot({ path: "nexus-activities-page.png", fullPage: true }).catch(() => {});

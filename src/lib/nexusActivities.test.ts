@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { parseNexusDateTime, mapJobType, matchSiteId, previewNexusActivities } from "./nexusActivities";
+import {
+  parseNexusDateTime,
+  parseNexusWindowEnd,
+  mapJobType,
+  matchSiteId,
+  previewNexusActivities,
+} from "./nexusActivities";
 
 describe("parseNexusDateTime", () => {
   it("parses dd/mm/yyyy HH:MM as UK wall-clock", () => {
@@ -17,6 +23,17 @@ describe("parseNexusDateTime", () => {
     expect(
       parseNexusDateTime("09/12/2024 00:00 - 16/12/2024 00:00")?.toISOString(),
     ).toBe("2024-12-09T00:00:00.000Z");
+  });
+
+  it("reads the end of a due-date window", () => {
+    expect(parseNexusWindowEnd("17/10/2026 19:00 - 17/10/2026 23:00")?.toISOString()).toBe(
+      "2026-10-17T22:00:00.000Z",
+    );
+    expect(parseNexusWindowEnd("17/10/2026 19:00 - 23:00")?.toISOString()).toBe(
+      "2026-10-17T22:00:00.000Z",
+    );
+    expect(parseNexusWindowEnd("17/10/2026 19:00")).toBeNull();
+    expect(parseNexusWindowEnd(null)).toBeNull();
   });
 
   it("returns null for time-only or blank values", () => {
@@ -101,6 +118,7 @@ describe("site lookup when Nexus rows carry no SIN", () => {
     const siteQueries: unknown[] = [];
     const prisma = {
       job: { findMany: async () => [], findFirst: async () => null },
+      patrolVisit: { findMany: async () => [] },
       partner: { findUnique: async () => null },
       site: {
         findMany: async (args: unknown) => {
