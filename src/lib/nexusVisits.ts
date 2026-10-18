@@ -10,9 +10,10 @@
  *
  *   - Match: same site; a visit that isn't cancelled or linked to another
  *     activity; whose time fits — within 3 h of when the officer was on site,
- *     or inside the due window (an hour's slack either side; windows up to a
- *     day — a week-long VPI window can't be pinned to one visit). Best fit
- *     first, one visit per activity.
+ *     or inside the due window (an hour's slack either side). A window longer
+ *     than a day (a weekly VPI, often done days later) matches the one visit
+ *     of ours inside it — and nothing when there are several. Best fit first,
+ *     one visit per activity.
  *   - A completed activity moves the visit forward to completed (never back),
  *     fills in arrival / departure times it lacks, and snapshots billing and
  *     officer pay where missing — as when the office closes a visit for an
@@ -23,19 +24,19 @@
  *     flagged ⚠ possible duplicate for the office.
  *
  * mergeNexusDuplicates sweeps up the stubs made before this (the imports only
- * see the last few days): this month's, nightly from the patrol-visits cron and
- * on demand from Patrols → Clean up duplicates. Earlier months are left as they
- * were — their pay and billing are already done.
+ * see the last few days), back to September 2026 when the Nexus imports began
+ * — nightly from the patrol-visits cron and on demand from Patrols → Clean up
+ * duplicates.
  */
 import type { PrismaClient } from "@prisma/client";
-import { formatDateTime, formatTime, ukDayString, ukWallClockToUtc } from "@/lib/dates";
+import { formatDateTime, formatTime, ukWallClockToUtc } from "@/lib/dates";
 
 const HOUR = 60 * 60 * 1000;
 /** On-site time ↔ visit time, either way. */
 export const NEXUS_LINK_MS = 3 * HOUR;
 /** Slack either side of a due window. */
 export const WINDOW_PAD_MS = HOUR;
-/** Longer windows (a week-long VPI) are too wide to pin to one visit. */
+/** Longer windows (a week-long VPI) match only the one visit inside them. */
 export const MAX_WINDOW_MS = 24 * HOUR;
 
 export type VisitStatusT =
@@ -62,15 +63,27 @@ export const isPatrolFamily = (type: string | null | undefined): boolean =>
 // ── Pure rules ────────────────────────────────────────────────────────────
 
 /**
+ * A due window longer than a day — a weekly VPI — from its start to its end
+ * (or, when the end isn't known, to when the officer was there). Null for a
+ * normal window.
+ */
+export function longWindow(t: NexusTiming): { s: number; e: number } | null {
+  const s = t.start?.getTime();
+  const e = (t.end ?? t.onSite)?.getTime();
+  if (s == null || e == null || e - s <= MAX_WINDOW_MS) return null;
+  return { s, e };
+}
+
+/**
  * How well a visit at `at` fits a Nexus activity — lower is better, null when
- * it doesn't fit at all.
+ * it doesn't fit at all. Long windows are matched in assignVisits instead.
  */
 export function visitFit(t: NexusTiming, at: Date): number | null {
+  if (longWindow(t)) return null;
   const x = at.getTime();
   const s = t.start?.getTime() ?? null;
   const e = t.end?.getTime() ?? null;
-  const hasWindow = s != null && e != null && e >= s;
-  const window = hasWindow && e - s <= MAX_WINDOW_MS ? { s, e } : null;
+  const window = s != null && e != null && e >= s ? { s, e } : null;
   const inWindow =
     window != null && x >= window.s - WINDOW_PAD_MS && x <= window.e + WINDOW_PAD_MS;
 
@@ -84,7 +97,6 @@ export function visitFit(t: NexusTiming, at: Date): number | null {
     // Inside the window beats the slack around it; then nearest the middle.
     return outside > 0 ? MAX_WINDOW_MS + outside : Math.abs(x - (window.s + window.e) / 2);
   }
-  if (hasWindow) return null;
   const single = s ?? e;
   if (single == null) return null;
   const gap = Math.abs(x - single);
@@ -94,7 +106,9 @@ export function visitFit(t: NexusTiming, at: Date): number | null {
 /**
  * Pair activities with visits at the same site: best fit first across the
  * whole batch, each visit used once. So a site with two patrols a night pairs
- * each Nexus activity with its own visit. Returns the visit per row (or null).
+ * each Nexus activity with its own visit. A long window (a weekly VPI) pairs
+ * with the one visit inside it, after the closer fits. Returns the visit per
+ * row (or null).
  */
 export function assignVisits<V extends { id: string; siteId: string; scheduledAt: Date }>(
   rows: ({ siteId: string; timing: NexusTiming } | null)[],
@@ -105,7 +119,19 @@ export function assignVisits<V extends { id: string; siteId: string; scheduledAt
   const cands: { i: number; v: V; score: number }[] = [];
   rows.forEach((r, i) => {
     if (!r) return;
-    for (const v of bySite.get(r.siteId) ?? []) {
+    const site = bySite.get(r.siteId) ?? [];
+    const w = longWindow(r.timing);
+    if (w) {
+      const inside = site.filter((v) => {
+        const x = v.scheduledAt.getTime();
+        return x >= w.s - WINDOW_PAD_MS && x <= w.e + WINDOW_PAD_MS;
+      });
+      if (inside.length === 1) {
+        cands.push({ i, v: inside[0], score: 2 * MAX_WINDOW_MS + (inside[0].scheduledAt.getTime() - w.s) });
+      }
+      return;
+    }
+    for (const v of site) {
       const score = visitFit(r.timing, v.scheduledAt);
       if (score != null) cands.push({ i, v, score });
     }
@@ -383,31 +409,28 @@ export type NexusMergeResult = {
   failed: number;
 };
 
-/** The first instant of the current UK month. */
-export function ukMonthStart(now: Date): Date {
-  const [y, m] = ukDayString(now).split("-").map(Number);
-  return ukWallClockToUtc(y, m, 1, 0, 0, 0);
-}
+/** The Nexus imports began in September 2026; the owner asked for every
+ *  copy since then to be merged (Oct 2026). */
+export const NEXUS_SWEEP_FROM = ukWallClockToUtc(2026, 9, 1, 0, 0, 0);
 
 /**
  * Merge completed Nexus patrol / VPI stubs into the visit they duplicate —
  * those the imports made before they linked to visits. Matched on the
- * officer's on-site time. Only this month (`since`, default the 1st, UK):
- * earlier months' pay and billing are already done, so they're left as they
- * were. Stubs still to do are left to the callouts import, which knows their
- * due window. Safe to re-run.
+ * officer's on-site time, or for a weekly VPI on its due start (the stub's
+ * scheduled time) up to when it was done. Back to `since` (default
+ * NEXUS_SWEEP_FROM). A visit this completes gets its billing and pay at its
+ * own scheduled date. Stubs still to do are left to the callouts import,
+ * which knows their due window. Safe to re-run.
  */
 export async function mergeNexusDuplicates(
   prisma: PrismaClient,
   opts: {
-    now?: Date;
     since?: Date;
     /** Billing + pay snapshot for a visit this completes (lib/billing). */
     snapshotVisit?: (visitId: string) => Promise<void>;
   } = {},
 ): Promise<NexusMergeResult> {
-  const now = opts.now ?? new Date();
-  const since = opts.since ?? ukMonthStart(now);
+  const since = opts.since ?? NEXUS_SWEEP_FROM;
   const stubs = (await prisma.job.findMany({
     where: {
       partnerActivityRef: { startsWith: "LINK-" },
@@ -418,6 +441,7 @@ export async function mergeNexusDuplicates(
     },
     select: {
       ...NEXUS_STUB_SELECT,
+      scheduledFor: true,
       startedAt: true,
       completedAt: true,
       typeLabel: true,
@@ -426,6 +450,7 @@ export async function mergeNexusDuplicates(
     orderBy: { startedAt: "asc" },
     take: 2000,
   })) as (NexusStub & {
+    scheduledFor: Date | null;
     startedAt: Date;
     completedAt: Date | null;
     typeLabel: string | null;
@@ -436,7 +461,8 @@ export async function mergeNexusDuplicates(
 
   const rows = stubs.map((s) => ({
     siteId: s.siteId as string,
-    timing: { start: null, end: null, onSite: s.startedAt } as NexusTiming,
+    // The stub's scheduled time is the due window's start.
+    timing: { start: s.scheduledFor, end: null, onSite: s.startedAt } as NexusTiming,
   }));
   const pool = await loadVisitPool(prisma, rows);
   const picks = assignVisits(rows, pool);

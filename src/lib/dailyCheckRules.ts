@@ -11,6 +11,7 @@
  *     available to read the reports.
  */
 import { haversineMeters } from "@/lib/geo";
+import { normaliseNameKey } from "@/lib/siteDuplicates";
 import {
   answerKind,
   answerText,
@@ -59,7 +60,46 @@ export type CheckActivity = {
   status: string;
   /** A job that stands for a patrol visit (Job.patrolVisitId). */
   visitId?: string | null;
+  /** Shared by site records that are one place (see samePlaceIds); records
+   *  are compared by this, else by siteId. */
+  placeId?: string;
 };
+
+/**
+ * Site records that are the same place: the same postcode, and one name
+ * contains the other ("Swail House" and "Swail House, Ashley Road, Epsom") —
+ * the usual sign of a site set up by hand and again by a partner import.
+ * Different businesses sharing a postcode (a business park) keep their own.
+ * Returns siteId → place id (the first site's id of each group).
+ */
+export function samePlaceIds(
+  sites: { id: string; name: string; postcode: string | null }[],
+): Map<string, string> {
+  const place = new Map<string, string>();
+  const byPostcode = new Map<string, { id: string; key: string }[]>();
+  for (const s of sites) {
+    place.set(s.id, s.id);
+    const pc = (s.postcode ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const key = normaliseNameKey(s.name);
+    if (!pc || !key) continue;
+    byPostcode.set(pc, [...(byPostcode.get(pc) ?? []), { id: s.id, key }]);
+  }
+  for (const list of Array.from(byPostcode.values())) {
+    for (let i = 0; i < list.length; i++) {
+      for (let j = 0; j < i; j++) {
+        const a = list[i];
+        const b = list[j];
+        if (a.key.includes(b.key) || b.key.includes(a.key)) {
+          const root = place.get(b.id)!;
+          for (const [id, p] of Array.from(place.entries())) {
+            if (p === place.get(a.id)) place.set(id, root);
+          }
+        }
+      }
+    }
+  }
+  return place;
+}
 
 /** Padding around an activity's times when judging overlap. */
 const PAD_MS = 30 * 60_000;
@@ -81,8 +121,8 @@ function linked(a: CheckActivity, b: CheckActivity): boolean {
 }
 
 /**
- * Pairs of records at the same site, of the same kind of work, whose times
- * overlap — from different sources (our schedule vs Nexus, the office vs a
+ * Pairs of records at the same site (or the same place on two site records),
+ * of the same kind of work, whose times overlap — from different sources (our schedule vs Nexus, the office vs a
  * FastField report, …), or of the same type from the same source within half
  * an hour. Each
  * record is paired at most once, closest first, so a site with two patrols a
@@ -93,7 +133,7 @@ export function findDuplicatePairs(acts: CheckActivity[]): [CheckActivity, Check
   for (const a of acts) {
     const fam = familyOf(a.type);
     if (!fam) continue;
-    const key = `${a.siteId}|${fam}`;
+    const key = `${a.placeId ?? a.siteId}|${fam}`;
     groups.set(key, [...(groups.get(key) ?? []), a]);
   }
   const pairs: [CheckActivity, CheckActivity][] = [];

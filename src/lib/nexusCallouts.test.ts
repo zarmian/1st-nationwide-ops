@@ -61,6 +61,19 @@ describe("matchSiteId", () => {
     ).toBe("s2");
   });
 
+  it("prefers a live site to a switched-off copy at the same postcode", () => {
+    const twins = new Map([
+      [
+        "KT185AZ",
+        [
+          { id: "old", name: "Swail House", partnerId: "nexus", active: false },
+          { id: "real", name: "Swail House, Ashley Road, Epsom, KT18 5AZ", partnerId: "nexus", active: true },
+        ],
+      ],
+    ]);
+    expect(matchSiteId({ postcode: "KT185AZ", siteName: "Swail House" }, twins, "nexus")).toBe("real");
+  });
+
   it("returns null when the postcode isn't known (caller keeps it site-less)", () => {
     expect(
       matchSiteId({ postcode: "SW1A1AA", siteName: "x" }, idx, "nexus"),

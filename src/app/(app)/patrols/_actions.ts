@@ -19,6 +19,7 @@ import { reassignJobCore } from "@/lib/jobActions";
 import { logActivity } from "@/lib/audit";
 import { dedupePatrolVisits as dedupePatrolVisitsCore } from "@/lib/patrolDedup";
 import { mergeNexusDuplicates } from "@/lib/nexusVisits";
+import { runSiteMerges } from "@/lib/siteMerge";
 
 const ReassignInput = z.object({
   scheduleId: z.string().uuid(),
@@ -449,8 +450,9 @@ export async function restorePatrolVisit(
 /**
  * Admin "Clean up duplicates" button. Duplicates are also cleaned automatically
  * by the daily patrol-visits cron; this is the on-demand path. Shares the core
- * in lib/patrolDedup, then merges this month's Nexus patrol stubs into the
- * visit on our schedule they duplicate (lib/nexusVisits). Admin only.
+ * in lib/patrolDedup, then merges the duplicate site records the office asked
+ * for (lib/siteMerge) and the Nexus patrol stubs into the visit on our
+ * schedule they duplicate (lib/nexusVisits). Admin only.
  */
 export async function dedupePatrolVisits(): Promise<{
   ok: boolean;
@@ -458,11 +460,13 @@ export async function dedupePatrolVisits(): Promise<{
   cancelled?: number;
   nexusMerged?: number;
   nexusKept?: number;
+  sitesMerged?: string[];
   error?: string;
 }> {
   const me = await requireAdmin();
   try {
     const r = await dedupePatrolVisitsCore({ cancelledByUserId: me.id });
+    const sites = await runSiteMerges(prisma, { userId: me.id });
     const n = await mergeNexusDuplicates(prisma, {
       snapshotVisit: snapshotVisitFinanceIfNeeded,
     });
@@ -470,12 +474,14 @@ export async function dedupePatrolVisits(): Promise<{
     revalidatePath("/dispatch");
     revalidatePath("/activities");
     revalidatePath("/finance");
+    if (sites.length) revalidatePath("/sites");
     return {
       ok: true,
       groups: r.groups,
       cancelled: r.cancelled,
       nexusMerged: n.merged,
       nexusKept: n.keptForReview,
+      sitesMerged: sites.map((m) => m.into),
     };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? "Clean-up failed." };

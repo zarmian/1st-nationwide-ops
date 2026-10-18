@@ -45,6 +45,7 @@ Migration `20261018180000_daily_check`, additive.
    - a **main time**: when it was done if known, else when it was scheduled.
 3. **Duplicates** (`findDuplicatePairs`):
    - **Candidates:** records at the same site, of the same family, whose times (padded by 30 min) overlap. The families are patrol and VPI; callout, ad-hoc and key jobs; lock-ups; and unlocks.
+   - **One place, two site records:** sites with the same postcode, where one name contains the other, count as one place (`samePlaceIds`). Swail House is the example: "Swail House" from the Nexus import and "Swail House, Ashley Road, Epsom" set up by hand. The finding names both records. Different businesses at one postcode (a business park) are kept apart.
    - **Source rule:** the two records must come from different sources, or be the same type from the same source within 30 min. So our own patrol and VPI at one time are two services, while Nexus's VPI and our patrol are one visit.
    - **Pairing:** each record pairs once, closest first. So a site with two patrols a night pairs each with its own Nexus activity.
    - A job that stands for its own visit (`Job.patrolVisitId`) is never paired with that visit.
@@ -73,8 +74,9 @@ Migration `20261018180000_daily_check`, additive.
 ## Extension points & gotchas
 
 - **Swail House duplicates are fixed at source.**
-  - Both Nexus imports now link a patrol or VPI to the matching visit on our schedule, instead of making a stub (`lib/nexusVisits.ts`).
-  - The stubs they made before are merged into the visit nightly.
+  - The cause was two site records for one site, plus Nexus jobs that weren't matched to our patrols. The records are merged (`lib/siteMerge.ts`).
+  - Both Nexus imports now link a patrol or VPI to the matching visit on our schedule, instead of making a stub. That includes weekly VPIs (`lib/nexusVisits.ts`).
+  - The stubs they made before, back to September 2026, are merged into the visit nightly.
   - A stub someone has worked on is left for the office and marked ⚠. The check still lists that pair.
   - See [`docs/nexus-sync.md`](../nexus-sync.md#patrols-already-on-our-schedule).
 - **Sync health.** The Nexus line uses the newest Nexus job stub's update time. Patrols that link to a visit don't touch a stub. A quiet spell with only such patrols could therefore show *late* while the sync is fine. Alarm responses and other activities still make stubs, so this is unlikely.

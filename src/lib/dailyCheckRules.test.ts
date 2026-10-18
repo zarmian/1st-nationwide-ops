@@ -4,6 +4,7 @@ import {
   keywordIncidents,
   reportIssues,
   reportText,
+  samePlaceIds,
   type CheckActivity,
   type ReportCheckInput,
 } from "./dailyCheckRules";
@@ -73,6 +74,33 @@ describe("findDuplicatePairs", () => {
     const a = act({ id: "a", main: t("22:00"), times: [t("22:00")] });
     const b = act({ id: "b", siteId: "other", source: "Our schedule", main: t("22:00"), times: [t("22:00")] });
     expect(findDuplicatePairs([a, b])).toHaveLength(0);
+  });
+
+  it("pairs the same patrol on two records of one place", () => {
+    const nexus = act({ id: "n", siteId: "swail-nexus", placeId: "swail", main: t("22:05"), times: [t("19:00"), t("22:05")] });
+    const ours = act({ id: "v", kind: "visit", siteId: "swail-ours", placeId: "swail", source: "Our schedule", main: t("22:00"), times: [t("22:00")] });
+    expect(findDuplicatePairs([nexus, ours])).toHaveLength(1);
+  });
+});
+
+describe("samePlaceIds", () => {
+  it("groups a site set up by hand with a partner import's copy of it", () => {
+    const places = samePlaceIds([
+      { id: "a", name: "Swail House", postcode: "KT18 5AZ" },
+      { id: "b", name: "Swail House, Ashley Road, Epsom, KT18 5AZ", postcode: "KT185AZ" },
+      { id: "c", name: "Swail House", postcode: "SW1A 1AA" },
+    ]);
+    expect(places.get("a")).toBe(places.get("b"));
+    expect(places.get("c")).toBe("c");
+  });
+
+  it("keeps different businesses at one postcode apart", () => {
+    const places = samePlaceIds([
+      { id: "a", name: "Specac Science and Innovation Center (KH-02)", postcode: "BR5 3FQ" },
+      { id: "b", name: "JLL Ref: gho01441 Halo Business Park Cray Avenue Orpington", postcode: "BR5 3FQ" },
+    ]);
+    expect(places.get("a")).toBe("a");
+    expect(places.get("b")).toBe("b");
   });
 });
 

@@ -4,8 +4,8 @@ import {
   doneDetail,
   nexusLinkNote,
   nexusVisitStatus,
+  NEXUS_SWEEP_FROM,
   stubBlocker,
-  ukMonthStart,
   visitFit,
   visitUpdate,
   type StubFacts,
@@ -42,10 +42,10 @@ describe("visitFit", () => {
     expect(visitFit(t, uk("01:30", 18))).toBeNull();
   });
 
-  it("won't pin a week-long VPI window to one visit without an on-site time", () => {
+  it("leaves a week-long VPI window to assignVisits", () => {
     const week = { start: uk("00:00", 12), end: uk("00:00", 19), onSite: null };
     expect(visitFit(week, uk("22:00"))).toBeNull();
-    expect(visitFit({ ...week, onSite: uk("22:10") }, uk("22:00"))).toBe(10 * 60_000);
+    expect(visitFit({ ...week, onSite: uk("22:10") }, uk("22:00"))).toBeNull();
   });
 
   it("falls back to ±3 h of a single due time", () => {
@@ -75,6 +75,37 @@ describe("assignVisits", () => {
       { siteId: "swail", timing: { start: uk("23:00"), end: uk("03:00", 18), onSite: uk("02:05", 18) } },
     ];
     expect(assignVisits(rows, [v22, v02]).map((v) => v?.id)).toEqual(["v22", "v02"]);
+  });
+
+  it("pairs a weekly VPI with our one visit inside its window, even when done a week later (The Queen of the South)", () => {
+    // Nexus: due from Mon 7 Sep, done Mon 14 Sep 07:36. Ours: Mondays 20:00.
+    const sep = (d: number, hhmm: string) => {
+      const [h, m] = hhmm.split(":").map(Number);
+      return new Date(Date.UTC(2026, 8, d, h - 1, m));
+    };
+    const v7 = visit("v7", sep(7, "20:00"), "queen");
+    const v14 = visit("v14", sep(14, "20:00"), "queen");
+    const done = { siteId: "queen", timing: { start: sep(7, "00:00"), end: null, onSite: sep(14, "07:36") } };
+    expect(assignVisits([done], [v7, v14]).map((v) => v?.id)).toEqual(["v7"]);
+    // The same with the window's end given (Mon 14 Sep 00:00).
+    const withEnd = { siteId: "queen", timing: { start: sep(7, "00:00"), end: sep(14, "00:00"), onSite: sep(14, "07:36") } };
+    expect(assignVisits([withEnd], [v7, v14]).map((v) => v?.id)).toEqual(["v7"]);
+    // Still to do: due 12–19 Oct, our visit on the 12th.
+    const upcoming = { siteId: "queen", timing: { start: uk("00:00", 12), end: uk("00:00", 19), onSite: null } };
+    expect(assignVisits([upcoming], [visit("v12", uk("20:00", 12), "queen")]).map((v) => v?.id)).toEqual(["v12"]);
+  });
+
+  it("won't pin a weekly window to one of several visits inside it", () => {
+    const week = { siteId: "swail", timing: { start: uk("00:00", 12), end: uk("00:00", 19), onSite: null } };
+    const nightly = [13, 14, 15].map((d) => visit(`v${d}`, uk("22:00", d)));
+    expect(assignVisits([week], nightly)).toEqual([null]);
+  });
+
+  it("lets a close fit take a visit before a weekly window does", () => {
+    const v = visit("v", uk("22:00", 17));
+    const close = { siteId: "swail", timing: { start: uk("19:00", 17), end: uk("23:00", 17), onSite: uk("22:05", 17) } };
+    const week = { siteId: "swail", timing: { start: uk("00:00", 12), end: uk("00:00", 19), onSite: null } };
+    expect(assignVisits([week, close], [v]).map((x) => x?.id ?? null)).toEqual([null, "v"]);
   });
 
   it("never uses a visit twice, or one at another site", () => {
@@ -166,7 +197,7 @@ describe("notes and dates", () => {
     );
   });
 
-  it("starts the month at UK midnight on the 1st", () => {
-    expect(ukMonthStart(uk("10:00", 18)).toISOString()).toBe("2026-09-30T23:00:00.000Z");
+  it("sweeps back to UK midnight on 1 September 2026", () => {
+    expect(NEXUS_SWEEP_FROM.toISOString()).toBe("2026-08-31T23:00:00.000Z");
   });
 });

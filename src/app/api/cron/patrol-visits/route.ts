@@ -5,6 +5,7 @@ import { dedupePatrolVisits } from "@/lib/patrolDedup";
 import { prisma } from "@/lib/db";
 import { mergeNexusDuplicates } from "@/lib/nexusVisits";
 import { snapshotVisitFinanceIfNeeded } from "@/lib/billing";
+import { runSiteMerges } from "@/lib/siteMerge";
 
 // Materialising + both clean-ups; the first Nexus merge after a deploy can
 // have a month of stubs to fold in.
@@ -18,8 +19,9 @@ export const maxDuration = 120;
  *
  * After materialising, auto-cleans any duplicate patrols (same site, exact
  * time and kind) so no manual step is needed — keeps one per slot, cancelling
- * only not-yet-started extras. Then merges this month's Nexus patrol stubs
- * into the visit on our schedule they duplicate (lib/nexusVisits).
+ * only not-yet-started extras. Then merges any duplicate site records the
+ * office asked for (lib/siteMerge), and the Nexus patrol stubs into the visit
+ * on our schedule they duplicate (lib/nexusVisits).
  */
 export async function GET(req: Request) {
   if (!isAuthorisedCron(req)) {
@@ -44,6 +46,8 @@ export async function GET(req: Request) {
     return { groups: 0, cancelled: 0 };
   });
 
+  const sites = await runSiteMerges(prisma);
+
   const nexus = await mergeNexusDuplicates(prisma, {
     snapshotVisit: snapshotVisitFinanceIfNeeded,
   }).catch((e) => {
@@ -51,5 +55,5 @@ export async function GET(req: Request) {
     return { checked: 0, merged: 0, keptForReview: 0, failed: 0 };
   });
 
-  return NextResponse.json({ ok: true, days, dedupe, nexus });
+  return NextResponse.json({ ok: true, days, dedupe, sites, nexus });
 }
