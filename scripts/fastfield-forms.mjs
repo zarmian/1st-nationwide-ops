@@ -324,7 +324,7 @@ async function shrink(imgPage, buf, type) {
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
         const bmp = await createImageBitmap(new Blob([bytes], { type }));
         const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
-        if (scale === 1 && bytes.length <= keep && /jpeg|png|webp/.test(type)) return null;
+        if (scale === 1 && bytes.length <= keep && /^image\/(jpeg|png|webp)$/.test(type)) return null;
         const w = Math.max(1, Math.round(bmp.width * scale));
         const h = Math.max(1, Math.round(bmp.height * scale));
         const canvas = new OffscreenCanvas(w, h);
