@@ -98,7 +98,7 @@ All **throw** on failure (server actions turn thrown errors into a generic 500; 
 - **`/finance[/*]`** → admin-only.
 - `homeFor()`: `OFFICER→/m/today`, `PARTNER→/partner`, `PARTNER_OFFICER→/partner/m/today`, else `/dispatch`.
 
-**Matcher** (bottom of `middleware.ts`) excludes — i.e. leaves **public / self-guarding** — these prefixes: `api/auth`, `api/blob`, `api/webhooks`, `api/telegram`, `_next/static`, `_next/image`, `login`, `submit`, `duty`, `jobs`, `offline`, `robots`, `sitemap`, and any path with a file extension. `api/blob` and `api/webhooks` are excluded because they verify their own credentials (scoped upload token / shared secret) and must accept anonymous callers.
+**Matcher** (bottom of `middleware.ts`) excludes — i.e. leaves **public / self-guarding** — these prefixes: `api/auth`, `api/blob`, `api/webhooks`, `api/telegram`, `api/mcp`, `api/oauth`, `api/imports`, `oauth`, `_next/static`, `_next/image`, `login`, `submit`, `duty`, `jobs`, `offline`, `robots`, `sitemap`, and any path with a file extension. `api/blob`, `api/webhooks`, `api/mcp`/`api/oauth` and `api/imports` are excluded because they verify their own credentials (scoped upload token / shared secret / bearer token / the robots' import secret) and must accept callers without a session.
 
 **Layer 2 — layout re-check (server).**
 - `src/app/(app)/layout.tsx`: `getServerSession` → `redirect("/login")` if none. Reads `x-pathname`; re-applies the same role rules (OFFICER off `/m|/submit` → `/m/today`; `PARTNER` → `/partner`; `PARTNER_OFFICER` → `/partner/m/today`; `DISPATCHER` on `/finance` or non-reports `/admin` → `/dispatch`). **Fails open when `x-pathname` is missing** (trusts middleware) to avoid an infinite redirect loop.
