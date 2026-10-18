@@ -14,6 +14,7 @@ import {
   EyeOff,
   Bot,
   ClipboardCheck,
+  ListChecks,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
@@ -38,6 +39,7 @@ export default async function AdminHubPage() {
     hiddenPartners,
     claudeConnections,
     fastfieldToLink,
+    lastDailyCheck,
   ] = await prisma.$transaction([
     prisma.customer.count({ where: { active: true } }),
     prisma.partner.count({ where: { active: true } }),
@@ -51,6 +53,7 @@ export default async function AdminHubPage() {
     prisma.partner.count({ where: { hidden: true } }),
     prisma.mcpGrant.count({ where: { revokedAt: null, tokens: { some: {} } } }),
     prisma.fastFieldReport.count({ where: { status: "UNMATCHED" } }),
+    prisma.dailyCheck.findFirst({ orderBy: { createdAt: "desc" }, select: { counts: true } }),
   ]);
 
   const cards: HubCard[] = [
@@ -173,6 +176,15 @@ export default async function AdminHubPage() {
       stat: hiddenCustomers + hiddenPartners,
       statLabel: "hidden",
       icon: EyeOff,
+      tone: "rose",
+    },
+    {
+      href: "/admin/daily-check",
+      title: "Daily check",
+      blurb: "Each morning: anything recorded twice, work with no report, FastField reports that don't fit, and incidents Claude finds in the reports — emailed to the office.",
+      stat: (lastDailyCheck?.counts as { total?: number } | null)?.total ?? 0,
+      statLabel: "to look at",
+      icon: ListChecks,
       tone: "rose",
     },
     {

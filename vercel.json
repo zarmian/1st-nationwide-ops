@@ -53,6 +53,10 @@
       "schedule": "30 8 * * 1"
     },
     {
+      "path": "/api/cron/daily-check",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/daily-client-report",
       "schedule": "0 7 * * *"
     }
