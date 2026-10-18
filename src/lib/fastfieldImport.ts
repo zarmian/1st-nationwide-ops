@@ -45,6 +45,11 @@ import {
 /** FastField's Shurgard activity log / call-out form. */
 export const SHURGARD_FORM_ID = 549243;
 
+/** An error's code or name only — never its message, which can quote the
+ *  report's contents into the logs. */
+const errCode = (e: unknown) =>
+  (e as { code?: string })?.code ?? (e as Error)?.name ?? "error";
+
 const ACTIVITY_NOUN: Record<string, string> = {
   ALARM_RESPONSE: "callout",
   PATROL: "patrol visit",
@@ -567,7 +572,7 @@ export async function importFastField(
 
       await applyAndTally(ctx, row.id, decision, form, summary);
     } catch (e) {
-      console.error("FastField import failed for one report", (e as Error).message);
+      console.error("FastField import failed for one report:", errCode(e));
       summary.failed++;
     }
   }
@@ -663,7 +668,7 @@ export async function retryUnmatched(
       }
       await applyAndTally(ctx, row.id, decision, row.form, summary);
     } catch (e) {
-      console.error("FastField retry failed for one report", (e as Error).message);
+      console.error("FastField retry failed for one report:", errCode(e));
       summary.failed++;
     }
   }
@@ -941,7 +946,7 @@ export async function linkReportToVisit(
       if (pay.ok) await applyPayToVisit(visit.id, pay, at);
     }
   } catch (e) {
-    console.error("FastField visit finance failed", (e as Error).message);
+    console.error("FastField visit finance failed:", errCode(e));
   }
   return { ok: true };
 }

@@ -107,6 +107,7 @@ export default async function JobDetailPage({
           form: true,
           submittedAt: true,
           review: { select: { id: true, status: true } },
+          fastfieldReport: { select: { id: true } },
         },
         orderBy: { submittedAt: "desc" },
       },
@@ -411,7 +412,9 @@ export default async function JobDetailPage({
             )}
             {job.formSubmissions.map((fs) => (
               <li key={fs.id}>
-                <span className="text-slate-500">Submission:</span>{" "}
+                <span className="text-slate-500">
+                  {fs.fastfieldReport ? "FastField report:" : "Submission:"}
+                </span>{" "}
                 {fs.review ? (
                   <Link
                     href={`/admin/reports/${fs.review.id}`}

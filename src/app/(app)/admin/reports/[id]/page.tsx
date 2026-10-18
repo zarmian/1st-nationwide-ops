@@ -5,6 +5,7 @@ import { approveReview, rejectReview } from "../_actions";
 import { ApproveForm, RejectForm } from "./_components/ReviewActions";
 import { formatDateTime, formatUkDateTimeLocal } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
+import { FastFieldAnswers } from "@/components/FastFieldAnswers";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,14 @@ export default async function ReviewDetailPage({
               billedAmount: true,
               billedCurrency: true,
               payRateUnit: true,
+            },
+          },
+          fastfieldReport: {
+            select: {
+              id: true,
+              answers: true,
+              photoUrls: true,
+              form: { select: { name: true } },
             },
           },
         },
@@ -183,6 +192,25 @@ export default async function ReviewDetailPage({
         </div>
       </div>
 
+      {sub.fastfieldReport ? (
+        <div className="card p-5">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+            <h2 className="font-semibold text-brand-navy">
+              FastField report — {sub.fastfieldReport.form.name}
+            </h2>
+            <Link
+              href={`/admin/fastfield/${sub.fastfieldReport.id}`}
+              className="text-sm text-brand-blue-dark hover:underline"
+            >
+              How it was matched →
+            </Link>
+          </div>
+          <FastFieldAnswers
+            answers={sub.fastfieldReport.answers}
+            photoUrls={sub.fastfieldReport.photoUrls}
+          />
+        </div>
+      ) : (
       <div className="card p-5">
         <h2 className="font-semibold text-brand-navy mb-3">Officer payload</h2>
         {payload && Object.keys(payload).length > 0 ? (
@@ -195,6 +223,7 @@ export default async function ReviewDetailPage({
           <p className="text-sm text-slate-500">No payload data submitted.</p>
         )}
       </div>
+      )}
 
       {isClosed ? (
         <ClosedState review={review} />

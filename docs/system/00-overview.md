@@ -20,7 +20,7 @@ This folder (`docs/system/`) is a **module-by-module reference** written so the 
 | **Partners** | Three simultaneous relationship modes (see §3). |
 | **Notifications** | Unified queue → WhatsApp, SMS, and Telegram broadcast to dispatch. |
 | **Telegram bot** | Conversational dispatch assistant with an AI intent router. |
-| **Integrations** | bOnline phone-call webhook, geocoding, blob uploads, live map. |
+| **Integrations** | bOnline phone-call webhook, geocoding, blob uploads, live map; portal robots for Nexus, Keyholding and FastField (GitHub Actions). |
 
 The full module map is in [`README.md`](./README.md).
 

@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   EyeOff,
   Bot,
+  ClipboardCheck,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
@@ -36,6 +37,7 @@ export default async function AdminHubPage() {
     hiddenCustomers,
     hiddenPartners,
     claudeConnections,
+    fastfieldToLink,
   ] = await prisma.$transaction([
     prisma.customer.count({ where: { active: true } }),
     prisma.partner.count({ where: { active: true } }),
@@ -48,6 +50,7 @@ export default async function AdminHubPage() {
     prisma.customer.count({ where: { hidden: true } }),
     prisma.partner.count({ where: { hidden: true } }),
     prisma.mcpGrant.count({ where: { revokedAt: null, tokens: { some: {} } } }),
+    prisma.fastFieldReport.count({ where: { status: "UNMATCHED" } }),
   ]);
 
   const cards: HubCard[] = [
@@ -171,6 +174,15 @@ export default async function AdminHubPage() {
       statLabel: "hidden",
       icon: EyeOff,
       tone: "rose",
+    },
+    {
+      href: "/admin/fastfield",
+      title: "FastField",
+      blurb: "Officers' FastField reports, attached to their callouts, patrols and lock-ups. Pick which forms to import; link any that didn't match.",
+      stat: fastfieldToLink,
+      statLabel: "to link",
+      icon: ClipboardCheck,
+      tone: "amber",
     },
     {
       href: "/admin/claude",
