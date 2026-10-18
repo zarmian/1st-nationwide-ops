@@ -186,7 +186,9 @@ export const config = {
     // routes verify their own shared secret. The Claude connector routes
     // (`api/mcp`, `api/oauth`, the `oauth` consent page) authenticate on their
     // own: bearer tokens for MCP/token calls, and the consent page checks the
-    // session itself. `/.well-known/*` is already excluded by the dot rule.
-    "/((?!api/auth|api/blob|api/webhooks|api/telegram|api/mcp|api/oauth|oauth|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
+    // session itself. `api/imports` is the portal robots' ingest (Nexus,
+    // Keyholding, FastField) — bearer-secret checked in each route.
+    // `/.well-known/*` is already excluded by the dot rule.
+    "/((?!api/auth|api/blob|api/webhooks|api/telegram|api/mcp|api/oauth|api/imports|oauth|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
   ],
 };

@@ -1,6 +1,6 @@
 # Data Model
 
-> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **46 models and 40 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
+> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **48 models and 41 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
 
 Source of truth: `prisma/schema.prisma`. This document is a reference; field-level comments in the schema carry the authoritative business semantics.
 
@@ -186,6 +186,9 @@ Admin review record for a submission before it reaches the client.
 #### ClientReport
 An outbound client report (email/portal/WhatsApp) generated from an approved review.
 - `reviewId` (cascade), `channel ReportChannel`, `toAddress`, `subject?`, `pdfUrl?`, `status ReportStatus`, `sentAt?`, `failureReason?`.
+
+#### FastFieldForm · FastFieldReport
+Officers' FastField reports, imported by the FastField robot (see [`18-fastfield.md`](./18-fastfield.md)). `FastFieldForm` is keyed by FastField's `formId Int`: `name`, `customerId?` (SetNull), `enabled`, `createJobs`, `jobType JobType`, `lastSeenAt`. `FastFieldReport`: `submissionId` unique, `formId` → form, `submittedAt`/`startedAt?`/`finishedAt?`, `submittedBy?`, `officerText?`, `siteText?`, `lat?`/`lng?`, `answers Json` (ordered `[{key,label,type,value,at?,lat?,lng?}]`), `photoUrls String[]`, `signatureUrl?`, `status FastFieldReportStatus` (LINKED/CREATED/UNMATCHED/IGNORED), `note?`, links `siteId?`/`jobId?`/`patrolVisitId?` and `formSubmissionId?` (unique) — all SetNull — and `jobCreated`. Indexes `[status, submittedAt]`, site, job, visit.
 
 ### Finance & rates
 See `09-finance-billing-pay.md` for the full billing/pay logic.

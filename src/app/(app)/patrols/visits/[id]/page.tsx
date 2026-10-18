@@ -79,6 +79,7 @@ export default async function PatrolVisitDetailPage({
           form: true,
           submittedAt: true,
           review: { select: { id: true, status: true } },
+          fastfieldReport: { select: { id: true } },
         },
         orderBy: { submittedAt: "desc" },
       },
@@ -279,7 +280,9 @@ export default async function PatrolVisitDetailPage({
             )}
             {visit.formSubmissions.map((s) => (
               <li key={s.id}>
-                <span className="text-slate-500">Submission:</span>{" "}
+                <span className="text-slate-500">
+                  {s.fastfieldReport ? "FastField report:" : "Submission:"}
+                </span>{" "}
                 {s.review?.id ? (
                   <Link
                     href={`/admin/reports/${s.review.id}`}

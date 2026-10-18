@@ -8,6 +8,7 @@
 - Let admins define **what** each report asks for, per customer/partner/site, without a deploy (`FormTemplate` + `FormBlueprint`, JSON field definitions).
 - Route submissions through an admin review queue and, for direct-customer jobs, queue a customer-facing `ClientReport`.
 - Produce staff-facing activity/Shurgard exports (PDF/CSV) off the same activity data.
+- **FastField reports** — our officers' reports filed on FastField (Shurgard and a few other clients) are imported by a robot and attached to their activities as approved submissions → [`18-fastfield.md`](./18-fastfield.md).
 - **Out of scope / cross-refs:** the `Job`/`PatrolVisit`/`Shift` records a submission completes → [`06-dispatch-jobs-alarms.md`](./06-dispatch-jobs-alarms.md); billing/pay snapshots triggered on submit/approve → [`09-finance-billing-pay.md`](./09-finance-billing-pay.md); the alarm-ack SMS + notifications → [`10-notifications.md`](./10-notifications.md); the three partner modes that decide whether a submission/report exists at all → [`08-partners.md`](./08-partners.md).
 
 ## Data model

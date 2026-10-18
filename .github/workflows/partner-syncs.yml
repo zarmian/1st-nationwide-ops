@@ -4,18 +4,21 @@ name: Partner syncs
 #   1. Nexus callouts      — dashboard "Upcoming Activities" → open VPI job stubs
 #   2. Nexus activities    — completed activities, last 3 days → completed stubs
 #   3. Keyholding jobs     — Chase2Base jobs, last 3 days → next 7 days
+#   4. FastField forms     — our officers' FastField reports, last 3 days →
+#                            attached to their activities (forms switched on
+#                            at /admin/fastfield only)
 #
-# One job instead of three: the browser is installed once and GitHub bills one
+# One job instead of four: the browser is installed once and GitHub bills one
 # rounded-up job, which keeps the private repo inside the free Actions minutes
 # (see docs/system/13-crons.md). Each sync still has its own workflow
-# (nexus-callouts.yml / nexus-activities.yml / keyholding-jobs.yml) for running
-# it by hand with Preview or a date window. The Nexus site list syncs daily in
-# nexus-sync.yml.
+# (nexus-callouts.yml / nexus-activities.yml / keyholding-jobs.yml /
+# fastfield-forms.yml) for running it by hand with Preview or a date window.
+# The Nexus site list syncs daily in nexus-sync.yml.
 #
 # A failing sync doesn't stop the others; the run is marked failed afterwards
 # (so GitHub emails the owner) and the captures are kept for 1 day.
 #
-# Secrets: the same ones the three individual workflows use.
+# Secrets: the same ones the four individual workflows use.
 
 on:
   schedule:
@@ -79,12 +82,25 @@ jobs:
           NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
         run: node scripts/keyholding-jobs.mjs
 
+      # Counts only in the log; saves no capture files.
+      - name: FastField forms
+        id: fastfield
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          FASTFIELD_USERNAME: ${{ secrets.FASTFIELD_USERNAME }}
+          FASTFIELD_PASSWORD: ${{ secrets.FASTFIELD_PASSWORD }}
+          NEXUS_IMPORT_SECRET: ${{ secrets.NEXUS_IMPORT_SECRET }}
+          FASTFIELD_MAX_MINUTES: "8"
+        run: node scripts/fastfield-forms.mjs
+
       - name: Fail the run if any sync failed
-        if: steps.callouts.outcome != 'success' || steps.activities.outcome != 'success' || steps.keyholding.outcome != 'success'
+        if: steps.callouts.outcome != 'success' || steps.activities.outcome != 'success' || steps.keyholding.outcome != 'success' || steps.fastfield.outcome != 'success'
         run: |
           echo "Nexus callouts:   ${{ steps.callouts.outcome }}"
           echo "Nexus activities: ${{ steps.activities.outcome }}"
           echo "Keyholding jobs:  ${{ steps.keyholding.outcome }}"
+          echo "FastField forms:  ${{ steps.fastfield.outcome }}"
           echo "See the failed step's log above for the reason."
           exit 1
 
