@@ -17,11 +17,13 @@ import type { FastFieldIncoming } from "@/lib/fastfield";
  *   { action: "retry" }                     → re-try recent unmatched reports
  *
  * Photos are uploaded first, one at a time, to ./photo — reports carry URLs.
- * See lib/fastfieldImport for the matching.
+ * A preview run passes `run` (an id for the run) so each form's counts are
+ * kept for Admin → FastField. See lib/fastfieldImport for the matching.
  *
  * Auth:  Authorization: Bearer <NEXUS_IMPORT_SECRET> (or x-import-secret) —
  *        the same secret as the other imports. Fail-closed.
- * Query: ?preview=1 reports what WOULD happen; only the form list is saved.
+ * Query: ?preview=1 reports what WOULD happen; only the form list and the
+ *        forms' preview counts are saved.
  */
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -38,8 +40,11 @@ const Id = z.string().trim().min(1).max(100);
 const FormId = z.number().int().positive();
 const When = z.string().max(40).nullable().optional();
 
+const Run = z.string().trim().min(1).max(64).optional();
+
 const Plan = z.object({
   action: z.literal("plan"),
+  run: Run,
   forms: z.array(z.object({ formId: FormId, name: z.string().max(300) })).max(500),
   submissions: z
     .array(
@@ -79,6 +84,7 @@ const Report = z.object({
 
 const Import = z.object({
   action: z.literal("import"),
+  run: Run,
   reports: z.array(Report).max(25),
 });
 
@@ -108,7 +114,7 @@ export async function POST(req: Request) {
 
   try {
     if (body.action === "plan") {
-      const result = await planFastField(body, preview);
+      const result = await planFastField(body, preview, body.run);
       return NextResponse.json({ ok: true, preview, ...result });
     }
     if (body.action === "import") {
@@ -117,7 +123,7 @@ export async function POST(req: Request) {
       if (tooBig) {
         return NextResponse.json({ error: "A report is too large" }, { status: 413 });
       }
-      const summary = await importFastField(body.reports as FastFieldIncoming[], preview);
+      const summary = await importFastField(body.reports as FastFieldIncoming[], preview, body.run);
       return NextResponse.json({ ok: true, preview, ...summary });
     }
     if (preview) {

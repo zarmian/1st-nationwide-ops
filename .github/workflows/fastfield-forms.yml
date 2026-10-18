@@ -4,9 +4,9 @@ name: FastField forms
 # the activity it's about via /api/imports/fastfield (photos copied too). The
 # scheduled run (every 4 hours, last 3 days) is in partner-syncs.yml; use this
 # by hand for the backfill — tick Preview first to see what would happen.
-# Only forms switched on at /admin/fastfield are imported (a preview also
-# shows forms that have a client set). A run that hits the time limit stops
-# cleanly; run it again to carry on.
+# Only forms switched On at /admin/fastfield are imported; a preview also
+# reads the forms set to "Preview only" (and imports nothing). A run that hits
+# the time limit stops cleanly; run it again to carry on.
 #
 # Secrets: FASTFIELD_USERNAME, FASTFIELD_PASSWORD (the FastField login) and
 # NEXUS_IMPORT_SECRET (the app's import secret, same as the other syncs).

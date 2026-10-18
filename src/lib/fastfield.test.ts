@@ -2,13 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   answerKind,
   extractFacts,
+  extractPostcode,
   parseFastFieldTime,
   pickActivity,
   pickOfficer,
+  pickShift,
   pickSite,
   splitSiaNumber,
+  visitTypeOf,
   type ActivityCandidate,
   type FastFieldAnswer,
+  type ShiftCandidate,
   type SiteRow,
 } from "./fastfield";
 
@@ -196,12 +200,26 @@ describe("extractFacts", () => {
   });
 });
 
-const site = (id: string, name: string, lat: number | null, lng: number | null, address = ""): SiteRow => ({
+const site = (
+  id: string,
+  name: string,
+  lat: number | null,
+  lng: number | null,
+  address = "",
+  postcode: string | null = null,
+): SiteRow => ({
   id,
   name,
   code: null,
-  postcode: null,
+  postcode,
   address,
+  lat,
+  lng,
+});
+
+const at = (siteText: string | null, lat: number | null = null, lng: number | null = null) => ({
+  siteText,
+  postcode: extractPostcode(siteText),
   lat,
   lng,
 });
@@ -215,32 +233,136 @@ describe("pickSite", () => {
   ];
 
   it("matches the site by name", () => {
-    const p = pickSite("Neasden", null, null, sites);
+    const p = pickSite(at("Neasden"), sites);
     expect(p.site?.id).toBe("neasden");
   });
 
   it("settles a name that fits several sites with GPS", () => {
-    const p = pickSite("Acton", 51.5012, -0.2688, sites);
+    const p = pickSite(at("Acton", 51.5012, -0.2688), sites);
     expect(p.site?.id).toBe("acton2");
     expect(p.site && p.how).toBe("name+gps");
   });
 
   it("leaves an ambiguous name without GPS for a person", () => {
-    const p = pickSite("Acton", null, null, sites);
+    const p = pickSite(at("Acton"), sites);
     expect(p.site).toBeNull();
     expect(!p.site && p.reason).toMatch(/fits 2 sites/);
   });
 
   it("uses GPS alone when the name isn't recognised", () => {
-    const p = pickSite("Nesden", 51.5533, -0.2504, sites);
+    const p = pickSite(at("Nesden", 51.5533, -0.2504), sites);
     expect(p.site?.id).toBe("neasden");
     expect(p.site && p.how).toBe("gps");
   });
 
   it("gives up when neither the name nor GPS fit", () => {
-    const p = pickSite("Croydon", 51.37, -0.10, sites);
+    const p = pickSite(at("Croydon", 51.37, -0.1), sites);
     expect(p.site).toBeNull();
     expect(!p.site && p.reason).toMatch(/not recognised/);
+  });
+});
+
+describe("pickSite by postcode", () => {
+  const sites = [
+    site("neasden", "Shurgard Neasden", 51.5531, -0.2501, "Neasden Lane London", "NW10 7UD"),
+    site("reay", "Reay Security — Park Royal", 51.528, -0.27, "Park Royal", "NW10 7UD"),
+    site("acton", "Shurgard Acton", 51.515, -0.27, "Acton London", "W3 6UU"),
+    site("lewisham", "Europcar Lewisham", 51.46, -0.01, "Lewisham", "SE13 5PL"),
+  ];
+
+  it("finds a postcode typed in the site name", () => {
+    expect(extractPostcode("Shurgard w3 6uu")).toBe("W36UU");
+    expect(extractPostcode("SE135PL")).toBe("SE135PL");
+    expect(extractPostcode("Unit 4, Acton")).toBeNull();
+    const p = pickSite(at("Shurgard W3 6UU"), sites);
+    expect(p.site?.id).toBe("acton");
+    expect(p.site && p.how).toBe("postcode");
+  });
+
+  it("works when the site name is only a postcode", () => {
+    expect(pickSite(at("se13 5pl"), sites).site?.id).toBe("lewisham");
+  });
+
+  it("uses the name when two sites share the postcode", () => {
+    const p = pickSite(at("Neasden NW10 7UD"), sites);
+    expect(p.site?.id).toBe("neasden");
+    expect(p.site && p.how).toBe("postcode+name");
+  });
+
+  it("asks a person when two sites share the postcode and nothing else tells them apart", () => {
+    const p = pickSite(at("NW10 7UD"), sites);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.reason).toMatch(/Postcode NW107UD fits 2 sites/);
+  });
+
+  it("falls back to the name when the postcode isn't one of ours", () => {
+    expect(pickSite(at("Lewisham E1 6AN"), sites).site?.id).toBe("lewisham");
+  });
+
+  it("reads the postcode from a postcode answer when the site name has none", () => {
+    const f = extractFacts({
+      submittedAt: SUBMITTED,
+      answers: [
+        { key: "a", label: "Site Name", type: "SingleLineEntry", value: "Shurgard" },
+        { key: "b", label: "Site Postcode", type: "SingleLineEntry", value: "w3 6uu" },
+      ],
+    });
+    expect(f.postcode).toBe("W36UU");
+    expect(pickSite(f, sites).site?.id).toBe("acton");
+  });
+});
+
+describe("visitTypeOf", () => {
+  const ans = (label: string, value: string): FastFieldAnswer => ({
+    key: "k",
+    label,
+    type: "ListPicker",
+    value,
+  });
+  it("reads the kind of visit from a short type answer", () => {
+    expect(visitTypeOf([ans("Visit Type", "Lock up")])).toBe("LOCK");
+    expect(visitTypeOf([ans("Type of attendance", "Unlock")])).toBe("UNLOCK");
+    expect(visitTypeOf([ans("Reason for visit", "Alarm activation")])).toBe("ALARM_RESPONSE");
+    expect(visitTypeOf([ans("Job type", "Mobile patrol")])).toBe("PATROL");
+  });
+  it("ignores long notes and unrelated questions", () => {
+    expect(
+      visitTypeOf([ans("Call-out reason", "Gate was left unlocked by a customer and the alarm went off at 22:00")]),
+    ).toBeNull();
+    expect(visitTypeOf([ans("Site Name", "Lock-up Storage Ltd")])).toBeNull();
+  });
+});
+
+describe("pickShift", () => {
+  const when = new Date("2026-10-17T21:15:00.000Z");
+  const shift = (id: string, start: string, end: string, officerId: string | null = null): ShiftCandidate => ({
+    id,
+    start: new Date(`2026-10-17T${start}:00.000Z`),
+    end: new Date(`2026-10-${end > start ? "17" : "18"}T${end}:00.000Z`),
+    officerId,
+  });
+
+  it("finds the shift on at the time", () => {
+    const p = pickShift(when, [shift("day", "07:00", "19:00"), shift("night", "19:00", "07:00")], null);
+    expect(p.pick?.id).toBe("night");
+  });
+
+  it("counts a report just before the start or after the end", () => {
+    expect(pickShift(new Date("2026-10-17T18:40:00.000Z"), [shift("night", "19:00", "07:00")], null).pick?.id).toBe(
+      "night",
+    );
+    expect(pickShift(new Date("2026-10-17T19:50:00.000Z"), [shift("day", "07:00", "19:00")], null).pick?.id).toBe(
+      "day",
+    );
+    expect(pickShift(new Date("2026-10-17T20:30:00.000Z"), [shift("day", "07:00", "19:00")], null).pick).toBeNull();
+  });
+
+  it("picks the officer's own shift when two were on", () => {
+    const both = [shift("a", "19:00", "07:00", "u1"), shift("b", "19:00", "07:00", "u2")];
+    expect(pickShift(when, both, "u2").pick?.id).toBe("b");
+    const p = pickShift(when, both, null);
+    expect(p.pick).toBeNull();
+    expect(!p.pick && p.reason).toBe("ambiguous");
   });
 });
 

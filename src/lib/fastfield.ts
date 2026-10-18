@@ -166,6 +166,38 @@ const LEAVE_LABEL =
 const NOT_VISIT_TIME = /incident|call(?:ed)?\b|call[\s-]?out|alarm|activation|reported|received/i;
 const SUMMARY_LABEL =
   /note|observ|incident|issue|comment|detail|descri|report|summary|remark|reason|action/i;
+const POSTCODE_LABEL = /post\s*code|address|site|premises|property|location/i;
+const VISIT_TYPE_LABEL =
+  /\b(type|visit|reason|service|activity|job|call[\s-]?out|attend(?:ance|ed)?\s+for)\b/i;
+
+/** A full UK postcode in free text ("Neasden NW10 7UD", "nw107ud"),
+ *  normalised to capitals without spaces. */
+const POSTCODE = /\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b/i;
+
+export function extractPostcode(text: string | null | undefined): string | null {
+  const m = text?.match(POSTCODE);
+  return m ? `${m[1]}${m[2]}`.toUpperCase() : null;
+}
+
+export function normalisePostcode(pc: string | null | undefined): string {
+  return (pc ?? "").replace(/\s+/g, "").toUpperCase();
+}
+
+/** What kind of visit a form says it was, from a short "type"-style answer
+ *  ("Lock up", "Unlock", "Call out", "Patrol"). Null when it doesn't say. */
+export function visitTypeOf(answers: FastFieldAnswer[]): string | null {
+  for (const a of answers) {
+    if (answerKind(a.type) !== "text" || !VISIT_TYPE_LABEL.test(a.label)) continue;
+    const v = answerText(a.value);
+    if (!v || v.length > 40) continue;
+    if (/\bun-?lock/i.test(v)) return "UNLOCK";
+    if (/\block(?:[\s-]?up|ing)?\b/i.test(v)) return "LOCK";
+    if (/patrol/i.test(v)) return "PATROL";
+    if (/call[\s-]?out|alarm|activation|response/i.test(v)) return "ALARM_RESPONSE";
+    if (/key/i.test(v) && /collect/i.test(v)) return "KEY_COLLECTION";
+  }
+  return null;
+}
 
 /** Reasonable bounds for a typed arrival/departure, relative to submission
  *  (forms can be finished offline and sent later). */
@@ -194,6 +226,10 @@ export type FastFieldFacts = {
   lng: number | null;
   /** First written note — shown on the admin list to help linking by hand. */
   summary: string | null;
+  /** A UK postcode typed in the site name (or a postcode/address answer). */
+  postcode: string | null;
+  /** What the form says the visit was (LOCK, UNLOCK, PATROL, …), if it does. */
+  visitType: string | null;
 };
 
 export type FactsInput = {
@@ -307,9 +343,17 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
   const summary = summaryAnswer ? textOf(summaryAnswer)!.slice(0, 280) : null;
   const openedAt = within(startedAt, OPENED_BEFORE_SUBMIT_MS);
   const closedAt = within(finishedAt, OPENED_BEFORE_SUBMIT_MS);
+  const siteText = siteAnswer ? textOf(siteAnswer) : null;
+  const postcode =
+    extractPostcode(siteText) ??
+    textAnswers
+      .filter((a) => a !== officerAnswer && POSTCODE_LABEL.test(a.label))
+      .map((a) => extractPostcode(textOf(a)))
+      .find((pc): pc is string => !!pc) ??
+    null;
 
   return {
-    siteText: siteAnswer ? textOf(siteAnswer) : null,
+    siteText,
     officerText,
     officerName,
     siaNumber,
@@ -321,15 +365,23 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
     lat: coords?.lat ?? null,
     lng: coords?.lng ?? null,
     summary,
+    postcode,
+    visitType: visitTypeOf(answers),
   };
 }
 
 // ── Site ──────────────────────────────────────────────────────────────────
 
-export type SiteRow = SiteCandidate & { lat: number | null; lng: number | null };
+export type SiteRow = SiteCandidate & {
+  lat: number | null;
+  lng: number | null;
+  customerId?: string | null;
+};
+
+export type SiteHow = "postcode" | "postcode+name" | "postcode+gps" | "name" | "name+gps" | "gps";
 
 export type SitePick =
-  | { site: SiteRow; how: "name" | "name+gps" | "gps"; distanceM: number | null }
+  | { site: SiteRow; how: SiteHow; distanceM: number | null }
   | { site: null; reason: string };
 
 /** Within this distance a GPS fix alone identifies the site. */
@@ -359,18 +411,41 @@ function nearest(
 }
 
 /**
- * Which site a report is for: the site named in the form (fuzzy, like the
- * Telegram bot), with the phone's GPS settling a name that fits several
- * sites, or standing in when the name isn't recognised.
+ * Which site a report is for. A postcode in the site name (or a postcode
+ * answer) wins; otherwise the site named in the form (fuzzy, like the
+ * Telegram bot). The phone's GPS settles a postcode or name that fits several
+ * sites, and stands in when neither is recognised.
  */
 export function pickSite(
-  siteText: string | null,
-  lat: number | null,
-  lng: number | null,
+  report: { siteText: string | null; postcode?: string | null; lat: number | null; lng: number | null },
   sites: SiteRow[],
 ): SitePick {
-  if (siteText) {
-    const m = matchSite(siteText, sites);
+  const { siteText, postcode, lat, lng } = report;
+  // The name without the postcode, so its parts don't count as name words.
+  const nameText = siteText?.replace(POSTCODE, " ").replace(/\s+/g, " ").trim() || null;
+
+  if (postcode) {
+    const hits = sites.filter((s) => normalisePostcode(s.postcode) === postcode);
+    if (hits.length === 1) {
+      return { site: hits[0], how: "postcode", distanceM: distanceTo(hits[0], lat, lng) };
+    }
+    if (hits.length > 1) {
+      const byName = nameText ? matchSite(nameText, hits) : null;
+      if (byName?.kind === "one") {
+        const site = byName.site as SiteRow;
+        return { site, how: "postcode+name", distanceM: distanceTo(site, lat, lng) };
+      }
+      const near = nearest(hits, lat, lng, GPS_TIEBREAK_MAX_M);
+      if (near) return { site: near.site, how: "postcode+gps", distanceM: near.distanceM };
+      return {
+        site: null,
+        reason: `Postcode ${postcode} fits ${hits.length} sites — pick the right one.`,
+      };
+    }
+  }
+
+  if (nameText) {
+    const m = matchSite(nameText, sites);
     if (m.kind === "one") {
       const site = m.site as SiteRow;
       return { site, how: "name", distanceM: distanceTo(site, lat, lng) };
@@ -407,6 +482,48 @@ export function pickOfficer(facts: FastFieldFacts, people: PersonRow[]): string 
   if (!name) return null;
   const m = matchPerson(name, people);
   return m.kind === "one" ? m.person.id : null;
+}
+
+// ── Shift ─────────────────────────────────────────────────────────────────
+
+export type ShiftCandidate = {
+  id: string;
+  /** Earliest of the scheduled / actual start, latest of the ends. */
+  start: Date;
+  end: Date;
+  officerId: string | null;
+};
+
+/** A report this long before a shift starts, or after it ends, still counts. */
+export const SHIFT_EARLY_MIN = 30;
+export const SHIFT_LATE_MIN = 60;
+
+/** Shifts at the site that were on at the report's time. */
+export function shiftsOn(when: Date, shifts: ShiftCandidate[]): ShiftCandidate[] {
+  const t = when.getTime();
+  return shifts.filter(
+    (s) =>
+      t >= s.start.getTime() - SHIFT_EARLY_MIN * 60000 &&
+      t <= s.end.getTime() + SHIFT_LATE_MIN * 60000,
+  );
+}
+
+/**
+ * The static / dog-handler shift a patrol report was filed during: the one on
+ * at the time, or — if two were — the one worked by the officer named in the
+ * form. A shift takes any number of reports (one per patrol round).
+ */
+export function pickShift(
+  when: Date,
+  shifts: ShiftCandidate[],
+  officerId: string | null,
+): { pick: ShiftCandidate } | { pick: null; reason: "none" | "ambiguous" } {
+  const on = shiftsOn(when, shifts);
+  if (on.length === 0) return { pick: null, reason: "none" };
+  if (on.length === 1) return { pick: on[0] };
+  const theirs = officerId ? on.filter((s) => s.officerId === officerId) : [];
+  if (theirs.length === 1) return { pick: theirs[0] };
+  return { pick: null, reason: "ambiguous" };
 }
 
 // ── Activity ──────────────────────────────────────────────────────────────

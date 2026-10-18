@@ -12,8 +12,9 @@
  * reports already imported are skipped, and a run that hits its time limit
  * leaves the rest for the next one.
  *
- * Preview (FASTFIELD_PREVIEW=true) copies no photos and writes nothing except
- * the list of FastField forms; it prints what would happen.
+ * Preview (FASTFIELD_PREVIEW=true) reads the forms set to "Preview only" as
+ * well as those switched on, copies no photos and imports nothing; it prints
+ * what would happen, per form, and Admin → FastField shows it too.
  *
  * The repo's Actions logs are visible to anyone with access, so this prints
  * counts only — never sites, names or answers — and saves no capture files.
@@ -49,6 +50,8 @@ const today = new Date();
 const FROM = env("FASTFIELD_FROM") || isoDay(new Date(today.getTime() - 3 * 86_400_000));
 const TO = env("FASTFIELD_TO") || isoDay(today);
 const started = Date.now();
+/** Ties a preview run's batches together so the app can keep per-form counts. */
+const RUN = preview ? `${started.toString(36)}-${Math.random().toString(36).slice(2, 8)}` : undefined;
 const outOfTime = () => Date.now() - started > MAX_MINUTES * 60_000;
 
 if (!USER || !PASS) {
@@ -440,7 +443,7 @@ async function postApp(body) {
  *  odd report doesn't stop the rest. */
 async function importReports(reports, total) {
   try {
-    addSummary(total, await postApp({ action: "import", reports }));
+    addSummary(total, await postApp({ action: "import", run: RUN, reports }));
   } catch (e) {
     if (!(e instanceof Refused)) throw e;
     if (reports.length === 1) {
@@ -452,14 +455,23 @@ async function importReports(reports, total) {
   }
 }
 
-function addSummary(total, s) {
+function addCounts(total, s) {
   for (const k of ["received", "alreadyImported", "formOff", "linked", "created", "failed"]) {
-    total[k] = (total[k] ?? 0) + (s[k] ?? 0);
+    if (s[k] != null) total[k] = (total[k] ?? 0) + s[k];
   }
   total.linkedByType ??= {};
   for (const [t, n] of Object.entries(s.linkedByType ?? {})) total.linkedByType[t] = (total.linkedByType[t] ?? 0) + n;
-  total.unmatched ??= { site: 0, none: 0, taken: 0, ambiguous: 0 };
+  total.unmatched ??= {};
   for (const [r, n] of Object.entries(s.unmatched ?? {})) total.unmatched[r] = (total.unmatched[r] ?? 0) + n;
+}
+
+function addSummary(total, s) {
+  addCounts(total, s);
+  total.byForm ??= {};
+  for (const [formId, c] of Object.entries(s.byForm ?? {})) {
+    total.byForm[formId] ??= {};
+    addCounts(total.byForm[formId], c);
+  }
 }
 
 const TYPE_WORDS = {
@@ -472,21 +484,37 @@ const TYPE_WORDS = {
   VPI: "VPIs",
   ADHOC: "ad-hoc jobs",
   SURVEY: "surveys",
+  SHIFT: "static-shift rounds",
+};
+
+const REASON_WORDS = {
+  site: "site not recognised",
+  none: "no activity near the time",
+  shift: "static shift on, no callout logged",
+  taken: "activity already had a report",
+  ambiguous: "two equally close",
 };
 
 function describe(total) {
   const byType = Object.entries(total.linkedByType ?? {})
     .map(([t, n]) => `${n} ${TYPE_WORDS[t] ?? t}`)
     .join(", ");
-  const u = total.unmatched ?? {};
-  const unmatched = (u.site ?? 0) + (u.none ?? 0) + (u.taken ?? 0) + (u.ambiguous ?? 0);
+  const reasons = Object.entries(total.unmatched ?? {}).filter(([, n]) => n > 0);
+  const unmatched = reasons.reduce((n, [, x]) => n + x, 0);
   return (
     `linked ${total.linked ?? 0}${byType ? ` (${byType})` : ""}, ` +
     `created ${total.created ?? 0}, ` +
-    `unmatched ${unmatched} (site not recognised ${u.site ?? 0}, no activity near the time ${u.none ?? 0}, ` +
-    `activity already had a report ${u.taken ?? 0}, two activities equally close ${u.ambiguous ?? 0})` +
+    `unmatched ${unmatched}` +
+    (reasons.length ? ` (${reasons.map(([r, n]) => `${REASON_WORDS[r] ?? r} ${n}`).join(", ")})` : "") +
     (total.failed ? `, failed ${total.failed}` : "")
   );
+}
+
+/** One line per form, by FastField form number (names stay out of the log). */
+function describeForms(total) {
+  for (const [formId, c] of Object.entries(total.byForm ?? {})) {
+    console.log(`  Form ${formId}: ${describe(c)}.`);
+  }
 }
 
 // ── Run ───────────────────────────────────────────────────────────────────
@@ -511,6 +539,7 @@ async function run() {
     }
     const plan = await postApp({
       action: "plan",
+      run: RUN,
       forms: setup.forms,
       submissions: listed.map((s) => ({
         submissionId: s.submissionId,
@@ -555,12 +584,14 @@ async function run() {
 
     if (preview) {
       console.log(`Preview OK — would have ${describe(total)}.`);
+      describeForms(total);
     } else {
       console.log(
         `FastField OK — ${describe(total)}; photos copied ${photoCounts.copied}` +
           (photoCounts.failed ? `, ${photoCounts.failed} couldn't be copied` : "") +
           ".",
       );
+      describeForms(total);
       const retry = await postApp({ action: "retry" }).catch((e) => {
         console.warn(`Re-checking earlier unmatched reports didn't finish: ${String(e?.message ?? e).slice(0, 120)}`);
         return {};

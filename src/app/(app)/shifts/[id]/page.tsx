@@ -121,6 +121,15 @@ export default async function ShiftDetailPage({
           orderBy: { submittedAt: "asc" },
           select: { id: true, submittedAt: true, payload: true, officerNameRaw: true },
         },
+        fastfieldReports: {
+          orderBy: { submittedAt: "asc" },
+          select: {
+            id: true,
+            submittedAt: true,
+            photoUrls: true,
+            formSubmission: { select: { review: { select: { id: true } } } },
+          },
+        },
       },
     }),
     prisma.activityLog.findMany({
@@ -400,6 +409,41 @@ export default async function ShiftDetailPage({
         </table>
         </div>
       </div>
+
+      {shift.fastfieldReports.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">
+              FastField patrol reports ({shift.fastfieldReports.length})
+            </h2>
+            <p className="text-xs text-slate-500">
+              Patrol rounds the officer filed on FastField during this shift.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {shift.fastfieldReports.map((r, i) => {
+              const reviewId = r.formSubmission?.review?.id;
+              return (
+                <li key={r.id} className="px-4 py-2 flex flex-wrap items-center gap-x-3">
+                  <span className="text-slate-500">{i + 1}</span>
+                  <span className="text-slate-700">{fmt(r.submittedAt)}</span>
+                  {r.photoUrls.length > 0 && (
+                    <span className="text-xs text-slate-500">
+                      {r.photoUrls.length} photo{r.photoUrls.length === 1 ? "" : "s"}
+                    </span>
+                  )}
+                  <Link
+                    href={reviewId ? `/admin/reports/${reviewId}` : `/admin/fastfield/${r.id}`}
+                    className="ml-auto text-xs text-brand-blue-dark hover:underline"
+                  >
+                    Open report →
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
 
       {shift.notes && (
         <div className="card p-4">
