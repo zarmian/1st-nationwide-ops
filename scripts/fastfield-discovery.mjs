@@ -287,115 +287,128 @@ async function main() {
     await snapshot(page, "home");
     const base = out.portal;
 
-    // 1. Which requests can the portal make? Read the command names, routes
-    //    and download-ish endpoints out of its own code (no data in there).
-    const scriptUrls = [...new Set([...portalScripts, ...(await page.evaluate(() =>
-      [...document.scripts].map((s) => s.src).filter((src) => src && new URL(src).origin === location.origin),
-    ))])];
-    out.bundle = await page.evaluate(async (urls) => {
-      const commands = new Set();
-      const routes = new Set();
-      const endpoints = new Set();
-      for (const u of urls) {
-        try {
-          const t = await (await fetch(u, { credentials: "same-origin" })).text();
-          for (const m of t.matchAll(/commandName\s*:\s*["'`]([A-Za-z]+(?:\.[A-Za-z]+)+)["'`]/g)) commands.add(m[1]);
-          for (const m of t.matchAll(/["'`]((?:Submission|Submissions|SubmissionViewer|FormSubmission|Dispatch|Report|Reports|DataTable|Media|Image|Pdf|Form)[A-Za-z]*\.[A-Z][A-Za-z]+)["'`]/g)) commands.add(m[1]);
-          for (const m of t.matchAll(/path\s*:\s*["'`](\/[A-Za-z0-9\-_/:]*)["'`]/g)) routes.add(m[1]);
-          for (const m of t.matchAll(/["'`](\/[A-Za-z0-9\-_/]*(?:pdf|download|export|image|media|photo|attachment)[A-Za-z0-9\-_/]*)["'`]/gi)) endpoints.add(m[1]);
-        } catch {
-          /* skip unreadable script */
+    try {
+      // 1. Which requests can the portal make? Read the command names, routes
+      //    and download-ish endpoints out of its own code (no data in there).
+      const scriptUrls = [...new Set([...portalScripts, ...(await page.evaluate(() =>
+        [...document.scripts].map((s) => s.src).filter((src) => src && new URL(src).origin === location.origin),
+      ))])];
+      out.bundle = await page.evaluate(async (urls) => {
+        const commands = new Set();
+        const routes = new Set();
+        const endpoints = new Set();
+        for (const u of urls) {
+          try {
+            const t = await (await fetch(u, { credentials: "same-origin" })).text();
+            for (const m of t.matchAll(/commandName\s*:\s*["'`]([A-Za-z]+(?:\.[A-Za-z]+)+)["'`]/g)) commands.add(m[1]);
+            for (const m of t.matchAll(/["'`]((?:Submission|Submissions|SubmissionViewer|FormSubmission|Dispatch|Report|Reports|DataTable|Media|Image|Pdf|Form)[A-Za-z]*\.[A-Z][A-Za-z]+)["'`]/g)) commands.add(m[1]);
+            for (const m of t.matchAll(/path\s*:\s*["'`](\/[A-Za-z0-9\-_/:]*)["'`]/g)) routes.add(m[1]);
+            for (const m of t.matchAll(/["'`](\/[A-Za-z0-9\-_/]*(?:pdf|download|export|image|media|photo|attachment)[A-Za-z0-9\-_/]*)["'`]/gi)) endpoints.add(m[1]);
+          } catch {
+            /* skip unreadable script */
+          }
+        }
+        return {
+          scripts: urls.map((u) => new URL(u).pathname),
+          commands: [...commands].sort(),
+          routes: [...routes].sort(),
+          endpoints: [...endpoints].sort(),
+        };
+      }, scriptUrls);
+      console.log(`Portal code: ${out.bundle.commands.length} request names, ${out.bundle.routes.length} routes.`);
+    } catch (e) {
+      out.notes.push(`step 1 (portal code) failed: ${e?.message?.slice(0, 160) ?? e}`);
+    }
+    try {
+      // 2. Open the newest submission from the dashboard's "recent submissions".
+      const opened = await page.evaluate(() => {
+        const boxes = [...document.querySelectorAll("div, section, table")].filter((el) => {
+          const t = el.textContent || "";
+          return /Form Name/.test(t) && /\bUser\b/.test(t) && /\bDate\b/.test(t);
+        });
+        boxes.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length);
+        const card = boxes[0];
+        if (!card) return "no recent-submissions card";
+        const rows = [...card.querySelectorAll("tbody tr, [role=row], .tabulator-row, li, a")].filter(
+          (r) => !/Form Name/.test(r.textContent || "") && (r.textContent || "").trim(),
+        );
+        if (!rows.length) return "no rows in the card";
+        const target = rows[0].querySelector("a, button") || rows[0];
+        target.click();
+        return `clicked a ${target.tagName.toLowerCase()}`;
+      });
+      out.notes.push(`dashboard submission: ${opened}`);
+      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+      await page.waitForTimeout(4000);
+      await snapshot(page, "after opening a recent submission");
+    } catch (e) {
+      out.notes.push(`step 2 (open a submission) failed: ${e?.message?.slice(0, 160) ?? e}`);
+    }
+    try {
+      // 3. The portal's own submission pages (routes from its code first).
+      const guesses = ["/submissions", "/submissions/list", "/forms", "/dispatch", "/reports", "/datatables", "/lists"];
+      const fromCode = (out.bundle?.routes || []).filter((r) => /submi|report|dispatch|form/i.test(r) && !r.includes(":"));
+      for (const route of [...new Set([...fromCode, ...guesses])].slice(0, 8)) {
+        await page.goto(`${base}/portal#${route}`, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
+        await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
+        await page.waitForTimeout(2500);
+        await snapshot(page, `route ${route}`);
+      }
+    } catch (e) {
+      out.notes.push(`step 3 (submission pages) failed: ${e?.message?.slice(0, 160) ?? e}`);
+    }
+    try {
+      // 4. Can the recent-submissions request list a whole date window? Replay
+      //    the portal's own request (kept in memory, never saved) with paging.
+      const command = (body) =>
+        page.evaluate(async (b) => {
+          const headers = { "Content-Type": "application/json" };
+          const tok =
+            window.axios?.defaults?.headers?.common?.__RequestVerificationToken ||
+            document.querySelector('input[name="__RequestVerificationToken"]')?.value;
+          if (tok) headers.__RequestVerificationToken = tok;
+          const r = await fetch("/portal/command", { method: "POST", headers, body: JSON.stringify(b), credentials: "same-origin" });
+          let json = null;
+          try {
+            json = JSON.parse(await r.text());
+          } catch {}
+          return { status: r.status, json };
+        }, body);
+
+      let newestId = null;
+      if (recentCardRequest) {
+        const end = new Date();
+        const start = new Date(end.getTime() - 30 * 86_400_000);
+        for (const [p, size] of [[0, 25], [1, 25], [0, 200]]) {
+          const res = await command({
+            ...recentCardRequest,
+            startDate: start.toISOString(),
+            endDate: end.toISOString(),
+            page: p,
+            size,
+            maxResults: size,
+          });
+          const recs = res.json?.records ?? [];
+          out.notes.push(`recent list page=${p} size=${size}: status ${res.status}, ${recs.length} records, total ${res.json?.totalCount ?? "?"}`);
+          if (!newestId && recs[0]?.submissionId) newestId = recs[0].submissionId;
+        }
+      } else {
+        out.notes.push("didn't see the recent-submissions request");
+      }
+
+      // 5. Try the read-only submission requests named in the portal's code on
+      //    the newest submission (Get/Load/View/Find/List/Search only).
+      if (newestId) {
+        const reads = (out.bundle?.commands || [])
+          .filter((c) => /submission/i.test(c) && /\.(Get|Load|View|Find|List|Search)[A-Za-z]*$/.test(c))
+          .slice(0, 10);
+        for (const commandName of reads) {
+          const res = await command({ commandName, submissionId: newestId, id: newestId, submissionIds: [newestId] });
+          out.notes.push(`${commandName}: status ${res.status}${res.json && typeof res.json === "object" ? `, keys ${Object.keys(res.json).slice(0, 12).join(",")}` : ""}`);
         }
       }
-      return {
-        scripts: urls.map((u) => new URL(u).pathname),
-        commands: [...commands].sort(),
-        routes: [...routes].sort(),
-        endpoints: [...endpoints].sort(),
-      };
-    }, scriptUrls);
-    console.log(`Portal code: ${out.bundle.commands.length} request names, ${out.bundle.routes.length} routes.`);
-
-    // 2. Open the newest submission from the dashboard's "recent submissions".
-    const opened = await page.evaluate(() => {
-      const boxes = [...document.querySelectorAll("div, section, table")].filter((el) => {
-        const t = el.textContent || "";
-        return /Form Name/.test(t) && /\bUser\b/.test(t) && /\bDate\b/.test(t);
-      });
-      boxes.sort((a, b) => (a.textContent || "").length - (b.textContent || "").length);
-      const card = boxes[0];
-      if (!card) return "no recent-submissions card";
-      const rows = [...card.querySelectorAll("tbody tr, [role=row], .tabulator-row, li, a")].filter(
-        (r) => !/Form Name/.test(r.textContent || "") && (r.textContent || "").trim(),
-      );
-      if (!rows.length) return "no rows in the card";
-      const target = rows[0].querySelector("a, button") || rows[0];
-      target.click();
-      return `clicked a ${target.tagName.toLowerCase()}`;
-    });
-    out.notes.push(`dashboard submission: ${opened}`);
-    await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-    await page.waitForTimeout(4000);
-    await snapshot(page, "after opening a recent submission");
-
-    // 3. The portal's own submission pages (routes from its code first).
-    const guesses = ["/submissions", "/submissions/list", "/forms", "/dispatch", "/reports", "/datatables", "/lists"];
-    const fromCode = (out.bundle.routes || []).filter((r) => /submi|report|dispatch|form/i.test(r) && !r.includes(":"));
-    for (const route of [...new Set([...fromCode, ...guesses])].slice(0, 8)) {
-      await page.goto(`${base}/portal#${route}`, { waitUntil: "domcontentloaded", timeout: 30_000 }).catch(() => {});
-      await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => {});
-      await page.waitForTimeout(2500);
-      await snapshot(page, `route ${route}`);
-    }
-
-    // 4. Can the recent-submissions request list a whole date window? Replay
-    //    the portal's own request (kept in memory, never saved) with paging.
-    const command = (body) =>
-      page.evaluate(async (b) => {
-        const headers = { "Content-Type": "application/json" };
-        const tok =
-          window.axios?.defaults?.headers?.common?.__RequestVerificationToken ||
-          document.querySelector('input[name="__RequestVerificationToken"]')?.value;
-        if (tok) headers.__RequestVerificationToken = tok;
-        const r = await fetch("/portal/command", { method: "POST", headers, body: JSON.stringify(b), credentials: "same-origin" });
-        let json = null;
-        try {
-          json = JSON.parse(await r.text());
-        } catch {}
-        return { status: r.status, json };
-      }, body);
-
-    let newestId = null;
-    if (recentCardRequest) {
-      const end = new Date();
-      const start = new Date(end.getTime() - 30 * 86_400_000);
-      for (const [p, size] of [[0, 25], [1, 25], [0, 200]]) {
-        const res = await command({
-          ...recentCardRequest,
-          startDate: start.toISOString(),
-          endDate: end.toISOString(),
-          page: p,
-          size,
-          maxResults: size,
-        });
-        const recs = res.json?.records ?? [];
-        out.notes.push(`recent list page=${p} size=${size}: status ${res.status}, ${recs.length} records, total ${res.json?.totalCount ?? "?"}`);
-        if (!newestId && recs[0]?.submissionId) newestId = recs[0].submissionId;
-      }
-    } else {
-      out.notes.push("didn't see the recent-submissions request");
-    }
-
-    // 5. Try the read-only submission requests named in the portal's code on
-    //    the newest submission (Get/Load/View/Find/List/Search only).
-    if (newestId) {
-      const reads = (out.bundle.commands || [])
-        .filter((c) => /submission/i.test(c) && /\.(Get|Load|View|Find|List|Search)[A-Za-z]*$/.test(c))
-        .slice(0, 10);
-      for (const commandName of reads) {
-        const res = await command({ commandName, submissionId: newestId, id: newestId, submissionIds: [newestId] });
-        out.notes.push(`${commandName}: status ${res.status}${res.json && typeof res.json === "object" ? `, keys ${Object.keys(res.json).slice(0, 12).join(",")}` : ""}`);
-      }
+    } catch (e) {
+      out.notes.push(`steps 4-5 (listing / detail) failed: ${e?.message?.slice(0, 160) ?? e}`);
     }
   } catch (e) {
     out.notes.push(`error: ${e?.message?.slice(0, 200) ?? e}`);
