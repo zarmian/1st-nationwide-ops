@@ -4,19 +4,25 @@
  * planFastField() which ones are new, then sends each new one (answers,
  * photos already copied to our storage) to importFastField().
  *
- * Each report is matched to its site (form text, then GPS) and to the nearest
- * activity there within 3 hours — a callout job, a patrol visit or a lock /
- * unlock (lib/fastfield.ts). It is then attached the way an officer's own
- * report is: a FormSubmission with an approved review, and the activity marked
- * done with the officer's times, billed and paid. FastField reports were
- * already sent to the client from FastField, so they skip the review queue,
- * client emails and SMS acks.
+ * Forms are shared between clients (the Site Patrol and Alarm Response forms
+ * are used for Shurgard and others), so the site in the report decides the
+ * client: a postcode typed in the site name, else the name, else GPS
+ * (lib/fastfield.ts). The report then goes to:
+ *   - the static / dog-handler shift on at the time, for patrol forms — a
+ *     shift takes any number of reports, one per patrol round;
+ *   - otherwise the nearest job or patrol visit there within 3 hours.
+ * It is attached the way an officer's own report is: a FormSubmission with an
+ * approved review, and (for a job or visit) the activity marked done with the
+ * officer's times, billed and paid. FastField reports were already sent to
+ * the client from FastField, so they skip the review queue, client emails and
+ * SMS acks.
  *
- * When nothing matches, a form set to "create callouts" (Shurgard) gets a
- * completed callout job; everything else waits on /admin/fastfield to be
- * linked by hand (linkReportToJob / linkReportToVisit / createJobForReport).
+ * When nothing matches, the job is created only at the client the form names
+ * for that (Shurgard); everything else waits on /admin/fastfield to be linked
+ * by hand (linkReportToJob / linkReportToVisit / linkReportToShift /
+ * createJobForReport).
  */
-import { Prisma, type JobType } from "@prisma/client";
+import { Prisma, type FastFieldFormMode, type JobType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { formatDateTime, formatTime } from "@/lib/dates";
 import {
@@ -33,17 +39,19 @@ import {
   MATCH_WINDOW_MIN,
   pickActivity,
   pickOfficer,
+  pickShift,
   pickSite,
+  SHIFT_EARLY_MIN,
+  shiftsOn,
   type ActivityCandidate,
   type FastFieldAnswer,
   type FastFieldFacts,
   type FastFieldIncoming,
   type PersonRow,
+  type ShiftCandidate,
+  type SiteHow,
   type SiteRow,
 } from "@/lib/fastfield";
-
-/** FastField's Shurgard activity log / call-out form. */
-export const SHURGARD_FORM_ID = 549243;
 
 /** An error's code or name only — never its message, which can quote the
  *  report's contents into the logs. */
@@ -60,38 +68,38 @@ const ACTIVITY_NOUN: Record<string, string> = {
   SURVEY: "survey",
   VPI: "VPI",
   ADHOC: "ad-hoc job",
+  SHIFT: "static shift",
 };
 const noun = (type: string) => ACTIVITY_NOUN[type] ?? "job";
 
 /** Job statuses that a report completes. Later ones are left as they are. */
 const UNFINISHED: string[] = ["OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REVIEW_PENDING"];
 const VISIT_UNFINISHED: string[] = ["PENDING", "IN_PROGRESS", "LATE", "MISSED"];
-/** Shift-type jobs are covered by their shift's own checks, not these forms. */
+/** Shift-type jobs stand for their shift, which is matched directly. */
 const NOT_MATCHABLE: JobType[] = ["STATIC_GUARDING_SHIFT", "DOG_HANDLER_SHIFT"];
 
 type FormRow = {
   formId: number;
   name: string;
   customerId: string | null;
-  enabled: boolean;
-  createJobs: boolean;
+  mode: FastFieldFormMode;
   jobType: JobType;
+  createCustomerId: string | null;
 };
 
 const FORM_SELECT = {
   formId: true,
   name: true,
   customerId: true,
-  enabled: true,
-  createJobs: true,
+  mode: true,
   jobType: true,
+  createCustomerId: true,
 } as const;
 
-/** Whether a form's submissions are imported. A preview also includes forms
- *  that have a client set but aren't switched on yet, to show what would
- *  happen. */
+/** Whether a form's submissions are read: a preview takes the forms set to
+ *  Preview only as well as those switched on. */
 function formIsOn(form: FormRow, preview: boolean): boolean {
-  return form.enabled || (preview && form.customerId != null);
+  return preview ? form.mode !== "OFF" : form.mode === "ON";
 }
 
 // ── Forms ─────────────────────────────────────────────────────────────────
@@ -100,22 +108,31 @@ function normName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-/** Defaults for a form seen for the first time: the Shurgard form reports
- *  Shurgard callouts (and creates them when nothing matches); another form is
- *  pointed at a client whose name it contains. Everything starts switched
- *  off — the office turns a form on at /admin/fastfield after a preview. */
-async function firstSeenDefaults(formId: number, name: string) {
-  if (formId === SHURGARD_FORM_ID || /shurgard/i.test(name)) {
-    const shurgard = await prisma.customer.findFirst({
-      where: { name: { contains: "Shurgard", mode: "insensitive" } },
-      select: { id: true },
-    });
-    return {
-      customerId: shurgard?.id ?? null,
-      createJobs: true,
-      jobType: "ALARM_RESPONSE" as JobType,
-    };
+async function shurgardId(): Promise<string | null> {
+  const c = await prisma.customer.findFirst({
+    where: { name: { contains: "Shurgard", mode: "insensitive" } },
+    orderBy: { name: "asc" },
+    select: { id: true },
+  });
+  return c?.id ?? null;
+}
+
+/** Starting settings for a form seen for the first time, from its name: a
+ *  Shurgard-titled form reports Shurgard callouts and creates them when
+ *  nothing matches; a patrol form reports patrols / static-shift rounds for
+ *  any client; an alarm-response form reports callouts for any client and
+ *  creates them only at Shurgard sites. Every form starts switched off. */
+async function firstSeenDefaults(name: string) {
+  if (/shurgard/i.test(name)) {
+    const id = await shurgardId();
+    return { customerId: id, createCustomerId: id, jobType: "ALARM_RESPONSE" as JobType };
   }
+  if (/patrol/i.test(name)) return { jobType: "PATROL" as JobType };
+  if (/alarm|call[\s-]?out/i.test(name)) {
+    return { jobType: "ALARM_RESPONSE" as JobType, createCustomerId: await shurgardId() };
+  }
+  if (/vacant|\bvpi\b/i.test(name)) return { jobType: "VPI" as JobType };
+  // A form named after one client is just for them.
   const n = ` ${normName(name)} `;
   const customers = await prisma.customer.findMany({ select: { id: true, name: true } });
   const hits = customers.filter((c) => {
@@ -144,7 +161,7 @@ export async function ensureForms(
     if (!known) {
       const created = await prisma.fastFieldForm.upsert({
         where: { formId },
-        create: { formId, name, lastSeenAt: now, ...(await firstSeenDefaults(formId, name)) },
+        create: { formId, name, lastSeenAt: now, ...(await firstSeenDefaults(name)) },
         update: { name, lastSeenAt: now },
         select: FORM_SELECT,
       });
@@ -186,12 +203,26 @@ export type PlanResult = {
 
 /**
  * Given the forms and the submission list the robot read, record the forms
- * and say which submissions are new and belong to a form that's switched on.
- * Writes only the form list (so /admin/fastfield can show it), even in a
- * preview.
+ * and say which submissions are new and belong to a form that's on (or set to
+ * Preview only, in a preview). Writes only the form list — and, for a preview
+ * run, clears the forms' last-preview counts — never reports.
  */
-export async function planFastField(input: PlanInput, preview: boolean): Promise<PlanResult> {
+export async function planFastField(
+  input: PlanInput,
+  preview: boolean,
+  run?: string | null,
+): Promise<PlanResult> {
   const forms = await ensureForms(input.forms);
+  if (preview && run) {
+    await prisma.fastFieldForm.updateMany({
+      where: { mode: { not: "OFF" } },
+      data: {
+        previewRun: run,
+        previewAt: new Date(),
+        previewCounts: emptyCounts() as unknown as Prisma.InputJsonValue,
+      },
+    });
+  }
   const byName = new Map<string, FormRow[]>();
   for (const f of Array.from(forms.values())) {
     const k = f.name.trim().toLowerCase();
@@ -242,7 +273,7 @@ export type Ctx = {
   sites: Map<string, SiteRow[]>;
   people: { active: PersonRow[]; inactive: PersonRow[] } | null;
   /** Preview only: activities already claimed by an earlier report in this
-   *  run, and callouts it would have created. */
+   *  run, and jobs it would have created. */
   claimed: Set<string>;
   virtual: { siteId: string; when: Date; type: string }[];
 };
@@ -251,6 +282,7 @@ function newCtx(): Ctx {
   return { sites: new Map(), people: null, claimed: new Set(), virtual: [] };
 }
 
+/** Active sites to match against: one client's, or everyone's. */
 async function sitesFor(ctx: Ctx, customerId: string | null): Promise<SiteRow[]> {
   const key = customerId ?? "*";
   const cached = ctx.sites.get(key);
@@ -266,6 +298,7 @@ async function sitesFor(ctx: Ctx, customerId: string | null): Promise<SiteRow[]>
       city: true,
       lat: true,
       lng: true,
+      customerId: true,
     },
   });
   const sites = rows.map((s) => ({
@@ -276,6 +309,7 @@ async function sitesFor(ctx: Ctx, customerId: string | null): Promise<SiteRow[]>
     address: [s.addressLine, s.city].filter(Boolean).join(" "),
     lat: s.lat,
     lng: s.lng,
+    customerId: s.customerId,
   }));
   ctx.sites.set(key, sites);
   return sites;
@@ -365,17 +399,52 @@ async function candidatesNear(siteId: string, when: Date): Promise<ActivityCandi
   ];
 }
 
+/** Static / dog-handler shifts at a site that started up to a day before
+ *  the report (shifts can be long), with their full window. */
+async function shiftsNear(siteId: string, when: Date): Promise<ShiftCandidate[]> {
+  const range = {
+    gte: new Date(when.getTime() - 24 * 3_600_000),
+    lte: new Date(when.getTime() + SHIFT_EARLY_MIN * 60000),
+  };
+  const rows = await prisma.shift.findMany({
+    where: { siteId, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
+    select: {
+      id: true,
+      officerId: true,
+      scheduledStartsAt: true,
+      scheduledEndsAt: true,
+      actualStartedAt: true,
+      actualEndedAt: true,
+    },
+    take: 20,
+  });
+  return rows.map((s) => ({
+    id: s.id,
+    officerId: s.officerId,
+    start: new Date(
+      Math.min(s.scheduledStartsAt.getTime(), (s.actualStartedAt ?? s.scheduledStartsAt).getTime()),
+    ),
+    end: new Date(
+      Math.max(s.scheduledEndsAt.getTime(), (s.actualEndedAt ?? s.scheduledEndsAt).getTime()),
+    ),
+  }));
+}
+
 // ── Deciding what to do with a report ─────────────────────────────────────
 
-export type UnmatchedReason = "site" | "none" | "taken" | "ambiguous";
+export type UnmatchedReason = "site" | "none" | "taken" | "ambiguous" | "shift";
+
+type LinkTarget = { kind: "job" | "visit" | "shift"; id: string; type: string };
 
 type Decision =
-  | { action: "link"; site: SiteRow; target: ActivityCandidate; note: string }
-  | { action: "create"; site: SiteRow; note: string }
+  | { action: "link"; site: SiteRow; target: LinkTarget; note: string }
+  | { action: "create"; site: SiteRow; type: JobType; note: string }
   | { action: "unmatched"; site: SiteRow | null; reason: UnmatchedReason; note: string };
 
-function siteHow(how: "name" | "name+gps" | "gps", distanceM: number | null): string {
+function siteHow(how: SiteHow, distanceM: number | null): string {
   if (how === "gps") return ` Site found by GPS (${Math.round(distanceM ?? 0)} m away).`;
+  if (how === "postcode" || how === "postcode+name") return " Site found by postcode.";
+  if (how === "postcode+gps") return " Site found by postcode and GPS.";
   if (how === "name+gps") return " Site found by name and GPS.";
   return "";
 }
@@ -387,10 +456,32 @@ async function decide(
   preview: boolean,
 ): Promise<Decision> {
   const sites = await sitesFor(ctx, form.customerId);
-  const sp = pickSite(facts.siteText, facts.lat, facts.lng, sites);
+  const sp = pickSite(facts, sites);
   if (!sp.site) return { action: "unmatched", site: null, reason: "site", note: sp.reason };
   const site = sp.site;
   const how = siteHow(sp.how, sp.distanceM);
+  const kind = (facts.visitType as JobType | null) ?? form.jobType;
+  const at = formatDateTime(facts.when);
+  const shiftsNow = shiftsOn(facts.when, await shiftsNear(site.id, facts.when));
+
+  // A patrol round during a static shift belongs to that shift.
+  if (kind === "PATROL" && shiftsNow.length) {
+    const ps = pickShift(facts.when, shiftsNow, await officerFor(ctx, facts));
+    if (ps.pick) {
+      return {
+        action: "link",
+        site,
+        target: { kind: "shift", id: ps.pick.id, type: "SHIFT" },
+        note: `Filed during the static shift at ${site.name} (${formatTime(ps.pick.start)}–${formatTime(ps.pick.end)}).${how}`,
+      };
+    }
+    return {
+      action: "unmatched",
+      site,
+      reason: "ambiguous",
+      note: `More than one shift at ${site.name} was on at ${at} — pick the right one.${how}`,
+    };
+  }
 
   let candidates = await candidatesNear(site.id, facts.when);
   if (preview) {
@@ -402,70 +493,125 @@ async function decide(
     }
   }
 
-  const ap = pickActivity(facts.when, form.jobType, candidates);
+  const ap = pickActivity(facts.when, kind, candidates);
   if (ap.pick) {
-    const at = ap.pick.times.reduce((best, t) =>
+    const nearest = ap.pick.times.reduce((best, t) =>
       Math.abs(t.getTime() - facts.when.getTime()) < Math.abs(best.getTime() - facts.when.getTime()) ? t : best,
     );
     return {
       action: "link",
       site,
       target: ap.pick,
-      note: `Matched to the ${noun(ap.pick.type)} at ${formatTime(at)} (${ap.minutesApart} min apart).${how}`,
+      note: `Matched to the ${noun(ap.pick.type)} at ${formatTime(nearest)} (${ap.minutesApart} min apart).${how}`,
     };
   }
-  if (ap.reason === "none" && form.createJobs) {
+  if (ap.reason === "none" && shiftsNow.length) {
+    return {
+      action: "unmatched",
+      site,
+      reason: "shift",
+      note: `A static shift was on at ${site.name} at ${at} — link the report to it, or create the job by hand.${how}`,
+    };
+  }
+  if (ap.reason === "none" && form.createCustomerId && site.customerId === form.createCustomerId) {
     return {
       action: "create",
       site,
-      note: `No activity at ${site.name} within 3 hours, so the ${noun(form.jobType)} was created.${how}`,
+      type: kind,
+      note: `No activity at ${site.name} within 3 hours, so the ${noun(kind)} was created.${how}`,
     };
   }
-  const when = formatDateTime(facts.when);
   const note =
     ap.reason === "none"
-      ? `No activity at ${site.name} within 3 hours of ${when}.`
+      ? `No activity at ${site.name} within 3 hours of ${at}.`
       : ap.reason === "taken"
-        ? `The activity at ${site.name} near ${when} already has a FastField report.`
-        : `More than one activity at ${site.name} is about as close to ${when} — pick the right one.`;
+        ? `The activity at ${site.name} near ${at} already has a FastField report.`
+        : `More than one activity at ${site.name} is about as close to ${at} — pick the right one.`;
   return { action: "unmatched", site, reason: ap.reason, note: note + how };
 }
 
 // ── Import ────────────────────────────────────────────────────────────────
 
-export type ImportSummary = {
-  received: number;
-  alreadyImported: number;
-  formOff: number;
+export type Counts = {
   linked: number;
-  /** Linked, by the type of activity (ALARM_RESPONSE, PATROL, LOCK, …). */
+  /** Linked, by what to (ALARM_RESPONSE, PATROL, LOCK, SHIFT, …). */
   linkedByType: Record<string, number>;
   created: number;
   unmatched: Record<UnmatchedReason, number>;
-  failed: number;
 };
 
-function emptySummary(received: number): ImportSummary {
+export type ImportSummary = Counts & {
+  received: number;
+  alreadyImported: number;
+  formOff: number;
+  failed: number;
+  /** The same counts per FastField form id. */
+  byForm: Record<string, Counts>;
+};
+
+function emptyCounts(): Counts {
   return {
-    received,
-    alreadyImported: 0,
-    formOff: 0,
     linked: 0,
     linkedByType: {},
     created: 0,
-    unmatched: { site: 0, none: 0, taken: 0, ambiguous: 0 },
-    failed: 0,
+    unmatched: { site: 0, none: 0, taken: 0, ambiguous: 0, shift: 0 },
   };
 }
 
-function tally(summary: ImportSummary, d: Decision) {
+function emptySummary(received: number): ImportSummary {
+  return { ...emptyCounts(), received, alreadyImported: 0, formOff: 0, failed: 0, byForm: {} };
+}
+
+function addDecision(c: Counts, d: Decision) {
   if (d.action === "link") {
-    summary.linked++;
-    summary.linkedByType[d.target.type] = (summary.linkedByType[d.target.type] ?? 0) + 1;
+    c.linked++;
+    c.linkedByType[d.target.type] = (c.linkedByType[d.target.type] ?? 0) + 1;
   } else if (d.action === "create") {
-    summary.created++;
+    c.created++;
   } else {
-    summary.unmatched[d.reason]++;
+    c.unmatched[d.reason]++;
+  }
+}
+
+function tally(summary: ImportSummary, d: Decision, formId: number) {
+  addDecision(summary, d);
+  const f = (summary.byForm[String(formId)] ??= emptyCounts());
+  addDecision(f, d);
+}
+
+function addCounts(into: Counts, from: Counts): Counts {
+  into.linked += from.linked;
+  into.created += from.created;
+  for (const [t, n] of Object.entries(from.linkedByType)) {
+    into.linkedByType[t] = (into.linkedByType[t] ?? 0) + n;
+  }
+  for (const r of Object.keys(into.unmatched) as UnmatchedReason[]) {
+    into.unmatched[r] += from.unmatched?.[r] ?? 0;
+  }
+  return into;
+}
+
+/** Add a preview batch's per-form counts to the forms' last-preview counts
+ *  (a new run starts them again). Shown on Admin → FastField. */
+async function recordPreview(run: string, byForm: Record<string, Counts>) {
+  for (const [formId, counts] of Object.entries(byForm)) {
+    const form = await prisma.fastFieldForm.findUnique({
+      where: { formId: Number(formId) },
+      select: { previewRun: true, previewCounts: true },
+    });
+    if (!form) continue;
+    const base =
+      form.previewRun === run && form.previewCounts && typeof form.previewCounts === "object"
+        ? addCounts(emptyCounts(), form.previewCounts as unknown as Counts)
+        : emptyCounts();
+    await prisma.fastFieldForm.update({
+      where: { formId: Number(formId) },
+      data: {
+        previewRun: run,
+        previewAt: new Date(),
+        previewCounts: addCounts(base, counts) as unknown as Prisma.InputJsonValue,
+      },
+    });
   }
 }
 
@@ -484,12 +630,13 @@ function incomingTimes(r: FastFieldIncoming) {
 
 /**
  * Import reports the robot sends. Re-sending one already imported does
- * nothing, so a run can be repeated safely. With preview, nothing is written
- * and the summary says what would happen.
+ * nothing, so a run can be repeated safely. With preview, no report is written
+ * and the summary says what would happen (also kept per form under `run`).
  */
 export async function importFastField(
   reports: FastFieldIncoming[],
   preview: boolean,
+  run?: string | null,
 ): Promise<ImportSummary> {
   const summary = emptySummary(reports.length);
   if (reports.length === 0) return summary;
@@ -531,10 +678,12 @@ export async function importFastField(
     try {
       const decision = await decide(ctx, facts, form, preview);
       if (preview) {
-        tally(summary, decision);
-        if (decision.action === "link") ctx.claimed.add(decision.target.id);
+        tally(summary, decision, form.formId);
+        if (decision.action === "link" && decision.target.kind !== "shift") {
+          ctx.claimed.add(decision.target.id);
+        }
         if (decision.action === "create") {
-          ctx.virtual.push({ siteId: decision.site.id, when: facts.when, type: form.jobType });
+          ctx.virtual.push({ siteId: decision.site.id, when: facts.when, type: decision.type });
         }
         continue;
       }
@@ -570,12 +719,13 @@ export async function importFastField(
         throw e;
       }
 
-      await applyAndTally(ctx, row.id, decision, form, summary);
+      await applyAndTally(ctx, row.id, decision, form.formId, summary);
     } catch (e) {
       console.error("FastField import failed for one report:", errCode(e));
       summary.failed++;
     }
   }
+  if (preview && run) await recordPreview(run, summary.byForm);
   return summary;
 }
 
@@ -585,12 +735,12 @@ async function applyAndTally(
   ctx: Ctx,
   reportId: string,
   decision: Decision,
-  form: FormRow,
+  formId: number,
   summary: ImportSummary,
 ) {
-  const applied = await applyDecision(ctx, reportId, decision, form);
+  const applied = await applyDecision(ctx, reportId, decision);
   if (applied.ok) {
-    tally(summary, decision);
+    tally(summary, decision, formId);
     return;
   }
   summary.failed++;
@@ -600,19 +750,15 @@ async function applyAndTally(
   });
 }
 
-async function applyDecision(
-  ctx: Ctx,
-  reportId: string,
-  d: Decision,
-  form: FormRow,
-): Promise<ActionResult> {
+async function applyDecision(ctx: Ctx, reportId: string, d: Decision): Promise<ActionResult> {
   if (d.action === "link") {
+    if (d.target.kind === "shift") return linkReportToShift(reportId, d.target.id, { note: d.note, ctx });
     return d.target.kind === "job"
       ? linkReportToJob(reportId, d.target.id, { note: d.note, ctx })
       : linkReportToVisit(reportId, d.target.id, { note: d.note, ctx });
   }
   if (d.action === "create") {
-    return createJobForReport(reportId, { siteId: d.site.id, type: form.jobType, note: d.note, ctx });
+    return createJobForReport(reportId, { siteId: d.site.id, type: d.type, note: d.note, ctx });
   }
   return { ok: true };
 }
@@ -629,7 +775,7 @@ export async function retryUnmatched(
     where: {
       status: "UNMATCHED",
       ...(opts.ids ? { id: { in: opts.ids } } : { submittedAt: { gte: since } }),
-      form: { enabled: true },
+      form: { mode: "ON" },
     },
     orderBy: { submittedAt: "asc" },
     take: opts.limit ?? 50,
@@ -663,10 +809,10 @@ export async function retryUnmatched(
             data: { siteId, note: decision.note },
           });
         }
-        tally(summary, decision);
+        tally(summary, decision, row.form.formId);
         continue;
       }
-      await applyAndTally(ctx, row.id, decision, row.form, summary);
+      await applyAndTally(ctx, row.id, decision, row.form.formId, summary);
     } catch (e) {
       console.error("FastField retry failed for one report:", errCode(e));
       summary.failed++;
@@ -752,7 +898,13 @@ async function createSubmission(
   tx: Prisma.TransactionClient,
   report: StoredReport,
   facts: FastFieldFacts,
-  target: { form: string; siteId: string | null; jobId?: string; patrolVisitId?: string },
+  target: {
+    form: string;
+    siteId: string | null;
+    jobId?: string;
+    patrolVisitId?: string;
+    shiftId?: string;
+  },
   officerId: string | null,
 ): Promise<string> {
   const { arrived, departed } = visitTimes(facts, report);
@@ -762,6 +914,7 @@ async function createSubmission(
       siteId: target.siteId,
       jobId: target.jobId ?? null,
       patrolVisitId: target.patrolVisitId ?? null,
+      shiftId: target.shiftId ?? null,
       submittedByUserId: officerId,
       officerNameRaw: (facts.officerName ?? facts.officerText ?? "FastField").slice(0, 120),
       arrivedAt: arrived,
@@ -951,6 +1104,47 @@ export async function linkReportToVisit(
   return { ok: true };
 }
 
+/** Attach a patrol report to the static / dog-handler shift it was filed
+ *  during. The shift itself is left as it is — its own check-ins, times and
+ *  pay stand; the report is extra evidence (and its photos appear in the
+ *  client's static-guarding report). */
+export async function linkReportToShift(
+  reportId: string,
+  shiftId: string,
+  opts: { note?: string; ctx?: Ctx } = {},
+): Promise<ActionResult> {
+  const report = await loadOpenReport(reportId);
+  if ("error" in report) return { ok: false, error: report.error };
+  const shift = await prisma.shift.findUnique({
+    where: { id: shiftId },
+    select: { id: true, siteId: true },
+  });
+  if (!shift) return { ok: false, error: "Shift not found." };
+
+  const facts = factsOf(report);
+  const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
+  await prisma.$transaction(async (tx) => {
+    const submissionId = await createSubmission(
+      tx,
+      report,
+      facts,
+      { form: "PATROL", siteId: shift.siteId, shiftId: shift.id },
+      officerId,
+    );
+    await tx.fastFieldReport.update({
+      where: { id: report.id },
+      data: {
+        status: "LINKED",
+        shiftId: shift.id,
+        siteId: shift.siteId,
+        formSubmissionId: submissionId,
+        ...(opts.note ? { note: opts.note } : {}),
+      },
+    });
+  });
+  return { ok: true };
+}
+
 /** Create the completed job a report describes (a callout nobody logged)
  *  and attach the report to it. */
 export async function createJobForReport(
@@ -966,8 +1160,8 @@ export async function createJobForReport(
   if (!site) return { ok: false, error: "Site not found." };
   if (!site.active) return { ok: false, error: "That site is inactive." };
 
-  const type = opts.type ?? report.form.jobType;
   const facts = factsOf(report);
+  const type = opts.type ?? (facts.visitType as JobType | null) ?? report.form.jobType;
   const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
   const { arrived, done } = visitTimes(facts, report);
 
@@ -1040,40 +1234,57 @@ export async function setReportIgnored(
   return { ok: true };
 }
 
-/** Activities near a report's time at a site, for linking by hand. */
+export type NearbyActivity = {
+  kind: "job" | "visit" | "shift";
+  id: string;
+  /** JobType, "PATROL" for a visit, "SHIFT" for a shift. */
+  type: string;
+  at: Date;
+  /** Shifts: when it ends. */
+  until?: Date;
+  /** 0 for a shift that was on at the time. */
+  minutesApart: number;
+  taken: boolean;
+};
+
+/** Activities near a report's time at a site, for linking by hand: the shifts
+ *  on at the time, then jobs and visits within 3 hours, nearest first. */
 export async function activitiesNearReport(
   reportId: string,
   siteId: string,
-): Promise<
-  {
-    kind: "job" | "visit";
-    id: string;
-    type: string;
-    at: Date;
-    minutesApart: number;
-    taken: boolean;
-  }[]
-> {
+): Promise<NearbyActivity[]> {
   const report = await prisma.fastFieldReport.findUnique({
     where: { id: reportId },
     select: REPORT_SELECT,
   });
   if (!report) return [];
   const facts = factsOf(report);
-  const candidates = await candidatesNear(siteId, facts.when);
-  return candidates
-    .map((c) => {
-      const at = c.times.reduce((best, t) =>
-        Math.abs(t.getTime() - facts.when.getTime()) < Math.abs(best.getTime() - facts.when.getTime()) ? t : best,
-      );
-      return {
-        kind: c.kind,
-        id: c.id,
-        type: c.type,
-        at,
-        minutesApart: Math.round(Math.abs(at.getTime() - facts.when.getTime()) / 60000),
-        taken: c.taken,
-      };
-    })
-    .sort((a, b) => a.minutesApart - b.minutesApart);
+  const t = facts.when.getTime();
+  const [candidates, shifts] = await Promise.all([
+    candidatesNear(siteId, facts.when),
+    shiftsNear(siteId, facts.when),
+  ]);
+  const shiftRows: NearbyActivity[] = shiftsOn(facts.when, shifts).map((s) => ({
+    kind: "shift",
+    id: s.id,
+    type: "SHIFT",
+    at: s.start,
+    until: s.end,
+    minutesApart: 0,
+    taken: false,
+  }));
+  const jobRows: NearbyActivity[] = candidates.map((c) => {
+    const at = c.times.reduce((best, x) =>
+      Math.abs(x.getTime() - t) < Math.abs(best.getTime() - t) ? x : best,
+    );
+    return {
+      kind: c.kind,
+      id: c.id,
+      type: c.type,
+      at,
+      minutesApart: Math.round(Math.abs(at.getTime() - t) / 60000),
+      taken: c.taken,
+    };
+  });
+  return [...shiftRows, ...jobRows.sort((a, b) => a.minutesApart - b.minutesApart)];
 }

@@ -1,9 +1,10 @@
 # FastField sync (officers' FastField reports → activities)
 
-Logs into FastField every 4 hours, reads the reports our officers filed, and
-attaches each one to the callout, patrol or lock-up it's about — photos,
-signature, times and all. Architecture and matching rules:
-[`system/18-fastfield.md`](system/18-fastfield.md).
+Logs into FastField every 4 hours and reads the reports our officers filed. Each report is attached to what it's about, with photos, signature and times:
+- a patrol round goes to the static shift that was on;
+- a callout or lock-up goes to the job.
+
+Architecture and matching rules: [`system/18-fastfield.md`](system/18-fastfield.md).
 
 ```
 GitHub Actions (every 4 h)        FastField portal         The app (Vercel)
@@ -12,49 +13,68 @@ scripts/fastfield-forms.mjs ─login─► list submissions
         │  ── plan (which are new?) ───────────────────►  /api/imports/fastfield
         │  ◄─ read report + photos
         │  ── photos ──────────────────────────────────►  …/fastfield/photo → Blob
-        └─ ── report ──────────────────────────────────►  match site + activity,
+        └─ ── report ──────────────────────────────────►  find site (postcode,
+                                                           name, GPS) + activity,
                                                            attach, bill, pay
 ```
+
+## Settings per form (Admin → FastField)
+
+| Setting | Choices |
+|---|---|
+| **Import** | **Off**, **Preview only**, or **On**. Preview only shows what the form's reports would do in a preview run and imports nothing. |
+| **Reports** | What the form is for: callouts, patrols / static shifts, lock-ups, … |
+| **Sites** | **Any client**: the site in each report decides. Or **only one client's** sites. |
+| **Make the job when nothing matches** | **Never**: such reports wait to be linked by hand. Or **at one client's sites** (Shurgard). |
+
+Starting settings:
+
+| Form | Import | Reports | Sites | Make the job |
+|---|---|---|---|---|
+| Shurgard form | Preview only | callouts | Shurgard only | at Shurgard sites |
+| Site Patrol Form | Preview only | patrols / static shifts | any client | never |
+| Alarm Response Form | Preview only | callouts | any client | at Shurgard sites |
+| Every other form | Off | | | |
 
 ## One-time setup
 
 1. **GitHub secrets** (repo → Settings → Secrets and variables → Actions):
-   `FASTFIELD_USERNAME`, `FASTFIELD_PASSWORD` — a FastField login that can see
-   all submissions (no 2-step code). `NEXUS_IMPORT_SECRET` is already there.
-2. **Let the robot list the forms** — wait for the next 4-hourly run, or run
-   **Actions → FastField forms → Run workflow** with Preview ticked.
-3. **Admin → FastField** (`/admin/fastfield`): each form appears. Pick the
-   client for the callout forms; the Shurgard form comes pre-set to Shurgard
-   with *Create callouts* on. Leave *Import* off for now.
+   - `FASTFIELD_USERNAME` and `FASTFIELD_PASSWORD`: a FastField login that can see all submissions and has no 2-step code.
+   - `NEXUS_IMPORT_SECRET` is already there.
+2. **Admin → FastField** (`/admin/fastfield`): check the three forms' settings above.
 
 ## First import (backfill from 1 Sept 2026)
 
-1. **Preview**: Actions → **FastField forms** → Run workflow → From
-   `2026-09-01`, Preview ✔. The log ends with e.g. *"Preview OK — would have
-   linked 812 (420 callouts, 300 patrols, 92 lock-ups), created 95, unmatched
-   40 (…)"*. Nothing is written except the form list.
-2. If the numbers look right, tick **Import** on the forms at `/admin/fastfield`
-   and **Save**.
-3. **Import**: run the workflow again with From `2026-09-01` and Preview
-   **un**ticked. It stops cleanly after about 110 minutes; if the log says
-   *"Stopped after … — the next run carries on"*, run it again (already-imported
-   reports are skipped).
-4. From then on the 4-hourly run keeps it up to date (last 3 days each time).
+1. **Preview.**
+   - In GitHub, go to Actions → **FastField forms** → Run workflow.
+   - Set From to `2026-09-01` and leave Preview ticked.
+   - Nothing is imported.
+   - The log ends with the totals and one line per form number.
+   - Admin → FastField shows each form's line, for example: *"Last preview: would link 812 (420 static-shift rounds, 300 callouts, …), create 25; 40 to link by hand (…)"*.
+2. If the numbers look right, set those forms to **On** and **Save**.
+3. **Import.**
+   - Run the workflow again with From `2026-09-01` and Preview **un**ticked.
+   - It stops cleanly after about 110 minutes.
+   - If the log says *"Stopped after … — the next run carries on"*, run it again. Already-imported reports are skipped.
+4. From then on, the 4-hourly run keeps it up to date, covering the last 3 days each time.
 
 ## Day to day
 
-- `/admin/fastfield` → **Needs linking**: reports that didn't match on their
-  own. Open one, pick the site, then **Link** the right activity, **Create
-  job**, or **Set aside** (tests, duplicates). **Try matching again** re-checks
-  them all, e.g. after logging a missed callout.
-- On a job or patrol visit, the attached report shows as *FastField report* and
-  opens in the review page with all answers and photos.
+- **Needs linking** on `/admin/fastfield` lists the reports that didn't match on their own:
+  - open one, pick the site, then **Link** the right shift or activity;
+  - or **Create job**;
+  - or **Set aside** (for tests and duplicates).
+  - **Try matching again** re-checks them all, for example after you add a missing shift or callout.
+- On a job, patrol visit or shift, the attached report shows as a *FastField report*. It opens in the review page with all its answers and photos.
 
 ## If it fails
 
-The run log says why in one line (counts only — no client data). Common ones:
-*"login didn't go through"* (password changed — update the secret), *"asked
-for a two-step login code"* / *"verify a new location"* (log in to FastField
-once by hand from a browser, or use a login without 2-step), *"no Recent
-Submissions card"* (add the card back to that login's FastField dashboard).
+The run log gives the reason in one line, with counts only and no client data. Common ones:
+
+| Log says | What to do |
+|---|---|
+| *"login didn't go through"* | The password changed: update the secret. |
+| *"asked for a two-step login code"* or *"verify a new location"* | Log in to FastField once by hand from a browser, or use a login without 2-step. |
+| *"no Recent Submissions card"* | Add the card back to that login's FastField dashboard. |
+
 For anything else, run **FastField discovery** (manual) and compare.

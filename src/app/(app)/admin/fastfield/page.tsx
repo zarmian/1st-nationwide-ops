@@ -6,7 +6,7 @@ import { formatDateTime, formatTimeAgo } from "@/lib/dates";
 import { splitSiaNumber } from "@/lib/fastfield";
 import { FormSettingsRow } from "./_components/FormSettingsRow";
 import { RetryButton } from "./_components/RetryButton";
-import { ReportStatusChip, activityLabel } from "./_components/labels";
+import { ReportStatusChip, activityLabel, describePreview } from "./_components/labels";
 
 export const dynamic = "force-dynamic";
 
@@ -15,14 +15,16 @@ export default async function FastFieldPage() {
 
   const [forms, customers, byStatus, unmatched, recent] = await Promise.all([
     prisma.fastFieldForm.findMany({
-      orderBy: [{ enabled: "desc" }, { name: "asc" }],
+      orderBy: [{ mode: "desc" }, { name: "asc" }],
       select: {
         formId: true,
         name: true,
-        customerId: true,
-        enabled: true,
-        createJobs: true,
+        mode: true,
         jobType: true,
+        customerId: true,
+        createCustomerId: true,
+        previewCounts: true,
+        previewAt: true,
         lastSeenAt: true,
       },
     }),
@@ -62,6 +64,7 @@ export default async function FastFieldPage() {
         site: { select: { name: true } },
         job: { select: { id: true, type: true } },
         patrolVisit: { select: { id: true } },
+        shift: { select: { id: true } },
       },
     }),
   ]);
@@ -88,16 +91,19 @@ export default async function FastFieldPage() {
         title="FastField"
         backHref="/admin"
         backLabel="Admin"
-        subtitle="Reports our officers fill in on FastField, attached to the callouts, patrols and lock-ups they're about. The robot collects them every 4 hours; each report goes to the activity at the same site within 3 hours, and is billed and paid like an officer's own report."
+        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift on at the time, anything else to the nearest callout, patrol or lock-up there within 3 hours — billed and paid like an officer's own report."
       />
 
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100">
           <h2 className="font-semibold text-brand-navy">Forms</h2>
           <p className="text-xs text-slate-500">
-            Pick the client each form is for and switch on the ones to import. &ldquo;Create
-            callouts&rdquo; makes the job when a report matches nothing (for Shurgard); without it,
-            those reports wait below to be linked by hand.
+            <span className="font-medium">Preview only</span> shows what a form&rsquo;s reports would
+            do when you run a preview, without importing anything; <span className="font-medium">On</span>{" "}
+            imports them. A form used for several clients covers <span className="font-medium">any
+            client</span> — the site in each report decides. A job is only made when a report matches
+            nothing at the client named under &ldquo;Make the job&rdquo; (Shurgard); other reports wait
+            below to be linked by hand.
           </p>
         </div>
         {forms.length === 0 ? (
@@ -113,11 +119,16 @@ export default async function FastFieldPage() {
                   form={{
                     formId: f.formId,
                     name: f.name,
-                    customerId: f.customerId,
-                    enabled: f.enabled,
-                    createJobs: f.createJobs,
+                    mode: f.mode,
                     jobType: f.jobType,
+                    customerId: f.customerId,
+                    createCustomerId: f.createCustomerId,
                   }}
+                  preview={
+                    f.previewAt
+                      ? `Last preview ${formatDateTime(f.previewAt)}: ${describePreview(f.previewCounts)}`
+                      : null
+                  }
                   lastSeen={formatTimeAgo(f.lastSeenAt)}
                   attached={counts.get(f.formId)?.attached ?? 0}
                   unmatched={counts.get(f.formId)?.unmatched ?? 0}
@@ -159,7 +170,9 @@ export default async function FastFieldPage() {
                     <span className="text-xs text-slate-500">
                       {formatDateTime(r.submittedAt)} · {r.form.name.trim()}
                       {r.officerText ? ` · ${splitSiaNumber(r.officerText).name ?? r.officerText}` : ""}
-                      {r.photoUrls.length ? ` · ${r.photoUrls.length} photos` : ""}
+                      {r.photoUrls.length
+                        ? ` · ${r.photoUrls.length} photo${r.photoUrls.length === 1 ? "" : "s"}`
+                        : ""}
                     </span>
                   </div>
                   {r.note && <div className="text-xs text-amber-800 mt-0.5">{r.note}</div>}
@@ -190,12 +203,15 @@ export default async function FastFieldPage() {
                 ? `/dispatch/${r.job.id}`
                 : r.patrolVisit
                   ? `/patrols/visits/${r.patrolVisit.id}`
-                  : null;
+                  : r.shift
+                    ? `/shifts/${r.shift.id}`
+                    : null;
               return (
                 <li key={r.id} className="px-4 py-2.5 text-sm flex flex-wrap items-center gap-x-3 gap-y-1">
                   <ReportStatusChip status={r.status} />
                   <span className="text-slate-900">
-                    {activityLabel(r.job ? r.job.type : "PATROL")} at {r.site?.name ?? "—"}
+                    {activityLabel(r.job ? r.job.type : r.shift ? "SHIFT" : "PATROL")} at{" "}
+                    {r.site?.name ?? "—"}
                   </span>
                   <span className="text-xs text-slate-500">
                     {formatDateTime(r.submittedAt)} · {r.form.name.trim()}

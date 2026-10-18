@@ -503,6 +503,8 @@ model Customer {
   contracts       Contract[]
   /// FastField forms that report work for this customer (Admin → FastField).
   fastfieldForms  FastFieldForm[] @relation("FastFieldFormCustomer")
+  /// FastField forms that create jobs at this customer's sites.
+  fastfieldCreateForms FastFieldForm[] @relation("FastFieldFormCreateCustomer")
 
   @@index([name])
   @@index([hidden])
@@ -1476,6 +1478,8 @@ model Shift {
 
   formSubmissions    FormSubmission[]
   jobs               Job[]
+  /// FastField patrol reports filed during this shift.
+  fastfieldReports   FastFieldReport[] @relation("FastFieldReportShift")
 
   @@index([siteId, scheduledStartsAt])
   @@index([officerId, scheduledStartsAt])
@@ -1935,12 +1939,13 @@ model McpSettings {
 }
 
 // ── FastField import ───────────────────────────────────────────────────────
-// Officers fill FastField forms for callouts (Shurgard and a couple of other
-// clients). A robot (scripts/fastfield-forms.mjs, in Partner syncs) reads
-// them from the FastField portal and POSTs them to /api/imports/fastfield,
-// which stores each one here and attaches it to the matching activity (same
-// site, within 3 hours) — creating the callout job for forms set to do so
-// (Shurgard). See docs/fastfield-sync.md.
+// Officers fill FastField forms for callouts, patrols and static-shift patrol
+// rounds (Shurgard and other clients). A robot (scripts/fastfield-forms.mjs,
+// in Partner syncs) reads them from the FastField portal and POSTs them to
+// /api/imports/fastfield, which stores each one here and attaches it to the
+// matching activity at the same site — the static shift it falls in, or the
+// nearest job / patrol visit within 3 hours — creating the callout job only
+// at the client set on the form (Shurgard). See docs/fastfield-sync.md.
 
 enum FastFieldReportStatus {
   LINKED
@@ -1949,25 +1954,40 @@ enum FastFieldReportStatus {
   IGNORED
 }
 
+/// OFF = ignored; PREVIEW = only in preview runs (nothing written);
+/// ON = imported by every run.
+enum FastFieldFormMode {
+  OFF
+  PREVIEW
+  ON
+}
+
 /// A FastField form, and how its submissions are imported. Managed on
 /// Admin → FastField. Rows appear as the robot sees the forms.
 model FastFieldForm {
-  /// FastField's own form id (e.g. 549243 = the Shurgard form).
-  formId     Int               @id
-  name       String
-  /// The client this form reports work for. Sites are matched within it.
-  customerId String?           @db.Uuid
-  customer   Customer?         @relation("FastFieldFormCustomer", fields: [customerId], references: [id], onDelete: SetNull)
-  /// Import this form's submissions at all.
-  enabled    Boolean           @default(false)
-  /// When nothing matches, create the callout job (on for Shurgard).
-  createJobs Boolean           @default(false)
-  /// Type of the job created when nothing matches.
-  jobType    JobType           @default(ALARM_RESPONSE)
-  lastSeenAt DateTime          @default(now())
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-  reports    FastFieldReport[]
+  /// FastField's own form id (e.g. 549243 = the Site Patrol form).
+  formId           Int               @id
+  name             String
+  /// Only this client's sites are matched (a form just for them). Null = any
+  /// client — the site in the report decides.
+  customerId       String?           @db.Uuid
+  customer         Customer?         @relation("FastFieldFormCustomer", fields: [customerId], references: [id], onDelete: SetNull)
+  mode             FastFieldFormMode @default(OFF)
+  /// What the form reports (callouts, patrols / static shifts, …): preferred
+  /// when matching, and the job made when nothing matches.
+  jobType          JobType           @default(ALARM_RESPONSE)
+  /// When a report matches nothing at one of this client's sites, create the
+  /// job (Shurgard). Null = never create.
+  createCustomerId String?           @db.Uuid
+  createCustomer   Customer?         @relation("FastFieldFormCreateCustomer", fields: [createCustomerId], references: [id], onDelete: SetNull)
+  /// What the last preview run said this form's reports would do.
+  previewCounts    Json?
+  previewAt        DateTime?
+  previewRun       String?
+  lastSeenAt       DateTime          @default(now())
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  reports          FastFieldReport[]
 }
 
 /// One FastField submission as imported: the answers (in form order), photos
@@ -2004,6 +2024,9 @@ model FastFieldReport {
   job              Job?                  @relation("FastFieldReportJob", fields: [jobId], references: [id], onDelete: SetNull)
   patrolVisitId    String?               @db.Uuid
   patrolVisit      PatrolVisit?          @relation("FastFieldReportVisit", fields: [patrolVisitId], references: [id], onDelete: SetNull)
+  /// The static / dog-handler shift a patrol report was filed during.
+  shiftId          String?               @db.Uuid
+  shift            Shift?                @relation("FastFieldReportShift", fields: [shiftId], references: [id], onDelete: SetNull)
   formSubmissionId String?               @unique @db.Uuid
   formSubmission   FormSubmission?       @relation("FastFieldReportSubmission", fields: [formSubmissionId], references: [id], onDelete: SetNull)
   /// True when the import created the job (rather than linking an existing one).
@@ -2015,4 +2038,5 @@ model FastFieldReport {
   @@index([siteId])
   @@index([jobId])
   @@index([patrolVisitId])
+  @@index([shiftId])
 }

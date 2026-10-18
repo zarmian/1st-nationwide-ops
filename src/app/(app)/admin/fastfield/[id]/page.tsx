@@ -4,7 +4,7 @@ import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { FastFieldAnswers } from "@/components/FastFieldAnswers";
-import { formatDateTime } from "@/lib/dates";
+import { formatDateTime, formatTime } from "@/lib/dates";
 import { extractFacts, type FastFieldAnswer } from "@/lib/fastfield";
 import { activitiesNearReport } from "@/lib/fastfieldImport";
 import { ReportStatusChip, activityLabel } from "../_components/labels";
@@ -40,6 +40,7 @@ export default async function FastFieldReportPage({
       site: { select: { id: true, name: true } },
       job: { select: { id: true, type: true, status: true } },
       patrolVisit: { select: { id: true, scheduledAt: true } },
+      shift: { select: { id: true } },
       formSubmission: { select: { review: { select: { id: true } } } },
     },
   });
@@ -53,14 +54,27 @@ export default async function FastFieldReportPage({
   });
   const open = report.status === "UNMATCHED" || report.status === "IGNORED";
 
-  // Linking by hand: the activities near the report's time at a chosen site.
+  // Linking by hand: the activities near the report's time at a chosen site,
+  // from the form's client's sites (or everyone's, grouped by client).
   const sites = open
     ? await prisma.site.findMany({
         where: { active: true, ...(report.form.customerId ? { customerId: report.form.customerId } : {}) },
         orderBy: { name: "asc" },
-        select: { id: true, name: true },
+        select: {
+          id: true,
+          name: true,
+          postcodeFormatted: true,
+          customer: { select: { name: true } },
+          partner: { select: { name: true } },
+        },
       })
     : [];
+  const groups = new Map<string, typeof sites>();
+  for (const s of sites) {
+    const owner = s.customer?.name ?? s.partner?.name ?? "No client";
+    groups.set(owner, [...(groups.get(owner) ?? []), s]);
+  }
+  const groupNames = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
   const chosenSiteId =
     searchParams.site && sites.some((s) => s.id === searchParams.site)
       ? searchParams.site
@@ -120,6 +134,11 @@ export default async function FastFieldReportPage({
                 Open the patrol visit →
               </Link>
             )}
+            {report.shift && (
+              <Link href={`/shifts/${report.shift.id}`} className="text-brand-blue-dark hover:underline">
+                Open the static shift →
+              </Link>
+            )}
             {reviewId && (
               <Link href={`/admin/reports/${reviewId}`} className="text-brand-blue-dark hover:underline">
                 Open the attached report →
@@ -152,10 +171,15 @@ export default async function FastFieldReportPage({
                 className="input w-auto max-w-[22rem]"
               >
                 <option value="">— pick a site —</option>
-                {sites.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
+                {groupNames.map((g) => (
+                  <optgroup key={g} label={g}>
+                    {groups.get(g)!.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                        {s.postcodeFormatted ? ` (${s.postcodeFormatted})` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
             </label>
@@ -168,7 +192,8 @@ export default async function FastFieldReportPage({
             <>
               {nearby.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  Nothing at this site within 3 hours of {formatDateTime(facts.when)}.
+                  No shift on, and nothing within 3 hours of {formatDateTime(facts.when)}, at this
+                  site.
                 </p>
               ) : (
                 <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
@@ -176,14 +201,23 @@ export default async function FastFieldReportPage({
                     <li key={a.id} className="px-3 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                       <span className="font-medium text-slate-900">{activityLabel(a.type)}</span>
                       <span className="text-slate-500">
-                        {formatDateTime(a.at)} · {a.minutesApart} min{" "}
-                        {a.at.getTime() < facts.when.getTime() ? "before" : "after"}
+                        {a.kind === "shift" && a.until
+                          ? `${formatDateTime(a.at)}–${formatTime(a.until)} · on at the time`
+                          : `${formatDateTime(a.at)} · ${a.minutesApart} min ${
+                              a.at.getTime() < facts.when.getTime() ? "before" : "after"
+                            }`}
                       </span>
                       {a.taken && (
                         <span className="text-xs text-amber-800">already has a FastField report</span>
                       )}
                       <Link
-                        href={a.kind === "job" ? `/dispatch/${a.id}` : `/patrols/visits/${a.id}`}
+                        href={
+                          a.kind === "job"
+                            ? `/dispatch/${a.id}`
+                            : a.kind === "visit"
+                              ? `/patrols/visits/${a.id}`
+                              : `/shifts/${a.id}`
+                        }
                         className="text-xs text-brand-blue-dark hover:underline"
                       >
                         view
@@ -198,7 +232,7 @@ export default async function FastFieldReportPage({
               <CreateJobForm
                 reportId={report.id}
                 siteId={chosenSiteId}
-                defaultType={report.form.jobType}
+                defaultType={facts.visitType ?? report.form.jobType}
               />
             </>
           )}

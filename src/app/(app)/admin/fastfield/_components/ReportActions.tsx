@@ -11,11 +11,12 @@ import {
 
 const CREATE_OPTIONS: { value: string; label: string }[] = [
   { value: "ALARM_RESPONSE", label: "Callout" },
-  { value: "ADHOC", label: "Ad-hoc job" },
+  { value: "PATROL", label: "Patrol" },
   { value: "LOCK", label: "Lock-up" },
   { value: "UNLOCK", label: "Unlock" },
   { value: "KEY_COLLECTION", label: "Key collection" },
   { value: "VPI", label: "VPI" },
+  { value: "ADHOC", label: "Ad-hoc job" },
 ];
 
 function useAction() {
@@ -41,7 +42,7 @@ export function LinkButton({
   activityId,
 }: {
   reportId: string;
-  kind: "job" | "visit";
+  kind: "job" | "visit" | "shift";
   activityId: string;
 }) {
   const { pending, run } = useAction();
