@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
-import { SiteIconLink } from "@/components/SiteIconLink";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -585,7 +584,7 @@ export default async function PartnerFinancePage({
                     </td>
                     <td>
                       {r.siteId ? (
-                        <span className="flex items-center gap-1"><span className="font-medium text-brand-navy">{r.siteCode ? `${r.siteCode} · ` : ""}{r.siteName}</span><SiteIconLink siteId={r.siteId} siteName={r.siteName} /></span>
+                        <span className="font-medium text-brand-navy">{r.siteCode ? `${r.siteCode} · ` : ""}{r.siteName}</span>
                       ) : (
                         "—"
                       )}
@@ -668,7 +667,7 @@ export default async function PartnerFinancePage({
                     </td>
                     <td>
                       {r.siteId ? (
-                        <span className="flex items-center gap-1"><span className="font-medium text-brand-navy">{r.siteCode ? `${r.siteCode} · ` : ""}{r.siteName}</span><SiteIconLink siteId={r.siteId} siteName={r.siteName} /></span>
+                        <span className="font-medium text-brand-navy">{r.siteCode ? `${r.siteCode} · ` : ""}{r.siteName}</span>
                       ) : (
                         "—"
                       )}

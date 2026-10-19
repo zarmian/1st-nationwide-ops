@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
-import { SiteIconLink } from "@/components/SiteIconLink";
 import { ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import {
   Clock,
@@ -551,16 +550,13 @@ export default async function PatrolsPage({
                   className={`px-4 py-3 space-y-1 ${ACTIVITY_ROW_HOVER}`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1">
-                      <Link
-                        href={`/patrols/visits/${v.id}`}
-                        data-row-link
-                        className="truncate rounded font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
-                      >
-                        {v.site.name}
-                      </Link>
-                      <SiteIconLink siteId={v.site.id} siteName={v.site.name} />
-                    </span>
+                    <Link
+                      href={`/patrols/visits/${v.id}`}
+                      data-row-link
+                      className="min-w-0 truncate rounded font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+                    >
+                      {v.site.name}
+                    </Link>
                     <span className={STATUS_TONE[v.status] ?? "chip-slate"}>
                       {v.status.toLowerCase()}
                     </span>
@@ -607,16 +603,13 @@ export default async function PatrolsPage({
                   className={`px-4 py-3 space-y-1 ${ACTIVITY_ROW_HOVER}`}
                 >
                   <div className="flex items-baseline justify-between gap-2">
-                    <span className="flex min-w-0 items-center gap-1">
-                      <Link
-                        href={`/dispatch/${j.id}`}
-                        data-row-link
-                        className="truncate rounded font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
-                      >
-                        {j.site?.name ?? "—"}
-                      </Link>
-                      {j.site && <SiteIconLink siteId={j.site.id} siteName={j.site.name} />}
-                    </span>
+                    <Link
+                      href={`/dispatch/${j.id}`}
+                      data-row-link
+                      className="min-w-0 truncate rounded font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+                    >
+                      {j.site?.name ?? "—"}
+                    </Link>
                     <span className="chip-slate">
                       {j.type === "LOCK" ? "Lock-up" : "Unlock"}
                     </span>

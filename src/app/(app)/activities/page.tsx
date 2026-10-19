@@ -27,7 +27,6 @@ import { CancelActivityButton } from "../dispatch/_components/CancelActivityButt
 import { ReassignOfficer } from "../dispatch/_components/ReassignOfficer";
 import { EditIconLink } from "../dispatch/_components/EditIconLink";
 import { ClickableRow } from "@/components/ClickableRow";
-import { SiteIconLink } from "@/components/SiteIconLink";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 
 export const dynamic = "force-dynamic";
@@ -964,12 +963,9 @@ export default async function ActivitiesPage({
                       </td>
                       <td className="px-4 py-2">
                         {r.siteId ? (
-                          <span className="flex items-center gap-1">
-                            <span className="font-medium text-brand-navy">
-                              {r.siteCode ? `${r.siteCode} · ` : ""}
-                              {r.siteName}
-                            </span>
-                            <SiteIconLink siteId={r.siteId} siteName={r.siteName} />
+                          <span className="font-medium text-brand-navy">
+                            {r.siteCode ? `${r.siteCode} · ` : ""}
+                            {r.siteName}
                           </span>
                         ) : (
                           <span className="text-slate-400">—</span>

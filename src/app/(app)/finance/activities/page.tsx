@@ -13,7 +13,6 @@ import { ActivityStatus } from "@/components/ActivityStatus";
 import { RestoreActivityButton } from "../../dispatch/_components/RestoreActivityButton";
 import { PageHeader } from "@/components/PageHeader";
 import { ClickableRow } from "@/components/ClickableRow";
-import { SiteIconLink } from "@/components/SiteIconLink";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import {
   loadHiddenScope,
@@ -801,12 +800,9 @@ export default async function ActivitiesPage({
                     </td>
                     <td>
                       {r.siteId ? (
-                        <span className="flex items-center gap-1">
-                          <span className="font-medium text-brand-navy">
-                            {r.siteCode ? `${r.siteCode} · ` : ""}
-                            {r.siteName}
-                          </span>
-                          <SiteIconLink siteId={r.siteId} siteName={r.siteName} />
+                        <span className="font-medium text-brand-navy">
+                          {r.siteCode ? `${r.siteCode} · ` : ""}
+                          {r.siteName}
                         </span>
                       ) : (
                         <span className="text-slate-400">—</span>
