@@ -54,7 +54,22 @@ The canonical helpers for **when** an activity "belongs" — by **scheduled date
 
 **Utilities** (`@layer utilities`): `.pt-safe*` / `.pb-safe*` (notch/home-indicator insets; the root viewport sets `viewport-fit: cover`), `.table-scroll` (horizontal scroll wrapper for wide tables), `.cv-row` / `.cv-card` (`content-visibility` — the browser skips off-screen rows in long lists; applied by `DataTable`/`MultiSelect` past 50 items).
 
-**Shared components** (`src/components/`): `TopNav`/`PartnerTopNav`/`PartnerOfficerTopNav`, `DataTable` (responsive table→cards, server-rendered), `Pagination` (URL `?page=`, preserves filters), `FilterPanel`/`FilterPills`/`MultiSelect` (URL-synced filters), `Confirm` (promise-based modal, focus-trapped — replaces `window.confirm`), `Toast` (with Undo), `CommandPalette` (⌘K global search via `/api/search`), `PageHeader`, `EmptyState`, `Skeleton`, `BrandLogo`, `StatusDot`, `TimeAgo`, `TrendChart`/`Sparkline`/`BarList`/`CountUp` (server-rendered charts), `map/MapInner` (Leaflet).
+**Shared components** (`src/components/`): `TopNav`/`PartnerTopNav`/`PartnerOfficerTopNav`, `DataTable` (responsive table→cards, server-rendered), `Pagination` (URL `?page=`, preserves filters), `FilterPanel`/`FilterPills`/`MultiSelect` (URL-synced filters), `Confirm` (promise-based modal, focus-trapped — replaces `window.confirm`), `Toast` (with Undo), `CommandPalette` (⌘K global search via `/api/search`), `PageHeader` (with `BackLink`), `ClickableRow` / `ActivityLink` / `SiteIconLink` (activity rows, above), `EmptyState`, `Skeleton`, `BrandLogo`, `StatusDot`, `TimeAgo`, `TrendChart`/`Sparkline`/`BarList`/`CountUp` (server-rendered charts), `map/MapInner` (Leaflet).
+
+## Activity links & back links — the same on every page
+
+**Clicking an activity opens that activity.** Any list of jobs, patrol visits or shifts follows these rules, on every page:
+- **Whole row:** the row or card is a `ClickableRow` (`src/components/ClickableRow.tsx`). A click anywhere on it opens the activity.
+- **Its own link:** the row's `ActivityLink` (`data-row-link`) is the link keyboard and screen-reader users reach. The row's click follows that link.
+- **Site:** reached from the small pin, `SiteIconLink`, never from the row. The row's own buttons, links and fields keep their behaviour.
+- **Where it goes:** `activityHref(kind, id)` (`src/lib/activityLinks.ts`) gives the detail page: `/dispatch/:id`, `/patrols/visits/:id` or `/shifts/:id`. Don't link a list row to the site, or a site to its edit page.
+
+**Back links return to where you came from.**
+- `PageHeader`'s back link (`BackLink`) names the page you actually came from and goes back to it, with its filters. Open a job from the Activities log and it reads "← Activities"; open it from a site and it shows the site's name.
+- The trail is per tab, in sessionStorage (`src/lib/navHistory.ts`), recorded by `NavTracker` in the app layout.
+- Each `PageHeader` stores its title, so the next page's back link can name it.
+- Forms (`…/new`, `…/edit`) are never offered as the page to go back to.
+- `backHref` / `backLabel` remain the fallback for a page opened directly (a new tab, a bookmark or an emailed link).
 
 ## Accessibility — Vercel Web Interface Guidelines
 

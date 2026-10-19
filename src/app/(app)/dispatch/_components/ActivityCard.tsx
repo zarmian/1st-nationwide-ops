@@ -2,6 +2,8 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { StatusDot } from "@/components/StatusDot";
 import { ActivityStatus } from "@/components/ActivityStatus";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
 
 /**
  * Compact activity row used inside the dispatch workspace columns
@@ -12,9 +14,12 @@ import { ActivityStatus } from "@/components/ActivityStatus";
  *
  * Layout (per card):
  *   ┌─ Type chip · Priority chip ───────── Status chip ┐
- *   │ Site name (link to detail)                       │
+ *   │ Site name (link to the activity) · 📍 site        │
  *   │ When · Officer                                   │
  *   └─ [edit] [close] [cancel] (live work only) ──────┘
+ *
+ * A click anywhere on the card opens the activity, as on every activity
+ * list; the pin opens the site.
  */
 export type ActivityCardProps = {
   href: string;
@@ -58,7 +63,7 @@ export function ActivityCard({
   actions,
 }: ActivityCardProps) {
   return (
-    <li className="px-3 py-2.5 hover:bg-brand-blue-50/40 transition-colors">
+    <ClickableRow as="li" href={href} className="px-3 py-2.5 hover:bg-brand-blue-50/40 transition-colors">
       <div className="flex items-start justify-between gap-2 mb-1">
         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
           <span className="chip-slate text-[10px] uppercase tracking-wider truncate max-w-[150px]">
@@ -87,12 +92,16 @@ export function ActivityCard({
         )}
       </div>
 
-      <Link
-        href={href}
-        className="block text-sm font-medium text-brand-navy hover:text-brand-blue-dark truncate"
-      >
-        {siteName ?? "—"}
-      </Link>
+      <div className="flex items-center gap-1 min-w-0">
+        <Link
+          href={href}
+          data-row-link
+          className="block min-w-0 truncate rounded text-sm font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+        >
+          {siteName ?? "—"}
+        </Link>
+        {siteId && <SiteIconLink siteId={siteId} siteName={siteName} />}
+      </div>
 
       <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
         {whenLabel && (
@@ -112,6 +121,6 @@ export function ActivityCard({
       {actions && (
         <div className="mt-1.5 flex items-center gap-2 text-xs">{actions}</div>
       )}
-    </li>
+    </ClickableRow>
   );
 }

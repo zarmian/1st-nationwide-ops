@@ -6,6 +6,7 @@ import { TopNav } from "@/components/TopNav";
 import { PWARegister } from "@/components/PWARegister";
 import { RouteProgress } from "@/components/RouteProgress";
 import { CommandPalette } from "@/components/CommandPalette";
+import { NavTracker } from "@/components/NavTracker";
 
 export default async function AppShell({
   children,
@@ -56,6 +57,7 @@ export default async function AppShell({
       </a>
       <PWARegister />
       <RouteProgress />
+      <NavTracker />
       <CommandPalette role={session.user.role} />
       <TopNav
         userName={session.user?.name ?? session.user?.email ?? "User"}

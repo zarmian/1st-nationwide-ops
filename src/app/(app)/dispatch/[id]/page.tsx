@@ -224,7 +224,7 @@ export default async function JobDetailPage({
           {job.site ? (
             <div className="space-y-1">
               <Link
-                href={`/sites/${job.site.id}/edit`}
+                href={`/sites/${job.site.id}`}
                 className="font-medium text-brand-navy hover:text-brand-blue-dark text-base"
               >
                 {job.site.name} →
@@ -254,7 +254,7 @@ export default async function JobDetailPage({
                 const c = job.customer ?? job.site?.customer ?? null;
                 return c ? (
                   <Link
-                    href={`/admin/customers/${c.id}`}
+                    href={`/admin/customers/${c.id}/edit`}
                     className="text-brand-navy hover:text-brand-blue-dark"
                   >
                     {c.name}
@@ -269,7 +269,7 @@ export default async function JobDetailPage({
                 const p = job.partner ?? job.site?.partner ?? null;
                 return p ? (
                   <Link
-                    href={`/admin/partners/${p.id}`}
+                    href={`/admin/partners/${p.id}/edit`}
                     className="text-brand-navy hover:text-brand-blue-dark"
                   >
                     {p.name}

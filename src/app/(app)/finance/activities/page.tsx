@@ -12,6 +12,9 @@ import { FilterPanel } from "@/components/FilterPanel";
 import { ActivityStatus } from "@/components/ActivityStatus";
 import { RestoreActivityButton } from "../../dispatch/_components/RestoreActivityButton";
 import { PageHeader } from "@/components/PageHeader";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import {
   loadHiddenScope,
   jobHiddenAnd,
@@ -789,24 +792,22 @@ export default async function ActivitiesPage({
               </thead>
               <tbody>
                 {pageRows.map((r) => (
-                  <tr key={r.id}>
+                  <ClickableRow key={r.id} href={r.href} className={ACTIVITY_ROW_HOVER}>
                     <td className="text-slate-700 whitespace-nowrap">
                       {fmtDate(r.at)}
                     </td>
                     <td className="px-4 py-2 text-slate-700">
-                      <span className="chip-slate text-[10px]">
-                        {r.kindLabel}
-                      </span>
+                      <ActivityLink href={r.href}>{r.kindLabel}</ActivityLink>
                     </td>
                     <td>
                       {r.siteId ? (
-                        <Link
-                          href={`/sites/${r.siteId}`}
-                          className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                        >
-                          {r.siteCode ? `${r.siteCode} · ` : ""}
-                          {r.siteName}
-                        </Link>
+                        <span className="flex items-center gap-1">
+                          <span className="font-medium text-brand-navy">
+                            {r.siteCode ? `${r.siteCode} · ` : ""}
+                            {r.siteName}
+                          </span>
+                          <SiteIconLink siteId={r.siteId} siteName={r.siteName} />
+                        </span>
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}
@@ -853,7 +854,7 @@ export default async function ActivitiesPage({
                         )}
                       </div>
                     </td>
-                  </tr>
+                  </ClickableRow>
                 ))}
                 {pageRows.length === 0 && (
                   <tr>

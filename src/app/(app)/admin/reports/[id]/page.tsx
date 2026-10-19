@@ -108,6 +108,27 @@ export default async function ReviewDetailPage({
           <>
             Submitted {fmt(sub.submittedAt)} by{" "}
             {sub.submittedBy?.name ?? sub.officerNameRaw}
+            {(() => {
+              // The activity this report is for, if any.
+              const a = sub.jobId
+                ? { href: `/dispatch/${sub.jobId}`, label: "Open the job" }
+                : sub.patrolVisitId
+                  ? { href: `/patrols/visits/${sub.patrolVisitId}`, label: "Open the patrol visit" }
+                  : sub.shiftId
+                    ? { href: `/shifts/${sub.shiftId}`, label: "Open the shift" }
+                    : null;
+              return a ? (
+                <>
+                  {" · "}
+                  <Link
+                    href={a.href}
+                    className="rounded text-brand-blue-dark hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+                  >
+                    {a.label} →
+                  </Link>
+                </>
+              ) : null;
+            })()}
           </>
         }
         actions={<StatusChip status={review.status} />}
@@ -119,7 +140,13 @@ export default async function ReviewDetailPage({
             Site
           </div>
           <div className="font-medium text-brand-navy">
-            {sub.site?.name ?? "—"}
+            {sub.site ? (
+              <Link href={`/sites/${sub.site.id}`} className="hover:text-brand-blue-dark hover:underline">
+                {sub.site.name}
+              </Link>
+            ) : (
+              "—"
+            )}
           </div>
           <div className="text-xs text-slate-500">
             {sub.site?.postcodeFormatted}

@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { toIsoDate } from "@/lib/dates";
@@ -59,9 +61,10 @@ export default async function EditOfficerPage({
           site: { select: { name: true } },
           // Show the SCHEDULED date of the underlying activity, not when the
           // paperwork was submitted.
-          job: { select: { scheduledFor: true } },
-          patrolVisit: { select: { scheduledAt: true } },
-          shift: { select: { scheduledStartsAt: true } },
+          job: { select: { id: true, scheduledFor: true } },
+          patrolVisit: { select: { id: true, scheduledAt: true } },
+          shift: { select: { id: true, scheduledStartsAt: true } },
+          review: { select: { id: true } },
         },
       }),
     ]);
@@ -165,9 +168,16 @@ export default async function EditOfficerPage({
             ) : (
               <ul className="space-y-2 text-sm">
                 {recentVisits.map((v) => (
-                  <li key={v.id}>
+                  <ClickableRow
+                    as="li"
+                    key={v.id}
+                    href={`/patrols/visits/${v.id}`}
+                    className={`-mx-2 rounded px-2 py-1 ${ACTIVITY_ROW_HOVER}`}
+                  >
                     <div className="text-brand-navy">
-                      {v.site.name}
+                      <ActivityLink href={`/patrols/visits/${v.id}`} className="font-normal">
+                        {v.site.name}
+                      </ActivityLink>
                       {v.site.code ? (
                         <span className="text-xs text-slate-500 ml-1">
                           {v.site.code}
@@ -177,7 +187,7 @@ export default async function EditOfficerPage({
                     <div className="text-xs text-slate-500">
                       {fmt(v.scheduledAt)} · {v.status.toLowerCase()}
                     </div>
-                  </li>
+                  </ClickableRow>
                 ))}
               </ul>
             )}
@@ -191,10 +201,28 @@ export default async function EditOfficerPage({
               <p className="text-sm text-slate-500 italic">No submissions yet.</p>
             ) : (
               <ul className="space-y-2 text-sm">
-                {recentSubs.map((s) => (
-                  <li key={s.id}>
+                {recentSubs.map((s) => {
+                  // The activity the report is for, else the report itself.
+                  const href = s.job
+                    ? `/dispatch/${s.job.id}`
+                    : s.patrolVisit
+                      ? `/patrols/visits/${s.patrolVisit.id}`
+                      : s.shift
+                        ? `/shifts/${s.shift.id}`
+                        : s.review
+                          ? `/admin/reports/${s.review.id}`
+                          : null;
+                  const label = s.form.replace(/_/g, " ").toLowerCase();
+                  const body = (
+                    <>
                     <div className="text-brand-navy">
-                      {s.form.replace(/_/g, " ").toLowerCase()}
+                      {href ? (
+                        <ActivityLink href={href} className="font-normal">
+                          {label}
+                        </ActivityLink>
+                      ) : (
+                        label
+                      )}
                     </div>
                     <div className="text-xs text-slate-500">
                       {s.site?.name ?? "—"} ·{" "}
@@ -205,8 +233,21 @@ export default async function EditOfficerPage({
                           s.submittedAt,
                       )}
                     </div>
-                  </li>
-                ))}
+                    </>
+                  );
+                  return href ? (
+                    <ClickableRow
+                      as="li"
+                      key={s.id}
+                      href={href}
+                      className={`-mx-2 rounded px-2 py-1 ${ACTIVITY_ROW_HOVER}`}
+                    >
+                      {body}
+                    </ClickableRow>
+                  ) : (
+                    <li key={s.id}>{body}</li>
+                  );
+                })}
               </ul>
             )}
           </div>

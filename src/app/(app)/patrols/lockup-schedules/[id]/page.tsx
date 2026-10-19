@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
@@ -188,13 +190,16 @@ export default async function LockUnlockScheduleDetailPage({
         ) : (
           <ul className="divide-y divide-slate-100">
             {recentJobs.map((j) => (
-              <li
+              <ClickableRow
+                as="li"
                 key={j.id}
-                className="flex items-baseline justify-between gap-2 py-2"
+                href={`/dispatch/${j.id}`}
+                className={`flex items-baseline justify-between gap-2 py-2 ${ACTIVITY_ROW_HOVER}`}
               >
                 <Link
                   href={`/dispatch/${j.id}`}
-                  className="text-sm text-brand-navy hover:text-brand-blue-dark"
+                  data-row-link
+                  className="rounded text-sm text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
                 >
                   {j.type === "LOCK" ? "Lock-up" : "Unlock"} ·{" "}
                   {fmtFull(j.scheduledFor)}
@@ -207,7 +212,7 @@ export default async function LockUnlockScheduleDetailPage({
                 <span className={JOB_STATUS_TONE[j.status] ?? "chip-slate"}>
                   {j.status.replace(/_/g, " ").toLowerCase()}
                 </span>
-              </li>
+              </ClickableRow>
             ))}
           </ul>
         )}

@@ -166,6 +166,12 @@ export default async function ShiftDetailPage({
               {TYPE_LABEL[shift.type] ?? shift.type} · {officerLabel} · every{" "}
               {shift.checkIntervalMin} min (+{shift.graceMinutes} buffer)
             </span>
+            <Link
+              href={`/sites/${shift.site.id}`}
+              className="rounded text-brand-blue-dark hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+            >
+              Open site →
+            </Link>
           </span>
         }
         actions={

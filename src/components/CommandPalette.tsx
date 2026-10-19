@@ -333,7 +333,7 @@ function buildItems(
         hint: `${j.status.toLowerCase()} · ${
           j.customer?.name ?? j.partner?.name ?? "—"
         }`,
-        href: `/dispatch`,
+        href: `/dispatch/${j.id}`,
       });
     }
     for (const s of results.shifts) {

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
@@ -174,6 +177,7 @@ export default async function ReportsPage({
       j.site != null,
     )
     .map((j) => ({
+      href: `/dispatch/${j.id}`,
       when: j.scheduledFor ?? j.completedAt ?? dayStart,
       site: siteLabel(j.site, j.handledByPartnerId),
       siteId: j.site.id,
@@ -187,6 +191,7 @@ export default async function ReportsPage({
 
   const shiftRows = shifts
     .map((s) => ({
+      href: `/shifts/${s.id}`,
       when: s.scheduledStartsAt,
       site: siteLabel(s.site, s.handledByPartnerId),
       siteId: s.site.id,
@@ -312,22 +317,22 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {jobRows.map((r, i) => (
-                <tr key={i}>
+              {jobRows.map((r) => (
+                <ClickableRow key={r.href} href={r.href} className={ACTIVITY_ROW_HOVER}>
                   <td className="px-4 py-2 text-slate-700 tabular-nums whitespace-nowrap">
                     {fmtTime(r.when)}
                   </td>
                   <td className="px-4 py-2">
-                    <Link
-                      href={`/sites/${r.siteId}`}
-                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                    >
-                      {r.site}
-                    </Link>
+                    <span className="flex items-center gap-1">
+                      <span className="font-medium text-brand-navy">{r.site}</span>
+                      <SiteIconLink siteId={r.siteId} siteName={r.site} />
+                    </span>
                   </td>
-                  <td className="px-4 py-2 text-slate-700">{r.type}</td>
+                  <td className="px-4 py-2 text-slate-700">
+                    <ActivityLink href={r.href} className="font-normal">{r.type}</ActivityLink>
+                  </td>
                   <td className="px-4 py-2 text-slate-600">{r.who}</td>
-                </tr>
+                </ClickableRow>
               ))}
               {jobRows.length === 0 && (
                 <tr>
@@ -363,22 +368,20 @@ export default async function ReportsPage({
               </tr>
             </thead>
             <tbody>
-              {shiftRows.map((r, i) => (
-                <tr key={i}>
+              {shiftRows.map((r) => (
+                <ClickableRow key={r.href} href={r.href} className={ACTIVITY_ROW_HOVER}>
                   <td className="px-4 py-2 text-slate-700 tabular-nums whitespace-nowrap">
-                    {r.hours}
+                    <ActivityLink href={r.href} className="font-normal">{r.hours}</ActivityLink>
                   </td>
                   <td className="px-4 py-2">
-                    <Link
-                      href={`/sites/${r.siteId}`}
-                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                    >
-                      {r.site}
-                    </Link>
+                    <span className="flex items-center gap-1">
+                      <span className="font-medium text-brand-navy">{r.site}</span>
+                      <SiteIconLink siteId={r.siteId} siteName={r.site} />
+                    </span>
                   </td>
                   <td className="px-4 py-2 text-slate-600">{r.account}</td>
                   <td className="px-4 py-2 text-slate-600">{r.who}</td>
-                </tr>
+                </ClickableRow>
               ))}
               {shiftRows.length === 0 && (
                 <tr>

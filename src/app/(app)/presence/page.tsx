@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { MapPin, Target, MapPinOff, HelpCircle } from "lucide-react";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
@@ -223,27 +226,24 @@ export default async function PresencePage({
             </thead>
             <tbody>
               {points.map((p) => (
-                <tr key={p.id}>
+                <ClickableRow key={p.id} href={p.href} className={ACTIVITY_ROW_HOVER}>
                   <td className="whitespace-nowrap">
-                    <Link
-                      href={p.href}
-                      className="text-brand-navy hover:text-brand-blue-dark"
-                    >
+                    <ActivityLink href={p.href} className="font-normal">
                       {formatDateTime(p.at)}
-                    </Link>
+                    </ActivityLink>
                   </td>
                   <td className="text-slate-700 whitespace-nowrap">
                     {p.officerName ?? "—"}
                   </td>
                   <td>
                     {p.siteId ? (
-                      <Link
-                        href={`/sites/${p.siteId}/edit`}
-                        className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                      >
-                        {p.siteCode ? `${p.siteCode} · ` : ""}
-                        {p.siteName}
-                      </Link>
+                      <span className="flex items-center gap-1">
+                        <span className="font-medium text-brand-navy">
+                          {p.siteCode ? `${p.siteCode} · ` : ""}
+                          {p.siteName}
+                        </span>
+                        <SiteIconLink siteId={p.siteId} siteName={p.siteName} />
+                      </span>
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
@@ -265,7 +265,7 @@ export default async function PresencePage({
                       Open ↗
                     </a>
                   </td>
-                </tr>
+                </ClickableRow>
               ))}
               {points.length === 0 && (
                 <tr>
