@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
-import { SiteIconLink } from "@/components/SiteIconLink";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { activityHref } from "@/lib/activityLinks";
 import { requireAdmin } from "@/lib/authz";
@@ -117,10 +116,7 @@ export default async function FinanceExceptionsPage({
                     </td>
                     <td>
                       {r.siteId ? (
-                        <span className="flex items-center gap-1">
-                          <span>{r.siteName}</span>
-                          <SiteIconLink siteId={r.siteId} siteName={r.siteName} />
-                        </span>
+                        <span>{r.siteName}</span>
                       ) : (
                         r.siteName
                       )}

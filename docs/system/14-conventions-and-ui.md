@@ -54,14 +54,14 @@ The canonical helpers for **when** an activity "belongs" — by **scheduled date
 
 **Utilities** (`@layer utilities`): `.pt-safe*` / `.pb-safe*` (notch/home-indicator insets; the root viewport sets `viewport-fit: cover`), `.table-scroll` (horizontal scroll wrapper for wide tables), `.cv-row` / `.cv-card` (`content-visibility` — the browser skips off-screen rows in long lists; applied by `DataTable`/`MultiSelect` past 50 items).
 
-**Shared components** (`src/components/`): `TopNav`/`PartnerTopNav`/`PartnerOfficerTopNav`, `DataTable` (responsive table→cards, server-rendered), `Pagination` (URL `?page=`, preserves filters), `FilterPanel`/`FilterPills`/`MultiSelect` (URL-synced filters), `Confirm` (promise-based modal, focus-trapped — replaces `window.confirm`), `Toast` (with Undo), `CommandPalette` (⌘K global search via `/api/search`), `PageHeader` (with `BackLink`), `ClickableRow` / `ActivityLink` / `SiteIconLink` (activity rows, above), `EmptyState`, `Skeleton`, `BrandLogo`, `StatusDot`, `TimeAgo`, `TrendChart`/`Sparkline`/`BarList`/`CountUp` (server-rendered charts), `map/MapInner` (Leaflet).
+**Shared components** (`src/components/`): `TopNav`/`PartnerTopNav`/`PartnerOfficerTopNav`, `DataTable` (responsive table→cards, server-rendered), `Pagination` (URL `?page=`, preserves filters), `FilterPanel`/`FilterPills`/`MultiSelect` (URL-synced filters), `Confirm` (promise-based modal, focus-trapped — replaces `window.confirm`), `Toast` (with Undo), `CommandPalette` (⌘K global search via `/api/search`), `PageHeader` (with `BackLink`), `ClickableRow` / `ActivityLink` (activity rows, above), `EmptyState`, `Skeleton`, `BrandLogo`, `StatusDot`, `TimeAgo`, `TrendChart`/`Sparkline`/`BarList`/`CountUp` (server-rendered charts), `map/MapInner` (Leaflet).
 
 ## Activity links & back links — the same on every page
 
 **Clicking an activity opens that activity.** Any list of jobs, patrol visits or shifts follows these rules, on every page:
 - **Whole row:** the row or card is a `ClickableRow` (`src/components/ClickableRow.tsx`). A click anywhere on it opens the activity.
 - **Its own link:** the row's `ActivityLink` (`data-row-link`) is the link keyboard and screen-reader users reach. The row's click follows that link.
-- **Site:** reached from the small pin, `SiteIconLink`, never from the row. The row's own buttons, links and fields keep their behaviour.
+- **Site:** the site name in a row is plain text, part of the row, so it opens the activity too. The site is one click away on the activity's own page, which links to it. The row's own buttons, links and fields keep their behaviour.
 - **Where it goes:** `activityHref(kind, id)` (`src/lib/activityLinks.ts`) gives the detail page: `/dispatch/:id`, `/patrols/visits/:id` or `/shifts/:id`. Don't link a list row to the site, or a site to its edit page.
 
 **Back links return to where you came from.**

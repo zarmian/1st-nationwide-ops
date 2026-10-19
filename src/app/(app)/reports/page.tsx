@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
-import { SiteIconLink } from "@/components/SiteIconLink";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { requireStaff } from "@/lib/authz";
 import { prisma } from "@/lib/db";
@@ -323,10 +322,7 @@ export default async function ReportsPage({
                     {fmtTime(r.when)}
                   </td>
                   <td className="px-4 py-2">
-                    <span className="flex items-center gap-1">
-                      <span className="font-medium text-brand-navy">{r.site}</span>
-                      <SiteIconLink siteId={r.siteId} siteName={r.site} />
-                    </span>
+                    <span className="font-medium text-brand-navy">{r.site}</span>
                   </td>
                   <td className="px-4 py-2 text-slate-700">
                     <ActivityLink href={r.href} className="font-normal">{r.type}</ActivityLink>
@@ -374,10 +370,7 @@ export default async function ReportsPage({
                     <ActivityLink href={r.href} className="font-normal">{r.hours}</ActivityLink>
                   </td>
                   <td className="px-4 py-2">
-                    <span className="flex items-center gap-1">
-                      <span className="font-medium text-brand-navy">{r.site}</span>
-                      <SiteIconLink siteId={r.siteId} siteName={r.site} />
-                    </span>
+                    <span className="font-medium text-brand-navy">{r.site}</span>
                   </td>
                   <td className="px-4 py-2 text-slate-600">{r.account}</td>
                   <td className="px-4 py-2 text-slate-600">{r.who}</td>

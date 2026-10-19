@@ -3,7 +3,6 @@ import type { ReactNode } from "react";
 import { StatusDot } from "@/components/StatusDot";
 import { ActivityStatus } from "@/components/ActivityStatus";
 import { ClickableRow } from "@/components/ClickableRow";
-import { SiteIconLink } from "@/components/SiteIconLink";
 
 /**
  * Compact activity row used inside the dispatch workspace columns
@@ -14,12 +13,12 @@ import { SiteIconLink } from "@/components/SiteIconLink";
  *
  * Layout (per card):
  *   ┌─ Type chip · Priority chip ───────── Status chip ┐
- *   │ Site name (link to the activity) · 📍 site        │
+ *   │ Site name (link to the activity)                 │
  *   │ When · Officer                                   │
  *   └─ [edit] [close] [cancel] (live work only) ──────┘
  *
  * A click anywhere on the card opens the activity, as on every activity
- * list; the pin opens the site.
+ * list.
  */
 export type ActivityCardProps = {
   href: string;
@@ -50,7 +49,6 @@ export function ActivityCard({
   href,
   typeLabel,
   whenLabel,
-  siteId,
   siteName,
   officerName,
   status,
@@ -92,16 +90,13 @@ export function ActivityCard({
         )}
       </div>
 
-      <div className="flex items-center gap-1 min-w-0">
-        <Link
-          href={href}
-          data-row-link
-          className="block min-w-0 truncate rounded text-sm font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
-        >
-          {siteName ?? "—"}
-        </Link>
-        {siteId && <SiteIconLink siteId={siteId} siteName={siteName} />}
-      </div>
+      <Link
+        href={href}
+        data-row-link
+        className="block min-w-0 truncate rounded text-sm font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+      >
+        {siteName ?? "—"}
+      </Link>
 
       <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
         {whenLabel && (
