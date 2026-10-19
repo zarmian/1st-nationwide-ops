@@ -61,7 +61,8 @@ export function ActivitiesFilters({
     next.set("from", ymd(from));
     next.set("to", ymd(to));
     next.delete("page");
-    router.replace(`/activities?${next.toString()}`);
+    // Stay on the finance list (this used to jump to the ops Activities log).
+    router.replace(`/finance/activities?${next.toString()}`);
   }
 
   return (

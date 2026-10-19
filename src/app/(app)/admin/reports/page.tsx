@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -85,7 +87,7 @@ export default async function AdminReportsPage() {
           </thead>
           <tbody>
             {queue.map((r) => (
-              <tr key={r.id}>
+              <ClickableRow key={r.id} href={`/admin/reports/${r.id}`} className={ACTIVITY_ROW_HOVER}>
                 <td className="text-slate-500 whitespace-nowrap">
                   {fmtUk(scheduledWhen(r.submission))}
                 </td>
@@ -122,12 +124,13 @@ export default async function AdminReportsPage() {
                 <td className="text-right whitespace-nowrap">
                   <Link
                     href={`/admin/reports/${r.id}`}
+                    data-row-link
                     className="btn-secondary text-xs"
                   >
                     Review
                   </Link>
                 </td>
-              </tr>
+              </ClickableRow>
             ))}
             {queue.length === 0 && (
               <tr>
@@ -142,7 +145,7 @@ export default async function AdminReportsPage() {
 
       <ul className="md:hidden space-y-2">
         {queue.map((r) => (
-          <li key={r.id} className="card p-3 space-y-2">
+          <ClickableRow as="li" key={r.id} href={`/admin/reports/${r.id}`} className={`card p-3 space-y-2 ${ACTIVITY_ROW_HOVER}`}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="font-medium text-brand-navy truncate">
@@ -175,11 +178,12 @@ export default async function AdminReportsPage() {
             </div>
             <Link
               href={`/admin/reports/${r.id}`}
+              data-row-link
               className="btn-secondary text-xs w-full"
             >
               Review
             </Link>
-          </li>
+          </ClickableRow>
         ))}
         {queue.length === 0 && (
           <li className="empty-state">

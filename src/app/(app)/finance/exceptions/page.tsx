@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
+import { activityHref } from "@/lib/activityLinks";
 import { requireAdmin } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate, parseIsoDate, toIsoDate } from "@/lib/dates";
@@ -100,19 +104,23 @@ export default async function FinanceExceptionsPage({
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={`${r.kind}:${r.id}`}>
+                  <ClickableRow
+                    key={`${r.kind}:${r.id}`}
+                    href={activityHref(r.kind, r.id)}
+                    className={ACTIVITY_ROW_HOVER}
+                  >
                     <td className="whitespace-nowrap tabular-nums">
                       {formatDate(r.date)}
                     </td>
-                    <td className="whitespace-nowrap">{r.typeLabel}</td>
+                    <td className="whitespace-nowrap">
+                      <ActivityLink href={activityHref(r.kind, r.id)}>{r.typeLabel}</ActivityLink>
+                    </td>
                     <td>
                       {r.siteId ? (
-                        <Link
-                          href={`/sites/${r.siteId}`}
-                          className="text-brand-blue-dark hover:underline"
-                        >
-                          {r.siteName}
-                        </Link>
+                        <span className="flex items-center gap-1">
+                          <span>{r.siteName}</span>
+                          <SiteIconLink siteId={r.siteId} siteName={r.siteName} />
+                        </span>
                       ) : (
                         r.siteName
                       )}
@@ -127,7 +135,7 @@ export default async function FinanceExceptionsPage({
                         <span className="chip-red text-[10px]">No pay</span>
                       )}
                     </td>
-                  </tr>
+                  </ClickableRow>
                 ))}
               </tbody>
             </table>

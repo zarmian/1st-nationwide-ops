@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 
 export type ActivityEvent = {
   id: string;
-  kind: "ALARM" | "PATROL" | "SUBMISSION" | "JOB";
+  kind: "ALARM" | "PATROL" | "SUBMISSION" | "JOB" | "SHIFT";
   severity: "ok" | "info" | "warn" | "danger";
   at: Date;
   title: string;
@@ -26,10 +26,12 @@ export async function loadActivity(
     patrols,
     submissions,
     jobs,
+    shifts,
     totalAlarms,
     totalPatrols,
     totalSubs,
     totalJobs,
+    totalShifts,
   ] = await Promise.all([
     prisma.alarmEvent.findMany({
       where: { siteId },
@@ -66,10 +68,20 @@ export async function loadActivity(
         handledByPartner: { select: { name: true } },
       },
     }),
+    prisma.shift.findMany({
+      where: { siteId },
+      orderBy: { scheduledStartsAt: "desc" },
+      take: fanout,
+      include: {
+        officer: { select: { name: true } },
+        handledByPartner: { select: { name: true } },
+      },
+    }),
     prisma.alarmEvent.count({ where: { siteId } }),
     prisma.patrolVisit.count({ where: { siteId } }),
     prisma.formSubmission.count({ where: { siteId } }),
     prisma.job.count({ where: { siteId } }),
+    prisma.shift.count({ where: { siteId } }),
   ]);
 
   const events: ActivityEvent[] = [
@@ -168,8 +180,32 @@ export async function loadActivity(
     }),
   ];
 
+  // Static guarding / dog-handler shifts, so they show (and open) here too.
+  for (const sh of shifts) {
+    const who = sh.handledByPartner
+      ? `${sh.handledByPartner.name} (partner)`
+      : (sh.officer?.name ?? sh.officerNameRaw ?? null);
+    events.push({
+      id: `shift:${sh.id}`,
+      kind: "SHIFT",
+      severity:
+        sh.status === "MISSED" || sh.status === "ABANDONED"
+          ? "danger"
+          : sh.status === "COMPLETED"
+            ? "ok"
+            : "info",
+      at: sh.scheduledStartsAt,
+      title: `${sh.type === "DOG_HANDLER" ? "Dog-handler shift" : "Static guarding shift"} · ${sh.status
+        .replace(/_/g, " ")
+        .toLowerCase()}${who ? ` · ${who}` : ""}`,
+      detail: sh.notes,
+      actor: who,
+      href: `/shifts/${sh.id}`,
+    });
+  }
+
   events.sort((a, b) => b.at.getTime() - a.at.getTime());
-  const total = totalAlarms + totalPatrols + totalSubs + totalJobs;
+  const total = totalAlarms + totalPatrols + totalSubs + totalJobs + totalShifts;
   return {
     events: events.slice(skip, skip + take),
     total,

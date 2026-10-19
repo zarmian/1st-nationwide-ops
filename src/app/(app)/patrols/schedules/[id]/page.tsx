@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
@@ -238,13 +240,16 @@ export default async function PatrolScheduleDetailPage({
         ) : (
           <ul className="divide-y divide-slate-100">
             {schedule.visits.map((v) => (
-              <li
+              <ClickableRow
+                as="li"
                 key={v.id}
-                className="flex items-baseline justify-between gap-2 py-2"
+                href={`/patrols/visits/${v.id}`}
+                className={`flex items-baseline justify-between gap-2 py-2 ${ACTIVITY_ROW_HOVER}`}
               >
                 <Link
                   href={`/patrols/visits/${v.id}`}
-                  className="text-sm text-brand-navy hover:text-brand-blue-dark"
+                  data-row-link
+                  className="rounded text-sm text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
                 >
                   {fmtFull(v.scheduledAt)}
                   {v.officer ? ` · ${v.officer.name}` : " · Unassigned"}
@@ -253,7 +258,7 @@ export default async function PatrolScheduleDetailPage({
                 <span className={VISIT_STATUS_TONE[v.status] ?? "chip-slate"}>
                   {v.status.toLowerCase()}
                 </span>
-              </li>
+              </ClickableRow>
             ))}
           </ul>
         )}

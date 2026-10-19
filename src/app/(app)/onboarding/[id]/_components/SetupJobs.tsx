@@ -1,5 +1,7 @@
 "use client";
 
+import { ClickableRow } from "@/components/ClickableRow";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addSetupJob, closeSetupJob } from "../../_actions";
@@ -221,15 +223,17 @@ export function SetupJobs({
       ) : (
         <ul className="space-y-2">
           {jobs.map((j) => (
-            <li
+            <ClickableRow
+              as="li"
               key={j.id}
-              className="rounded-xl border border-slate-200 p-3 flex items-start justify-between gap-3"
+              href={`/dispatch/${j.id}`}
+              className={`rounded-xl border border-slate-200 p-3 flex items-start justify-between gap-3 ${ACTIVITY_ROW_HOVER}`}
             >
               <div className="min-w-0 space-y-0.5">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-brand-navy">
+                  <ActivityLink href={`/dispatch/${j.id}`}>
                     {TYPE_LABEL[j.type] ?? j.type}
-                  </span>
+                  </ActivityLink>
                   <span className={STATUS_TONE[j.status] ?? "chip-slate"}>
                     {STATUS_LABEL[j.status] ?? j.status}
                   </span>
@@ -263,7 +267,7 @@ export function SetupJobs({
                   Mark closed
                 </button>
               )}
-            </li>
+            </ClickableRow>
           ))}
         </ul>
       )}

@@ -26,6 +26,9 @@ import { CloseActivityButton } from "../dispatch/_components/CloseActivityButton
 import { CancelActivityButton } from "../dispatch/_components/CancelActivityButton";
 import { ReassignOfficer } from "../dispatch/_components/ReassignOfficer";
 import { EditIconLink } from "../dispatch/_components/EditIconLink";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 
 export const dynamic = "force-dynamic";
 
@@ -419,7 +422,7 @@ export default async function ActivitiesPage({
             },
           },
           submittedBy: { select: { id: true, name: true } },
-          review: { select: { status: true } },
+          review: { select: { id: true, status: true } },
         },
         orderBy: [{ submittedAt: "desc" }],
         take: 1000,
@@ -564,7 +567,11 @@ export default async function ActivitiesPage({
   for (const sub of orphanSubmissions) {
     rows.push({
       id: `f:${sub.id}`,
-      href: `/sites/${sub.siteId}?tab=activity`,
+      // A report filed without a job: open its review, else the site's
+      // activity tab.
+      href: sub.review?.id
+        ? `/admin/reports/${sub.review.id}`
+        : `/sites/${sub.siteId}?tab=activity`,
       source: "JOB",
       kind: sub.form,
       kindLabel: KIND_LABEL[sub.form] ?? sub.form,
@@ -931,38 +938,39 @@ export default async function ActivitiesPage({
                     "CANCELLED",
                     "COMPLETED",
                   ].includes(r.status);
-                  const isJobOrVisit = r.source === "JOB" || r.source === "VISIT";
+                  // A report filed without a job has no job to reassign,
+                  // edit, close or cancel.
+                  const isReportOnly = r.id.startsWith("f:");
+                  const isJobOrVisit =
+                    !isReportOnly && (r.source === "JOB" || r.source === "VISIT");
                   const canReassign =
                     isStaff &&
                     isJobOrVisit &&
                     ["OPEN", "ASSIGNED", "IN_PROGRESS", "PENDING", "LATE"].includes(
                       r.status,
                     );
-                  const canEdit =
-                    isStaff && r.status !== "CANCELLED" && r.source !== "SHIFT";
+                  const canEdit = isStaff && !isReportOnly && r.status !== "CANCELLED";
                   const canClose = isStaff && isJobOrVisit && notDone;
                   const canCancel = isStaff && isJobOrVisit && notDone;
                   const canRestore =
                     isAdmin && isJobOrVisit && r.status === "CANCELLED";
                   return (
-                    <tr key={r.id}>
+                    <ClickableRow key={r.id} href={r.href} className={ACTIVITY_ROW_HOVER}>
                       <td className="px-4 py-2 text-slate-700 whitespace-nowrap">
                         {fmtDate(r.at)}
                       </td>
                       <td className="px-4 py-2 text-slate-700">
-                        <span className="chip-slate text-[10px]">
-                          {r.kindLabel}
-                        </span>
+                        <ActivityLink href={r.href}>{r.kindLabel}</ActivityLink>
                       </td>
                       <td className="px-4 py-2">
                         {r.siteId ? (
-                          <Link
-                            href={`/sites/${r.siteId}`}
-                            className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                          >
-                            {r.siteCode ? `${r.siteCode} · ` : ""}
-                            {r.siteName}
-                          </Link>
+                          <span className="flex items-center gap-1">
+                            <span className="font-medium text-brand-navy">
+                              {r.siteCode ? `${r.siteCode} · ` : ""}
+                              {r.siteName}
+                            </span>
+                            <SiteIconLink siteId={r.siteId} siteName={r.siteName} />
+                          </span>
                         ) : (
                           <span className="text-slate-400">—</span>
                         )}
@@ -1048,7 +1056,7 @@ export default async function ActivitiesPage({
                           )}
                         </div>
                       </td>
-                    </tr>
+                    </ClickableRow>
                   );
                 })}
                 {pageRows.length === 0 && (

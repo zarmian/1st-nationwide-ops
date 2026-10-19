@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
+import { ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import {
   Clock,
   Activity,
@@ -541,14 +544,23 @@ export default async function PatrolsPage({
           ) : (
             <ul className="divide-y divide-slate-100">
               {upcomingVisits.map((v) => (
-                <li key={v.id} className="px-4 py-3 space-y-1">
+                <ClickableRow
+                  as="li"
+                  key={v.id}
+                  href={`/patrols/visits/${v.id}`}
+                  className={`px-4 py-3 space-y-1 ${ACTIVITY_ROW_HOVER}`}
+                >
                   <div className="flex items-baseline justify-between gap-2">
-                    <Link
-                      href={`/patrols/visits/${v.id}`}
-                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                    >
-                      {v.site.name}
-                    </Link>
+                    <span className="flex min-w-0 items-center gap-1">
+                      <Link
+                        href={`/patrols/visits/${v.id}`}
+                        data-row-link
+                        className="truncate rounded font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+                      >
+                        {v.site.name}
+                      </Link>
+                      <SiteIconLink siteId={v.site.id} siteName={v.site.name} />
+                    </span>
                     <span className={STATUS_TONE[v.status] ?? "chip-slate"}>
                       {v.status.toLowerCase()}
                     </span>
@@ -565,7 +577,7 @@ export default async function PatrolsPage({
                     officers={officers}
                     reassign={reassignVisit}
                   />
-                </li>
+                </ClickableRow>
               ))}
             </ul>
           )}
@@ -588,14 +600,23 @@ export default async function PatrolsPage({
           ) : (
             <ul className="divide-y divide-slate-100">
               {upcomingLockUnlockJobs.map((j) => (
-                <li key={j.id} className="px-4 py-3 space-y-1">
+                <ClickableRow
+                  as="li"
+                  key={j.id}
+                  href={`/dispatch/${j.id}`}
+                  className={`px-4 py-3 space-y-1 ${ACTIVITY_ROW_HOVER}`}
+                >
                   <div className="flex items-baseline justify-between gap-2">
-                    <Link
-                      href={`/dispatch/${j.id}`}
-                      className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                    >
-                      {j.site?.name ?? "—"}
-                    </Link>
+                    <span className="flex min-w-0 items-center gap-1">
+                      <Link
+                        href={`/dispatch/${j.id}`}
+                        data-row-link
+                        className="truncate rounded font-medium text-brand-navy hover:text-brand-blue-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue"
+                      >
+                        {j.site?.name ?? "—"}
+                      </Link>
+                      {j.site && <SiteIconLink siteId={j.site.id} siteName={j.site.name} />}
+                    </span>
                     <span className="chip-slate">
                       {j.type === "LOCK" ? "Lock-up" : "Unlock"}
                     </span>
@@ -618,7 +639,7 @@ export default async function PatrolsPage({
                       reassign={reassignJob}
                     />
                   )}
-                </li>
+                </ClickableRow>
               ))}
             </ul>
           )}

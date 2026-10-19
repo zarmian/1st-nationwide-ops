@@ -89,7 +89,7 @@ export default async function AlarmEventDetailPage({
     <div className="space-y-4 max-w-4xl">
       <PageHeader
         title="Alarm event"
-        backHref={`/sites/${alarm.site.id}/edit`}
+        backHref={`/sites/${alarm.site.id}`}
         backLabel={alarm.site.name}
         subtitle={
           <span className="flex items-center gap-2 flex-wrap">

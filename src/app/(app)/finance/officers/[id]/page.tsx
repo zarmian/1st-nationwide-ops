@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { ClickableRow } from "@/components/ClickableRow";
+import { SiteIconLink } from "@/components/SiteIconLink";
+import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
@@ -434,34 +437,23 @@ export default async function OfficerFinancePage({
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id}>
+                <ClickableRow key={r.id} href={r.href} className={ACTIVITY_ROW_HOVER}>
                   <td className="text-slate-700 whitespace-nowrap">
                     {fmtDate(r.when)}
                   </td>
                   <td>
-                    <Link
-                      href={r.href}
-                      className="chip-slate text-[10px] hover:bg-slate-200"
-                    >
-                      {r.kindLabel}
-                    </Link>
+                    <ActivityLink href={r.href}>{r.kindLabel}</ActivityLink>
                   </td>
                   <td>
                     {r.siteId ? (
-                      <Link
-                        href={`/sites/${r.siteId}`}
-                        className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                      >
-                        {r.siteCode ? `${r.siteCode} · ` : ""}
-                        {r.siteName}
-                      </Link>
+                      <span className="flex items-center gap-1"><span className="font-medium text-brand-navy">{r.siteCode ? `${r.siteCode} · ` : ""}{r.siteName}</span><SiteIconLink siteId={r.siteId} siteName={r.siteName} /></span>
                     ) : (
                       "—"
                     )}
                   </td>
                   <td className="text-slate-600">{r.accountName ?? "—"}</td>
                   <td className="col-num">{fmtMoney(r.paid)}</td>
-                </tr>
+                </ClickableRow>
               ))}
               <tr className="bg-slate-50 font-medium">
                 <td className="text-slate-600" colSpan={4}>

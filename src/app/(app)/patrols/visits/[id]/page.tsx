@@ -167,7 +167,7 @@ export default async function PatrolVisitDetailPage({
             Site
           </h2>
           <Link
-            href={`/sites/${visit.site.id}/edit`}
+            href={`/sites/${visit.site.id}`}
             className="font-medium text-brand-navy hover:text-brand-blue-dark text-base"
           >
             {visit.site.name} →
