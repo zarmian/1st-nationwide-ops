@@ -114,9 +114,15 @@ It stops starting new reports at the time limit, and the next run carries on.
      - The nearest wins, and an activity of the report's own kind counts as 30 min closer.
      - If the runner-up is within 20 min of the winner, it's **ambiguous** and left for a person.
      - Activities that already have a FastField report are **taken**.
+   - **Nothing within 3 hours, and no static shift on** (`pickActivityWide`): it looks again up to **18 hours** either side, for a report filed late or a job logged at the wrong time. Only:
+     - the **same kind of work** (`familyOf`): patrol or VPI, callout (alarm, ad-hoc, key collection or drop-off, survey), lock-up, unlock;
+     - activities **without** a FastField report;
+     - activities **already due** when the import runs, so an afternoon report never completes tonight's patrol or lock-up early.
+
+     The nearest still wins, and two about equally close (within 20 min of each other) are **ambiguous**. The note says it came from the 18-hour look, with how far apart the two were.
 4. **Outcome:**
    - A pick → **LINKED**.
-   - Nothing at all near the time:
+   - Nothing at all near the time (and nothing in the 18-hour look):
      - if a static shift was on, it stays **UNMATCHED** with reason *shift*, because the guard on duty may have handled it. No job is made;
      - otherwise, if the site belongs to the form's *Make the job* client (Shurgard), → **CREATED**: a completed job of the report's kind;
      - otherwise → **UNMATCHED**.
@@ -161,7 +167,7 @@ Imports create no `ClientReport`, no customer SMS ack and no visit-completed not
 - **Jobs are only made at the client the form names** under *Make the job* (Shurgard), never for other clients and never while a static shift is on.
 - **One report per job or visit, by the robot.**
   - A taken job or visit is never auto-linked again.
-  - A job is only created when *no* job or visit is near the time, so two reports of one callout never create two jobs. The second waits as "already has a report".
+  - A job is only created when *no* job or visit is near the time (nor a similar one free within 18 hours), so two reports of one callout never create two jobs. The second waits as "already has a report".
   - By hand, an admin may link a second report to the same activity.
   - Shifts take any number of reports.
 - **Idempotent.** `submissionId` is unique, and the plan skips imported ids. If an overlapping run inserts the same report, the insert hits P2002 and is counted as already imported.
@@ -178,7 +184,7 @@ Imports create no `ClientReport`, no customer SMS ack and no visit-completed not
 | `POST /api/imports/fastfield` | the robot (bearer) | `plan`, `import`, `retry`; `?preview=1`; `run` id for preview counts |
 | `POST /api/imports/fastfield/photo?submission=&name=` | the robot (bearer) | one JPEG/PNG/WebP ≤ 4 MB → `{ url }` |
 | `/admin/fastfield` | admin | form settings with the last preview, "Needs linking", "Try matching again", recently attached |
-| `/admin/fastfield/[id]` | admin | one report: answers, photos, how it matched. Pick a site (grouped by client) and link to a shift, job or visit; create the job; or set the report aside. |
+| `/admin/fastfield/[id]` | admin | one report: answers, photos, how it matched. Pick a site (grouped by client) and link to a shift, job or visit (those within 3 hours, or within 18 hours when none are that close); create the job; or set the report aside. |
 | `/admin/reports/[id]` | admin, dispatcher | a FastField-sourced submission shows the FastField answers |
 | `/shifts/[id]` | admin, dispatcher | "FastField patrol reports" lists the rounds filed during the shift |
 

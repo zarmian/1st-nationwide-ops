@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { FastFieldAnswers } from "@/components/FastFieldAnswers";
 import { formatDateTime, formatTime } from "@/lib/dates";
-import { extractFacts, type FastFieldAnswer } from "@/lib/fastfield";
+import { apartText, extractFacts, type FastFieldAnswer } from "@/lib/fastfield";
 import { activitiesNearReport } from "@/lib/fastfieldImport";
 import { ReportStatusChip, activityLabel } from "../_components/labels";
 import { CreateJobForm, IgnoreButton, LinkButton } from "../_components/ReportActions";
@@ -192,7 +192,7 @@ export default async function FastFieldReportPage({
             <>
               {nearby.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  No shift on, and nothing within 3 hours of {formatDateTime(facts.when)}, at this
+                  No shift on, and nothing within 18 hours of {formatDateTime(facts.when)}, at this
                   site.
                 </p>
               ) : (
@@ -203,7 +203,7 @@ export default async function FastFieldReportPage({
                       <span className="text-slate-500">
                         {a.kind === "shift" && a.until
                           ? `${formatDateTime(a.at)}–${formatTime(a.until)} · on at the time`
-                          : `${formatDateTime(a.at)} · ${a.minutesApart} min ${
+                          : `${formatDateTime(a.at)} · ${apartText(a.minutesApart)} ${
                               a.at.getTime() < facts.when.getTime() ? "before" : "after"
                             }`}
                       </span>

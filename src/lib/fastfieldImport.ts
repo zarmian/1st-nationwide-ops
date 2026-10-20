@@ -35,9 +35,12 @@ import {
   snapshotJobFinanceIfNeeded,
 } from "@/lib/billing";
 import {
+  apartText,
   extractFacts,
   MATCH_WINDOW_MIN,
+  WIDE_MATCH_WINDOW_MIN,
   pickActivity,
+  pickActivityWide,
   pickOfficer,
   pickShift,
   pickSite,
@@ -329,10 +332,15 @@ async function officerFor(ctx: Ctx, facts: FastFieldFacts): Promise<string | nul
   return pickOfficer(facts, ctx.people.active) ?? pickOfficer(facts, ctx.people.inactive);
 }
 
-/** Jobs and patrol visits at a site within the matching window. */
-async function candidatesNear(siteId: string, when: Date): Promise<ActivityCandidate[]> {
-  const from = new Date(when.getTime() - MATCH_WINDOW_MIN * 60000);
-  const to = new Date(when.getTime() + MATCH_WINDOW_MIN * 60000);
+/** Jobs and patrol visits at a site within the matching window (3 hours, or
+ *  `windowMin`) either side of the report. */
+async function candidatesNear(
+  siteId: string,
+  when: Date,
+  windowMin: number = MATCH_WINDOW_MIN,
+): Promise<ActivityCandidate[]> {
+  const from = new Date(when.getTime() - windowMin * 60000);
+  const to = new Date(when.getTime() + windowMin * 60000);
   const range = { gte: from, lte: to };
   const [jobs, visits] = await Promise.all([
     prisma.job.findMany({
@@ -493,7 +501,28 @@ async function decide(
     }
   }
 
-  const ap = pickActivity(facts.when, kind, candidates);
+  let ap = pickActivity(facts.when, kind, candidates);
+  // Nothing within 3 hours and no static shift on: a report filed late, or a
+  // job logged at the wrong time — look for the same kind of work up to 18
+  // hours either side.
+  let wide = false;
+  if (!ap.pick && ap.reason === "none" && !shiftsNow.length) {
+    let far = await candidatesNear(site.id, facts.when, WIDE_MATCH_WINDOW_MIN);
+    if (preview) far = far.map((c) => (ctx.claimed.has(c.id) ? { ...c, taken: true } : c));
+    const wp = pickActivityWide(facts.when, kind, far, new Date());
+    if (!wp.pick && wp.reason === "ambiguous") {
+      return {
+        action: "unmatched",
+        site,
+        reason: "ambiguous",
+        note: `Nothing at ${site.name} within 3 hours of ${at}, and more than one similar activity within 18 hours is about as close — pick the right one.${how}`,
+      };
+    }
+    if (wp.pick) {
+      ap = wp;
+      wide = true;
+    }
+  }
   if (ap.pick) {
     const nearest = ap.pick.times.reduce((best, t) =>
       Math.abs(t.getTime() - facts.when.getTime()) < Math.abs(best.getTime() - facts.when.getTime()) ? t : best,
@@ -502,7 +531,9 @@ async function decide(
       action: "link",
       site,
       target: ap.pick,
-      note: `Matched to the ${noun(ap.pick.type)} at ${formatTime(nearest)} (${ap.minutesApart} min apart).${how}`,
+      note: wide
+        ? `Matched to the ${noun(ap.pick.type)} at ${formatDateTime(nearest)} (${apartText(ap.minutesApart)} apart) — nothing was within 3 hours, so it took the nearest similar one within 18 hours.${how}`
+        : `Matched to the ${noun(ap.pick.type)} at ${formatTime(nearest)} (${ap.minutesApart} min apart).${how}`,
     };
   }
   if (ap.reason === "none" && shiftsNow.length) {
@@ -518,12 +549,12 @@ async function decide(
       action: "create",
       site,
       type: kind,
-      note: `No activity at ${site.name} within 3 hours, so the ${noun(kind)} was created.${how}`,
+      note: `No activity at ${site.name} within 3 hours, nor a similar one within 18 hours to match it to, so the ${noun(kind)} was created.${how}`,
     };
   }
   const note =
     ap.reason === "none"
-      ? `No activity at ${site.name} within 3 hours of ${at}.`
+      ? `No activity at ${site.name} within 3 hours of ${at}, nor a similar one within 18 hours to match it to.`
       : ap.reason === "taken"
         ? `The activity at ${site.name} near ${at} already has a FastField report.`
         : `More than one activity at ${site.name} is about as close to ${at} — pick the right one.`;
@@ -1248,7 +1279,8 @@ export type NearbyActivity = {
 };
 
 /** Activities near a report's time at a site, for linking by hand: the shifts
- *  on at the time, then jobs and visits within 3 hours, nearest first. */
+ *  on at the time, then jobs and visits within 3 hours — or, when there are
+ *  none, within 18 hours — nearest first. */
 export async function activitiesNearReport(
   reportId: string,
   siteId: string,
@@ -1260,10 +1292,13 @@ export async function activitiesNearReport(
   if (!report) return [];
   const facts = factsOf(report);
   const t = facts.when.getTime();
-  const [candidates, shifts] = await Promise.all([
+  const [near, shifts] = await Promise.all([
     candidatesNear(siteId, facts.when),
     shiftsNear(siteId, facts.when),
   ]);
+  const candidates = near.length
+    ? near
+    : await candidatesNear(siteId, facts.when, WIDE_MATCH_WINDOW_MIN);
   const shiftRows: NearbyActivity[] = shiftsOn(facts.when, shifts).map((s) => ({
     kind: "shift",
     id: s.id,
