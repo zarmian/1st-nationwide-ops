@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
   answerKind,
+  apartText,
   extractFacts,
   extractPostcode,
   parseFastFieldTime,
   pickActivity,
+  pickActivityWide,
   pickOfficer,
   pickShift,
   pickSite,
@@ -448,5 +450,81 @@ describe("pickActivity", () => {
     const p = pickActivity(when, "ALARM_RESPONSE", [c]);
     expect(p.pick?.id).toBe("v");
     expect(p.pick && p.minutesApart).toBe(5);
+  });
+});
+
+describe("pickActivityWide", () => {
+  // A report at 02:00 with nothing within 3 hours; the import runs at 09:00.
+  const when = new Date("2026-10-18T02:00:00.000Z");
+  const now = new Date("2026-10-18T09:00:00.000Z");
+  const at = (iso: string) => new Date(`2026-10-${iso}:00.000Z`);
+  const job = (id: string, type: string, time: string, taken = false): ActivityCandidate => ({
+    kind: "job",
+    id,
+    type,
+    times: [at(time)],
+    taken,
+  });
+
+  it("matches the same kind of work up to 18 hours away", () => {
+    const p = pickActivityWide(when, "ALARM_RESPONSE", [job("callout", "ALARM_RESPONSE", "17T20:00")], now);
+    expect(p.pick?.id).toBe("callout");
+    expect(p.pick && p.minutesApart).toBe(360);
+  });
+
+  it("counts similar job types as the same kind", () => {
+    expect(pickActivityWide(when, "ALARM_RESPONSE", [job("adhoc", "ADHOC", "17T20:00")], now).pick?.id).toBe("adhoc");
+    expect(pickActivityWide(when, "PATROL", [job("vpi", "VPI", "17T22:00")], now).pick?.id).toBe("vpi");
+  });
+
+  it("won't match a different kind of work", () => {
+    const p = pickActivityWide(when, "ALARM_RESPONSE", [job("lock", "LOCK", "17T21:00"), job("unlock", "UNLOCK", "18T07:00")], now);
+    expect(!p.pick && p.reason).toBe("none");
+    expect(pickActivityWide(when, "LOCK", [job("unlock", "UNLOCK", "18T07:00")], now).pick).toBeNull();
+  });
+
+  it("skips activities that already have a report", () => {
+    const p = pickActivityWide(when, "ALARM_RESPONSE", [job("done", "ALARM_RESPONSE", "17T20:00", true)], now);
+    expect(!p.pick && p.reason).toBe("none");
+  });
+
+  it("skips activities that aren't due yet", () => {
+    // Tonight's patrol at 19:00 — after the import runs at 09:00.
+    const p = pickActivityWide(when, "PATROL", [job("tonight", "PATROL", "18T19:00")], now);
+    expect(!p.pick && p.reason).toBe("none");
+    // A job logged later the same morning is due, so it counts.
+    expect(pickActivityWide(when, "ALARM_RESPONSE", [job("logged", "ALARM_RESPONSE", "18T08:30")], now).pick?.id).toBe("logged");
+  });
+
+  it("ignores activities more than 18 hours away", () => {
+    const p = pickActivityWide(when, "ALARM_RESPONSE", [job("old", "ALARM_RESPONSE", "17T07:00")], now);
+    expect(!p.pick && p.reason).toBe("none");
+  });
+
+  it("leaves two about equally close for a person", () => {
+    const p = pickActivityWide(
+      when,
+      "LOCK",
+      [job("a", "LOCK", "17T20:00"), job("b", "LOCK", "18T08:10")],
+      new Date("2026-10-18T09:00:00.000Z"),
+    );
+    expect(!p.pick && p.reason).toBe("ambiguous");
+  });
+
+  it("takes the nearest when one is clearly closer", () => {
+    const p = pickActivityWide(when, "LOCK", [job("near", "LOCK", "17T21:00"), job("far", "LOCK", "18T08:30")], now);
+    expect(p.pick?.id).toBe("near");
+  });
+
+  it("does nothing for a kind it doesn't know", () => {
+    expect(pickActivityWide(when, "OTHER", [job("x", "OTHER", "17T20:00")], now).pick).toBeNull();
+  });
+});
+
+describe("apartText", () => {
+  it("says minutes, then hours and minutes", () => {
+    expect(apartText(45)).toBe("45 min");
+    expect(apartText(360)).toBe("6 h");
+    expect(apartText(310)).toBe("5 h 10 min");
   });
 });

@@ -10,6 +10,14 @@ Vaadin UIDL). So a robot drives the real screen, like a person would.
 
 1. Logs in (`input.c-login-username` / `input.c-login-password` /
    `.c-login-submit-button`).
+   - **Bookings notice:** when Keyholding has job bookings waiting for us to
+     accept in their Ops Controller screen, Chase2Base shows an
+     "Acceptance / Allocation required" pop-up. Its grey curtain blocks every
+     click. The robot presses its **OK**, which only closes the notice and
+     accepts nothing, and logs how many bookings are waiting (a count only).
+   - **Any other pop-up** stops the run with a message, rather than being
+     clicked through blind. The failure capture has a screenshot of it.
+   - On 19 Oct 2026 this notice failed two syncs.
 2. Opens **Jobs Management → Jobs** (click the `role=menuitem`, then "Jobs" in
    the popup).
 3. Types the **From / To** dates into the two `input.v-datefield-textfield`

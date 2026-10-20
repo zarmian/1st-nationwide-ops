@@ -545,10 +545,45 @@ export type ActivityPick =
 
 /** How far either side of the report an activity may be. */
 export const MATCH_WINDOW_MIN = 180;
+/** When nothing is that close: how far either side to look for the same kind
+ *  of work (a report filed late, or a job logged at the wrong time). */
+export const WIDE_MATCH_WINDOW_MIN = 18 * 60;
+
+/** Kinds of work that can stand in for each other. */
+export type Family = "patrol" | "callout" | "lock" | "unlock";
+
+export function familyOf(type: string): Family | null {
+  switch (type) {
+    case "PATROL":
+    case "VPI":
+      return "patrol";
+    case "ALARM_RESPONSE":
+    case "ADHOC":
+    case "KEY_COLLECTION":
+    case "KEY_DROPOFF":
+    case "SURVEY":
+      return "callout";
+    case "LOCK":
+      return "lock";
+    case "UNLOCK":
+      return "unlock";
+    default:
+      return null;
+  }
+}
+
 /** An activity of the form's own type counts as this much closer. */
 const SAME_TYPE_BONUS_MIN = 30;
 /** The runner-up must be at least this much further away for a clear pick. */
 const CLEAR_MARGIN_MIN = 20;
+
+/** "45 min" / "5 h 10 min" — how far apart a report and an activity are. */
+export function apartText(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
 
 function minutesApart(c: ActivityCandidate, when: Date): number {
   let best = Number.POSITIVE_INFINITY;
@@ -561,18 +596,19 @@ function minutesApart(c: ActivityCandidate, when: Date): number {
 
 /**
  * The activity a report belongs to: the nearest in time at the site, within
- * 3 hours either side, preferring the form's own type when two are close.
- * Leaves it for a person when two activities are about equally close, or the
- * only ones nearby already have a FastField report.
+ * 3 hours either side (or `windowMin`), preferring the form's own type when
+ * two are close. Leaves it for a person when two activities are about equally
+ * close, or the only ones nearby already have a FastField report.
  */
 export function pickActivity(
   when: Date,
   formJobType: string,
   candidates: ActivityCandidate[],
+  windowMin: number = MATCH_WINDOW_MIN,
 ): ActivityPick {
   const near = candidates
     .map((c) => ({ c, m: minutesApart(c, when) }))
-    .filter((x) => x.m <= MATCH_WINDOW_MIN);
+    .filter((x) => x.m <= windowMin);
   const free = near
     .filter((x) => !x.c.taken)
     .map((x) => ({ ...x, score: x.m - (x.c.type === formJobType ? SAME_TYPE_BONUS_MIN : 0) }))
@@ -589,4 +625,27 @@ export function pickActivity(
     return { pick: null, reason: "ambiguous", options: free.map((x) => x.c) };
   }
   return { pick: free[0].c, minutesApart: Math.round(free[0].m) };
+}
+
+/**
+ * The fallback when nothing at the site is within 3 hours: the nearest
+ * activity of the same kind of work (patrol or VPI, callout, lock-up, unlock)
+ * within 18 hours either side. Only ones without a FastField report that were
+ * already due by `now`, so a report never completes tonight's patrol early.
+ */
+export function pickActivityWide(
+  when: Date,
+  formJobType: string,
+  candidates: ActivityCandidate[],
+  now: Date,
+): ActivityPick {
+  const family = familyOf(formJobType);
+  const fits = candidates.filter(
+    (c) =>
+      family != null &&
+      familyOf(c.type) === family &&
+      !c.taken &&
+      c.times.some((t) => t.getTime() <= now.getTime()),
+  );
+  return pickActivity(when, formJobType, fits, WIDE_MATCH_WINDOW_MIN);
 }

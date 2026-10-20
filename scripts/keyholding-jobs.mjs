@@ -66,6 +66,39 @@ async function login(page) {
   }
 }
 
+/**
+ * After login Chase2Base can show an "Acceptance / Allocation required" notice
+ * when Keyholding has job bookings waiting for us to accept in their Ops
+ * Controller screen. It is information only, with a single OK button, but its
+ * grey curtain blocks every other click. So press OK (that only closes the
+ * notice; it accepts nothing) and log how many bookings are waiting, as a
+ * count only. Any other pop-up stops the run rather than being clicked
+ * through blind; the failure capture holds a screenshot of it.
+ */
+async function dismissNotices(page) {
+  for (let i = 0; i < 3; i++) {
+    if ((await page.locator(".v-window-modalitycurtain").count()) === 0) return;
+    const win = page.locator(".v-window").first();
+    const title = ((await win.locator(".v-window-header").first().textContent()) || "").trim();
+    if (!/acceptance\s*\/\s*allocation required/i.test(title)) {
+      throw new Error(
+        "Keyholding is showing an unexpected pop-up after login, so the robot stopped. " +
+          "Someone needs to log in to the Keyholding portal and deal with it (see the run's capture screenshot).",
+      );
+    }
+    const text = (await win.innerText().catch(() => "")) || "";
+    const waiting = text.match(/(\d+)\s+jobs?\s+in the/i)?.[1] ?? "some";
+    console.log(
+      `Keyholding notice: ${waiting} job booking(s) waiting for us to accept in their Ops Controller screen. Closing the notice (it accepts nothing).`,
+    );
+    await win.locator(".v-button").filter({ hasText: /\bOK\b/ }).first().click({ timeout: 10_000 });
+    await page.waitForTimeout(1000);
+  }
+  if ((await page.locator(".v-window-modalitycurtain").count()) > 0) {
+    throw new Error("Keyholding kept showing pop-ups after login, so the robot stopped.");
+  }
+}
+
 async function openJobs(page) {
   await page.getByRole("menuitem", { name: /jobs management/i }).first().click({ timeout: 10_000 });
   await page.waitForTimeout(1200);
@@ -175,6 +208,7 @@ async function run() {
   try {
     await login(page);
     console.log("Login OK.");
+    await dismissNotices(page);
     await openJobs(page);
     await setDatesAndFind(page);
 

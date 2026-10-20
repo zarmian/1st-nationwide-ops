@@ -16,34 +16,15 @@ import {
   answerKind,
   answerText,
   extractPostcode,
+  familyOf,
+  type Family,
   normalisePostcode,
   type FastFieldAnswer,
 } from "@/lib/fastfield";
 
 // ── Duplicates ────────────────────────────────────────────────────────────
 
-/** Kinds of work that can stand in for each other. */
-export type Family = "patrol" | "callout" | "lock" | "unlock";
-
-export function familyOf(type: string): Family | null {
-  switch (type) {
-    case "PATROL":
-    case "VPI":
-      return "patrol";
-    case "ALARM_RESPONSE":
-    case "ADHOC":
-    case "KEY_COLLECTION":
-    case "KEY_DROPOFF":
-    case "SURVEY":
-      return "callout";
-    case "LOCK":
-      return "lock";
-    case "UNLOCK":
-      return "unlock";
-    default:
-      return null;
-  }
-}
+export { familyOf, type Family };
 
 export type CheckActivity = {
   kind: "job" | "visit";
