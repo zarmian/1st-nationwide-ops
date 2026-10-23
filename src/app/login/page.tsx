@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import Link from "next/link";
 import { BrandLogo } from "@/components/BrandLogo";
 import { LoginForm } from "./LoginForm";
 
@@ -23,6 +24,16 @@ export default function LoginPage() {
             <LoginForm />
           </Suspense>
         </div>
+
+        <p className="mt-4 text-center text-sm text-slate-500">
+          A client?{" "}
+          <Link
+            href="/login/client"
+            className="font-medium text-brand-navy underline underline-offset-2 hover:text-brand-blue-dark"
+          >
+            Sign in with your work email
+          </Link>
+        </p>
 
         <p className="mt-6 text-center text-xs text-slate-400">
           1st Nationwide Security Services

@@ -6,8 +6,12 @@
  * an ActionResult.fail() value instead.
  */
 import { getServerSession } from "next-auth";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import type { UserRole } from "@prisma/client";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
+import { CLIENT_PREVIEW_COOKIE, isUuid } from "@/lib/clientPreview";
 
 export type SessionUser = {
   id: string;
@@ -56,25 +60,46 @@ export async function requireStaff(): Promise<SessionUser> {
   return u;
 }
 
+export type ClientScope = SessionUser & {
+  /** The one customer every client-portal query is scoped to. */
+  customerId: string;
+  /** An admin previewing the dashboard (Admin → Customers → Preview). */
+  preview: boolean;
+};
+
 /**
- * Client-portal guard. Used by every page/action under /client/*. Returns a
- * guaranteed-non-null `customerId` that callers MUST use to scope every query
- * (through the site: { is: { customerId } } relation for visits/shifts) —
- * trusting only the session, never the URL. Read-only portal.
+ * Who may see the client portal, and for which customer — or null. A
+ * CUSTOMER login counts only while its user row is still active and on the
+ * same customer (the session lasts 30 days, so a block must bite at once).
+ * An ADMIN counts while previewing a customer.
  */
-export async function requireCustomer(): Promise<
-  SessionUser & { customerId: string }
-> {
-  const u = await requireUser();
-  if (u.role !== "CUSTOMER") {
-    throw new Error("Client-portal access only");
+export async function getClientScope(): Promise<ClientScope | null> {
+  const u = await getSessionUser();
+  if (!u) return null;
+  if (u.role === "ADMIN") {
+    const id = cookies().get(CLIENT_PREVIEW_COOKIE)?.value ?? "";
+    return isUuid(id) ? { ...u, customerId: id, preview: true } : null;
   }
-  if (!u.customerId) {
-    // Should be impossible if the admin-side login form requires a customerId,
-    // but throw rather than silently leaking data scope.
-    throw new Error("Client login is not linked to a customer");
-  }
-  return { ...u, customerId: u.customerId };
+  if (u.role !== "CUSTOMER" || !u.customerId) return null;
+  const row = await prisma.user.findUnique({
+    where: { id: u.id },
+    select: { active: true, customerId: true },
+  });
+  if (!row?.active || row.customerId !== u.customerId) return null;
+  return { ...u, customerId: u.customerId, preview: false };
+}
+
+/**
+ * Client-portal guard. Used by every page under /client/*. Returns the
+ * `customerId` callers MUST use to scope every query (through the
+ * site: { is: { customerId } } relation for jobs/visits/shifts) — trusting
+ * only the session, never the URL. Read-only portal. Without access it
+ * sends the person to the client sign-in page.
+ */
+export async function requireCustomer(): Promise<ClientScope> {
+  const scope = await getClientScope();
+  if (!scope) redirect("/login/client");
+  return scope;
 }
 
 /**

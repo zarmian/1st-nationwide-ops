@@ -3,7 +3,8 @@ import { prisma } from "@/lib/db";
 import { CustomerForm } from "../../_components/CustomerForm";
 import { updateCustomer } from "../../_actions";
 import { PageHeader } from "@/components/PageHeader";
-import { CustomerLoginCard } from "../_components/CustomerLoginCard";
+import { ClientDashboardCard } from "../_components/ClientDashboardCard";
+import { clientLoginUrl } from "@/lib/clientLogin";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,10 @@ export default async function EditCustomerPage({
   });
   if (!customer) notFound();
 
-  const existingLogin = await prisma.user.findFirst({
+  const people = await prisma.user.findMany({
     where: { customerId: customer.id, role: "CUSTOMER" },
-    orderBy: { createdAt: "desc" },
-    select: { email: true, active: true },
+    orderBy: [{ lastLoginAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
+    select: { id: true, name: true, email: true, active: true, lastLoginAt: true },
   });
 
   const action = updateCustomer.bind(null, customer.id);
@@ -63,14 +64,12 @@ export default async function EditCustomerPage({
         }}
       />
 
-      <CustomerLoginCard
-        initial={{
-          customerId: customer.id,
-          customerName: customer.name,
-          existing: existingLogin
-            ? { email: existingLogin.email, active: existingLogin.active }
-            : null,
-        }}
+      <ClientDashboardCard
+        customerId={customer.id}
+        customerName={customer.name}
+        domains={customer.portalEmailDomains}
+        loginUrl={clientLoginUrl()}
+        people={people}
       />
     </div>
   );
