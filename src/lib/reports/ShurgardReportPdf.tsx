@@ -101,7 +101,7 @@ const s = StyleSheet.create({
 function ShurgardReportDocument({ data }: { data: ShurgardReportData }) {
   return (
     <Document
-      title={`Shurgard daily report — ${data.dateLabel}`}
+      title={`${data.customerName} daily report — ${data.dateLabel}`}
       author="1st Nationwide Security Services Ltd"
     >
       <Page size="A4" style={s.page}>
@@ -111,7 +111,7 @@ function ShurgardReportDocument({ data }: { data: ShurgardReportData }) {
             <Text style={s.brandSub}>Security Services Ltd</Text>
           </View>
           <View>
-            <Text style={s.docTitle}>Shurgard — Daily Report</Text>
+            <Text style={s.docTitle}>{data.customerName} — Daily Report</Text>
             <Text style={s.docMeta}>{data.dateLabel}</Text>
           </View>
         </View>

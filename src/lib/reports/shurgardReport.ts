@@ -17,6 +17,8 @@ import { fetchImages } from "./reportImages";
 export type UkDay = { year: number; month: number; day: number };
 
 export type ShurgardReportData = {
+  /** Whose report it is — "Shurgard" for the staff/emailed report. */
+  customerName: string;
   dateLabel: string;
   shurgardFound: boolean;
   jobSites: string[]; // grouped, formatted site labels
@@ -51,6 +53,9 @@ function ukDateTime(d: Date): string {
 export async function loadShurgardReport(
   day: UkDay,
   now: Date = new Date(),
+  /** A client's own copy (client dashboard): just this customer's sites —
+   *  no Access Storage static guarding. */
+  opts: { customerId?: string } = {},
 ): Promise<ShurgardReportData> {
   const dayStart = ukWallClockToUtc(day.year, day.month, day.day, 0, 0);
   const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
@@ -69,14 +74,21 @@ export async function loadShurgardReport(
   });
 
   const [shurgard, access, nexus] = await Promise.all([
-    prisma.customer.findFirst({
-      where: { name: { contains: "Shurgard", mode: "insensitive" } },
-      select: { id: true },
-    }),
-    prisma.customer.findFirst({
-      where: { name: { contains: "Access", mode: "insensitive" } },
-      select: { id: true },
-    }),
+    opts.customerId
+      ? prisma.customer.findUnique({
+          where: { id: opts.customerId },
+          select: { id: true, name: true },
+        })
+      : prisma.customer.findFirst({
+          where: { name: { contains: "Shurgard", mode: "insensitive" } },
+          select: { id: true, name: true },
+        }),
+    opts.customerId
+      ? Promise.resolve(null)
+      : prisma.customer.findFirst({
+          where: { name: { contains: "Access", mode: "insensitive" } },
+          select: { id: true },
+        }),
     prisma.partner.findFirst({
       where: { name: { contains: "Nexus", mode: "insensitive" } },
       select: { id: true },
@@ -272,6 +284,7 @@ export async function loadShurgardReport(
     .map(({ label, hours, photos }) => ({ label, hours, photos }));
 
   return {
+    customerName: opts.customerId ? shurgard?.name ?? "Client" : "Shurgard",
     dateLabel,
     shurgardFound: Boolean(shurgard),
     jobSites,

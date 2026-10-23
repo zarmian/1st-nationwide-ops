@@ -1,9 +1,13 @@
 import Link from "next/link";
+import { FileText } from "lucide-react";
+import { ClickableRow } from "@/components/ClickableRow";
 import { formatDateTime } from "@/lib/dates";
+import { formatMoney } from "@/lib/numbers";
 import type { ClientActivity } from "@/lib/clientPortal";
 import { StatusChip } from "./StatusChip";
 
-/** Read-only activity table (no officer identity), reused across the portal. */
+/** Read-only activity table (no officer identity), reused across the portal.
+ *  A row opens the activity's own page, with its report. */
 export function ActivityList({
   activities,
   showSite = true,
@@ -27,30 +31,46 @@ export function ActivityList({
             {showSite && <th>Site</th>}
             <th>Activity</th>
             <th>Status</th>
+            <th className="text-right">Charge</th>
           </tr>
         </thead>
         <tbody>
           {activities.map((a) => (
-            <tr key={a.id}>
+            <ClickableRow key={a.id} href={a.href} className="hover:bg-slate-50">
               <td className="whitespace-nowrap text-slate-700">
-                {formatDateTime(a.at)}
+                <Link
+                  href={a.href}
+                  data-row-link
+                  className="font-medium text-brand-navy hover:text-brand-blue-dark"
+                >
+                  {formatDateTime(a.at)}
+                </Link>
               </td>
               {showSite && (
-                <td>
-                  <Link
-                    href={`/client/sites/${a.siteId}`}
-                    className="font-medium text-brand-navy hover:text-brand-blue-dark"
-                  >
-                    {a.siteCode ? `${a.siteCode} · ` : ""}
-                    {a.siteName}
-                  </Link>
+                <td className="text-slate-700">
+                  {a.siteCode ? `${a.siteCode} · ` : ""}
+                  {a.siteName}
                 </td>
               )}
-              <td className="text-slate-700">{a.kind}</td>
+              <td className="text-slate-700">
+                <span className="inline-flex items-center gap-1.5">
+                  {a.kind}
+                  {a.hasReport && (
+                    <FileText
+                      size={14}
+                      className="text-brand-blue-dark"
+                      aria-label="Has a report"
+                    />
+                  )}
+                </span>
+              </td>
               <td>
                 <StatusChip status={a.status} />
               </td>
-            </tr>
+              <td className="whitespace-nowrap text-right tabular-nums text-slate-700">
+                {a.charge == null ? "—" : formatMoney(a.charge)}
+              </td>
+            </ClickableRow>
           ))}
         </tbody>
       </table>
