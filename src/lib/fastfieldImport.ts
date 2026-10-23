@@ -25,6 +25,7 @@
 import { Prisma, type FastFieldFormMode, type JobType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { formatDateTime, formatTime } from "@/lib/dates";
+import { haversineMeters } from "@/lib/geo";
 import {
   applyBillingToVisit,
   applyPayToVisit,
@@ -943,6 +944,176 @@ export async function retryUnmatched(
     }
   }
   return summary;
+}
+
+// ── Review (read-only — the Claude connector's review_fastfield) ─────────
+
+export type FastFieldReviewRow = {
+  ref: string;
+  filed: Date;
+  /** The moment used for matching (arrival, else opened, else filed). */
+  at: Date;
+  form: string;
+  siteTyped: string | null;
+  site: string | null;
+  /** The note the robot left when it last tried. */
+  robotSaid: string | null;
+  /** What the robot would do with it now (a dry run — nothing is written). */
+  now: { would: "link" | "create" | "wait"; reason?: UnmatchedReason; note: string };
+  /** Still waiting with a known site: work recorded there within 24 hours. */
+  nearby?: {
+    activities: { what: string; at: Date; hoursApart: number; reported: boolean }[];
+    shifts: { start: Date; end: Date }[];
+  };
+  /** Still waiting with no site: the nearest site to the phone's GPS fix. */
+  nearestSite?: { name: string; metres: number } | null;
+};
+
+export type FastFieldReview = {
+  received: number;
+  linked: { byRobot: number; byHand: number };
+  created: { byRobot: number; byHand: number };
+  setAside: number;
+  waiting: number;
+  /** Waiting reports dry-run through the current rules. */
+  checked: number;
+  wouldNow: { link: number; create: number; wait: Record<UnmatchedReason, number> };
+  reports: FastFieldReviewRow[];
+};
+
+/**
+ * How the FastField matching is doing for reports filed in [from, to]: the
+ * robot's links and creations against those done by hand, and — for each
+ * report still waiting — what the robot would do with it now and what work
+ * is recorded at its site. Reads only; the dry run is decide() in preview.
+ */
+export async function reviewFastField(opts: {
+  from: Date;
+  to: Date;
+  limit: number;
+  /** Stop starting dry runs after this long (the caller has a time limit). */
+  budgetMs?: number;
+}): Promise<FastFieldReview> {
+  const started = Date.now();
+  const filed = { submittedAt: { gte: opts.from, lte: opts.to } };
+  const [byStatus, linkedByHand, createdByHand, waitingRows] = await Promise.all([
+    prisma.fastFieldReport.groupBy({ by: ["status"], where: filed, _count: { _all: true } }),
+    prisma.fastFieldReport.count({ where: { ...filed, status: "LINKED", note: { startsWith: "Linked by " } } }),
+    prisma.fastFieldReport.count({ where: { ...filed, status: "CREATED", note: { contains: " created by " } } }),
+    prisma.fastFieldReport.findMany({
+      where: { ...filed, status: "UNMATCHED" },
+      orderBy: { submittedAt: "desc" },
+      take: opts.limit,
+      select: {
+        id: true,
+        note: true,
+        siteText: true,
+        submittedAt: true,
+        startedAt: true,
+        finishedAt: true,
+        answers: true,
+        form: { select: FORM_SELECT },
+      },
+    }),
+  ]);
+  const count = (s: string) => byStatus.find((b) => b.status === s)?._count._all ?? 0;
+
+  const ctx = newCtx();
+  const wouldNow = {
+    link: 0,
+    create: 0,
+    wait: { site: 0, none: 0, taken: 0, ambiguous: 0, shift: 0 } as Record<UnmatchedReason, number>,
+  };
+  const rows: FastFieldReviewRow[] = [];
+  const budget = opts.budgetMs ?? 40_000;
+
+  async function review(r: (typeof waitingRows)[number]): Promise<FastFieldReviewRow> {
+    const facts = extractFacts({
+      submittedAt: r.submittedAt,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      answers: r.answers as unknown as FastFieldAnswer[],
+    });
+    const d = await decide(ctx, facts, r.form, true);
+    const row: FastFieldReviewRow = {
+      ref: r.id.slice(0, 8),
+      filed: r.submittedAt,
+      at: facts.when,
+      form: r.form.name,
+      siteTyped: (facts.siteText ?? r.siteText)?.slice(0, 80) ?? null,
+      site: d.site?.name ?? null,
+      robotSaid: r.note,
+      now:
+        d.action === "unmatched"
+          ? { would: "wait", reason: d.reason, note: d.note }
+          : { would: d.action, note: d.note },
+    };
+    if (d.action === "link") wouldNow.link++;
+    else if (d.action === "create") wouldNow.create++;
+    else wouldNow.wait[d.reason]++;
+    if (d.action !== "unmatched") return row;
+
+    if (d.site) {
+      const [acts, shifts] = await Promise.all([
+        candidatesNear(d.site.id, facts.when, 24 * 60),
+        shiftsNear(d.site.id, facts.when),
+      ]);
+      const t = facts.when.getTime();
+      row.nearby = {
+        activities: acts
+          .map((c) => {
+            const at = c.times.reduce((best, x) =>
+              Math.abs(x.getTime() - t) < Math.abs(best.getTime() - t) ? x : best,
+            );
+            return {
+              what: noun(c.type),
+              at,
+              hoursApart: Math.round((at.getTime() - t) / 360_000) / 10,
+              reported: c.taken,
+            };
+          })
+          .sort((a, b) => Math.abs(a.hoursApart) - Math.abs(b.hoursApart))
+          .slice(0, 6),
+        shifts: shifts
+          .filter((s) => s.end.getTime() >= t - 86_400_000 && s.start.getTime() <= t + 86_400_000)
+          .slice(0, 4)
+          .map((s) => ({ start: s.start, end: s.end })),
+      };
+    } else if (facts.lat != null && facts.lng != null) {
+      let best: { name: string; metres: number } | null = null;
+      for (const s of await sitesFor(ctx, null)) {
+        if (s.lat == null || s.lng == null) continue;
+        const m = haversineMeters(facts.lat, facts.lng, s.lat, s.lng);
+        if (!best || m < best.metres) best = { name: s.name, metres: Math.round(m) };
+      }
+      row.nearestSite = best;
+    } else {
+      row.nearestSite = null;
+    }
+    return row;
+  }
+
+  // A few at a time: each dry run is several queries.
+  const queue = [...waitingRows];
+  async function worker() {
+    for (let r = queue.shift(); r; r = queue.shift()) {
+      if (Date.now() - started > budget) return;
+      rows.push(await review(r));
+    }
+  }
+  await Promise.all(Array.from({ length: 4 }, worker));
+  rows.sort((a, b) => b.filed.getTime() - a.filed.getTime());
+
+  return {
+    received: byStatus.reduce((n, b) => n + b._count._all, 0),
+    linked: { byRobot: count("LINKED") - linkedByHand, byHand: linkedByHand },
+    created: { byRobot: count("CREATED") - createdByHand, byHand: createdByHand },
+    setAside: count("IGNORED"),
+    waiting: count("UNMATCHED"),
+    checked: rows.length,
+    wouldNow,
+    reports: rows,
+  };
 }
 
 // ── Attaching (automatic and by hand) ─────────────────────────────────────

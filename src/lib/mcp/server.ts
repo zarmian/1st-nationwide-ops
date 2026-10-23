@@ -18,6 +18,7 @@ import {
   loadActivities,
 } from "./tools/activities";
 import { listAlarms } from "./tools/alarms";
+import { reviewFastFieldReports } from "./tools/fastfield";
 import { listAccounts } from "./tools/accounts";
 import { getFinanceSummary, listInvoices } from "./tools/finance";
 import { KEY_STATUSES, findKeys } from "./tools/keys";
@@ -351,6 +352,24 @@ export async function buildMcpServer(principal: McpPrincipal): Promise<McpServer
       },
     },
     (a) => listAccounts(ctx, a),
+  );
+
+  // ── FastField (admin) ────────────────────────────────────────────────────
+
+  tool(
+    "review_fastfield",
+    {
+      title: "Review FastField matching",
+      description:
+        "FastField reports filed in a UK date window (default the last 30 days): how many the robot linked or created, how many were linked or created by hand, set aside, and still waiting. For each waiting report (newest first): what the robot would do with it now under the current rules (a dry run — nothing changes), the site the officer typed and the site matched, and the work recorded at that site within 24 hours (or, with no site, the nearest site to the phone's GPS). No report answers.",
+      adminOnly: true,
+      input: {
+        from: dateArg.optional(),
+        to: dateArg.optional(),
+        limit: z.number().int().min(1).max(150).optional().describe("Waiting reports to check (default 60)"),
+      },
+    },
+    (a) => reviewFastFieldReports(ctx, { ...a, limit: clampLimit(a.limit, 60, 150) }),
   );
 
   // ── Finance (admin) ──────────────────────────────────────────────────────
