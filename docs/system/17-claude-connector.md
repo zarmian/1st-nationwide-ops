@@ -85,6 +85,7 @@ All tools are annotated `readOnlyHint: true`, `destructiveHint: false` (so Claud
 | `list_accounts` | **Admin** | `/admin/customers` + `/admin/partners` with contacts. |
 | `get_finance_summary` | **Admin** | `/finance/pnl` (`loadPnl`) + `/finance/receivables` (`loadReceivables`); default this month to date. |
 | `list_invoices` | **Admin** | Receivables rows for outstanding/overdue; the invoice list otherwise. |
+| `review_fastfield` | **Admin** | `/admin/fastfield`: reports filed in a window (default 30 days) by status — robot vs by hand (`Linked by …` / `… created by …` notes) — and, for each waiting one, a dry run of the import's own `decide()` under today's rules (preview, nothing written), the site typed vs matched, and work at that site within 24 h (or the nearest site to the GPS fix). No report answers. `reviewFastField` in `lib/fastfieldImport.ts`. |
 
 Name filters (site, customer, partner, officer, region) accept part of a name; results report which names matched, and a filter that matches nothing returns a readable error. The admin-only **hidden accounts** declutter applies exactly as in the app: to ops tools only for admins, and always to finance.
 

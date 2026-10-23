@@ -23,6 +23,7 @@ const TOOL_LABEL: Record<string, string> = {
   list_accounts: "Customers & partners",
   get_finance_summary: "Finance summary",
   list_invoices: "Invoices",
+  review_fastfield: "FastField review",
 };
 
 /** Compact "filter: value" summary of what Claude looked up. */
