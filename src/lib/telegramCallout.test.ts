@@ -132,6 +132,31 @@ describe("matchSite", () => {
     if (m.kind === "one") expect(m.site.id).toBe("s4");
   });
 
+  it("doesn't pick a site on a number or the word 'site' alone", () => {
+    const sites = [
+      ...SITES,
+      { id: "a1", name: "Adhoc - SUP00202", code: null, postcode: "DA1 1AA", address: "Site office, Unit 1" },
+      { id: "d1", name: "Dartford Site 1", code: null, postcode: "DA2 6QQ", address: "Crossways" },
+      { id: "d2", name: "Dartford Site 12", code: null, postcode: "DA2 6QR", address: "Crossways" },
+    ];
+    // A typo leaves only "site" and "1" — they mustn't find the ad-hoc site.
+    expect(matchSite("Dratford site 1", sites).kind).toBe("none");
+    expect(matchSite("site 1", sites).kind).toBe("none");
+    // Spelt right, the number settles which Dartford site: whole words only.
+    const m = matchSite("Dartford site 1", sites);
+    expect(m.kind).toBe("one");
+    if (m.kind === "one") expect(m.site.id).toBe("d1");
+    const m12 = matchSite("Dartford site 12", sites);
+    expect(m12.kind).toBe("one");
+    if (m12.kind === "one") expect(m12.site.id).toBe("d2");
+  });
+
+  it("still matches a short postcode area with a name (tesco br1)", () => {
+    const m = matchSite("Tesco BR1", SITES);
+    expect(m.kind).toBe("one");
+    if (m.kind === "one") expect(m.site.id).toBe("s4");
+  });
+
   it("ignores words that don't appear rather than failing (extra words)", () => {
     // 'alarm' isn't a site field — the site words still win.
     const m = matchSite("shurgard neasden alarm", SITES);

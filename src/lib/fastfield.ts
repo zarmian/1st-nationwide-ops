@@ -14,6 +14,7 @@
 import { ukWallClockToUtc } from "@/lib/dates";
 import { haversineMeters } from "@/lib/geo";
 import {
+  isWeakWord,
   matchPerson,
   matchSite,
   type SiteCandidate,
@@ -527,8 +528,10 @@ export function pickSite(
       // its address ("Woolwich" vs a site on Woolwich Road).
       const want = wordsOf(nameText);
       const byName = (m.sites as SiteRow[]).filter((x) => {
-        const name = wordsOf(x.name).join(" ");
-        return want.every((w) => name.includes(w));
+        const words = wordsOf(x.name);
+        const name = words.join(" ");
+        // Numbers and filler must be whole words: "site 1" isn't "site 12".
+        return want.every((w) => (isWeakWord(w) ? words.includes(w) : name.includes(w)));
       });
       if (byName.length === 1) {
         return { site: byName[0], how: "name", distanceM: distanceTo(byName[0], lat, lng) };
