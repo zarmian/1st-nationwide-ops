@@ -14,7 +14,7 @@ import type { FastFieldIncoming } from "@/lib/fastfield";
  *
  *   { action: "plan", forms, submissions }  → which submissions are new and on
  *   { action: "import", reports }           → attach each to its activity
- *   { action: "retry" }                     → re-try recent unmatched reports
+ *   { action: "retry" }                     → re-try the waiting reports most likely to match now
  *
  * Photos are uploaded first, one at a time, to ./photo — reports carry URLs.
  * A preview run passes `run` (an id for the run) so each form's counts are
@@ -129,7 +129,7 @@ export async function POST(req: Request) {
     if (preview) {
       return NextResponse.json({ ok: true, preview, skipped: "retry is not previewed" });
     }
-    const summary = await retryUnmatched();
+    const summary = await retryUnmatched({ budgetMs: 45_000 });
     return NextResponse.json({ ok: true, preview, ...summary });
   } catch (e: any) {
     return NextResponse.json(

@@ -2057,6 +2057,8 @@ model FastFieldReport {
   formSubmission   FormSubmission?       @relation("FastFieldReportSubmission", fields: [formSubmissionId], references: [id], onDelete: SetNull)
   /// True when the import created the job (rather than linking an existing one).
   jobCreated       Boolean               @default(false)
+  /// When the robot last tried to match it while waiting (null = only at import).
+  checkedAt        DateTime?
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 

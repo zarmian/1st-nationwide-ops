@@ -9,6 +9,8 @@ import { RetryButton } from "./_components/RetryButton";
 import { ReportStatusChip, activityLabel, describePreview } from "./_components/labels";
 
 export const dynamic = "force-dynamic";
+// "Try matching again" works for up to 50 seconds.
+export const maxDuration = 60;
 
 export default async function FastFieldPage() {
   await requireAdmin();
@@ -48,6 +50,8 @@ export default async function FastFieldPage() {
         officerText: true,
         note: true,
         photoUrls: true,
+        checkedAt: true,
+        createdAt: true,
         form: { select: { name: true } },
         site: { select: { name: true } },
       },
@@ -147,8 +151,9 @@ export default async function FastFieldPage() {
               Needs linking ({totalUnmatched})
             </h2>
             <p className="text-xs text-slate-500">
-              Reports that didn&rsquo;t match an activity on their own. Open one to link it, create
-              the job, or set it aside.
+              Reports that didn&rsquo;t match an activity on their own. The robot tries them again
+              every 5 minutes, starting with those whose site has had a shift or job recorded since.
+              Open one to link it, create the job, or set it aside.
             </p>
           </div>
           {totalUnmatched > 0 && <RetryButton />}
@@ -176,6 +181,9 @@ export default async function FastFieldPage() {
                     </span>
                   </div>
                   {r.note && <div className="text-xs text-amber-800 mt-0.5">{r.note}</div>}
+                  <div className="text-xs text-slate-500 mt-0.5">
+                    Last tried {formatTimeAgo(r.checkedAt ?? r.createdAt)}
+                  </div>
                 </Link>
               </li>
             ))}

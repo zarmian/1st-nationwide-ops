@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import { retryFastFieldMatching } from "../_actions";
 
-/** Re-run matching — for after an activity or a site has been added. */
+/** Re-run matching now — for after an activity or a site has been added (the
+ *  robot also does this by itself every 5 minutes). */
 export function RetryButton() {
   const router = useRouter();
   const toast = useToast();
@@ -22,13 +23,17 @@ export function RetryButton() {
             toast.show({ tone: "error", message: res.error });
             return;
           }
-          const { linked, created, left } = res.data;
+          const { attached, checked, notReached } = res.data;
+          const more =
+            notReached > 0
+              ? ` Checked ${checked} — press again to check the other ${notReached}.`
+              : "";
           toast.show({
-            tone: linked + created > 0 ? "success" : "info",
+            tone: attached > 0 ? "success" : "info",
             message:
-              linked + created > 0
-                ? `Attached ${linked + created} report${linked + created === 1 ? "" : "s"}; ${left} still to link.`
-                : "Nothing new matched.",
+              attached > 0
+                ? `Attached ${attached} report${attached === 1 ? "" : "s"}.${more}`
+                : `Nothing new matched.${more}`,
           });
           router.refresh();
         })
