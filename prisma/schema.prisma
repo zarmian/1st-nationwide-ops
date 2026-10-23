@@ -416,6 +416,8 @@ model User {
   /// portal (/client/*) hard-locks every query to this customer's own sites.
   customerId    String?  @db.Uuid
   customer      Customer? @relation("CustomerUsers", fields: [customerId], references: [id], onDelete: SetNull)
+  /// Last sign-in to the client dashboard (role=CUSTOMER).
+  lastLoginAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -480,6 +482,11 @@ model Customer {
   dailyReportOn        Boolean  @default(false)
   /// Where the daily report is emailed; falls back to contactEmail when null.
   dailyReportRecipient String?
+  /// Client dashboard sign-in: anyone with an email address at one of these
+  /// domains (e.g. "shurgard.co.uk") can ask for a one-time sign-in link and
+  /// see this customer's dashboard. Exact domain match, lower case. Empty =
+  /// email-link sign-in is off for this customer.
+  portalEmailDomains String[]  @default([])
   active          Boolean       @default(true)
   /// Admin-only view declutter: when true, this customer and all its
   /// activities drop out of EVERY admin view — the activity log, sites,
@@ -495,6 +502,8 @@ model Customer {
   contacts        CustomerContact[]
   /// Client-portal logins scoped to this customer (role=CUSTOMER).
   users           User[]            @relation("CustomerUsers")
+  /// One-time sign-in links emailed for the client dashboard.
+  clientLoginLinks ClientLoginLink[]
   formTemplates   FormTemplate[]
   rates           CustomerRate[]
   invoices        Invoice[]
@@ -508,6 +517,23 @@ model Customer {
 
   @@index([name])
   @@index([hidden])
+}
+
+/// A one-time sign-in link emailed to someone at a client (see
+/// Customer.portalEmailDomains). Only the SHA-256 of the token is stored. It
+/// works once and expires after 15 minutes; the user row is made (role
+/// CUSTOMER) the first time the link is used.
+model ClientLoginLink {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tokenHash  String    @unique
+  email      String    @db.Citext
+  customerId String    @db.Uuid
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([email, createdAt])
 }
 
 model CustomerContact {

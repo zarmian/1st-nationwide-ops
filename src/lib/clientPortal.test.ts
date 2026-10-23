@@ -5,6 +5,9 @@ import {
   periodLabel,
   periodKeysBetween,
   jobKindLabel,
+  jobGroup,
+  isActivityGroup,
+  invoiceState,
 } from "./clientPortal";
 
 describe("jobKindLabel", () => {
@@ -153,5 +156,37 @@ describe("summariseClientActivities", () => {
     expect(s.spendByPeriod).toEqual([
       { key: "2026-09", label: "Sept 2026", amount: 0 },
     ]);
+  });
+});
+
+describe("activity types for the filter", () => {
+  it("puts each job type in a group", () => {
+    expect(jobGroup("ALARM_RESPONSE")).toBe("callout");
+    expect(jobGroup("ADHOC")).toBe("callout");
+    expect(jobGroup("LOCK")).toBe("lock");
+    expect(jobGroup("UNLOCK")).toBe("lock");
+    expect(jobGroup("STATIC_GUARDING_SHIFT")).toBe("guarding");
+    expect(jobGroup("VPI")).toBe("patrol");
+    expect(jobGroup("KEY_COLLECTION")).toBe("other");
+  });
+  it("only accepts known groups from a URL", () => {
+    expect(isActivityGroup("lock")).toBe(true);
+    expect(isActivityGroup("LOCK")).toBe(false);
+    expect(isActivityGroup(undefined)).toBe(false);
+  });
+});
+
+describe("invoiceState", () => {
+  const now = new Date("2026-10-23T12:00:00Z");
+  const due = (d: string) => new Date(`${d}T00:00:00Z`);
+  it("is paid when marked paid or nothing is left", () => {
+    expect(invoiceState({ status: "PAID", total: 120, paid: 0, credited: 0, dueAt: null }, now)).toEqual({ balance: 0, state: "Paid" });
+    expect(invoiceState({ status: "SENT", total: 120, paid: 100, credited: 20, dueAt: due("2026-10-01") }, now)).toEqual({ balance: 0, state: "Paid" });
+  });
+  it("is overdue once the due date has passed", () => {
+    expect(invoiceState({ status: "SENT", total: 120, paid: 20, credited: 0, dueAt: due("2026-10-01") }, now)).toEqual({ balance: 100, state: "Overdue" });
+  });
+  it("is unpaid before the due date", () => {
+    expect(invoiceState({ status: "SENT", total: 99.99, paid: 0, credited: 0, dueAt: due("2026-11-01") }, now)).toEqual({ balance: 99.99, state: "Unpaid" });
   });
 });

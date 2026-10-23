@@ -4,7 +4,16 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { LayoutDashboard, Building2, ClipboardList, Wallet, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  Building2,
+  ClipboardList,
+  FileText,
+  Wallet,
+  LogOut,
+  EyeOff,
+} from "lucide-react";
+import { exitClientPreview } from "@/app/client/_actions";
 
 type NavItem = { href: string; label: string; icon: React.ComponentType<any> };
 
@@ -12,7 +21,8 @@ const CLIENT_LINKS: NavItem[] = [
   { href: "/client", label: "Overview", icon: LayoutDashboard },
   { href: "/client/sites", label: "Sites", icon: Building2 },
   { href: "/client/activities", label: "Activity", icon: ClipboardList },
-  { href: "/client/spend", label: "Spend", icon: Wallet },
+  { href: "/client/reports", label: "Reports", icon: FileText },
+  { href: "/client/spend", label: "Charges", icon: Wallet },
 ];
 
 function isItemActive(pathname: string, href: string): boolean {
@@ -28,9 +38,12 @@ function isItemActive(pathname: string, href: string): boolean {
 export function CustomerTopNav({
   customerName,
   userEmail,
+  preview = false,
 }: {
   customerName: string;
   userEmail?: string | null;
+  /** An admin previewing the dashboard: "Exit preview" instead of sign out. */
+  preview?: boolean;
 }) {
   const pathname = usePathname() ?? "";
 
@@ -89,16 +102,28 @@ export function CustomerTopNav({
               </span>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/70 px-2.5 py-1.5 text-xs text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-brand-navy"
-            aria-label="Sign out"
-            title="Sign out"
-          >
-            <LogOut size={13} aria-hidden />
-            <span className="hidden sm:inline">Sign out</span>
-          </button>
+          {preview ? (
+            <form action={exitClientPreview}>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-900 transition hover:border-amber-400 hover:bg-amber-100"
+              >
+                <EyeOff size={13} aria-hidden />
+                <span>Exit preview</span>
+              </button>
+            </form>
+          ) : (
+            <button
+              type="button"
+              onClick={() => signOut({ callbackUrl: "/login/client" })}
+              className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white/70 px-2.5 py-1.5 text-xs text-slate-600 transition hover:border-slate-400 hover:bg-white hover:text-brand-navy"
+              aria-label="Sign out"
+              title="Sign out"
+            >
+              <LogOut size={13} aria-hidden />
+              <span className="hidden sm:inline">Sign out</span>
+            </button>
+          )}
         </div>
       </div>
 

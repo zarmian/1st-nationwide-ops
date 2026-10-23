@@ -20,7 +20,7 @@ Sibling docs: [`00-overview.md`](./00-overview.md) (roles table §4), [`08-partn
 
 | Model / enum | Where | Notes |
 |---|---|---|
-| `enum UserRole` | `prisma/schema.prisma:20` | `ADMIN`, `DISPATCHER`, `OFFICER`, `PARTNER`, `PARTNER_OFFICER`. |
+| `enum UserRole` | `prisma/schema.prisma:20` | `ADMIN`, `DISPATCHER`, `OFFICER`, `PARTNER`, `PARTNER_OFFICER`, `CUSTOMER` (client dashboard — see [20](./20-client-dashboard.md)). |
 | `User` | `prisma/schema.prisma:~370` | `passwordHash String?` (bcrypt), `active Boolean` (login gate), `role UserRole`, `partnerId String?` (set for `PARTNER` / `PARTNER_OFFICER`). Contact columns used by notifications: `phone`, `whatsappNumber`, `telegramChatId @unique`. |
 | `PartnerOfficer` | `prisma/schema.prisma:~500` | Roster row linked 1:1 to a `PARTNER_OFFICER` `User` via `userId`; carries `partnerId` + `active`. Resolved on every partner-officer request (see `requirePartnerOfficer`). |
 | `ActivityLog` | `prisma/schema.prisma` | Audit rows: `entity`, `entityId`, `action`, `userId?`, `diff Json?`. Written by `logActivity`. |
@@ -35,6 +35,7 @@ Sibling docs: [`00-overview.md`](./00-overview.md) (roles table §4), [`08-partn
 | `OFFICER` | `/m/today` | `/m/*`, `/submit`. | Everything else (hard-locked). |
 | `PARTNER` | `/partner` | `/partner/*` **except** `/partner/m/*`. | Staff app, dispatch, finance, admin, sites. |
 | `PARTNER_OFFICER` | `/partner/m/today` | `/partner/m/*` only. | Partner-admin pages and all staff pages. |
+| `CUSTOMER` | `/client` | `/client/*` only, scoped to `customerId`. Signs in with a one-time emailed link at `/login/client` ([20](./20-client-dashboard.md)). | Everything else. An `ADMIN` may preview `/client` for one customer (cookie). |
 
 `partnerId` is **null** for `ADMIN` / `DISPATCHER` / `OFFICER` and **set** for the two partner roles. It is the tenant key: partner queries must be scoped by the session's `partnerId`, never a URL value.
 

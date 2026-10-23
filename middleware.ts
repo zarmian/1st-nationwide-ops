@@ -1,5 +1,6 @@
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
+import { CLIENT_PREVIEW_COOKIE } from "@/lib/clientPreview";
 
 /**
  * Three-layer auth model:
@@ -39,7 +40,17 @@ export default withAuth(
       request: { headers: requestHeaders },
     });
 
-    if (!role) return passThrough; // unauthenticated — withAuth's signIn redirect handles it
+    if (!role) {
+      // Signed out on the client dashboard (let through by `authorized`
+      // below): clients sign in with an emailed link, not the staff page.
+      if (pathname === "/client" || pathname.startsWith("/client/")) {
+        const url = req.nextUrl.clone();
+        url.pathname = "/login/client";
+        url.search = "";
+        return NextResponse.redirect(url);
+      }
+      return passThrough; // unauthenticated — withAuth's signIn redirect handles it
+    }
 
     const homeFor = (r: typeof role) =>
       r === "OFFICER"
@@ -130,8 +141,12 @@ export default withAuth(
 
     // ── Client portal is customer-only ───────────────────────────────
     // Reached only by ADMIN/DISPATCHER here (the other roles returned
-    // above); staff have no customerId so /client/* is meaningless.
+    // above); staff have no customerId so /client/* is meaningless —
+    // except an admin previewing a customer's dashboard.
     if (pathname === "/client" || pathname.startsWith("/client/")) {
+      if (role === "ADMIN" && req.cookies.get(CLIENT_PREVIEW_COOKIE)?.value) {
+        return passThrough;
+      }
       const url = req.nextUrl.clone();
       url.pathname = homeFor(role);
       url.search = "";
@@ -170,6 +185,14 @@ export default withAuth(
   },
   {
     pages: { signIn: "/login" },
+    callbacks: {
+      // Signed-out visitors to the client dashboard reach the middleware
+      // above, which sends them to the client sign-in page.
+      authorized: ({ req, token }) =>
+        Boolean(token) ||
+        req.nextUrl.pathname === "/client" ||
+        req.nextUrl.pathname.startsWith("/client/"),
+    },
   },
 );
 

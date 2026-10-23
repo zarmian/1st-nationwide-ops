@@ -34,6 +34,7 @@ Every module doc follows the same shape, so you can skim consistently:
 | 17 | [Claude Connector (MCP)](./17-claude-connector.md) | Connecting Claude to the system: the read-only MCP server at `/api/mcp`, the built-in OAuth server (Claude-only, PKCE, hashed tokens), the tools, `/admin/claude`. |
 | 18 | [FastField Reports](./18-fastfield.md) | The FastField robot: officers' FastField reports matched to their site (postcode, name, GPS) and to the static shift or activity they're about, attached (billed, paid), Shurgard jobs created, `/admin/fastfield`. |
 | 19 | [Daily Check](./19-daily-check.md) | The morning check: duplicates (e.g. our patrol + the Nexus stub for it), work with no report, FastField reports that don't fit, incidents Claude finds in the reports, late syncs — emailed, history on `/admin/daily-check`. |
+| 20 | [Client Dashboard](./20-client-dashboard.md) | The customer's own read-only `/client` view — activities with charges and officer reports, daily report and invoice downloads — signed in with a one-time emailed link for their email domain (Shurgard first); admin domains, people, block and preview. |
 
 ## Suggested reading order for a rebuild
 

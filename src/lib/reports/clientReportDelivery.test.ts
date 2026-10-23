@@ -3,6 +3,7 @@ import { buildReportHtml, buildReportText } from "./clientReportDelivery";
 import type { ShurgardReportData } from "./shurgardReport";
 
 const sample: ShurgardReportData = {
+  customerName: "Shurgard",
   dateLabel: "Monday, 01 September 2026",
   shurgardFound: true,
   jobSites: ["Norbury (Lock and Unlock)", "Neasden (Nexus)"],
@@ -11,6 +12,7 @@ const sample: ShurgardReportData = {
 };
 
 const empty: ShurgardReportData = {
+  customerName: "Shurgard",
   dateLabel: "Tuesday, 02 September 2026",
   shurgardFound: true,
   jobSites: [],

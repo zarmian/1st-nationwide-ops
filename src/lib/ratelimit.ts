@@ -67,6 +67,14 @@ export const oauthLimiter = build({
   windowSeconds: 60,
 });
 
+// Client dashboard sign-in links, per IP. Each address also gets at most 3
+// links per 15 minutes (lib/clientLogin.ts).
+export const clientLinkLimiter = build({
+  prefix: "client-link",
+  limit: 10,
+  windowSeconds: 60 * 15,
+});
+
 export const mcpLimiter = build({
   prefix: "mcp",
   limit: 240,

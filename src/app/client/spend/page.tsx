@@ -1,8 +1,13 @@
-import { PoundSterling, CalendarDays, Building2, TrendingUp } from "lucide-react";
+import { PoundSterling, CalendarDays, Building2, TrendingUp, Receipt, FileDown } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { BarList } from "@/components/BarList";
 import { formatMoney, formatNumber } from "@/lib/numbers";
-import { loadClientOverview } from "@/lib/clientPortal";
+import { formatDate } from "@/lib/dates";
+import {
+  loadClientInvoices,
+  loadClientOverview,
+  type ClientInvoice,
+} from "@/lib/clientPortal";
 import { resolveRange } from "../_range";
 import { RangePills } from "../_components/RangePills";
 import { PeriodBars } from "../_components/PeriodBars";
@@ -19,7 +24,10 @@ export default async function ClientSpendPage({
 }) {
   const me = await requireCustomer();
   const { key, from, to, bucket } = resolveRange(searchParams.range);
-  const data = await loadClientOverview(me.customerId, { from, to, bucket });
+  const [data, invoices] = await Promise.all([
+    loadClientOverview(me.customerId, { from, to, bucket }),
+    loadClientInvoices(me.customerId),
+  ]);
 
   const periods = data.spendByPeriod.length || 1;
   const avgPerPeriod = data.totalSpend / periods;
@@ -30,9 +38,9 @@ export default async function ClientSpendPage({
   return (
     <div className="space-y-5">
       <ClientHero
-        eyebrow="Spend"
-        title="What you've been billed"
-        subtitle="Security work billed to your account, by period and by site. Figures exclude VAT."
+        eyebrow="Charges"
+        title="What you've been charged"
+        subtitle="Security work charged to your account, by period and by site, and your invoices. Figures exclude VAT unless marked."
       >
         <RangePills active={key} basePath="/client/spend" dark />
       </ClientHero>
@@ -40,7 +48,7 @@ export default async function ClientSpendPage({
       <div className="grid grid-cols-3 gap-3 sm:gap-4">
         <StatCard
           tone="emerald"
-          label="Total spend"
+          label="Total charged"
           value={formatMoney(data.totalSpend)}
           hint="in this period"
           icon={PoundSterling}
@@ -54,15 +62,15 @@ export default async function ClientSpendPage({
         />
         <StatCard
           tone="indigo"
-          label="Sites billed"
+          label="Sites charged"
           value={formatNumber(sitesBilled)}
-          hint="had billed work"
+          hint="had charged work"
           icon={Building2}
         />
       </div>
 
       {data.spendByPeriod.length >= 2 && data.totalSpend > 0 && (
-        <Panel title="Spend over time" icon={TrendingUp} accent="emerald">
+        <Panel title="Charges over time" icon={TrendingUp} accent="emerald">
           <PeriodBars
             tone="emerald"
             data={data.spendByPeriod.map((p) => ({
@@ -70,7 +78,7 @@ export default async function ClientSpendPage({
               value: p.amount,
               display: formatMoney(p.amount),
             }))}
-            ariaLabel="Spend per period"
+            ariaLabel="Charges per period"
           />
         </Panel>
       )}
@@ -85,7 +93,7 @@ export default async function ClientSpendPage({
               display: formatMoney(s.amount),
               href: `/client/sites/${s.siteId}?range=${key}`,
             }))}
-            emptyLabel="No billed work in this period."
+            emptyLabel="Nothing charged in this period."
           />
         </Panel>
         <Panel title="By period" icon={CalendarDays} accent="indigo" flush>
@@ -94,7 +102,7 @@ export default async function ClientSpendPage({
               <thead>
                 <tr>
                   <th>Period</th>
-                  <th className="col-num">Spend</th>
+                  <th className="col-num">Charged</th>
                 </tr>
               </thead>
               <tbody>
@@ -117,6 +125,79 @@ export default async function ClientSpendPage({
           </div>
         </Panel>
       </div>
+
+      <Panel
+        title="Invoices"
+        hint="Totals include VAT"
+        icon={Receipt}
+        accent="amber"
+        flush
+      >
+        <InvoiceTable invoices={invoices} />
+      </Panel>
+    </div>
+  );
+}
+
+const STATE_CHIP: Record<ClientInvoice["state"], string> = {
+  Paid: "chip-green",
+  Overdue: "chip-red",
+  Unpaid: "chip-amber",
+};
+
+function InvoiceTable({ invoices }: { invoices: ClientInvoice[] }) {
+  if (invoices.length === 0) {
+    return <p className="px-4 py-8 text-center text-sm text-slate-500">No invoices yet.</p>;
+  }
+  return (
+    <div className="table-scroll">
+      <table className="table-default">
+        <thead>
+          <tr>
+            <th>Invoice</th>
+            <th>Period</th>
+            <th>Issued</th>
+            <th>Due</th>
+            <th className="col-num">Total</th>
+            <th>Status</th>
+            <th>
+              <span className="sr-only">Download</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {invoices.map((inv) => (
+            <tr key={inv.id}>
+              <td className="font-medium text-brand-navy">{inv.number}</td>
+              <td className="whitespace-nowrap text-slate-700">
+                {formatDate(inv.periodFrom)} – {formatDate(inv.periodTo)}
+              </td>
+              <td className="whitespace-nowrap text-slate-700">{formatDate(inv.issuedAt)}</td>
+              <td className="whitespace-nowrap text-slate-700">{formatDate(inv.dueAt)}</td>
+              <td className="col-num tabular-nums text-slate-700">{formatMoney(inv.total)}</td>
+              <td className="whitespace-nowrap">
+                <span className={STATE_CHIP[inv.state]}>{inv.state}</span>
+                {inv.state !== "Paid" && inv.balance < inv.total && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    {formatMoney(inv.balance)} left
+                  </span>
+                )}
+              </td>
+              <td className="text-right">
+                <a
+                  href={`/client/download/invoice/${inv.id}`}
+                  className="inline-flex items-center gap-1 text-sm font-medium text-brand-blue-dark hover:underline"
+                  download
+                  aria-label={`Download invoice ${inv.number} (PDF)`}
+                >
+                  <FileDown size={14} aria-hidden />
+                  PDF
+                </a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

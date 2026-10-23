@@ -2,6 +2,7 @@ import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
+import { consumeClientLink } from "@/lib/clientLogin";
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt", maxAge: 60 * 60 * 24 * 30 }, // 30 days
@@ -32,6 +33,18 @@ export const authOptions: NextAuthOptions = {
           partnerId: user.partnerId,
           customerId: user.customerId,
         } as any;
+      },
+    }),
+    // Client dashboard: a one-time emailed link instead of a password
+    // (lib/clientLogin.ts). The link's token is used up here.
+    CredentialsProvider({
+      id: "client-link",
+      name: "Emailed sign-in link",
+      credentials: { token: { label: "Token", type: "text" } },
+      async authorize(credentials) {
+        const token = credentials?.token;
+        if (typeof token !== "string" || !token) return null;
+        return (await consumeClientLink(token)) as any;
       },
     }),
   ],

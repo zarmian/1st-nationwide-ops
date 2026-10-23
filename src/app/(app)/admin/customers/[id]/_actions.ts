@@ -1,151 +1,105 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { z } from "zod";
-import bcrypt from "bcryptjs";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
+import { logActivity } from "@/lib/audit";
+import { parseDomains } from "@/lib/clientLogin";
+import { CLIENT_PREVIEW_COOKIE, CLIENT_PREVIEW_MAX_AGE_S } from "@/lib/clientPreview";
 
 /**
- * Admin-side flow for issuing / rotating a customer's client-portal login.
- *
- * One CUSTOMER User per customer today (a shared read-only login). Calling
- * this with the customer's existing email updates the password; a different
- * email creates a new User and inactivates the old one so any stale
- * JWT/session becomes useless.
- *
- * Email uniqueness is enforced at the DB level (User.email is unique citext) —
- * surfaced as a friendly fieldError rather than a raw P2002.
+ * Admin side of the client dashboard (/client): which email domains may sign
+ * in with an emailed link, who has, and a preview of what the client sees.
  */
 
-export type CustomerLoginState = {
-  error?: string;
-  fieldErrors?: Record<string, string[]>;
-  success?: string;
-};
+export type ClientDomainsState = { error?: string; success?: string };
 
-const Input = z.object({
-  email: z.string().trim().toLowerCase().email("Enter a valid email"),
-  password: z.string().min(0).max(200).optional().nullable(),
-  name: z.string().trim().max(120).optional().nullable(),
-});
-
-export async function upsertCustomerLogin(
+export async function saveClientDomains(
   customerId: string,
-  _prev: CustomerLoginState,
+  _prev: ClientDomainsState,
   formData: FormData,
-): Promise<CustomerLoginState> {
-  await requireAdmin();
-
-  const parsed = Input.safeParse({
-    email: formData.get("email")?.toString() ?? "",
-    password: formData.get("password")?.toString() || null,
-    name: formData.get("name")?.toString() || null,
-  });
-  if (!parsed.success) {
-    return {
-      error: "Please fix the errors below.",
-      fieldErrors: parsed.error.flatten().fieldErrors as Record<
-        string,
-        string[]
-      >,
-    };
+): Promise<ClientDomainsState> {
+  const me = await requireAdmin();
+  const { domains, invalid } = parseDomains(String(formData.get("domains") ?? ""));
+  if (invalid.length) {
+    return { error: `Not a valid domain: ${invalid.join(", ")}. Use the part after the @, like shurgard.co.uk.` };
   }
-  const { email, password, name } = parsed.data;
+  if (domains.length > 10) return { error: "At most 10 domains." };
 
   const customer = await prisma.customer.findUnique({
     where: { id: customerId },
-    select: { id: true, name: true },
+    select: { portalEmailDomains: true },
   });
   if (!customer) return { error: "Customer not found." };
 
-  const existingByEmail = await prisma.user.findUnique({
-    where: { email },
-    select: { id: true, role: true, customerId: true },
+  // A domain belongs to one customer, or an email would match two dashboards.
+  const clash = await prisma.customer.findFirst({
+    where: { id: { not: customerId }, portalEmailDomains: { hasSome: domains } },
+    select: { name: true, portalEmailDomains: true },
   });
-
-  // Reject if the email belongs to anyone other than this customer's seat.
-  if (
-    existingByEmail &&
-    !(existingByEmail.role === "CUSTOMER" && existingByEmail.customerId === customerId)
-  ) {
-    return {
-      error: "That email is already in use by another account.",
-      fieldErrors: { email: ["Already in use"] },
-    };
+  if (clash) {
+    const shared = domains.filter((d) => clash.portalEmailDomains.includes(d));
+    return { error: `${shared.join(", ")} is already used by ${clash.name}.` };
   }
 
-  const existingForCustomer = await prisma.user.findFirst({
-    where: { customerId, role: "CUSTOMER" },
-    select: { id: true, email: true, active: true },
+  await prisma.customer.update({
+    where: { id: customerId },
+    data: { portalEmailDomains: domains },
   });
-
-  if (existingByEmail) {
-    // Same email, same customer → update name/password in place.
-    if (password && password.length > 0) {
-      if (password.length < 8) {
-        return {
-          error: "Please fix the errors below.",
-          fieldErrors: { password: ["At least 8 characters"] },
-        };
-      }
-      const passwordHash = await bcrypt.hash(password, 10);
-      await prisma.user.update({
-        where: { id: existingByEmail.id },
-        data: { passwordHash, name: name || customer.name, active: true },
-      });
-    } else {
-      await prisma.user.update({
-        where: { id: existingByEmail.id },
-        data: { name: name || customer.name, active: true },
-      });
-    }
-    revalidatePath(`/admin/customers/${customerId}/edit`);
-    return { success: "Login updated." };
-  }
-
-  // New email path — must include a password.
-  if (!password || password.length < 8) {
-    return {
-      error: "Please fix the errors below.",
-      fieldErrors: {
-        password: [password ? "At least 8 characters" : "Required for new login"],
-      },
-    };
-  }
-
-  const passwordHash = await bcrypt.hash(password, 10);
-  await prisma.user.create({
-    data: {
-      email,
-      name: name || customer.name,
-      role: "CUSTOMER",
-      customerId,
-      passwordHash,
-      active: true,
-    },
+  await logActivity({
+    entity: "Customer",
+    entityId: customerId,
+    action: "client_dashboard_domains",
+    userId: me.id,
+    diff: { portalEmailDomains: { from: customer.portalEmailDomains, to: domains } },
   });
-
-  // Deactivate the old seat on an email change so stale sessions stop working.
-  if (existingForCustomer && existingForCustomer.email !== email) {
-    await prisma.user.update({
-      where: { id: existingForCustomer.id },
-      data: { active: false },
-    });
-  }
-
   revalidatePath(`/admin/customers/${customerId}/edit`);
-  return { success: "Login created. Share the credentials with the client." };
+  return {
+    success: domains.length
+      ? "Saved. People at these domains can now sign in."
+      : "Saved. Email sign-in is off for this customer.",
+  };
 }
 
-export async function deactivateCustomerLogin(
+/** Block or unblock one client login. A block takes effect on their next
+ *  page, even mid-session. */
+export async function setClientUserActive(
   customerId: string,
-): Promise<{ ok: true }> {
-  await requireAdmin();
-  await prisma.user.updateMany({
-    where: { customerId, role: "CUSTOMER" },
-    data: { active: false },
+  userId: string,
+  active: boolean,
+): Promise<void> {
+  const me = await requireAdmin();
+  const res = await prisma.user.updateMany({
+    where: { id: userId, customerId, role: "CUSTOMER" },
+    data: { active },
   });
+  if (res.count === 1) {
+    await logActivity({
+      entity: "User",
+      entityId: userId,
+      action: active ? "client_login_unblocked" : "client_login_blocked",
+      userId: me.id,
+    });
+  }
   revalidatePath(`/admin/customers/${customerId}/edit`);
-  return { ok: true };
+}
+
+/** See the client dashboard exactly as this customer would. */
+export async function startClientPreview(customerId: string): Promise<void> {
+  await requireAdmin();
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    select: { id: true },
+  });
+  if (!customer) return;
+  cookies().set(CLIENT_PREVIEW_COOKIE, customer.id, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: CLIENT_PREVIEW_MAX_AGE_S,
+  });
+  redirect("/client");
 }
