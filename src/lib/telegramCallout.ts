@@ -120,12 +120,27 @@ function sortForDisplay(sites: SiteCandidate[], tokens: string[]): SiteCandidate
   });
 }
 
+/** Words that say nothing about which site is meant. */
+const FILLER_WORDS = new Set(["site", "sites", "the", "and", "of", "at", "ltd", "limited", "plc", "co", "uk"]);
+
+/**
+ * A weak word — a number, one or two characters, or filler like "site".
+ * It only counts as a whole word (so "1" doesn't hit "SUP00202" or a
+ * postcode), and only to choose between sites a real word already found:
+ * "Dratford site 1" finds nothing rather than whichever site has "site"
+ * and a "1" somewhere.
+ */
+export function isWeakWord(t: string): boolean {
+  return /^\d+$/.test(t) || t.length <= 2 || FILLER_WORDS.has(t);
+}
+
 /**
  * Fuzzy site search across name, code, address and postcode. Multi-word
  * queries score by how many of their words appear anywhere in the site
  * (so "tesco downham" and "tesco br1" both land the right branch), and the
  * best-scoring sites win — every remaining tie is returned as "many" for the
- * caller to list. Exact code / name still short-circuit to a single hit.
+ * caller to list. Weak words (numbers, filler) only break ties between sites
+ * a real word found. Exact code / name still short-circuit to a single hit.
  */
 export function matchSite(query: string, sites: SiteCandidate[]): SiteMatch {
   const q = norm(query);
@@ -137,16 +152,24 @@ export function matchSite(query: string, sites: SiteCandidate[]): SiteMatch {
   if (exactName.length === 1) return { kind: "one", site: exactName[0] };
 
   const tokens = q.split(" ").filter(Boolean);
-  let best = 0;
+  const strong = tokens.filter((t) => !isWeakWord(t));
+  const weak = tokens.filter(isWeakWord);
   const scored = sites.map((s) => {
     const hay = siteHaystack(s);
-    const score = tokens.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0);
-    if (score > best) best = score;
-    return { s, score };
+    const words = new Set(hay.split(" "));
+    return {
+      s,
+      strong: strong.reduce((n, t) => n + (hay.includes(t) ? 1 : 0), 0),
+      weak: weak.reduce((n, t) => n + (words.has(t) ? 1 : 0), 0),
+    };
   });
-  if (best === 0) return { kind: "none" };
+  const bestStrong = Math.max(0, ...scored.map((x) => x.strong));
+  if (bestStrong === 0) return { kind: "none" };
+  const bestWeak = Math.max(...scored.filter((x) => x.strong === bestStrong).map((x) => x.weak));
 
-  const top = scored.filter((x) => x.score === best).map((x) => x.s);
+  const top = scored
+    .filter((x) => x.strong === bestStrong && x.weak === bestWeak)
+    .map((x) => x.s);
   if (top.length === 1) return { kind: "one", site: top[0] };
   return { kind: "many", sites: sortForDisplay(top, tokens) };
 }

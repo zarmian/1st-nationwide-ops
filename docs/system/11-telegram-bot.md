@@ -163,6 +163,7 @@ The system prompt (`buildSystemPrompt`) injects the current UK date/time (`ukNow
 1. Normalise (lowercase, strip punctuation, collapse spaces).
 2. **Exact code** with a single hit → `one`. Then **exact name** single hit → `one`.
 3. Otherwise **token scoring**: each whitespace-separated query word that appears *anywhere* in the site "haystack" (name + code + address + postcode, stored both spaced and un-spaced so `br1` and `br13ab` both hit) scores 1. The best-scoring sites survive; a single top scorer → `one`; ties → `many` (sorted so name-hits precede address-only hits). Score 0 → `none`.
+4. **Weak words** (`isWeakWord`: numbers, words of one or two characters, and filler such as "site", "the", "ltd") count only as **whole words**, and only to choose between sites a real word already found. A query of weak words alone → `none`. So "Dartford site 1" picks "Dartford Site 1" over "Dartford Site 12", but the typo "Dratford site 1" finds nothing, rather than any site with "site" and a "1" somewhere in its address or code.
 
 `matchPerson` is substring either direction (query in name or name in query). `matchAccount` (used by `resolveScope`) is the same but **prefers the shortest name** (so "Shurgard" beats "Shurgard Storage London").
 

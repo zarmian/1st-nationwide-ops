@@ -273,6 +273,13 @@ describe("pickSite", () => {
     expect(p.site).toBeNull();
     expect(!p.site && p.reason).toMatch(/not recognised/);
   });
+
+  it("doesn't take a site on 'site' and a number when the place is misspelt", () => {
+    const withAdhoc = [...sites, site("adhoc", "Adhoc - SUP00202", 51.44, 0.21, "Site 1, Dartford")];
+    const p = pickSite(at("Dratford site 1"), withAdhoc);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.reason).toMatch(/not recognised/);
+  });
 });
 
 describe("pickSite with the client named in the site", () => {
