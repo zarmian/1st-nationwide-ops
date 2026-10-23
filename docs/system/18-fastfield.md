@@ -164,7 +164,7 @@ A report often arrives before its work is in the app — a static shift logged t
 - **Every 5 minutes**, the `fastfield-recheck` cron (Vercel, database only) runs `retryUnmatched`. The robot's `retry` step does the same after each import.
 - It takes waiting reports from the last 30 days on forms that are On, best first (`dueForRecheck`):
   1. reports whose site has had a job, shift or visit added or changed within 36 hours of their time, since they were last tried — newest report first;
-  2. all of them, once any site has been added or changed since they were last tried (it may be the report's real site);
+  2. all of them, once any site has been added or changed since they were last tried (it may be the report's real site) — or the matching rules (`RULES_CHANGED_AT`, moved forward with any change to how reports are matched);
   3. any not tried for a day, longest-waiting first, so new rules reach every report.
 - It works one report at a time (two reports must not grab the same job at once) until its time budget (45 s) is spent, and stamps each report it tries (`checkedAt`), so the next run carries on rather than retrying the same ones. Admin → FastField shows "Last tried …" on each waiting report.
 - **Try matching again** (admin) does the same for the last 60 days, then the rest longest-untried first, for up to 50 seconds; pressing again carries on.

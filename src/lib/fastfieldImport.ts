@@ -907,6 +907,10 @@ export const RECHECK_REACH_MS = 36 * 3_600_000;
 /** Every waiting report is looked at again at least this often — the rules
  *  or the sites may have changed even when its own site's work hasn't. */
 export const RECHECK_EVERY_MS = 24 * 3_600_000;
+/** When the matching rules last changed. Move it forward with any change to
+ *  how reports are matched, so every waiting report is tried again under the
+ *  new rules (newest first) instead of keeping the note from the old ones. */
+export const RULES_CHANGED_AT = new Date("2026-10-23T14:00:00Z");
 
 export type WaitingReport = {
   id: string;
@@ -926,7 +930,8 @@ export type WorkChange = { siteId: string; changedAt: Date; from: Date; to: Date
  * Which waiting reports are worth trying again, best first:
  *   1. work at the report's site added or changed, near its time, since it
  *      was last tried — newest report first (a shift logged the morning after);
- *   2. any site added or changed since then (it may be the report's real site);
+ *   2. any site added or changed since then (it may be the report's real
+ *      site), or the matching rules — newest first;
  *   3. not tried for a day — longest-waiting first.
  * With `all`, every report comes after those, longest-untried first, so
  * pressing "Try matching again" repeatedly works through them all.
@@ -1068,7 +1073,9 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
     if (!v.siteId) continue;
     changes.push({ siteId: v.siteId, changedAt: v.createdAt, from: v.scheduledAt, to: v.scheduledAt });
   }
-  return dueForRecheck(waiting, changes, site?.updatedAt ?? null, now, all);
+  const sitesOrRules =
+    site && site.updatedAt.getTime() > RULES_CHANGED_AT.getTime() ? site.updatedAt : RULES_CHANGED_AT;
+  return dueForRecheck(waiting, changes, sitesOrRules, now, all);
 }
 
 /** Try one waiting report again: attach it if it now matches, else note why

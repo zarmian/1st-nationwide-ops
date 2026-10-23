@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dueForRecheck, type WaitingReport, type WorkChange } from "./fastfieldImport";
+import { dueForRecheck, RULES_CHANGED_AT, type WaitingReport, type WorkChange } from "./fastfieldImport";
 
 const NOW = new Date("2026-10-23T13:00:00Z");
 const h = (hours: number) => new Date(NOW.getTime() + hours * 3_600_000);
@@ -59,5 +59,9 @@ describe("dueForRecheck", () => {
     const rows = [report("due", "s1", -10, -9), report("fresh", "s2", -3, -1)];
     const ids = dueForRecheck(rows, [change("s1", -2, -11, -8)], null, NOW, true);
     expect(ids).toEqual(["due", "fresh"]);
+  });
+
+  it("has the rules' change date in the past, so a pass after it settles", () => {
+    expect(RULES_CHANGED_AT.getTime()).toBeLessThan(Date.now());
   });
 });
