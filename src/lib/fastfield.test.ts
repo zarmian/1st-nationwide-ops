@@ -11,6 +11,7 @@ import {
   pickShift,
   pickSite,
   pickSiteByActivity,
+  narrowSiteText,
   shiftAround,
   splitSiaNumber,
   visitTypeOf,
@@ -271,6 +272,52 @@ describe("pickSite", () => {
     const p = pickSite(at("Croydon", 51.37, -0.1), sites);
     expect(p.site).toBeNull();
     expect(!p.site && p.reason).toMatch(/not recognised/);
+  });
+});
+
+describe("pickSite with the client named in the site", () => {
+  const SG = "c-shurgard";
+  const AC = "c-access";
+  const customers = [
+    { id: SG, name: "Shurgard" },
+    { id: AC, name: "Access" },
+  ];
+  const own = (row: SiteRow, customerId: string): SiteRow => ({ ...row, customerId });
+  const sites = [
+    own(site("woolwich", "Woolwich (SH-74)", null, null, "Thamesmead London", "SE28 0FA"), SG),
+    own(site("wokingham", "Wokingham (SH-89)", null, null, "Wokingham", "RG41 2RT"), SG),
+    own(site("greenwich", "Greenwich (SH-12)", null, null, "Woolwich Road Greenwich"), SG),
+    own(site("acw", "Access Self Storage Woolwich (AS-12)", null, null, "Woolwich London"), AC),
+    own(site("acb", "Access Self Storage Brentford (AS-47)", null, null, "Brentford"), AC),
+    own(site("acs", "Access Self Storage Sutton (AS-20)", null, null, "Sutton"), AC),
+  ];
+
+  it("finds Shurgard's Woolwich from \"Shurgard self storage woolwich\"", () => {
+    const p = pickSite(at("Shurgard self storage woolwich"), sites, customers);
+    expect(p.site?.id).toBe("woolwich");
+  });
+
+  it("finds Access's Woolwich when the text names Access", () => {
+    expect(pickSite(at("Access Self Storage Woolwich"), sites, customers).site?.id).toBe("acw");
+  });
+
+  it("prefers the site with the word in its name over one with it in the address", () => {
+    expect(pickSite(at("Shurgard Woolwich"), sites, customers).site?.id).toBe("woolwich");
+  });
+
+  it("doesn't let \"self storage\" pull in every storage site", () => {
+    const p = pickSite(at("self storage woolwich"), sites, customers);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["acw", "greenwich", "woolwich"]);
+  });
+
+  it("narrows only when exactly one client is named", () => {
+    const one = narrowSiteText("Shurgard self storage Woolwich", sites, customers);
+    expect(one.text).toBe("woolwich");
+    expect(one.pool.every((x) => x.customerId === SG)).toBe(true);
+    const both = narrowSiteText("Shurgard rear access gate Woolwich", sites, customers);
+    expect(both.pool).toHaveLength(sites.length);
+    expect(narrowSiteText("Shurgard self storage", sites, customers).text).toBeNull();
   });
 });
 
