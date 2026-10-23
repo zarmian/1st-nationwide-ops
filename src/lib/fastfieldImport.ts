@@ -44,7 +44,10 @@ import {
   pickOfficer,
   pickShift,
   pickSite,
-  SHIFT_EARLY_MIN,
+  pickSiteByActivity,
+  SHIFT_AROUND_EARLY_MIN,
+  SHIFT_AROUND_LATE_MIN,
+  shiftAround,
   shiftsOn,
   type ActivityCandidate,
   type FastFieldAnswer,
@@ -407,26 +410,38 @@ async function candidatesNear(
   ];
 }
 
-/** Static / dog-handler shifts at a site that started up to a day before
- *  the report (shifts can be long), with their full window. */
-async function shiftsNear(siteId: string, when: Date): Promise<ShiftCandidate[]> {
+/** Static / dog-handler shifts at the sites that started up to a day (plus
+ *  the late margin) before the report — shifts can be long — or up to the
+ *  early margin after it, with their full window. */
+async function shiftsNearSites(siteIds: string[], when: Date) {
   const range = {
-    gte: new Date(when.getTime() - 24 * 3_600_000),
-    lte: new Date(when.getTime() + SHIFT_EARLY_MIN * 60000),
+    gte: new Date(when.getTime() - (24 * 60 + SHIFT_AROUND_LATE_MIN) * 60000),
+    lte: new Date(when.getTime() + SHIFT_AROUND_EARLY_MIN * 60000),
   };
-  const rows = await prisma.shift.findMany({
-    where: { siteId, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
+  return prisma.shift.findMany({
+    where: { siteId: { in: siteIds }, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
     select: {
       id: true,
+      siteId: true,
       officerId: true,
       scheduledStartsAt: true,
       scheduledEndsAt: true,
       actualStartedAt: true,
       actualEndedAt: true,
     },
-    take: 20,
+    take: 50,
   });
-  return rows.map((s) => ({
+}
+
+function toShiftCandidate(s: {
+  id: string;
+  officerId: string | null;
+  scheduledStartsAt: Date;
+  scheduledEndsAt: Date;
+  actualStartedAt: Date | null;
+  actualEndedAt: Date | null;
+}): ShiftCandidate {
+  return {
     id: s.id,
     officerId: s.officerId,
     start: new Date(
@@ -435,7 +450,55 @@ async function shiftsNear(siteId: string, when: Date): Promise<ShiftCandidate[]>
     end: new Date(
       Math.max(s.scheduledEndsAt.getTime(), (s.actualEndedAt ?? s.scheduledEndsAt).getTime()),
     ),
-  }));
+  };
+}
+
+async function shiftsNear(siteId: string, when: Date): Promise<ShiftCandidate[]> {
+  return (await shiftsNearSites([siteId], when)).map(toShiftCandidate);
+}
+
+/**
+ * Which of these sites had work on at the report's time: a static shift on,
+ * or a job or visit within 3 hours. Used when the form's site fits several
+ * sites, or none but the phone was near some.
+ */
+async function sitesWithWorkOn(siteIds: string[], when: Date): Promise<Set<string>> {
+  if (siteIds.length === 0) return new Set();
+  const range = {
+    gte: new Date(when.getTime() - MATCH_WINDOW_MIN * 60000),
+    lte: new Date(when.getTime() + MATCH_WINDOW_MIN * 60000),
+  };
+  const [shifts, jobs, visits] = await Promise.all([
+    shiftsNearSites(siteIds, when),
+    prisma.job.findMany({
+      where: {
+        siteId: { in: siteIds },
+        status: { not: "CANCELLED" },
+        handledByPartnerId: null,
+        patrolVisitId: null,
+        type: { notIn: NOT_MATCHABLE },
+        OR: [{ scheduledFor: range }, { startedAt: range }, { completedAt: range }],
+      },
+      select: { siteId: true },
+      take: 200,
+    }),
+    prisma.patrolVisit.findMany({
+      where: {
+        siteId: { in: siteIds },
+        status: { not: "CANCELLED" },
+        handledByPartnerId: null,
+        OR: [{ scheduledAt: range }, { arrivedAt: range }],
+      },
+      select: { siteId: true },
+      take: 200,
+    }),
+  ]);
+  const out = new Set<string>();
+  for (const sh of shifts) {
+    if (shiftsOn(when, [toShiftCandidate(sh)]).length) out.add(sh.siteId);
+  }
+  for (const r of [...jobs, ...visits]) if (r.siteId) out.add(r.siteId);
+  return out;
 }
 
 // ── Deciding what to do with a report ─────────────────────────────────────
@@ -450,6 +513,7 @@ type Decision =
   | { action: "unmatched"; site: SiteRow | null; reason: UnmatchedReason; note: string };
 
 function siteHow(how: SiteHow, distanceM: number | null): string {
+  if (how === "activity") return " Site found by the work on there at the time.";
   if (how === "gps") return ` Site found by GPS (${Math.round(distanceM ?? 0)} m away).`;
   if (how === "postcode" || how === "postcode+name") return " Site found by postcode.";
   if (how === "postcode+gps") return " Site found by postcode and GPS.";
@@ -465,30 +529,47 @@ async function decide(
 ): Promise<Decision> {
   const sites = await sitesFor(ctx, form.customerId);
   const sp = pickSite(facts, sites);
-  if (!sp.site) return { action: "unmatched", site: null, reason: "site", note: sp.reason };
-  const site = sp.site;
-  const how = siteHow(sp.how, sp.distanceM);
+  let site: SiteRow;
+  let how: string;
+  if (sp.site) {
+    site = sp.site;
+    how = siteHow(sp.how, sp.distanceM);
+  } else {
+    // The form's site fits several sites, or none but the phone was near
+    // some: the one that had work on at the time.
+    const active = await sitesWithWorkOn(
+      sp.candidates.map((c) => c.id),
+      facts.when,
+    );
+    const byWork = pickSiteByActivity(facts, sp.candidates, active);
+    if (!byWork) return { action: "unmatched", site: null, reason: "site", note: sp.reason };
+    site = byWork;
+    how = siteHow("activity", null);
+  }
   const kind = (facts.visitType as JobType | null) ?? form.jobType;
   const at = formatDateTime(facts.when);
-  const shiftsNow = shiftsOn(facts.when, await shiftsNear(site.id, facts.when));
+  const shifts = await shiftsNear(site.id, facts.when);
+  const shiftsNow = shiftsOn(facts.when, shifts);
+  const officerId = await officerFor(ctx, facts);
+
+  const toShift = (sh: ShiftCandidate, note: string): Decision => ({
+    action: "link",
+    site,
+    target: { kind: "shift", id: sh.id, type: "SHIFT" },
+    note: note + how,
+  });
+  const span = (sh: ShiftCandidate) => `${formatTime(sh.start)}–${formatTime(sh.end)}`;
+  const sharedNote = " Two shifts were on; it went to the one that started first.";
 
   // A patrol round during a static shift belongs to that shift.
   if (kind === "PATROL" && shiftsNow.length) {
-    const ps = pickShift(facts.when, shiftsNow, await officerFor(ctx, facts));
+    const ps = pickShift(facts.when, shiftsNow, officerId);
     if (ps.pick) {
-      return {
-        action: "link",
-        site,
-        target: { kind: "shift", id: ps.pick.id, type: "SHIFT" },
-        note: `Filed during the static shift at ${site.name} (${formatTime(ps.pick.start)}–${formatTime(ps.pick.end)}).${how}`,
-      };
+      return toShift(
+        ps.pick,
+        `Filed during the static shift at ${site.name} (${span(ps.pick)}).${ps.shared ? sharedNote : ""}`,
+      );
     }
-    return {
-      action: "unmatched",
-      site,
-      reason: "ambiguous",
-      note: `More than one shift at ${site.name} was on at ${at} — pick the right one.${how}`,
-    };
   }
 
   let candidates = await candidatesNear(site.id, facts.when);
@@ -510,14 +591,6 @@ async function decide(
     let far = await candidatesNear(site.id, facts.when, WIDE_MATCH_WINDOW_MIN);
     if (preview) far = far.map((c) => (ctx.claimed.has(c.id) ? { ...c, taken: true } : c));
     const wp = pickActivityWide(facts.when, kind, far, new Date());
-    if (!wp.pick && wp.reason === "ambiguous") {
-      return {
-        action: "unmatched",
-        site,
-        reason: "ambiguous",
-        note: `Nothing at ${site.name} within 3 hours of ${at}, and more than one similar activity within 18 hours is about as close — pick the right one.${how}`,
-      };
-    }
     if (wp.pick) {
       ap = wp;
       wide = true;
@@ -527,23 +600,45 @@ async function decide(
     const nearest = ap.pick.times.reduce((best, t) =>
       Math.abs(t.getTime() - facts.when.getTime()) < Math.abs(best.getTime() - facts.when.getTime()) ? t : best,
     );
+    const close = ap.closeCall
+      ? " Another activity was about as close, so it chose by the kind of work, then the nearer time."
+      : "";
     return {
       action: "link",
       site,
       target: ap.pick,
-      note: wide
-        ? `Matched to the ${noun(ap.pick.type)} at ${formatDateTime(nearest)} (${apartText(ap.minutesApart)} apart) — nothing was within 3 hours, so it took the nearest similar one within 18 hours.${how}`
-        : `Matched to the ${noun(ap.pick.type)} at ${formatTime(nearest)} (${ap.minutesApart} min apart).${how}`,
+      note:
+        (wide
+          ? `Matched to the ${noun(ap.pick.type)} at ${formatDateTime(nearest)} (${apartText(ap.minutesApart)} apart) — nothing was within 3 hours, so it took the nearest similar one within 18 hours.`
+          : `Matched to the ${noun(ap.pick.type)} at ${formatTime(nearest)} (${ap.minutesApart} min apart).`) +
+        close +
+        how,
     };
   }
-  if (ap.reason === "none" && shiftsNow.length) {
-    return {
-      action: "unmatched",
-      site,
-      reason: "shift",
-      note: `A static shift was on at ${site.name} at ${at} — link the report to it, or create the job by hand.${how}`,
-    };
+
+  // No job or visit to attach it to, but a static shift was on: the guard on
+  // duty dealt with it, so it goes to the shift (no job is made, nothing is
+  // billed twice).
+  if (shiftsNow.length) {
+    const ps = pickShift(facts.when, shiftsNow, officerId);
+    if (ps.pick) {
+      return toShift(
+        ps.pick,
+        `Filed during the static shift at ${site.name} (${span(ps.pick)}), with no other activity to attach it to.${ps.shared ? sharedNote : ""}`,
+      );
+    }
   }
+  // A patrol round sent in a little before or after a shift.
+  if (kind === "PATROL") {
+    const sa = shiftAround(facts.when, shifts);
+    if (sa) {
+      return toShift(
+        sa.pick,
+        `Filed ${apartText(sa.gapMin)} ${sa.after ? "after the static shift ended" : "before the static shift started"} at ${site.name} (${span(sa.pick)}), so it went to that shift.`,
+      );
+    }
+  }
+
   if (ap.reason === "none" && form.createCustomerId && site.customerId === form.createCustomerId) {
     return {
       action: "create",
@@ -555,9 +650,7 @@ async function decide(
   const note =
     ap.reason === "none"
       ? `No activity at ${site.name} within 3 hours of ${at}, nor a similar one within 18 hours to match it to.`
-      : ap.reason === "taken"
-        ? `The activity at ${site.name} near ${at} already has a FastField report.`
-        : `More than one activity at ${site.name} is about as close to ${at} — pick the right one.`;
+      : `The activity at ${site.name} near ${at} already has a FastField report.`;
   return { action: "unmatched", site, reason: ap.reason, note: note + how };
 }
 
