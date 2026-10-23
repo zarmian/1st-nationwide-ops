@@ -4,22 +4,19 @@ import { requireCustomer } from "@/lib/authz";
 import { formatMoney, formatNumber } from "@/lib/numbers";
 import { formatDate } from "@/lib/dates";
 import { loadClientSites } from "@/lib/clientPortal";
-import { resolveRange } from "../_range";
-import { RangePills } from "../_components/RangePills";
+import { periodHref, resolvePeriod, type PeriodSearch } from "@/lib/clientPeriod";
+import { PeriodControl } from "../_components/PeriodControl";
 import { ClientHero } from "../_components/ClientHero";
 import { StatCard } from "../_components/StatCard";
 import { Panel } from "../_components/Panel";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientSitesPage({
-  searchParams,
-}: {
-  searchParams: { range?: string };
-}) {
+export default async function ClientSitesPage({ searchParams }: { searchParams: PeriodSearch }) {
   const me = await requireCustomer();
-  const { key, from, to } = resolveRange(searchParams.range);
-  const sites = await loadClientSites(me.customerId, { from, to });
+  const period = resolvePeriod(searchParams);
+  const p = period.params;
+  const sites = await loadClientSites(me.customerId, { from: period.from, to: period.to });
 
   const withActivity = sites.filter((s) => s.activityCount > 0).length;
   const totalSpend = sites.reduce((sum, s) => sum + s.spend, 0);
@@ -29,9 +26,9 @@ export default async function ClientSitesPage({
       <ClientHero
         eyebrow="Your sites"
         title="Sites we cover for you"
-        subtitle="Every site under our watch, with activity and spend in the selected period."
+        subtitle={`Every site under our watch, with its activity and charges — ${period.label}.`}
       >
-        <RangePills active={key} basePath="/client/sites" dark />
+        <PeriodControl basePath="/client/sites" period={period} />
       </ClientHero>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
@@ -48,13 +45,15 @@ export default async function ClientSitesPage({
           value={formatNumber(withActivity)}
           hint="had recorded activity"
           icon={CheckCircle2}
+          href={periodHref("/client/activities", p)}
         />
         <StatCard
           tone="emerald"
-          label="Spend"
+          label="Charged"
           value={formatMoney(totalSpend)}
-          hint="across all sites"
+          hint="ex VAT, across all sites"
           icon={PoundSterling}
+          href={periodHref("/client/spend", p)}
         />
       </div>
 
@@ -66,7 +65,7 @@ export default async function ClientSitesPage({
                 <th>Site</th>
                 <th>Region</th>
                 <th className="col-num">Activities</th>
-                <th className="col-num">Spend</th>
+                <th className="col-num">Charged</th>
                 <th>Last activity</th>
               </tr>
             </thead>
@@ -75,7 +74,7 @@ export default async function ClientSitesPage({
                 <tr key={s.id}>
                   <td>
                     <Link
-                      href={`/client/sites/${s.id}?range=${key}`}
+                      href={periodHref(`/client/sites/${s.id}`, p)}
                       className="font-medium text-brand-navy hover:text-brand-blue-dark"
                     >
                       {s.code ? `${s.code} · ` : ""}
@@ -84,7 +83,17 @@ export default async function ClientSitesPage({
                   </td>
                   <td className="text-slate-600">{s.regionName ?? "—"}</td>
                   <td className="col-num tabular-nums text-slate-700">
-                    {s.activityCount > 0 ? formatNumber(s.activityCount) : "—"}
+                    {s.activityCount > 0 ? (
+                      <Link
+                        href={periodHref("/client/activities", p, { siteId: s.id })}
+                        className="hover:text-brand-blue-dark hover:underline"
+                        aria-label={`${formatNumber(s.activityCount)} activities at ${s.name}`}
+                      >
+                        {formatNumber(s.activityCount)}
+                      </Link>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="col-num tabular-nums text-slate-700">
                     {s.spend > 0 ? formatMoney(s.spend) : "—"}

@@ -31,11 +31,17 @@ describe("activitiesCsv", () => {
       status: "Completed",
       charge: 45,
       hasReport: true,
+      hours: null,
     };
-    const csv = activitiesCsv([row, { ...row, id: "job:2", charge: null, hasReport: false }]);
+    const csv = activitiesCsv([
+      row,
+      { ...row, id: "job:2", charge: null, hasReport: false },
+      { ...row, id: "shift:3", kind: "Static guarding", group: "guarding", hours: 11.75 },
+    ]);
     const lines = csv.trimEnd().split("\r\n");
-    expect(lines[0]).toBe("Date,Time,Site code,Site,Activity,Status,Charge ex VAT (GBP),Report");
-    expect(lines[1]).toBe('20/10/2026,21:15,CR1,"Croydon, Purley Way",Alarm response,Completed,45.00,Yes');
-    expect(lines[2]).toBe('20/10/2026,21:15,CR1,"Croydon, Purley Way",Alarm response,Completed,,No');
+    expect(lines[0]).toBe("Date,Time,Site code,Site,Activity,Hours,Status,Charge ex VAT (GBP),Report");
+    expect(lines[1]).toBe('20/10/2026,21:15,CR1,"Croydon, Purley Way",Alarm response,,Completed,45.00,Yes');
+    expect(lines[2]).toBe('20/10/2026,21:15,CR1,"Croydon, Purley Way",Alarm response,,Completed,,No');
+    expect(lines[3]).toBe('20/10/2026,21:15,CR1,"Croydon, Purley Way",Static guarding,11.75,Completed,45.00,Yes');
   });
 });

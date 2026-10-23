@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
@@ -25,6 +25,9 @@ const CLIENT_LINKS: NavItem[] = [
   { href: "/client/spend", label: "Charges", icon: Wallet },
 ];
 
+/** The period filter's params, so moving between pages keeps the period. */
+const PERIOD_PARAMS = ["range", "month", "from", "to"];
+
 function isItemActive(pathname: string, href: string): boolean {
   if (href === "/client") return pathname === "/client";
   return pathname === href || pathname.startsWith(href + "/");
@@ -46,6 +49,14 @@ export function CustomerTopNav({
   preview?: boolean;
 }) {
   const pathname = usePathname() ?? "";
+  const searchParams = useSearchParams();
+  const period = new URLSearchParams();
+  for (const k of PERIOD_PARAMS) {
+    const v = searchParams?.get(k);
+    if (v) period.set(k, v);
+  }
+  const periodQs = period.toString();
+  const withPeriod = (href: string) => (periodQs ? `${href}?${periodQs}` : href);
 
   return (
     <header className="sticky top-0 z-40 pt-safe border-b border-brand-blue-100/70 bg-gradient-to-r from-brand-blue-50/90 via-white/85 to-brand-blue-50/90 backdrop-blur-xl">
@@ -76,7 +87,7 @@ export function CustomerTopNav({
             return (
               <Link
                 key={item.href}
-                href={item.href}
+                href={withPeriod(item.href)}
                 className={
                   "inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm transition " +
                   (active
@@ -136,7 +147,7 @@ export function CustomerTopNav({
             return (
               <li key={item.href} className="shrink-0">
                 <Link
-                  href={item.href}
+                  href={withPeriod(item.href)}
                   className={
                     "inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm " +
                     (active

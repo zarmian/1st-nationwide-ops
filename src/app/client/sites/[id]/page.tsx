@@ -1,12 +1,14 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Activity, PoundSterling, TrendingUp, ClipboardList } from "lucide-react";
+import { Activity, PoundSterling, TrendingUp, ClipboardList, Clock } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { prisma } from "@/lib/db";
-import { formatMoney, formatNumber } from "@/lib/numbers";
+import { formatHours, formatMoney, formatNumber } from "@/lib/numbers";
 import { loadClientOverview, loadClientActivities } from "@/lib/clientPortal";
-import { resolveRange } from "../../_range";
-import { RangePills } from "../../_components/RangePills";
-import { PeriodBars } from "../../_components/PeriodBars";
+import { periodHref, resolvePeriod, type PeriodSearch } from "@/lib/clientPeriod";
+import { PeriodControl } from "../../_components/PeriodControl";
+import { TypeBars } from "../../_components/TypeBars";
+import { typeChart } from "../../_components/typeChart";
 import { ActivityList } from "../../_components/ActivityList";
 import { ClientHero } from "../../_components/ClientHero";
 import { StatCard } from "../../_components/StatCard";
@@ -19,7 +21,7 @@ export default async function ClientSiteDetail({
   searchParams,
 }: {
   params: { id: string };
-  searchParams: { range?: string };
+  searchParams: PeriodSearch;
 }) {
   const me = await requireCustomer();
 
@@ -39,18 +41,23 @@ export default async function ClientSiteDetail({
   });
   if (!site) notFound();
 
-  const { key, from, to, bucket } = resolveRange(searchParams.range);
+  const period = resolvePeriod(searchParams);
+  const { from, to, bucket } = period;
+  const p = period.params;
   const [overview, activities] = await Promise.all([
     loadClientOverview(me.customerId, { from, to, bucket, siteId: site.id }),
     loadClientActivities(me.customerId, { from, to, siteId: site.id, limit: 200 }),
   ]);
+  const guarding = overview.byGroup.find((g) => g.group === "guarding")!;
+  const chart = typeChart(overview.byPeriod, period, { siteId: site.id });
+  const logHref = periodHref("/client/activities", p, { siteId: site.id });
 
   return (
     <div className="space-y-5">
       <ClientHero
         eyebrow={site.code ? `Site ${site.code}` : "Site"}
         title={site.name}
-        backHref={`/client/sites?range=${key}`}
+        backHref={periodHref("/client/sites", p)}
         backLabel="Your sites"
         subtitle={
           <>
@@ -60,41 +67,63 @@ export default async function ClientSiteDetail({
           </>
         }
       >
-        <RangePills active={key} basePath={`/client/sites/${site.id}`} dark />
+        <PeriodControl basePath={`/client/sites/${site.id}`} period={period} />
       </ClientHero>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
         <StatCard
           tone="blue"
           label="Activities"
           value={formatNumber(overview.totalActivities)}
-          hint="in this period"
+          hint={period.label}
           icon={Activity}
+          href={logHref}
+        />
+        <StatCard
+          tone="amber"
+          label="Static guarding"
+          value={formatHours(overview.guardingHours)}
+          hint={`${formatNumber(guarding.count)} ${guarding.count === 1 ? "shift" : "shifts"}`}
+          icon={Clock}
+          href={periodHref("/client/activities", p, { siteId: site.id, type: "guarding" })}
         />
         <StatCard
           tone="emerald"
-          label="Spend"
+          label="Charged"
           value={formatMoney(overview.totalSpend)}
-          hint="for work at this site"
+          hint="ex VAT, for work at this site"
           icon={PoundSterling}
+          href={logHref}
         />
       </div>
 
-      {overview.activityByPeriod.length >= 2 && overview.totalActivities > 0 && (
-        <Panel title="Activity over time" icon={TrendingUp} accent="blue">
-          <PeriodBars
-            tone="blue"
-            data={overview.activityByPeriod.map((p) => ({
-              label: p.label,
-              value: p.count,
-              display: formatNumber(p.count),
-            }))}
-            ariaLabel="Activities per period at this site"
-          />
+      {chart.columns.length >= 2 && overview.totalActivities > 0 && (
+        <Panel
+          title="Activity over time"
+          hint="Click a colour to see that work"
+          icon={TrendingUp}
+          accent="blue"
+        >
+          <TypeBars {...chart} label={`Activities per ${bucket} at this site, by type`} />
         </Panel>
       )}
 
-      <Panel title="Activity log" icon={ClipboardList} accent="indigo" flush>
+      <Panel
+        title="Activity log"
+        hint={
+          activities.length < overview.totalActivities
+            ? `Latest ${formatNumber(activities.length)} of ${formatNumber(overview.totalActivities)}`
+            : undefined
+        }
+        icon={ClipboardList}
+        accent="indigo"
+        flush
+        action={
+          <Link href={logHref} className="text-sm font-medium text-brand-blue-dark hover:underline">
+            Open in activity log
+          </Link>
+        }
+      >
         <ActivityList activities={activities} showSite={false} />
       </Panel>
     </div>

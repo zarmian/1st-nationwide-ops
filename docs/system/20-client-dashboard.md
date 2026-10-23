@@ -4,11 +4,13 @@
 
 A direct customer's own read-only view of the work we do for them, at `/client`. Built first for Shurgard (October 2026). It shows:
 
-- **Overview**: activity counts and charges for a period, by type and by site.
-- **Activity log**: every activity at their sites (callouts, lock-ups and unlocks, static guarding shifts, patrols and VPIs) with its status and charge. Each opens its own page, with times, the alarm details and the officer's report (answers, photos, signature) or a shift's check-ins. It can be downloaded as CSV.
+- **Overview**: for a period — activities, static guarding hours, charges and sites as cards (each opens its page for the same period); a stacked bar chart of activity per day/week/month with one colour per type of work (each colour opens the activity log for that period and type); activity by type (static guarding in hours) and charges by site.
+- **Activity log**: every activity at their sites (callouts, lock-ups, unlocks, static guarding shifts, patrols and VPIs, other) with its status and charge, filtered by site and type of work (tabs with each type's colour and total). Each opens its own page, with times, the alarm details and the officer's report (answers, photos, signature) or a shift's check-ins. It can be downloaded as CSV.
 - **Reports**: the daily report PDF for any day from 1 Sept 2026 (the same format as the daily email, but their sites only), and the list of activities that have a report. A shift's page offers its shift report PDF.
 - **Charges**: charges by period and site, and their invoices (sent or paid, never drafts or voids) with what's still owed and a PDF download.
-- **Sites**: each site's activity and charges.
+- **Sites**: each site's activity and charges; a site's page has the same stacked chart.
+
+**One period filter for every page.** Presets (Today, Yesterday, Weeks = 12 whole weeks, Months = 12 whole months), any single month since September 2026, or a run of days. Every card, chart and table on a page follows it, and moving between pages (top menu, cards, bars, rows) keeps it.
 
 **Sign-in is by emailed link — no passwords.** Anyone whose email domain is on the customer's list (Shurgard: `shurgard.co.uk`, `shurgard.com`) can ask for a link at `/login/client`. Admins manage the domains, see who has signed in, block people and preview the dashboard under **Admin → Customers → (customer) → Client dashboard**.
 
@@ -34,7 +36,11 @@ Migration `20261023120000_client_dashboard_email_links`, additive. It also sets 
 | `src/lib/authz.ts` | `getClientScope` / `requireCustomer`: the one customer every portal query is scoped to; re-checks the user row each request so a block bites at once; admin preview. |
 | `src/lib/clientPreview.ts` | Preview cookie name (edge-safe, used by middleware). |
 | `src/app/login/client/*` | Public sign-in page, "check your email", and the `verify` page with its **Sign in** button. |
-| `src/lib/clientPortal.ts` | Activity list (with charge, type, report flag), summaries, invoices (`invoiceState`). |
+| `src/lib/clientPortal.ts` | Activity list (with charge, type of work, guarding hours, report flag), summaries per type and per period, invoices (`invoiceState`). |
+| `src/lib/clientPeriod.ts` | The period filter: `resolvePeriod` (URL → window, chart bucket, label), `bucketParams` (what one bar opens), `periodHref`, `monthOptions`. |
+| `src/lib/workedMinutes.ts` | Shift hours (actual, else booked — the same rule as invoices) and guarding-job hours. |
+| `src/app/client/_components/TypeBars.tsx` | The stacked, clickable chart (legend, tooltip, keyboard path, table view). Colours in `groupColors.tsx`. |
+| `src/app/client/_components/PeriodPicker.tsx` | The period controls in each page header. |
 | `src/lib/clientActivityDetail.ts` | One activity's page data: times, charge, alarm, reports, check-ins, photos. |
 | `src/lib/clientReports.ts` | Which parts of a report payload a client sees (`clientReportBody`). |
 | `src/lib/clientCsv.ts` | Activity log CSV. |
@@ -83,6 +89,10 @@ The **Preview their dashboard** button sets an httpOnly cookie with the customer
 - **Reports**: `clientReportBody` keeps answers (with the form template's labels), photos and the signature. It drops our own keys (`gps`, `distanceM`, `withinGeofence`, `slotIndex`, `source`, `fastfield`, anything starting `_`, …) and anything that isn't a plain answer. FastField reports show their answers via `FastFieldAnswers`.
 - **What's listed**: the same as before — cancelled jobs, and missed or late visits and missed or abandoned shifts, are not shown. An activity page for anything else (or another customer's) is a 404.
 - **Daily report**: `loadShurgardReport(day, now, { customerId })` — the customer's own sites only. The staff/emailed Shurgard report still adds Access Storage's static guarding.
+- **Types of work** (`ACTIVITY_GROUPS`, fixed order = colour order = order in a bar): Callouts (alarm response, ad-hoc), Lock-ups, Unlocks, Static guarding (shifts and guarding jobs, dog handling included), Patrols & inspections (patrols, VPIs), Other. Colours are fixed per type and never move when a filter hides a type; they passed the colour-blind palette check, and since three are pale on white, a type's name always sits beside its colour and the chart has a table view.
+- **Static guarding is measured in hours** on cards, tables, tooltips and the CSV. A shift's hours are its actual start to end, else its booked hours (`shiftWorkedMinutes`, as on invoices). A guarding job counts from start (or its scheduled time) to completion, and only when that's a day or less. In a bar, a shift counts as one activity, so a bar is one measure (activities) — hours are in the tooltip.
+- **Periods**: UK calendar days, never before 1 September 2026 (the data floor) and never past now. URL forms, first match wins: `month=YYYY-MM`, `from=YYYY-MM-DD&to=YYYY-MM-DD`, `range=today|yesterday|weeks|months` (default months). A run of days is charted by day up to 31 days, by week up to 26 weeks, then by month. A bar opens exactly what it counted: a whole month as `month=`, otherwise its days trimmed to the period.
+- **Invoices** on the Charges page are those whose period overlaps the one picked.
 
 ## Extension points & gotchas
 

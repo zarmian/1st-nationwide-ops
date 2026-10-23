@@ -26,7 +26,17 @@ export function csvCell(v: string | number | null): string {
 }
 
 export function activitiesCsv(rows: ClientActivity[]): string {
-  const head = ["Date", "Time", "Site code", "Site", "Activity", "Status", "Charge ex VAT (GBP)", "Report"];
+  const head = [
+    "Date",
+    "Time",
+    "Site code",
+    "Site",
+    "Activity",
+    "Hours",
+    "Status",
+    "Charge ex VAT (GBP)",
+    "Report",
+  ];
   const lines = [head.map(csvCell).join(",")];
   for (const a of rows) {
     lines.push(
@@ -36,6 +46,7 @@ export function activitiesCsv(rows: ClientActivity[]): string {
         a.siteCode,
         a.siteName,
         a.kind,
+        a.hours == null ? null : a.hours.toFixed(2),
         a.status,
         a.charge == null ? null : a.charge.toFixed(2),
         a.hasReport ? "Yes" : "No",

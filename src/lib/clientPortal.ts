@@ -25,15 +25,24 @@ import {
   shiftScheduledRange,
 } from "@/lib/activityWhen";
 import { ukDayString } from "@/lib/dates";
+import { guardJobMinutes, shiftWorkedMinutes } from "@/lib/workedMinutes";
 
 export type ClientActivityStatus = "Completed" | "In progress" | "Scheduled";
 
-/** The kinds of work a client can filter the activity log by. */
-export type ActivityGroup = "callout" | "lock" | "guarding" | "patrol" | "other";
+/** The kinds of work a client sees, filters by and sees charted — in a fixed
+ *  order, which is also the order of their colours and chart segments. */
+export type ActivityGroup =
+  | "callout"
+  | "lockup"
+  | "unlock"
+  | "guarding"
+  | "patrol"
+  | "other";
 
 export const ACTIVITY_GROUPS: { key: ActivityGroup; label: string }[] = [
   { key: "callout", label: "Callouts" },
-  { key: "lock", label: "Lock-ups & unlocks" },
+  { key: "lockup", label: "Lock-ups" },
+  { key: "unlock", label: "Unlocks" },
   { key: "guarding", label: "Static guarding" },
   { key: "patrol", label: "Patrols & inspections" },
   { key: "other", label: "Other" },
@@ -43,14 +52,19 @@ export function isActivityGroup(s: string | null | undefined): s is ActivityGrou
   return ACTIVITY_GROUPS.some((g) => g.key === s);
 }
 
+export function groupLabel(g: ActivityGroup): string {
+  return ACTIVITY_GROUPS.find((x) => x.key === g)?.label ?? g;
+}
+
 export function jobGroup(type: string): ActivityGroup {
   switch (type) {
     case "ALARM_RESPONSE":
     case "ADHOC":
       return "callout";
     case "LOCK":
+      return "lockup";
     case "UNLOCK":
-      return "lock";
+      return "unlock";
     case "STATIC_GUARDING_SHIFT":
     case "DOG_HANDLER_SHIFT":
       return "guarding";
@@ -77,6 +91,8 @@ export type ClientActivity = {
   charge: number | null;
   /** An officer's report, photos or check-ins are on its page. */
   hasReport: boolean;
+  /** Guarding only: hours on site (null when we can't tell). */
+  hours: number | null;
 };
 
 /** Internal shape — `billed` is the charge with nulls as 0, for sums. */
@@ -199,6 +215,10 @@ async function fetchRaw(
         type: true,
         status: true,
         scheduledStartsAt: true,
+        scheduledEndsAt: true,
+        actualStartedAt: true,
+        actualEndedAt: true,
+        payableMinutes: true,
         billedAmount: true,
         site: { select: { id: true, name: true, code: true } },
         _count: { select: { formSubmissions: true, fastfieldReports: true } },
@@ -210,11 +230,13 @@ async function fetchRaw(
 
   for (const j of jobs) {
     if (!j.site) continue;
+    const group = jobGroup(j.type);
+    const mins = group === "guarding" ? guardJobMinutes(j) : null;
     out.push({
       id: `job:${j.id}`,
       href: `/client/activities/job/${j.id}`,
       kind: jobKindLabel(j.type, j.typeLabel),
-      group: jobGroup(j.type),
+      group,
       siteId: j.site.id,
       siteName: j.site.name,
       siteCode: j.site.code,
@@ -222,6 +244,7 @@ async function fetchRaw(
       status: jobStatus(j.status),
       charge: money(j.billedAmount),
       hasReport: j._count.formSubmissions > 0,
+      hours: mins == null ? null : mins / 60,
       billed: num(j.billedAmount),
     });
   }
@@ -239,6 +262,7 @@ async function fetchRaw(
       status: pendingStatus(v.status),
       charge: money(v.billedAmount),
       hasReport: v._count.formSubmissions > 0 || v.photoUrls.length > 0,
+      hours: null,
       billed: num(v.billedAmount),
     });
   }
@@ -256,6 +280,7 @@ async function fetchRaw(
       status: pendingStatus(s.status),
       charge: money(s.billedAmount),
       hasReport: s._count.formSubmissions + s._count.fastfieldReports > 0,
+      hours: shiftWorkedMinutes(s) / 60,
       billed: num(s.billedAmount),
     });
   }
@@ -288,6 +313,10 @@ const DAYMONTH_FMT = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",
 });
+const MONTH_SHORT_FMT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  month: "short",
+});
 
 function ymdToNoonUtc(key: string): Date {
   const [y, m, d] = key.split("-").map(Number);
@@ -313,7 +342,19 @@ export function periodLabel(key: string, bucket: Bucket): string {
     return MONTH_FMT.format(new Date(Date.UTC(y, m - 1, 15, 12)));
   }
   const dt = ymdToNoonUtc(key);
-  return bucket === "day" ? DAY_FMT.format(dt) : DAYMONTH_FMT.format(dt);
+  return bucket === "day" ? DAY_FMT.format(dt) : `Week of ${DAYMONTH_FMT.format(dt)}`;
+}
+
+/** Axis label: "Sept" for a month, "14 Sept" for a week, and the day of the
+ *  month for a day ("5", or "5 Oct" when the bars cross into another month). */
+export function periodShortLabel(key: string, bucket: Bucket, oneMonth: boolean): string {
+  if (bucket === "month") {
+    const [y, m] = key.split("-").map(Number);
+    return MONTH_SHORT_FMT.format(new Date(Date.UTC(y, m - 1, 15, 12)));
+  }
+  const dt = ymdToNoonUtc(key);
+  if (bucket === "day" && oneMonth) return String(Number(key.slice(8, 10)));
+  return DAYMONTH_FMT.format(dt);
 }
 
 /** Inclusive list of bucket keys spanning [from, to] at the given granularity. */
@@ -321,15 +362,16 @@ export function periodKeysBetween(from: Date, to: Date, bucket: Bucket): string[
   const keys: string[] = [];
   const endKey = periodKey(to, bucket);
   if (bucket === "month") {
-    let y = from.getUTCFullYear();
-    let mo = from.getUTCMonth();
-    for (let i = 0; i < 24; i++) {
-      const k = `${y}-${String(mo + 1).padStart(2, "0")}`;
+    // Start from the UK month of `from` — UK midnight on the 1st is still the
+    // previous day in UTC during summer time.
+    let [y, mo] = periodKey(from, "month").split("-").map(Number);
+    for (let i = 0; i < 120; i++) {
+      const k = `${y}-${String(mo).padStart(2, "0")}`;
       keys.push(k);
-      if (k === endKey) break;
+      if (k >= endKey) break;
       mo++;
-      if (mo > 11) {
-        mo = 0;
+      if (mo > 12) {
+        mo = 1;
         y++;
       }
     }
@@ -341,76 +383,120 @@ export function periodKeysBetween(from: Date, to: Date, bucket: Bucket): string[
   for (let i = 0; i < cap; i++) {
     const k = periodKey(cursor, bucket);
     keys.push(k);
-    if (k === endKey) break;
+    if (k >= endKey) break;
     cursor = new Date(cursor.getTime() + step * 86_400_000);
   }
   if (keys[keys.length - 1] !== endKey) keys.push(endKey);
   return keys;
 }
 
+export type GroupTotal = {
+  group: ActivityGroup;
+  count: number;
+  /** Hours on site — guarding only, 0 for everything else. */
+  hours: number;
+  charged: number;
+};
+
+export type PeriodStack = {
+  key: string;
+  /** "Sept 2026", "Week of 14 Sept", "Thu 10 Sept". */
+  label: string;
+  /** The axis label. */
+  short: string;
+  count: number;
+  charged: number;
+  /** One entry per group, in ACTIVITY_GROUPS order. */
+  groups: { group: ActivityGroup; count: number; hours: number }[];
+};
+
 export type ClientSummary = {
   totalActivities: number;
   totalSpend: number;
-  byKind: { label: string; count: number }[];
+  guardingHours: number;
+  /** One entry per group, in ACTIVITY_GROUPS order (zeros included). */
+  byGroup: GroupTotal[];
   spendBySite: { siteId: string; siteName: string; amount: number }[];
-  activityByPeriod: { key: string; label: string; count: number }[];
-  spendByPeriod: { key: string; label: string; amount: number }[];
+  /** Each period's activity, split by group — the stacked chart. */
+  byPeriod: PeriodStack[];
 };
+
+type SummaryRow = Pick<RawActivity, "group" | "hours" | "siteId" | "siteName" | "at" | "billed">;
+
+/** Count, hours and charges per group, in ACTIVITY_GROUPS order. */
+export function groupTotals(rows: Pick<RawActivity, "group" | "hours" | "billed">[]): GroupTotal[] {
+  const by = new Map<ActivityGroup, GroupTotal>(
+    ACTIVITY_GROUPS.map((g) => [g.key, { group: g.key, count: 0, hours: 0, charged: 0 }]),
+  );
+  for (const r of rows) {
+    const t = by.get(r.group)!;
+    t.count++;
+    t.hours += r.hours ?? 0;
+    t.charged += r.billed;
+  }
+  return ACTIVITY_GROUPS.map((g) => by.get(g.key)!);
+}
 
 /** Roll a set of raw activities into the portal's KPIs, breakdowns and trends. */
 export function summariseClientActivities(
-  rows: Pick<RawActivity, "kind" | "siteId" | "siteName" | "at" | "billed">[],
+  rows: SummaryRow[],
   periodKeys: string[],
   bucket: Bucket,
 ): ClientSummary {
-  const byKind = new Map<string, number>();
   const bySite = new Map<string, { siteName: string; amount: number }>();
-  const actByPeriod = new Map<string, number>();
-  const spendByPeriod = new Map<string, number>();
-  let totalSpend = 0;
-
-  for (const k of periodKeys) {
-    actByPeriod.set(k, 0);
-    spendByPeriod.set(k, 0);
+  const periods = new Map<string, PeriodStack>();
+  const oneMonth = new Set(periodKeys.map((k) => k.slice(0, 7))).size <= 1;
+  for (const key of periodKeys) {
+    periods.set(key, {
+      key,
+      label: periodLabel(key, bucket),
+      short: periodShortLabel(key, bucket, oneMonth),
+      count: 0,
+      charged: 0,
+      groups: ACTIVITY_GROUPS.map((g) => ({ group: g.key, count: 0, hours: 0 })),
+    });
   }
+  const slot = new Map(ACTIVITY_GROUPS.map((g, i) => [g.key, i]));
 
+  let totalSpend = 0;
   for (const r of rows) {
-    byKind.set(r.kind, (byKind.get(r.kind) ?? 0) + 1);
     const site = bySite.get(r.siteId) ?? { siteName: r.siteName, amount: 0 };
     site.amount += r.billed;
     bySite.set(r.siteId, site);
     totalSpend += r.billed;
-    const pk = periodKey(r.at, bucket);
-    if (actByPeriod.has(pk)) actByPeriod.set(pk, (actByPeriod.get(pk) ?? 0) + 1);
-    if (spendByPeriod.has(pk))
-      spendByPeriod.set(pk, (spendByPeriod.get(pk) ?? 0) + r.billed);
+    const p = periods.get(periodKey(r.at, bucket));
+    if (p) {
+      p.count++;
+      p.charged += r.billed;
+      const g = p.groups[slot.get(r.group)!];
+      g.count++;
+      g.hours += r.hours ?? 0;
+    }
   }
 
+  const byGroup = groupTotals(rows);
   return {
     totalActivities: rows.length,
     totalSpend,
-    byKind: Array.from(byKind, ([label, count]) => ({ label, count })).sort(
-      (a, b) => b.count - a.count,
-    ),
+    guardingHours: byGroup.find((g) => g.group === "guarding")!.hours,
+    byGroup,
     spendBySite: Array.from(bySite, ([siteId, v]) => ({
       siteId,
       siteName: v.siteName,
       amount: v.amount,
     })).sort((a, b) => b.amount - a.amount),
-    activityByPeriod: periodKeys.map((key) => ({
-      key,
-      label: periodLabel(key, bucket),
-      count: actByPeriod.get(key) ?? 0,
-    })),
-    spendByPeriod: periodKeys.map((key) => ({
-      key,
-      label: periodLabel(key, bucket),
-      amount: spendByPeriod.get(key) ?? 0,
-    })),
+    byPeriod: periodKeys.map((k) => periods.get(k)!),
   };
 }
 
 // ── Public loaders ────────────────────────────────────────────────────────
+
+function newestFirst(rows: RawActivity[], limit?: number): ClientActivity[] {
+  rows.sort((a, b) => b.at.getTime() - a.at.getTime());
+  const trimmed = limit ? rows.slice(0, limit) : rows;
+  // Strip the internal billed field before returning.
+  return trimmed.map(({ billed: _billed, ...rest }) => rest);
+}
 
 /** Recent client-visible activities (no officer identity), newest first. */
 export async function loadClientActivities(
@@ -425,10 +511,37 @@ export async function loadClientActivities(
 ): Promise<ClientActivity[]> {
   let rows = await fetchRaw(customerId, opts.from, opts.to, opts.siteId);
   if (opts.group) rows = rows.filter((r) => r.group === opts.group);
-  rows.sort((a, b) => b.at.getTime() - a.at.getTime());
-  const trimmed = opts.limit ? rows.slice(0, opts.limit) : rows;
-  // Strip the internal billed field before returning.
-  return trimmed.map(({ billed: _billed, ...rest }) => rest);
+  return newestFirst(rows, opts.limit);
+}
+
+/** The activity log page: the rows (newest first, up to `limit`), totals for
+ *  all of them, and each group's totals before the type filter — so the type
+ *  tabs can show what's behind each one. */
+export async function loadClientActivityLog(
+  customerId: string,
+  opts: {
+    from: Date;
+    to: Date;
+    siteId?: string | null;
+    group?: ActivityGroup | null;
+    limit: number;
+  },
+): Promise<{
+  activities: ClientActivity[];
+  count: number;
+  charged: number;
+  hours: number;
+  groups: GroupTotal[];
+}> {
+  const all = await fetchRaw(customerId, opts.from, opts.to, opts.siteId);
+  const rows = opts.group ? all.filter((r) => r.group === opts.group) : all;
+  return {
+    count: rows.length,
+    charged: rows.reduce((n, r) => n + r.billed, 0),
+    hours: rows.reduce((n, r) => n + (r.hours ?? 0), 0),
+    groups: groupTotals(all),
+    activities: newestFirst(rows, opts.limit),
+  };
 }
 
 export type ClientSiteRow = {
@@ -485,7 +598,6 @@ export async function loadClientSites(
 
 export type ClientOverview = ClientSummary & {
   siteCount: number;
-  recent: ClientActivity[];
 };
 
 /** Everything the home dashboard + spend + site-detail pages need for a range. */
@@ -502,11 +614,7 @@ export async function loadClientOverview(
     periodKeysBetween(opts.from, opts.to, opts.bucket),
     opts.bucket,
   );
-  const recent = [...rows]
-    .sort((a, b) => b.at.getTime() - a.at.getTime())
-    .slice(0, 8)
-    .map(({ billed: _billed, ...rest }) => rest);
-  return { ...summary, siteCount, recent };
+  return { ...summary, siteCount };
 }
 
 // ── Invoices ──────────────────────────────────────────────────────────────
@@ -538,10 +646,20 @@ export type ClientInvoice = {
   state: ClientInvoiceState;
 };
 
-/** The customer's sent invoices (never drafts or voids), newest first. */
-export async function loadClientInvoices(customerId: string): Promise<ClientInvoice[]> {
+/** The customer's sent invoices (never drafts or voids), newest first —
+ *  with a period, only those whose work overlaps it. */
+export async function loadClientInvoices(
+  customerId: string,
+  period?: { from: Date; to: Date },
+): Promise<ClientInvoice[]> {
   const rows = await prisma.invoice.findMany({
-    where: { customerId, status: { in: ["SENT", "PAID"] } },
+    where: {
+      customerId,
+      status: { in: ["SENT", "PAID"] },
+      ...(period
+        ? { periodFrom: { lte: period.to }, periodTo: { gte: period.from } }
+        : {}),
+    },
     orderBy: [{ issuedAt: { sort: "desc", nulls: "last" } }, { createdAt: "desc" }],
     take: 200,
     select: {
