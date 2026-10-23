@@ -900,26 +900,185 @@ async function applyDecision(ctx: Ctx, reportId: string, d: Decision): Promise<A
   return { ok: true };
 }
 
+// ── Looking again at waiting reports ──────────────────────────────────────
+
+/** Work recorded this far either side of a report's time can change its match. */
+export const RECHECK_REACH_MS = 36 * 3_600_000;
+/** Every waiting report is looked at again at least this often — the rules
+ *  or the sites may have changed even when its own site's work hasn't. */
+export const RECHECK_EVERY_MS = 24 * 3_600_000;
+
+export type WaitingReport = {
+  id: string;
+  siteId: string | null;
+  /** When the work happened, roughly: opened on the phone, else filed. */
+  at: Date;
+  submittedAt: Date;
+  /** When the robot last tried it (its import, if not since). */
+  lastLook: Date;
+};
+
+/** A job, visit or shift added or changed: where, when it changed, and the
+ *  stretch of time it covers. */
+export type WorkChange = { siteId: string; changedAt: Date; from: Date; to: Date };
+
 /**
- * Try the unmatched reports again — an activity may have been added since,
- * or a site fixed. Recent ones only, unless specific ids are given.
+ * Which waiting reports are worth trying again, best first:
+ *   1. work at the report's site added or changed, near its time, since it
+ *      was last tried — newest report first (a shift logged the morning after);
+ *   2. any site added or changed since then (it may be the report's real site);
+ *   3. not tried for a day — longest-waiting first.
+ * With `all`, every report comes after those, longest-untried first, so
+ * pressing "Try matching again" repeatedly works through them all.
  */
-export async function retryUnmatched(
-  opts: { ids?: string[]; sinceDays?: number; limit?: number } = {},
-): Promise<ImportSummary> {
-  const since = new Date(Date.now() - (opts.sinceDays ?? 7) * 86_400_000);
+export function dueForRecheck(
+  rows: WaitingReport[],
+  changes: WorkChange[],
+  latestSiteChange: Date | null,
+  now: Date,
+  all = false,
+): string[] {
+  const bySite = new Map<string, WorkChange[]>();
+  for (const c of changes) {
+    const list = bySite.get(c.siteId) ?? [];
+    list.push(c);
+    bySite.set(c.siteId, list);
+  }
+  const newest = (a: WaitingReport, b: WaitingReport) =>
+    b.submittedAt.getTime() - a.submittedAt.getTime();
+  const longestUntried = (a: WaitingReport, b: WaitingReport) =>
+    a.lastLook.getTime() - b.lastLook.getTime() || newest(a, b);
+
+  const work: WaitingReport[] = [];
+  const sites: WaitingReport[] = [];
+  const stale: WaitingReport[] = [];
+  const rest: WaitingReport[] = [];
+  for (const r of rows) {
+    const seen = r.lastLook.getTime();
+    const t = r.at.getTime();
+    const near = (bySite.get(r.siteId ?? "") ?? []).some(
+      (c) =>
+        c.changedAt.getTime() > seen &&
+        c.from.getTime() - RECHECK_REACH_MS <= t &&
+        t <= c.to.getTime() + RECHECK_REACH_MS,
+    );
+    if (near) work.push(r);
+    else if (latestSiteChange && latestSiteChange.getTime() > seen) sites.push(r);
+    else if (now.getTime() - seen >= RECHECK_EVERY_MS) stale.push(r);
+    else rest.push(r);
+  }
+  return [
+    ...work.sort(newest),
+    ...sites.sort(newest),
+    ...stale.sort(longestUntried),
+    ...(all ? rest.sort(longestUntried) : []),
+  ].map((r) => r.id);
+}
+
+/** The waiting reports filed in the last `sinceDays`, in the order to try them. */
+async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<string[]> {
   const rows = await prisma.fastFieldReport.findMany({
     where: {
       status: "UNMATCHED",
-      ...(opts.ids ? { id: { in: opts.ids } } : { submittedAt: { gte: since } }),
+      submittedAt: { gte: new Date(now.getTime() - sinceDays * 86_400_000) },
       form: { mode: "ON" },
     },
-    orderBy: { submittedAt: "asc" },
-    take: opts.limit ?? 50,
     select: {
       id: true,
       siteId: true,
-      note: true,
+      submittedAt: true,
+      startedAt: true,
+      checkedAt: true,
+      createdAt: true,
+    },
+  });
+  if (rows.length === 0) return [];
+  const waiting: WaitingReport[] = rows.map((r) => ({
+    id: r.id,
+    siteId: r.siteId,
+    at: r.startedAt ?? r.submittedAt,
+    submittedAt: r.submittedAt,
+    lastLook: r.checkedAt ?? r.createdAt,
+  }));
+  const oldest = new Date(Math.min(...waiting.map((r) => r.lastLook.getTime())));
+  const siteIds = [...new Set(rows.map((r) => r.siteId).filter((x): x is string => !!x))];
+  const atSites = { siteId: { in: siteIds } };
+  const [jobs, shifts, visits, site] = await Promise.all([
+    siteIds.length
+      ? prisma.job.findMany({
+          where: { ...atSites, updatedAt: { gt: oldest } },
+          select: {
+            siteId: true,
+            updatedAt: true,
+            createdAt: true,
+            scheduledFor: true,
+            startedAt: true,
+            completedAt: true,
+          },
+        })
+      : [],
+    siteIds.length
+      ? prisma.shift.findMany({
+          where: { ...atSites, updatedAt: { gt: oldest } },
+          select: {
+            siteId: true,
+            updatedAt: true,
+            scheduledStartsAt: true,
+            scheduledEndsAt: true,
+            actualStartedAt: true,
+            actualEndedAt: true,
+          },
+        })
+      : [],
+    siteIds.length
+      ? prisma.patrolVisit.findMany({
+          where: { ...atSites, createdAt: { gt: oldest } },
+          select: { siteId: true, createdAt: true, scheduledAt: true },
+        })
+      : [],
+    prisma.site.findFirst({
+      where: { updatedAt: { gt: oldest } },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
+  ]);
+
+  const changes: WorkChange[] = [];
+  for (const j of jobs) {
+    if (!j.siteId) continue;
+    const times = [j.scheduledFor, j.startedAt, j.completedAt].filter((x): x is Date => !!x);
+    if (times.length === 0) times.push(j.createdAt);
+    const ms = times.map((x) => x.getTime());
+    changes.push({
+      siteId: j.siteId,
+      changedAt: j.updatedAt,
+      from: new Date(Math.min(...ms)),
+      to: new Date(Math.max(...ms)),
+    });
+  }
+  for (const s of shifts) {
+    changes.push({
+      siteId: s.siteId,
+      changedAt: s.updatedAt,
+      from: new Date(Math.min(s.scheduledStartsAt.getTime(), (s.actualStartedAt ?? s.scheduledStartsAt).getTime())),
+      to: new Date(Math.max(s.scheduledEndsAt.getTime(), (s.actualEndedAt ?? s.scheduledEndsAt).getTime())),
+    });
+  }
+  for (const v of visits) {
+    if (!v.siteId) continue;
+    changes.push({ siteId: v.siteId, changedAt: v.createdAt, from: v.scheduledAt, to: v.scheduledAt });
+  }
+  return dueForRecheck(waiting, changes, site?.updatedAt ?? null, now, all);
+}
+
+/** Try one waiting report again: attach it if it now matches, else note why
+ *  not and when it was tried. False when it no longer needs trying. */
+async function recheckOne(ctx: Ctx, id: string, summary: ImportSummary): Promise<boolean> {
+  const row = await prisma.fastFieldReport.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      status: true,
       submittedAt: true,
       startedAt: true,
       finishedAt: true,
@@ -927,34 +1086,60 @@ export async function retryUnmatched(
       form: { select: FORM_SELECT },
     },
   });
-  const summary = emptySummary(rows.length);
+  if (!row || row.status !== "UNMATCHED" || row.form.mode !== "ON") return false;
+  const facts = extractFacts({
+    submittedAt: row.submittedAt,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt,
+    answers: row.answers as unknown as FastFieldAnswer[],
+  });
+  const decision = await decide(ctx, facts, row.form, false);
+  if (decision.action === "unmatched") {
+    await prisma.fastFieldReport.update({
+      where: { id: row.id },
+      data: { siteId: decision.site?.id ?? null, note: decision.note, checkedAt: new Date() },
+    });
+    tally(summary, decision, row.form.formId);
+    return true;
+  }
+  await applyAndTally(ctx, row.id, decision, row.form.formId, summary);
+  return true;
+}
+
+export type RetrySummary = ImportSummary & {
+  /** Waiting reports tried this time. */
+  checked: number;
+  /** Reports due a try that the time ran out for — the next run carries on. */
+  notReached: number;
+};
+
+/**
+ * Try waiting reports again — work may have been recorded since (a shift
+ * logged the next morning), or a site added or fixed. Without ids it takes
+ * the reports most likely to match now first (`dueForRecheck`), one at a
+ * time, until the time budget is spent; each report tried is stamped, so the
+ * next run carries on from there rather than retrying the same ones.
+ */
+export async function retryUnmatched(
+  opts: { ids?: string[]; sinceDays?: number; all?: boolean; budgetMs?: number } = {},
+): Promise<RetrySummary> {
+  const started = Date.now();
+  const ids =
+    opts.ids ?? (await dueReports(new Date(), opts.sinceDays ?? 30, opts.all ?? false));
+  const summary: RetrySummary = { ...emptySummary(0), checked: 0, notReached: 0 };
   const ctx = newCtx();
-  for (const row of rows) {
+  let i = 0;
+  // Always at least one, so even a short budget makes progress.
+  for (; i < ids.length && (i === 0 || Date.now() - started < (opts.budgetMs ?? 40_000)); i++) {
     try {
-      const facts = extractFacts({
-        submittedAt: row.submittedAt,
-        startedAt: row.startedAt,
-        finishedAt: row.finishedAt,
-        answers: row.answers as unknown as FastFieldAnswer[],
-      });
-      const decision = await decide(ctx, facts, row.form, false);
-      if (decision.action === "unmatched") {
-        const siteId = decision.site?.id ?? null;
-        if (siteId !== row.siteId || decision.note !== row.note) {
-          await prisma.fastFieldReport.update({
-            where: { id: row.id },
-            data: { siteId, note: decision.note },
-          });
-        }
-        tally(summary, decision, row.form.formId);
-        continue;
-      }
-      await applyAndTally(ctx, row.id, decision, row.form.formId, summary);
+      if (await recheckOne(ctx, ids[i], summary)) summary.checked++;
     } catch (e) {
       console.error("FastField retry failed for one report:", errCode(e));
       summary.failed++;
     }
   }
+  summary.received = summary.checked;
+  summary.notReached = ids.length - i;
   return summary;
 }
 

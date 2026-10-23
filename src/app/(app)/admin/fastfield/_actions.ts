@@ -135,13 +135,14 @@ export async function ignoreFastFieldReport(
   return okVoid();
 }
 
-/** Re-run matching on the unmatched reports from the last 60 days. */
+/** Re-run matching on the waiting reports from the last 60 days — the ones
+ *  most likely to match first, then the rest, as many as fit in 50 seconds.
+ *  Pressing again carries on with those not reached. */
 export async function retryFastFieldMatching(): Promise<
-  ActionResult<{ linked: number; created: number; left: number }>
+  ActionResult<{ attached: number; checked: number; notReached: number }>
 > {
   await requireAdmin();
-  const s = await retryUnmatched({ sinceDays: 60, limit: 300 });
+  const s = await retryUnmatched({ sinceDays: 60, all: true, budgetMs: 50_000 });
   refresh();
-  const left = Object.values(s.unmatched).reduce((n, x) => n + x, 0);
-  return ok({ linked: s.linked, created: s.created, left });
+  return ok({ attached: s.linked + s.created, checked: s.checked, notReached: s.notReached });
 }

@@ -90,7 +90,7 @@ Its `payload` is `{ source: "fastfield", fastfield: { submissionId, formId, form
    - Photos and the signature (`media` list) are fetched via `/api/media/amazon/<key>/redirect` and shrunk in the browser to a JPEG of at most 1600 px. Standard JPEG, PNG or WebP files of 1.2 MB or less are kept as they are.
    - Each one is uploaded to `./photo`. A preview copies nothing.
 6. `POST { action: "import", run, reports }`, at most 3 per call. If the app refuses a batch, the reports go one by one so a single odd report can't block the rest.
-7. `POST { action: "retry" }`, real runs only. This re-tries the last 7 days' unmatched reports, in case an activity has been logged since.
+7. `POST { action: "retry" }`, real runs only. This tries waiting reports again (see **Trying waiting reports again** below), in case a shift or job has been logged since.
 
 It stops starting new reports at the time limit, and the next run carries on.
 
@@ -157,6 +157,19 @@ Each runs in one transaction. It creates the `FormSubmission` (officer name from
 
 Imports create no `ClientReport`, no customer SMS ack and no visit-completed notification. The client already had FastField's own report, and imports can be weeks old.
 
+### Trying waiting reports again
+
+A report often arrives before its work is in the app — a static shift logged the next morning, a lock-up recorded late. It waits ("No activity…") until it's tried again.
+
+- **Every 5 minutes**, the `fastfield-recheck` cron (Vercel, database only) runs `retryUnmatched`. The robot's `retry` step does the same after each import.
+- It takes waiting reports from the last 30 days on forms that are On, best first (`dueForRecheck`):
+  1. reports whose site has had a job, shift or visit added or changed within 36 hours of their time, since they were last tried — newest report first;
+  2. all of them, once any site has been added or changed since they were last tried (it may be the report's real site);
+  3. any not tried for a day, longest-waiting first, so new rules reach every report.
+- It works one report at a time (two reports must not grab the same job at once) until its time budget (45 s) is spent, and stamps each report it tries (`checkedAt`), so the next run carries on rather than retrying the same ones. Admin → FastField shows "Last tried …" on each waiting report.
+- **Try matching again** (admin) does the same for the last 60 days, then the rest longest-untried first, for up to 50 seconds; pressing again carries on.
+- Until 23 October 2026 the retry always took the **oldest** 50 waiting reports — mostly ones that can never match — so newer reports were never tried again once their shift was logged.
+
 ## Business rules & invariants
 
 - **Nothing is imported until a form is On.**
@@ -185,7 +198,8 @@ Imports create no `ClientReport`, no customer SMS ack and no visit-completed not
 |---|---|---|
 | `POST /api/imports/fastfield` | the robot (bearer) | `plan`, `import`, `retry`; `?preview=1`; `run` id for preview counts |
 | `POST /api/imports/fastfield/photo?submission=&name=` | the robot (bearer) | one JPEG/PNG/WebP ≤ 4 MB → `{ url }` |
-| `/admin/fastfield` | admin | form settings with the last preview, "Needs linking", "Try matching again", recently attached |
+| `/admin/fastfield` | admin | form settings with the last preview, "Needs linking" (with when each was last tried), "Try matching again", recently attached |
+| `GET /api/cron/fastfield-recheck` | Vercel cron, every 5 min | tries waiting reports again, those with new work at their site first |
 | `/admin/fastfield/[id]` | admin | one report: answers, photos, how it matched. Pick a site (grouped by client) and link to a shift, job or visit (those within 3 hours, or within 18 hours when none are that close); create the job; or set the report aside. |
 | `/admin/reports/[id]` | admin, dispatcher | a FastField-sourced submission shows the FastField answers |
 | `/shifts/[id]` | admin, dispatcher | "FastField patrol reports" lists the rounds filed during the shift |
