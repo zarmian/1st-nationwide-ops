@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PoundSterling, CalendarDays, Building2, TrendingUp, Receipt, FileDown } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { BarList } from "@/components/BarList";
@@ -8,8 +9,13 @@ import {
   loadClientOverview,
   type ClientInvoice,
 } from "@/lib/clientPortal";
-import { resolveRange } from "../_range";
-import { RangePills } from "../_components/RangePills";
+import {
+  bucketParams,
+  periodHref,
+  resolvePeriod,
+  type PeriodSearch,
+} from "@/lib/clientPeriod";
+import { PeriodControl } from "../_components/PeriodControl";
 import { PeriodBars } from "../_components/PeriodBars";
 import { ClientHero } from "../_components/ClientHero";
 import { StatCard } from "../_components/StatCard";
@@ -17,19 +23,19 @@ import { Panel } from "../_components/Panel";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientSpendPage({
-  searchParams,
-}: {
-  searchParams: { range?: string };
-}) {
+export default async function ClientSpendPage({ searchParams }: { searchParams: PeriodSearch }) {
   const me = await requireCustomer();
-  const { key, from, to, bucket } = resolveRange(searchParams.range);
+  const period = resolvePeriod(searchParams);
+  const { from, to, bucket } = period;
   const [data, invoices] = await Promise.all([
     loadClientOverview(me.customerId, { from, to, bucket }),
-    loadClientInvoices(me.customerId),
+    loadClientInvoices(me.customerId, { from, to }),
   ]);
+  const p = period.params;
+  const bucketHref = (key: string) =>
+    periodHref("/client/activities", bucketParams(period, key));
 
-  const periods = data.spendByPeriod.length || 1;
+  const periods = data.byPeriod.length || 1;
   const avgPerPeriod = data.totalSpend / periods;
   const sitesBilled = data.spendBySite.filter((s) => s.amount > 0).length;
   const periodWord =
@@ -40,9 +46,9 @@ export default async function ClientSpendPage({
       <ClientHero
         eyebrow="Charges"
         title="What you've been charged"
-        subtitle="Security work charged to your account, by period and by site, and your invoices. Figures exclude VAT unless marked."
+        subtitle={`Security work charged to your account, by period and by site, and your invoices — ${period.label}. Figures exclude VAT unless marked.`}
       >
-        <RangePills active={key} basePath="/client/spend" dark />
+        <PeriodControl basePath="/client/spend" period={period} />
       </ClientHero>
 
       <div className="grid grid-cols-3 gap-3 sm:gap-4">
@@ -50,8 +56,9 @@ export default async function ClientSpendPage({
           tone="emerald"
           label="Total charged"
           value={formatMoney(data.totalSpend)}
-          hint="in this period"
+          hint="see each activity's charge"
           icon={PoundSterling}
+          href={periodHref("/client/activities", p)}
         />
         <StatCard
           tone="blue"
@@ -66,24 +73,32 @@ export default async function ClientSpendPage({
           value={formatNumber(sitesBilled)}
           hint="had charged work"
           icon={Building2}
+          href={periodHref("/client/sites", p)}
         />
       </div>
 
-      {data.spendByPeriod.length >= 2 && data.totalSpend > 0 && (
-        <Panel title="Charges over time" icon={TrendingUp} accent="emerald">
+      {data.byPeriod.length >= 2 && data.totalSpend > 0 && (
+        <Panel
+          title="Charges over time"
+          hint="Click a bar to see the activities behind it"
+          icon={TrendingUp}
+          accent="emerald"
+        >
           <PeriodBars
             tone="emerald"
-            data={data.spendByPeriod.map((p) => ({
-              label: p.label,
-              value: p.amount,
-              display: formatMoney(p.amount),
+            data={data.byPeriod.map((b) => ({
+              label: b.label,
+              short: b.short,
+              value: b.charged,
+              display: formatMoney(b.charged),
+              href: bucketHref(b.key),
             }))}
             ariaLabel="Charges per period"
           />
         </Panel>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
         <Panel title="By site" hint="Highest first" icon={Building2} accent="blue">
           <BarList
             tone="blue"
@@ -91,7 +106,7 @@ export default async function ClientSpendPage({
               label: s.siteName,
               value: s.amount,
               display: formatMoney(s.amount),
-              href: `/client/sites/${s.siteId}?range=${key}`,
+              href: periodHref(`/client/sites/${s.siteId}`, p),
             }))}
             emptyLabel="Nothing charged in this period."
           />
@@ -106,11 +121,18 @@ export default async function ClientSpendPage({
                 </tr>
               </thead>
               <tbody>
-                {data.spendByPeriod.map((p) => (
-                  <tr key={p.key}>
-                    <td className="text-slate-700">{p.label}</td>
+                {data.byPeriod.map((b) => (
+                  <tr key={b.key}>
+                    <td className="whitespace-nowrap">
+                      <Link
+                        href={bucketHref(b.key)}
+                        className="font-medium text-brand-navy hover:text-brand-blue-dark"
+                      >
+                        {b.label}
+                      </Link>
+                    </td>
                     <td className="col-num tabular-nums text-slate-700">
-                      {formatMoney(p.amount)}
+                      {formatMoney(b.charged)}
                     </td>
                   </tr>
                 ))}
@@ -128,7 +150,7 @@ export default async function ClientSpendPage({
 
       <Panel
         title="Invoices"
-        hint="Totals include VAT"
+        hint="For work in this period · totals include VAT"
         icon={Receipt}
         accent="amber"
         flush
@@ -147,7 +169,9 @@ const STATE_CHIP: Record<ClientInvoice["state"], string> = {
 
 function InvoiceTable({ invoices }: { invoices: ClientInvoice[] }) {
   if (invoices.length === 0) {
-    return <p className="px-4 py-8 text-center text-sm text-slate-500">No invoices yet.</p>;
+    return (
+      <p className="px-4 py-8 text-center text-sm text-slate-500">No invoices for this period.</p>
+    );
   }
   return (
     <div className="table-scroll">

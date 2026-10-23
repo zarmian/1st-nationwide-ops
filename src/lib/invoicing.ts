@@ -16,6 +16,7 @@ import {
   shiftScheduledRange,
 } from "@/lib/activityWhen";
 import { COMPANY } from "@/lib/company";
+import { shiftWorkedMinutes } from "@/lib/workedMinutes";
 import { dueRecurringLines } from "@/lib/recurring";
 import { sendEmail, isEmailConfigured } from "@/lib/email";
 import type { InvoicePdfData } from "@/lib/reports/invoiceReport";
@@ -135,29 +136,6 @@ function siteKeyLabel(site: SiteInfo): { key: string; label: string } {
     key: site.id,
     label: site.code ? `${site.code} · ${site.name}` : site.name,
   };
-}
-
-/** Billed worked minutes for a shift — actual time, falling back to scheduled. */
-function shiftWorkedMinutes(s: {
-  actualStartedAt: Date | null;
-  actualEndedAt: Date | null;
-  scheduledStartsAt: Date;
-  scheduledEndsAt: Date;
-  payableMinutes: number | null;
-}): number {
-  if (s.actualStartedAt && s.actualEndedAt) {
-    return Math.max(
-      0,
-      (s.actualEndedAt.getTime() - s.actualStartedAt.getTime()) / 60000,
-    );
-  }
-  if (s.scheduledStartsAt && s.scheduledEndsAt) {
-    return Math.max(
-      0,
-      (s.scheduledEndsAt.getTime() - s.scheduledStartsAt.getTime()) / 60000,
-    );
-  }
-  return s.payableMinutes ?? 0;
 }
 
 /** "12 callouts · 24.5 hrs static/dog handling", or null when nothing to say. */

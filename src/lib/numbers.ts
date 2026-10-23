@@ -37,3 +37,12 @@ export function formatNumber(
   if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat(LOCALE, opts).format(n);
 }
+
+/** Hours to one decimal place: `12.5 hrs`, `1 hr`, or "—" when missing. */
+export function formatHours(hours: number | null | undefined): string {
+  if (hours === null || hours === undefined || !Number.isFinite(hours)) return "—";
+  const r = Math.round(hours * 10) / 10;
+  return `${new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 1 }).format(r)} ${
+    r === 1 ? "hr" : "hrs"
+  }`;
+}

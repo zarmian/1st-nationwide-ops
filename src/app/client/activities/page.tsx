@@ -1,108 +1,146 @@
+import Link from "next/link";
 import { ClipboardList, Download } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { prisma } from "@/lib/db";
-import {
-  ACTIVITY_GROUPS,
-  isActivityGroup,
-  loadClientActivities,
-} from "@/lib/clientPortal";
-import { formatMoney } from "@/lib/numbers";
-import { resolveRange } from "../_range";
-import { RangePills } from "../_components/RangePills";
+import { groupLabel, isActivityGroup, loadClientActivityLog } from "@/lib/clientPortal";
+import { periodHref, resolvePeriod, type PeriodSearch } from "@/lib/clientPeriod";
+import { formatHours, formatMoney, formatNumber } from "@/lib/numbers";
+import { PeriodControl } from "../_components/PeriodControl";
 import { ActivityList } from "../_components/ActivityList";
 import { ClientHero } from "../_components/ClientHero";
 import { Panel } from "../_components/Panel";
+import { GroupDot } from "../_components/groupColors";
+import { groupAmount } from "../_components/TypeTable";
 
 export const dynamic = "force-dynamic";
+
+const LIMIT = 500;
 
 export default async function ClientActivitiesPage({
   searchParams,
 }: {
-  searchParams: { range?: string; siteId?: string; type?: string };
+  searchParams: PeriodSearch & { siteId?: string; type?: string };
 }) {
   const me = await requireCustomer();
-  const { key, from, to } = resolveRange(searchParams.range);
+  const period = resolvePeriod(searchParams);
   const siteId = searchParams.siteId?.trim() || null;
   const group = isActivityGroup(searchParams.type) ? searchParams.type : null;
 
-  const [sites, activities] = await Promise.all([
+  const [sites, log] = await Promise.all([
     prisma.site.findMany({
       where: { customerId: me.customerId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, code: true },
     }),
-    loadClientActivities(me.customerId, { from, to, siteId, group, limit: 500 }),
+    loadClientActivityLog(me.customerId, {
+      from: period.from,
+      to: period.to,
+      siteId,
+      group,
+      limit: LIMIT,
+    }),
   ]);
-  const total = activities.reduce((n, a) => n + (a.charge ?? 0), 0);
+  const site = siteId ? sites.find((s) => s.id === siteId) ?? null : null;
+  const all = log.groups.reduce((n, g) => n + g.count, 0);
+  const typeHref = (type: string | null) =>
+    periodHref("/client/activities", period.params, { siteId, type });
 
-  const query = new URLSearchParams({ range: key });
-  if (siteId) query.set("siteId", siteId);
-  if (group) query.set("type", group);
+  const summary = [
+    `${formatNumber(log.count)} ${
+      group === "guarding"
+        ? log.count === 1
+          ? "shift"
+          : "shifts"
+        : log.count === 1
+          ? "activity"
+          : "activities"
+    }`,
+    group === "guarding" ? formatHours(log.hours) : null,
+    `${formatMoney(log.charged)} ex VAT`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div className="space-y-5">
       <ClientHero
         eyebrow="Activity"
         title="Security activity log"
-        subtitle="Every activity at your sites, with its charge. Open one to see the officer's report."
+        subtitle={`Every activity at your sites, with its charge — ${period.label}. Open one to see the officer's report.`}
       >
-        <RangePills
-          active={key}
+        <PeriodControl
           basePath="/client/activities"
-          extra={{
-            ...(siteId ? { siteId } : {}),
-            ...(group ? { type: group } : {}),
-          }}
-          dark
+          period={period}
+          keep={{ siteId, type: group }}
         />
       </ClientHero>
 
-      <form className="flex flex-wrap items-end gap-2 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-card">
-        <input type="hidden" name="range" value={key} />
-        <div>
-          <label className="label" htmlFor="siteId">
-            Site
-          </label>
-          <select id="siteId" name="siteId" defaultValue={siteId ?? ""} className="input">
-            <option value="">All sites</option>
-            {sites.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.code ? `${s.code} · ` : ""}
-                {s.name}
-              </option>
+      <div className="space-y-3 rounded-2xl border border-slate-200/70 bg-white p-3 shadow-card">
+        <form className="flex flex-wrap items-end gap-2">
+          {Object.entries(period.params).map(([k, v]) => (
+            <input key={k} type="hidden" name={k} value={v} />
+          ))}
+          {group && <input type="hidden" name="type" value={group} />}
+          <div>
+            <label className="label" htmlFor="siteId">
+              Site
+            </label>
+            <select id="siteId" name="siteId" defaultValue={siteId ?? ""} className="input">
+              <option value="">All sites</option>
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.code ? `${s.code} · ` : ""}
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button type="submit" className="btn-primary text-sm">
+            Apply
+          </button>
+        </form>
+
+        <nav aria-label="Type of work" className="flex flex-wrap gap-1.5">
+          <Link
+            href={typeHref(null)}
+            aria-current={group ? undefined : "true"}
+            className={group ? "pill-idle" : "pill-active"}
+          >
+            All
+            <span className="tabular-nums text-slate-500">{formatNumber(all)}</span>
+          </Link>
+          {log.groups
+            .filter((g) => g.count > 0 || g.group === group)
+            .map((g) => (
+              <Link
+                key={g.group}
+                href={typeHref(g.group)}
+                aria-current={g.group === group ? "true" : undefined}
+                className={g.group === group ? "pill-active" : "pill-idle"}
+              >
+                <GroupDot group={g.group} />
+                {groupLabel(g.group)}
+                <span className="tabular-nums text-slate-500">{groupAmount(g)}</span>
+              </Link>
             ))}
-          </select>
-        </div>
-        <div>
-          <label className="label" htmlFor="type">
-            Type
-          </label>
-          <select id="type" name="type" defaultValue={group ?? ""} className="input">
-            <option value="">All types</option>
-            {ACTIVITY_GROUPS.map((g) => (
-              <option key={g.key} value={g.key}>
-                {g.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button type="submit" className="btn-primary text-sm">
-          Apply
-        </button>
-      </form>
+        </nav>
+      </div>
 
       <Panel
-        title="Activity"
-        hint={`${activities.length} ${
-          activities.length === 1 ? "activity" : "activities"
-        } in this period · ${formatMoney(total)} ex VAT`}
+        title={
+          [group ? groupLabel(group) : "Activity", site?.name].filter(Boolean).join(" · ")
+        }
+        hint={summary}
         icon={ClipboardList}
         accent="blue"
         flush
         action={
-          activities.length > 0 ? (
+          log.count > 0 ? (
             <a
-              href={`/client/download/activities?${query.toString()}`}
+              href={periodHref("/client/download/activities", period.params, {
+                siteId,
+                type: group,
+              })}
               className="btn-secondary text-sm"
               download
             >
@@ -112,7 +150,13 @@ export default async function ClientActivitiesPage({
           ) : undefined
         }
       >
-        <ActivityList activities={activities} />
+        <ActivityList activities={log.activities} />
+        {log.count > log.activities.length && (
+          <p className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
+            Showing the latest {formatNumber(log.activities.length)} of {formatNumber(log.count)}.
+            The CSV has them all.
+          </p>
+        )}
       </Panel>
     </div>
   );

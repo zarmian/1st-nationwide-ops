@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { ChevronRight } from "lucide-react";
 import type { ComponentType, ReactNode } from "react";
 
 export type StatTone = "blue" | "emerald" | "indigo" | "amber" | "rose";
@@ -61,6 +63,7 @@ export function StatCard({
   hint,
   icon: Icon,
   footer,
+  href,
 }: {
   tone: StatTone;
   label: string;
@@ -69,18 +72,18 @@ export function StatCard({
   icon: ComponentType<{ size?: number | string; className?: string }>;
   /** Optional content below the value (e.g. a sparkline + trend delta). */
   footer?: ReactNode;
+  /** Makes the whole card a link (e.g. to the page behind the figure). */
+  href?: string;
 }) {
   const t = STAT_TONE[tone];
-  return (
-    <div
-      className={
-        "relative overflow-hidden rounded-2xl border p-5 shadow-md " +
-        "bg-gradient-to-br from-white " +
-        t.tint +
-        " transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg " +
-        t.border
-      }
-    >
+  const cls =
+    "relative block overflow-hidden rounded-2xl border p-5 shadow-md " +
+    "bg-gradient-to-br from-white " +
+    t.tint +
+    " transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg motion-reduce:transition-none motion-reduce:hover:translate-y-0 " +
+    t.border;
+  const body = (
+    <>
       <div
         aria-hidden
         className={
@@ -103,16 +106,33 @@ export function StatCard({
       </div>
       <div
         className={
-          "relative mt-2 text-3xl font-semibold tabular-nums tracking-tight " +
+          "relative mt-2 whitespace-nowrap text-2xl font-semibold tabular-nums tracking-tight sm:text-3xl " +
           t.value
         }
       >
         {value}
       </div>
-      {hint && (
-        <div className="relative mt-0.5 text-xs text-slate-500">{hint}</div>
+      {(hint || href) && (
+        <div className="relative mt-0.5 flex items-center justify-between gap-2 text-xs text-slate-500">
+          <span className="min-w-0">{hint}</span>
+          {href && <ChevronRight size={14} aria-hidden className="shrink-0 text-slate-400" />}
+        </div>
       )}
       {footer && <div className="relative mt-2">{footer}</div>}
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className={
+          cls +
+          " focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue-500 focus-visible:ring-offset-2"
+        }
+      >
+        {body}
+      </Link>
+    );
+  }
+  return <div className={cls}>{body}</div>;
 }

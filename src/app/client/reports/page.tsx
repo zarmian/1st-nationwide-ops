@@ -2,8 +2,8 @@ import { CalendarDays, FileDown, FileText } from "lucide-react";
 import { requireCustomer } from "@/lib/authz";
 import { loadClientActivities } from "@/lib/clientPortal";
 import { ukDayPlus, ukDayString } from "@/lib/dates";
-import { resolveRange } from "../_range";
-import { RangePills } from "../_components/RangePills";
+import { FLOOR_DAY, resolvePeriod, type PeriodSearch } from "@/lib/clientPeriod";
+import { PeriodControl } from "../_components/PeriodControl";
 import { ActivityList } from "../_components/ActivityList";
 import { ClientHero } from "../_components/ClientHero";
 import { Panel } from "../_components/Panel";
@@ -14,13 +14,10 @@ function pad(n: number): string {
   return String(n).padStart(2, "0");
 }
 
-export default async function ClientReportsPage({
-  searchParams,
-}: {
-  searchParams: { range?: string };
-}) {
+export default async function ClientReportsPage({ searchParams }: { searchParams: PeriodSearch }) {
   const me = await requireCustomer();
-  const { key, from, to } = resolveRange(searchParams.range);
+  const period = resolvePeriod(searchParams);
+  const { from, to } = period;
   const activities = (
     await loadClientActivities(me.customerId, { from, to, limit: 2000 })
   ).filter((a) => a.hasReport);
@@ -36,7 +33,7 @@ export default async function ClientReportsPage({
         title="Reports"
         subtitle="The daily report for any day, and every officer report from your sites."
       >
-        <RangePills active={key} basePath="/client/reports" dark />
+        <PeriodControl basePath="/client/reports" period={period} />
       </ClientHero>
 
       <Panel
@@ -58,7 +55,7 @@ export default async function ClientReportsPage({
               id="report-date"
               name="date"
               type="date"
-              min="2026-09-01"
+              min={FLOOR_DAY}
               max={today}
               defaultValue={yesterday}
               required
@@ -76,7 +73,7 @@ export default async function ClientReportsPage({
         title="Officer reports"
         hint={`${activities.length} ${
           activities.length === 1 ? "activity" : "activities"
-        } with a report in this period`}
+        } with a report — ${period.label}`}
         icon={FileText}
         accent="emerald"
         flush

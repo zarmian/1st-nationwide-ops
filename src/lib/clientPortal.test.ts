@@ -1,13 +1,17 @@
 import { describe, it, expect } from "vitest";
 import {
+  ACTIVITY_GROUPS,
   summariseClientActivities,
+  groupTotals,
   periodKey,
   periodLabel,
+  periodShortLabel,
   periodKeysBetween,
   jobKindLabel,
   jobGroup,
   isActivityGroup,
   invoiceState,
+  type ActivityGroup,
 } from "./clientPortal";
 
 describe("jobKindLabel", () => {
@@ -32,14 +36,16 @@ describe("jobKindLabel", () => {
 
 // Raw activity literals (structural match of the internal RawActivity type).
 const mk = (
-  kind: string,
+  group: ActivityGroup,
   siteId: string,
   siteName: string,
   at: string,
   billed: number,
+  hours: number | null = null,
 ) => ({
-  id: `${kind}:${at}`,
-  kind,
+  id: `${group}:${at}`,
+  group,
+  hours,
   siteId,
   siteName,
   siteCode: null,
@@ -99,63 +105,105 @@ describe("period helpers — week", () => {
   });
 });
 
+describe("periodKeysBetween — UK month starts", () => {
+  it("doesn't add the month before when the range starts at UK midnight on the 1st", () => {
+    // 1 Sept 2026 00:00 BST is still 31 August in UTC.
+    expect(
+      periodKeysBetween(new Date("2026-08-31T23:00:00Z"), new Date("2026-10-23T12:00:00Z"), "month"),
+    ).toEqual(["2026-09", "2026-10"]);
+  });
+});
+
+describe("periodShortLabel", () => {
+  it("keeps axis labels short", () => {
+    expect(periodShortLabel("2026-09", "month", false)).toBe("Sept");
+    expect(periodShortLabel("2026-09-14", "week", false)).toBe("14 Sept");
+    expect(periodShortLabel("2026-09-05", "day", true)).toBe("5");
+    expect(periodShortLabel("2026-10-01", "day", false)).toBe("1 Oct");
+  });
+});
+
 describe("summariseClientActivities", () => {
   const months = ["2026-08", "2026-09"];
   const rows = [
-    mk("Patrol", "s1", "Alpha House", "2026-08-05T12:00:00Z", 40),
-    mk("Patrol", "s1", "Alpha House", "2026-09-05T12:00:00Z", 40),
-    mk("Alarm response", "s2", "Beta Depot", "2026-09-06T12:00:00Z", 120),
-    mk("Lock-up", "s1", "Alpha House", "2026-09-07T12:00:00Z", 20),
+    mk("patrol", "s1", "Alpha House", "2026-08-05T12:00:00Z", 40),
+    mk("patrol", "s1", "Alpha House", "2026-09-05T12:00:00Z", 40),
+    mk("callout", "s2", "Beta Depot", "2026-09-06T12:00:00Z", 120),
+    mk("lockup", "s1", "Alpha House", "2026-09-07T12:00:00Z", 20),
+    mk("guarding", "s2", "Beta Depot", "2026-09-08T19:00:00Z", 240, 12),
+    mk("guarding", "s2", "Beta Depot", "2026-09-09T19:00:00Z", 230, 11.5),
   ];
 
-  it("totals activities and spend", () => {
+  it("totals activities, spend and guarding hours", () => {
     const s = summariseClientActivities(rows, months, "month");
-    expect(s.totalActivities).toBe(4);
-    expect(s.totalSpend).toBe(220);
+    expect(s.totalActivities).toBe(6);
+    expect(s.totalSpend).toBe(690);
+    expect(s.guardingHours).toBe(23.5);
   });
 
-  it("counts by kind, most frequent first", () => {
+  it("totals each type of work in the fixed order, zeros included", () => {
     const s = summariseClientActivities(rows, months, "month");
-    expect(s.byKind[0]).toEqual({ label: "Patrol", count: 2 });
-    expect(s.byKind.map((k) => k.label)).toContain("Alarm response");
+    expect(s.byGroup.map((g) => g.group)).toEqual(ACTIVITY_GROUPS.map((g) => g.key));
+    expect(s.byGroup.find((g) => g.group === "guarding")).toEqual({
+      group: "guarding",
+      count: 2,
+      hours: 23.5,
+      charged: 470,
+    });
+    expect(s.byGroup.find((g) => g.group === "unlock")!.count).toBe(0);
   });
 
   it("sums spend per site, highest first", () => {
     const s = summariseClientActivities(rows, months, "month");
-    expect(s.spendBySite[0]).toEqual({
-      siteId: "s2",
-      siteName: "Beta Depot",
-      amount: 120,
-    });
+    expect(s.spendBySite[0]).toEqual({ siteId: "s2", siteName: "Beta Depot", amount: 590 });
     expect(s.spendBySite[1].amount).toBe(100);
   });
 
-  it("buckets activity + spend by period, zero-filling the range", () => {
+  it("splits each period by type of work, zero-filling the range", () => {
     const s = summariseClientActivities(rows, months, "month");
-    expect(s.activityByPeriod).toEqual([
-      { key: "2026-08", label: "Aug 2026", count: 1 },
-      { key: "2026-09", label: "Sept 2026", count: 3 },
+    expect(s.byPeriod.map((p) => [p.key, p.label, p.short, p.count, p.charged])).toEqual([
+      ["2026-08", "Aug 2026", "Aug", 1, 40],
+      ["2026-09", "Sept 2026", "Sept", 5, 650],
     ]);
-    expect(s.spendByPeriod.map((m) => m.amount)).toEqual([40, 180]);
+    const sept = s.byPeriod[1].groups;
+    expect(sept.map((g) => g.group)).toEqual(ACTIVITY_GROUPS.map((g) => g.key));
+    expect(sept.find((g) => g.group === "guarding")).toEqual({ group: "guarding", count: 2, hours: 23.5 });
+    expect(sept.find((g) => g.group === "callout")!.count).toBe(1);
+    expect(sept.find((g) => g.group === "unlock")!.count).toBe(0);
   });
 
   it("buckets by week when asked", () => {
     const weekKeys = ["2026-08-31", "2026-09-07"];
     const weekRows = [
-      mk("Patrol", "s1", "Alpha", "2026-09-01T12:00:00Z", 10), // wk 08-31
-      mk("Patrol", "s1", "Alpha", "2026-09-08T12:00:00Z", 10), // wk 09-07
-      mk("Patrol", "s1", "Alpha", "2026-09-09T12:00:00Z", 10), // wk 09-07
+      mk("patrol", "s1", "Alpha", "2026-09-01T12:00:00Z", 10), // wk 08-31
+      mk("patrol", "s1", "Alpha", "2026-09-08T12:00:00Z", 10), // wk 09-07
+      mk("callout", "s1", "Alpha", "2026-09-09T12:00:00Z", 10), // wk 09-07
     ];
     const s = summariseClientActivities(weekRows, weekKeys, "week");
-    expect(s.activityByPeriod.map((p) => p.count)).toEqual([1, 2]);
+    expect(s.byPeriod.map((p) => p.count)).toEqual([1, 2]);
+    expect(s.byPeriod[1].label).toBe("Week of 7 Sept");
   });
 
   it("zero-fills periods with no activity", () => {
     const s = summariseClientActivities([], ["2026-09"], "month");
     expect(s.totalActivities).toBe(0);
-    expect(s.spendByPeriod).toEqual([
-      { key: "2026-09", label: "Sept 2026", amount: 0 },
+    expect(s.guardingHours).toBe(0);
+    expect(s.byPeriod[0]).toMatchObject({ key: "2026-09", count: 0, charged: 0 });
+  });
+});
+
+describe("groupTotals", () => {
+  it("counts rows without hours as no hours", () => {
+    const t = groupTotals([
+      { group: "guarding", hours: null, billed: 0 },
+      { group: "guarding", hours: 8, billed: 100 },
     ]);
+    expect(t.find((g) => g.group === "guarding")).toEqual({
+      group: "guarding",
+      count: 2,
+      hours: 8,
+      charged: 100,
+    });
   });
 });
 
@@ -163,15 +211,16 @@ describe("activity types for the filter", () => {
   it("puts each job type in a group", () => {
     expect(jobGroup("ALARM_RESPONSE")).toBe("callout");
     expect(jobGroup("ADHOC")).toBe("callout");
-    expect(jobGroup("LOCK")).toBe("lock");
-    expect(jobGroup("UNLOCK")).toBe("lock");
+    expect(jobGroup("LOCK")).toBe("lockup");
+    expect(jobGroup("UNLOCK")).toBe("unlock");
     expect(jobGroup("STATIC_GUARDING_SHIFT")).toBe("guarding");
     expect(jobGroup("VPI")).toBe("patrol");
     expect(jobGroup("KEY_COLLECTION")).toBe("other");
   });
   it("only accepts known groups from a URL", () => {
-    expect(isActivityGroup("lock")).toBe(true);
-    expect(isActivityGroup("LOCK")).toBe(false);
+    expect(isActivityGroup("lockup")).toBe(true);
+    expect(isActivityGroup("lock")).toBe(false);
+    expect(isActivityGroup("LOCKUP")).toBe(false);
     expect(isActivityGroup(undefined)).toBe(false);
   });
 });

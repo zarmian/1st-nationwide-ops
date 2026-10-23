@@ -2,9 +2,10 @@ import Link from "next/link";
 import { FileText } from "lucide-react";
 import { ClickableRow } from "@/components/ClickableRow";
 import { formatDateTime } from "@/lib/dates";
-import { formatMoney } from "@/lib/numbers";
+import { formatHours, formatMoney } from "@/lib/numbers";
 import type { ClientActivity } from "@/lib/clientPortal";
 import { StatusChip } from "./StatusChip";
+import { GroupDot } from "./groupColors";
 
 /** Read-only activity table (no officer identity), reused across the portal.
  *  A row opens the activity's own page, with its report. */
@@ -54,7 +55,11 @@ export function ActivityList({
               )}
               <td className="text-slate-700">
                 <span className="inline-flex items-center gap-1.5">
+                  <GroupDot group={a.group} />
                   {a.kind}
+                  {a.group === "guarding" && a.hours != null && (
+                    <span className="tabular-nums text-slate-500">· {formatHours(a.hours)}</span>
+                  )}
                   {a.hasReport && (
                     <FileText
                       size={14}
