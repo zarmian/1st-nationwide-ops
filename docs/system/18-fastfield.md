@@ -103,9 +103,9 @@ It stops starting new reports at the time limit, and the next run carries on.
    - **Arrival and departure:** time answers labelled *Arrive / On site / Start* and *Depart / Off / Finish / Left*. They are kept only if within 72 h before, or 1 h after, submission.
    - **Visit type:** a short answer to a *type / visit / reason* question, such as "Lock up", "Unlock", "Call out" or "Patrol".
    - **The moment used for matching:** arrival, else when the form was opened on the phone, else submission.
-2. **Site** (`pickSite`). It searches the form's client's active sites, or **all clients'** if the form isn't tied to one:
+2. **Site** (`pickSite`). It searches the form's client's active sites, or **all clients'** if the form isn't tied to one. If the typed site names exactly one client ("Shurgard self storage Woolwich"), only that client's sites are searched and its name is dropped from the text (`narrowSiteText`). "Self" and "storage" are always dropped, since every storage site shares them; without this, every "Access Self Storage …" outscored "Woolwich (SH-74)". Then:
    - **Postcode first.** Several sites with that postcode are told apart by the name, then by GPS within 2 km.
-   - **Then the name**, using the Telegram bot's fuzzy match. Several hits are settled by GPS within 2 km.
+   - **Then the name**, using the Telegram bot's fuzzy match. Among several hits, a site with every word in its **name** beats one with them only in its address (a site on "Woolwich Road"), then GPS within 2 km settles it.
    - **Then GPS alone**, within 500 m.
    - **Still not settled — by the work on there** (`pickSiteByActivity`). This applies when the postcode or name fits several sites, or none fits but the phone was within 2 km of some. If exactly one of those sites had work on at the time (a static shift on, or a job or visit within 3 hours), that's the site. It isn't used when that site is more than 5 km from the phone's GPS fix.
 3. **What it's about.** The kind is the visit type from the form, else the form's *Reports* setting.

@@ -428,22 +428,75 @@ function nearest(
   return best;
 }
 
+export type CustomerRow = { id: string; name: string };
+
+/** Words every self-storage site shares — they don't tell sites apart, and
+ *  would make every "Access Self Storage …" outscore "Woolwich (SH-74)". */
+const SHARED_WORDS = new Set(["self", "storage", "selfstorage"]);
+
+function wordsOf(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+/**
+ * The typed site name, ready for matching: a client named in it ("Shurgard
+ * self storage Woolwich") narrows the search to that client's sites, and the
+ * client's name and the words every storage site shares come out of the
+ * text — leaving "woolwich" to find "Woolwich (SH-74)". Two clients named,
+ * or none: no narrowing.
+ */
+export function narrowSiteText(
+  text: string | null,
+  sites: SiteRow[],
+  customers: CustomerRow[],
+): { text: string | null; pool: SiteRow[] } {
+  if (!text) return { text, pool: sites };
+  let ws = wordsOf(text);
+  const named = customers.filter((c) => {
+    const cw = wordsOf(c.name);
+    if (cw.join(" ").length < 3) return false;
+    for (let i = 0; i + cw.length <= ws.length; i++) {
+      if (cw.every((w, j) => ws[i + j] === w)) return true;
+    }
+    return false;
+  });
+  let pool = sites;
+  if (named.length === 1) {
+    const own = sites.filter((x) => x.customerId === named[0].id);
+    if (own.length) pool = own;
+    const cw = new Set(wordsOf(named[0].name));
+    ws = ws.filter((w) => !cw.has(w));
+  }
+  ws = ws.filter((w) => !SHARED_WORDS.has(w));
+  return { text: ws.length ? ws.join(" ") : null, pool };
+}
+
 /**
  * Which site a report is for. A postcode in the site name (or a postcode
  * answer) wins; otherwise the site named in the form (fuzzy, like the
- * Telegram bot). The phone's GPS settles a postcode or name that fits several
- * sites, and stands in when neither is recognised.
+ * Telegram bot) — among the named client's sites when the text names one.
+ * The phone's GPS settles a postcode or name that fits several sites, and
+ * stands in when neither is recognised.
  */
 export function pickSite(
   report: { siteText: string | null; postcode?: string | null; lat: number | null; lng: number | null },
-  sites: SiteRow[],
+  allSites: SiteRow[],
+  customers: CustomerRow[] = [],
 ): SitePick {
   const { siteText, postcode, lat, lng } = report;
   // The name without the postcode, so its parts don't count as name words.
-  const nameText = siteText?.replace(POSTCODE, " ").replace(/\s+/g, " ").trim() || null;
+  const typed = siteText?.replace(POSTCODE, " ").replace(/\s+/g, " ").trim() || null;
+  const { text: nameText, pool: sites } = narrowSiteText(typed, allSites, customers);
 
   if (postcode) {
-    const hits = sites.filter((s) => normalisePostcode(s.postcode) === postcode);
+    const anyHits = allSites.filter((s) => normalisePostcode(s.postcode) === postcode);
+    // The named client's sites at that postcode, if it has any there.
+    const ownHits = anyHits.filter((s) => sites.includes(s));
+    const hits = ownHits.length ? ownHits : anyHits;
     if (hits.length === 1) {
       return { site: hits[0], how: "postcode", distanceM: distanceTo(hits[0], lat, lng) };
     }
@@ -470,6 +523,16 @@ export function pickSite(
       return { site, how: "name", distanceM: distanceTo(site, lat, lng) };
     }
     if (m.kind === "many") {
+      // A site whose NAME has every word beats one that only has them in
+      // its address ("Woolwich" vs a site on Woolwich Road).
+      const want = wordsOf(nameText);
+      const byName = (m.sites as SiteRow[]).filter((x) => {
+        const name = wordsOf(x.name).join(" ");
+        return want.every((w) => name.includes(w));
+      });
+      if (byName.length === 1) {
+        return { site: byName[0], how: "name", distanceM: distanceTo(byName[0], lat, lng) };
+      }
       const near = nearest(m.sites as SiteRow[], lat, lng, GPS_TIEBREAK_MAX_M);
       if (near) return { site: near.site, how: "name+gps", distanceM: near.distanceM };
       return {

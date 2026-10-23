@@ -51,6 +51,7 @@ import {
   shiftAround,
   shiftsOn,
   type ActivityCandidate,
+  type CustomerRow,
   type FastFieldAnswer,
   type FastFieldFacts,
   type FastFieldIncoming,
@@ -278,6 +279,7 @@ export async function planFastField(
 
 export type Ctx = {
   sites: Map<string, SiteRow[]>;
+  customers: CustomerRow[] | null;
   people: { active: PersonRow[]; inactive: PersonRow[] } | null;
   /** Preview only: activities already claimed by an earlier report in this
    *  run, and jobs it would have created. */
@@ -286,7 +288,17 @@ export type Ctx = {
 };
 
 function newCtx(): Ctx {
-  return { sites: new Map(), people: null, claimed: new Set(), virtual: [] };
+  return { sites: new Map(), customers: null, people: null, claimed: new Set(), virtual: [] };
+}
+
+/** Active clients, for a client named in a report's site ("Shurgard self
+ *  storage Woolwich"). */
+async function customersFor(ctx: Ctx): Promise<CustomerRow[]> {
+  ctx.customers ??= await prisma.customer.findMany({
+    where: { active: true },
+    select: { id: true, name: true },
+  });
+  return ctx.customers;
 }
 
 /** Active sites to match against: one client's, or everyone's. */
@@ -529,7 +541,7 @@ async function decide(
   preview: boolean,
 ): Promise<Decision> {
   const sites = await sitesFor(ctx, form.customerId);
-  const sp = pickSite(facts, sites);
+  const sp = pickSite(facts, sites, await customersFor(ctx));
   let site: SiteRow;
   let how: string;
   if (sp.site) {
