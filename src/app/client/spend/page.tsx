@@ -48,7 +48,7 @@ export default async function ClientSpendPage({
       <div className="grid grid-cols-3 gap-3 sm:gap-4">
         <StatCard
           tone="emerald"
-          label="Total spend"
+          label="Total charged"
           value={formatMoney(data.totalSpend)}
           hint="in this period"
           icon={PoundSterling}
@@ -62,15 +62,15 @@ export default async function ClientSpendPage({
         />
         <StatCard
           tone="indigo"
-          label="Sites billed"
+          label="Sites charged"
           value={formatNumber(sitesBilled)}
-          hint="had billed work"
+          hint="had charged work"
           icon={Building2}
         />
       </div>
 
       {data.spendByPeriod.length >= 2 && data.totalSpend > 0 && (
-        <Panel title="Spend over time" icon={TrendingUp} accent="emerald">
+        <Panel title="Charges over time" icon={TrendingUp} accent="emerald">
           <PeriodBars
             tone="emerald"
             data={data.spendByPeriod.map((p) => ({
@@ -78,7 +78,7 @@ export default async function ClientSpendPage({
               value: p.amount,
               display: formatMoney(p.amount),
             }))}
-            ariaLabel="Spend per period"
+            ariaLabel="Charges per period"
           />
         </Panel>
       )}
@@ -93,7 +93,7 @@ export default async function ClientSpendPage({
               display: formatMoney(s.amount),
               href: `/client/sites/${s.siteId}?range=${key}`,
             }))}
-            emptyLabel="No billed work in this period."
+            emptyLabel="Nothing charged in this period."
           />
         </Panel>
         <Panel title="By period" icon={CalendarDays} accent="indigo" flush>
@@ -102,7 +102,7 @@ export default async function ClientSpendPage({
               <thead>
                 <tr>
                   <th>Period</th>
-                  <th className="col-num">Spend</th>
+                  <th className="col-num">Charged</th>
                 </tr>
               </thead>
               <tbody>

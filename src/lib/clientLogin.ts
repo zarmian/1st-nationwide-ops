@@ -21,8 +21,11 @@ import { newPublicToken } from "@/lib/tokens";
 import { isEmailConfigured, sendEmail } from "@/lib/email";
 
 export const LINK_TTL_MIN = 15;
-/** At most this many links per email address per window. */
+/** At most this many links per email address per window… */
 const LINKS_PER_WINDOW = 3;
+/** …and per customer, so made-up addresses can't flood their inboxes even
+ *  where the per-IP limiter (Upstash) isn't set up. */
+const CUSTOMER_LINKS_PER_WINDOW = 30;
 const WINDOW_MIN = 15;
 
 // ── Pure helpers (unit-tested) ────────────────────────────────────────────
@@ -162,10 +165,15 @@ export async function requestClientLink(rawEmail: string): Promise<void> {
   }
 
   const since = new Date(Date.now() - WINDOW_MIN * 60_000);
-  const recent = await prisma.clientLoginLink.count({
-    where: { email, createdAt: { gte: since } },
-  });
-  if (recent >= LINKS_PER_WINDOW) return;
+  const [forEmail, forCustomer] = await Promise.all([
+    prisma.clientLoginLink.count({ where: { email, createdAt: { gte: since } } }),
+    prisma.clientLoginLink.count({ where: { customerId: customer.id, createdAt: { gte: since } } }),
+  ]);
+  if (forEmail >= LINKS_PER_WINDOW) return;
+  if (forCustomer >= CUSTOMER_LINKS_PER_WINDOW) {
+    console.warn("Client sign-in links paused for a customer: too many in 15 minutes.");
+    return;
+  }
 
   const token = newPublicToken();
   await prisma.clientLoginLink.create({

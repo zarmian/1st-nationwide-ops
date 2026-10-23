@@ -49,7 +49,7 @@ export default async function ClientHome({
         />
         <StatCard
           tone="emerald"
-          label="Spend"
+          label="Charged"
           value={formatMoney(data.totalSpend)}
           hint="for work in this period"
           icon={PoundSterling}
@@ -95,7 +95,7 @@ export default async function ClientHome({
           />
         </Panel>
         <Panel
-          title="Spend by site"
+          title="Charges by site"
           hint="Top sites in this period"
           icon={Building2}
           accent="emerald"
@@ -109,7 +109,7 @@ export default async function ClientHome({
               display: formatMoney(s.amount),
               href: `/client/sites/${s.siteId}?range=${key}`,
             }))}
-            emptyLabel="No billed work in this period."
+            emptyLabel="Nothing charged in this period."
           />
         </Panel>
       </div>

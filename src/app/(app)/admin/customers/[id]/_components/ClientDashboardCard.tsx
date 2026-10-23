@@ -60,6 +60,7 @@ export function ClientDashboardCard({
         </label>
         <div className="flex flex-wrap items-start gap-2">
           <input
+            key={domains.join(",")}
             id="client-domains"
             name="domains"
             defaultValue={domains.join(", ")}
