@@ -107,26 +107,28 @@ It stops starting new reports at the time limit, and the next run carries on.
    - **Postcode first.** Several sites with that postcode are told apart by the name, then by GPS within 2 km.
    - **Then the name**, using the Telegram bot's fuzzy match. Several hits are settled by GPS within 2 km.
    - **Then GPS alone**, within 500 m.
+   - **Still not settled — by the work on there** (`pickSiteByActivity`). This applies when the postcode or name fits several sites, or none fits but the phone was within 2 km of some. If exactly one of those sites had work on at the time (a static shift on, or a job or visit within 3 hours), that's the site. It isn't used when that site is more than 5 km from the phone's GPS fix.
 3. **What it's about.** The kind is the visit type from the form, else the form's *Reports* setting.
-   - **Patrol report while a static or dog-handler shift is on at that site** (30 min before the start to 60 min after the end): it is attached to the shift (`pickShift`). If two shifts were on, the officer named in the form decides. A shift takes any number of reports.
+   - **Patrol report while a static or dog-handler shift is on at that site** (30 min before the start to 60 min after the end): it is attached to the shift (`pickShift`). If two shifts were on, the officer named in the form decides, else the one that started first. A shift takes any number of reports, and attaching one bills nothing.
    - **Otherwise:**
      - jobs and patrol visits at the site with any time within **3 hours** are considered. Cancelled jobs, partner-handled jobs and shift jobs are left out.
      - The nearest wins, and an activity of the report's own kind counts as 30 min closer.
-     - If the runner-up is within 20 min of the winner, it's **ambiguous** and left for a person.
+     - If the runner-up is within 20 min of the winner, it's a close call. It still decides — the report's own kind of work first, then the nearer time, then the earlier activity — and the note says so.
      - Activities that already have a FastField report are **taken**.
    - **Nothing within 3 hours, and no static shift on** (`pickActivityWide`): it looks again up to **18 hours** either side, for a report filed late or a job logged at the wrong time. Only:
      - the **same kind of work** (`familyOf`): patrol or VPI, callout (alarm, ad-hoc, key collection or drop-off, survey), lock-up, unlock;
      - activities **without** a FastField report;
      - activities **already due** when the import runs, so an afternoon report never completes tonight's patrol or lock-up early.
 
-     The nearest still wins, and two about equally close (within 20 min of each other) are **ambiguous**. The note says it came from the 18-hour look, with how far apart the two were.
+     The nearest still wins; a close call is settled as above. The note says it came from the 18-hour look, with how far apart the two were.
 4. **Outcome:**
    - A pick → **LINKED**.
-   - Nothing at all near the time (and nothing in the 18-hour look):
-     - if a static shift was on, it stays **UNMATCHED** with reason *shift*, because the guard on duty may have handled it. No job is made;
-     - otherwise, if the site belongs to the form's *Make the job* client (Shurgard), → **CREATED**: a completed job of the report's kind;
+   - No job or visit to attach it to:
+     - **a static shift was on** → **LINKED to the shift**, whatever the report's kind. The guard on duty dealt with it, so no job is made and nothing is billed twice;
+     - **a patrol report** filed up to **6 hours after** a shift at the site ended, or up to **2 hours before** one started (rounds sent in late) → **LINKED to that shift** (`shiftAround`, the nearest);
+     - otherwise, if nothing was near the time and the site belongs to the form's *Make the job* client (Shurgard) → **CREATED**: a completed job of the report's kind;
      - otherwise → **UNMATCHED**.
-   - An UNMATCHED report's note says why: site not recognised, nothing near the time, a static shift was on, already has a report, or two equally close.
+   - An UNMATCHED report's note says why: site not recognised, nothing near the time, or the activity already has a report. (*Ambiguous* and *shift* no longer happen for new reports. Older ones may still carry them.)
 
 ### Attaching (`linkReportToJob` / `linkReportToVisit` / `linkReportToShift` / `createJobForReport`)
 

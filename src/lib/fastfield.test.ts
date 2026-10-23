@@ -10,6 +10,8 @@ import {
   pickOfficer,
   pickShift,
   pickSite,
+  pickSiteByActivity,
+  shiftAround,
   splitSiaNumber,
   visitTypeOf,
   type ActivityCandidate,
@@ -245,10 +247,18 @@ describe("pickSite", () => {
     expect(p.site && p.how).toBe("name+gps");
   });
 
-  it("leaves an ambiguous name without GPS for a person", () => {
+  it("leaves an ambiguous name without GPS undecided, with the sites it fits", () => {
     const p = pickSite(at("Acton"), sites);
     expect(p.site).toBeNull();
     expect(!p.site && p.reason).toMatch(/fits 2 sites/);
+    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["acton1", "acton2"]);
+  });
+
+  it("offers the sites near the GPS fix when the name isn't recognised", () => {
+    // ~1.1 km from Acton North: too far for GPS alone, near enough to offer.
+    const p = pickSite(at("Unit 4", 51.525, -0.27), sites);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.candidates.map((c) => c.id)).toEqual(["acton1"]);
   });
 
   it("uses GPS alone when the name isn't recognised", () => {
@@ -361,10 +371,67 @@ describe("pickShift", () => {
 
   it("picks the officer's own shift when two were on", () => {
     const both = [shift("a", "19:00", "07:00", "u1"), shift("b", "19:00", "07:00", "u2")];
-    expect(pickShift(when, both, "u2").pick?.id).toBe("b");
+    const p = pickShift(when, both, "u2");
+    expect(p.pick?.id).toBe("b");
+    expect(p.pick && p.shared).toBe(false);
+  });
+
+  it("takes the one that started first when the officer doesn't settle it", () => {
+    const both = [shift("late", "20:00", "08:00"), shift("early", "18:00", "06:00")];
     const p = pickShift(when, both, null);
-    expect(p.pick).toBeNull();
-    expect(!p.pick && p.reason).toBe("ambiguous");
+    expect(p.pick?.id).toBe("early");
+    expect(p.pick && p.shared).toBe(true);
+    const same = [shift("b", "19:00", "07:00"), shift("a", "19:00", "07:00")];
+    expect(pickShift(when, same, null).pick?.id).toBe("a");
+  });
+});
+
+describe("shiftAround", () => {
+  const shift = (id: string, start: string, end: string): ShiftCandidate => ({
+    id,
+    start: new Date(start),
+    end: new Date(end),
+    officerId: null,
+  });
+  const night = shift("night", "2026-10-17T18:00:00Z", "2026-10-18T07:00:00Z");
+
+  it("takes a patrol round sent in up to 6 hours after the shift ended", () => {
+    const p = shiftAround(new Date("2026-10-18T11:30:00Z"), [night]);
+    expect(p?.pick.id).toBe("night");
+    expect(p?.after).toBe(true);
+    expect(p?.gapMin).toBe(270);
+    expect(shiftAround(new Date("2026-10-18T13:30:00Z"), [night])).toBeNull();
+  });
+
+  it("takes one up to 2 hours before it started", () => {
+    const p = shiftAround(new Date("2026-10-17T16:30:00Z"), [night]);
+    expect(p?.pick.id).toBe("night");
+    expect(p?.after).toBe(false);
+    expect(shiftAround(new Date("2026-10-17T15:30:00Z"), [night])).toBeNull();
+  });
+
+  it("takes the nearer of two shifts", () => {
+    const next = shift("next", "2026-10-18T18:00:00Z", "2026-10-19T07:00:00Z");
+    expect(shiftAround(new Date("2026-10-18T09:00:00Z"), [next, night])?.pick.id).toBe("night");
+    expect(shiftAround(new Date("2026-10-18T16:30:00Z"), [next, night])?.pick.id).toBe("next");
+  });
+});
+
+describe("pickSiteByActivity", () => {
+  const a = site("a", "Shurgard Acton North", 51.515, -0.27, "Acton London");
+  const b = site("b", "Shurgard Acton South", 51.501, -0.269, "Acton London");
+  const far = site("far", "Shurgard Croydon", 51.37, -0.1, "Croydon");
+
+  it("takes the one site that had work on", () => {
+    expect(pickSiteByActivity({ lat: null, lng: null }, [a, b], new Set(["b"]))?.id).toBe("b");
+  });
+  it("won't guess when none, or more than one, had work on", () => {
+    expect(pickSiteByActivity({ lat: null, lng: null }, [a, b], new Set())).toBeNull();
+    expect(pickSiteByActivity({ lat: null, lng: null }, [a, b], new Set(["a", "b"]))).toBeNull();
+  });
+  it("won't take a site far from the phone's GPS fix", () => {
+    expect(pickSiteByActivity({ lat: 51.515, lng: -0.27 }, [a, far], new Set(["far"]))).toBeNull();
+    expect(pickSiteByActivity({ lat: 51.514, lng: -0.271 }, [a, far], new Set(["a"]))?.id).toBe("a");
   });
 });
 
@@ -416,17 +483,26 @@ describe("pickActivity", () => {
     expect(p.pick?.id).toBe("callout");
   });
 
-  it("asks a person when the type preference only just tips it", () => {
-    // Patrol 15 min away vs callout 35 min away (counts as 5): too close to call.
+  it("takes the form's own type when two are about as close", () => {
+    // Patrol 15 min away vs callout 35 min away (counts as 5): a close call,
+    // settled by the kind of work.
     const p = pickActivity(when, "ALARM_RESPONSE", [job("patrol", "PATROL", "21:00"), job("callout", "ALARM_RESPONSE", "20:40")]);
-    expect(p.pick).toBeNull();
-    expect(!p.pick && p.reason).toBe("ambiguous");
+    expect(p.pick?.id).toBe("callout");
+    expect(p.pick && p.closeCall).toBe(true);
   });
 
-  it("leaves two equally close activities for a person", () => {
-    const p = pickActivity(when, "ALARM_RESPONSE", [job("a", "PATROL", "21:00"), job("b", "PATROL", "21:30")]);
-    expect(p.pick).toBeNull();
-    expect(!p.pick && p.reason).toBe("ambiguous");
+  it("takes the nearer, then the earlier, when two are equally close", () => {
+    const p = pickActivity(when, "ALARM_RESPONSE", [job("b", "PATROL", "21:30"), job("a", "PATROL", "21:00")]);
+    expect(p.pick?.id).toBe("a");
+    expect(p.pick && p.closeCall).toBe(true);
+    const q = pickActivity(when, "ALARM_RESPONSE", [job("far", "PATROL", "20:40"), job("near", "PATROL", "21:05")]);
+    expect(q.pick?.id).toBe("near");
+  });
+
+  it("isn't a close call when one is clearly nearer", () => {
+    const p = pickActivity(when, "ALARM_RESPONSE", [job("a", "ALARM_RESPONSE", "21:10"), job("b", "ALARM_RESPONSE", "20:00")]);
+    expect(p.pick?.id).toBe("a");
+    expect(p.pick && p.closeCall).toBe(false);
   });
 
   it("says when the only nearby activity is taken", () => {
@@ -501,14 +577,15 @@ describe("pickActivityWide", () => {
     expect(!p.pick && p.reason).toBe("none");
   });
 
-  it("leaves two about equally close for a person", () => {
+  it("takes the nearer of two about equally close", () => {
     const p = pickActivityWide(
       when,
       "LOCK",
-      [job("a", "LOCK", "17T20:00"), job("b", "LOCK", "18T08:10")],
+      [job("b", "LOCK", "18T08:10"), job("a", "LOCK", "17T20:00")],
       new Date("2026-10-18T09:00:00.000Z"),
     );
-    expect(!p.pick && p.reason).toBe("ambiguous");
+    expect(p.pick?.id).toBe("a");
+    expect(p.pick && p.closeCall).toBe(true);
   });
 
   it("takes the nearest when one is clearly closer", () => {

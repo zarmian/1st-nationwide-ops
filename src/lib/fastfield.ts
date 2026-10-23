@@ -378,11 +378,20 @@ export type SiteRow = SiteCandidate & {
   customerId?: string | null;
 };
 
-export type SiteHow = "postcode" | "postcode+name" | "postcode+gps" | "name" | "name+gps" | "gps";
+export type SiteHow =
+  | "postcode"
+  | "postcode+name"
+  | "postcode+gps"
+  | "name"
+  | "name+gps"
+  | "gps"
+  | "activity";
 
 export type SitePick =
   | { site: SiteRow; how: SiteHow; distanceM: number | null }
-  | { site: null; reason: string };
+  /** `candidates`: the sites it could be — those the postcode or name fits,
+   *  or those near the GPS fix — for pickSiteByActivity. */
+  | { site: null; reason: string; candidates: SiteRow[] };
 
 /** Within this distance a GPS fix alone identifies the site. */
 export const GPS_ONLY_MAX_M = 500;
@@ -392,6 +401,15 @@ export const GPS_TIEBREAK_MAX_M = 2000;
 function distanceTo(site: SiteRow, lat: number | null, lng: number | null): number | null {
   if (lat == null || lng == null || site.lat == null || site.lng == null) return null;
   return haversineMeters(lat, lng, site.lat, site.lng);
+}
+
+/** Sites within `maxM` of the fix, nearest first. */
+function within(sites: SiteRow[], lat: number | null, lng: number | null, maxM: number): SiteRow[] {
+  return sites
+    .map((site) => ({ site, d: distanceTo(site, lat, lng) }))
+    .filter((x): x is { site: SiteRow; d: number } => x.d != null && x.d <= maxM)
+    .sort((a, b) => a.d - b.d)
+    .map((x) => x.site);
 }
 
 function nearest(
@@ -440,6 +458,7 @@ export function pickSite(
       return {
         site: null,
         reason: `Postcode ${postcode} fits ${hits.length} sites — pick the right one.`,
+        candidates: hits,
       };
     }
   }
@@ -456,13 +475,39 @@ export function pickSite(
       return {
         site: null,
         reason: `“${siteText}” fits ${m.sites.length} sites — pick the right one.`,
+        candidates: m.sites as SiteRow[],
       };
     }
   }
   const near = nearest(sites, lat, lng, GPS_ONLY_MAX_M);
   if (near) return { site: near.site, how: "gps", distanceM: near.distanceM };
-  if (siteText) return { site: null, reason: `Site “${siteText}” not recognised.` };
-  return { site: null, reason: "The form doesn't say which site, and has no GPS fix near one." };
+  const nearby = within(sites, lat, lng, GPS_TIEBREAK_MAX_M);
+  if (siteText) return { site: null, reason: `Site “${siteText}” not recognised.`, candidates: nearby };
+  return {
+    site: null,
+    reason: "The form doesn't say which site, and has no GPS fix near one.",
+    candidates: nearby,
+  };
+}
+
+/** Beyond this, the phone's GPS fix rules a site out even when it had work on. */
+export const ACTIVITY_SITE_MAX_M = 5000;
+
+/**
+ * When the form's site fits several sites — or none, but the phone was near
+ * some — the one that had work on at the time (a static shift, or a job or
+ * visit within 3 hours). Only when exactly one did, and it isn't far from the
+ * phone's GPS fix.
+ */
+export function pickSiteByActivity(
+  report: { lat: number | null; lng: number | null },
+  candidates: SiteRow[],
+  activeSiteIds: Set<string>,
+): SiteRow | null {
+  const active = candidates.filter((c) => activeSiteIds.has(c.id));
+  if (active.length !== 1) return null;
+  const d = distanceTo(active[0], report.lat, report.lng);
+  return d != null && d > ACTIVITY_SITE_MAX_M ? null : active[0];
 }
 
 // ── Officer ───────────────────────────────────────────────────────────────
@@ -511,19 +556,61 @@ export function shiftsOn(when: Date, shifts: ShiftCandidate[]): ShiftCandidate[]
 /**
  * The static / dog-handler shift a patrol report was filed during: the one on
  * at the time, or — if two were — the one worked by the officer named in the
- * form. A shift takes any number of reports (one per patrol round).
+ * form, else the one that started first (`shared`). A shift takes any number
+ * of reports (one per patrol round), and linking one changes no billing.
  */
 export function pickShift(
   when: Date,
   shifts: ShiftCandidate[],
   officerId: string | null,
-): { pick: ShiftCandidate } | { pick: null; reason: "none" | "ambiguous" } {
+): { pick: ShiftCandidate; shared: boolean } | { pick: null; reason: "none" } {
   const on = shiftsOn(when, shifts);
   if (on.length === 0) return { pick: null, reason: "none" };
-  if (on.length === 1) return { pick: on[0] };
+  if (on.length === 1) return { pick: on[0], shared: false };
   const theirs = officerId ? on.filter((s) => s.officerId === officerId) : [];
-  if (theirs.length === 1) return { pick: theirs[0] };
-  return { pick: null, reason: "ambiguous" };
+  if (theirs.length === 1) return { pick: theirs[0], shared: false };
+  const pool = theirs.length > 1 ? theirs : on;
+  const first = [...pool].sort(
+    (a, b) => a.start.getTime() - b.start.getTime() || a.id.localeCompare(b.id),
+  )[0];
+  return { pick: first, shared: true };
+}
+
+/** With no shift on, a patrol report this long before a shift starts — or
+ *  after it ends (rounds sent in late) — still goes to that shift. */
+export const SHIFT_AROUND_EARLY_MIN = 120;
+export const SHIFT_AROUND_LATE_MIN = 360;
+
+/** The shift a patrol report filed just outside it belongs to: the nearest
+ *  one, within the margins above. */
+export function shiftAround(
+  when: Date,
+  shifts: ShiftCandidate[],
+): { pick: ShiftCandidate; gapMin: number; after: boolean } | null {
+  const t = when.getTime();
+  let best: { s: ShiftCandidate; gap: number; after: boolean } | null = null;
+  for (const sh of shifts) {
+    const before = sh.start.getTime() - t;
+    const after = t - sh.end.getTime();
+    let gap = 0;
+    let isAfter = false;
+    if (before > 0) {
+      if (before > SHIFT_AROUND_EARLY_MIN * 60000) continue;
+      gap = before;
+    } else if (after > 0) {
+      if (after > SHIFT_AROUND_LATE_MIN * 60000) continue;
+      gap = after;
+      isAfter = true;
+    }
+    if (
+      !best ||
+      gap < best.gap ||
+      (gap === best.gap && sh.start.getTime() < best.s.start.getTime())
+    ) {
+      best = { s: sh, gap, after: isAfter };
+    }
+  }
+  return best ? { pick: best.s, gapMin: Math.round(best.gap / 60000), after: best.after } : null;
 }
 
 // ── Activity ──────────────────────────────────────────────────────────────
@@ -540,8 +627,10 @@ export type ActivityCandidate = {
 };
 
 export type ActivityPick =
-  | { pick: ActivityCandidate; minutesApart: number }
-  | { pick: null; reason: "none" | "taken" | "ambiguous"; options: ActivityCandidate[] };
+  /** `closeCall`: another activity was about as close (it took the form's
+   *  own kind of work, then the nearer one). */
+  | { pick: ActivityCandidate; minutesApart: number; closeCall: boolean }
+  | { pick: null; reason: "none" | "taken"; options: ActivityCandidate[] };
 
 /** How far either side of the report an activity may be. */
 export const MATCH_WINDOW_MIN = 180;
@@ -574,7 +663,7 @@ export function familyOf(type: string): Family | null {
 
 /** An activity of the form's own type counts as this much closer. */
 const SAME_TYPE_BONUS_MIN = 30;
-/** The runner-up must be at least this much further away for a clear pick. */
+/** A runner-up within this much of the winner is "about as close". */
 const CLEAR_MARGIN_MIN = 20;
 
 /** "45 min" / "5 h 10 min" — how far apart a report and an activity are. */
@@ -597,8 +686,9 @@ function minutesApart(c: ActivityCandidate, when: Date): number {
 /**
  * The activity a report belongs to: the nearest in time at the site, within
  * 3 hours either side (or `windowMin`), preferring the form's own type when
- * two are close. Leaves it for a person when two activities are about equally
- * close, or the only ones nearby already have a FastField report.
+ * two are close. When two are about equally close it still decides — the
+ * form's own kind of work, then the nearer, then the earlier. Leaves it for a
+ * person only when the activities nearby already have a FastField report.
  */
 export function pickActivity(
   when: Date,
@@ -621,10 +711,23 @@ export function pickActivity(
       options: near.map((x) => x.c),
     };
   }
-  if (free.length > 1 && free[1].score - free[0].score < CLEAR_MARGIN_MIN) {
-    return { pick: null, reason: "ambiguous", options: free.map((x) => x.c) };
-  }
-  return { pick: free[0].c, minutesApart: Math.round(free[0].m) };
+  const close = free.filter((x) => x.score - free[0].score < CLEAR_MARGIN_MIN);
+  close.sort(
+    (a, b) =>
+      Number(b.c.type === formJobType) - Number(a.c.type === formJobType) ||
+      a.m - b.m ||
+      firstTime(a.c) - firstTime(b.c) ||
+      a.c.id.localeCompare(b.c.id),
+  );
+  return {
+    pick: close[0].c,
+    minutesApart: Math.round(close[0].m),
+    closeCall: close.length > 1,
+  };
+}
+
+function firstTime(c: ActivityCandidate): number {
+  return Math.min(...c.times.map((t) => t.getTime()));
 }
 
 /**
