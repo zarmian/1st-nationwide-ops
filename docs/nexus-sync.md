@@ -297,6 +297,10 @@ on our schedule, and its `LINK-…` reference goes on the visit
   uploaded **only when a run fails or is started by hand**, kept **1 day**.
   Keep it that way when changing a robot.
 - **Idempotent:** upsert-only, so re-running is safe.
+- **Run time:** the daily site sync takes about 13 minutes, nearly all of it
+  the import (20 sites per call). Its time limit is 30 minutes. A run stopped
+  by the limit leaves the sites it hadn't reached as they were, and the next
+  day's run catches up.
 - **Fragile by nature:** if Nexus redesign their dashboard the callouts parse
   may return 0 rows — the robot then skips posting (empty-snapshot guard) and
   fails the run so GitHub emails the owner. Check the capture artifact's
