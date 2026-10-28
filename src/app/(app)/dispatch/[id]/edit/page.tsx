@@ -47,7 +47,18 @@ export default async function EditJobPage({
       }),
     ]);
 
-  if (!job || !job.site) notFound();
+  if (!job) notFound();
+
+  // A job can arrive without a site we know (a Keyholding job for a property
+  // that isn't in the system yet). It's still editable, and the form offers
+  // the site list so it can be attached once the site has been added.
+  const sites = job.site
+    ? []
+    : await prisma.site.findMany({
+        where: { active: true },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, code: true, postcodeFormatted: true },
+      });
 
   // Shift-type jobs have their own flow — don't expose them in the picker
   // here.
@@ -70,9 +81,9 @@ export default async function EditJobPage({
     notes: job.notes,
     partnerReportRef: job.partnerReportRef,
     excludeFromClientReport: job.excludeFromClientReport,
-    siteName: job.site.name,
-    siteCode: job.site.code,
-    sitePostcode: job.site.postcodeFormatted,
+    site: job.site
+      ? { name: job.site.name, code: job.site.code, postcode: job.site.postcodeFormatted }
+      : null,
   };
 
   const boundAction = updateJob.bind(null, job.id);
@@ -92,6 +103,10 @@ export default async function EditJobPage({
         jobSources={allJobSources}
         officers={officers}
         partners={partners}
+        sites={sites.map((s) => ({
+          id: s.id,
+          label: `${s.code ? `${s.code} — ` : ""}${s.name}${s.postcodeFormatted ? ` (${s.postcodeFormatted})` : ""}`,
+        }))}
         action={boundAction}
       />
     </div>

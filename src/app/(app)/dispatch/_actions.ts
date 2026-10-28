@@ -455,6 +455,7 @@ const EditJobInput = z
     notes: z.string().trim().max(2000).optional().nullable(),
     excludeFromClientReport: z.boolean().default(false),
     partnerReportRef: z.string().trim().max(200).optional().nullable(),
+    siteId: z.string().uuid("Pick a site from the list").or(z.literal("")).optional().nullable(),
   })
   .superRefine((d, ctx) => {
     if (d.handlerKind === "partner" && (!d.handlerPartnerId || d.handlerPartnerId === "")) {
@@ -497,6 +498,7 @@ function parseEditForm(formData: FormData) {
     notes: formData.get("notes")?.toString() || null,
     excludeFromClientReport: formData.get("excludeFromClientReport") === "on",
     partnerReportRef: formData.get("partnerReportRef")?.toString() || null,
+    siteId: formData.get("siteId")?.toString() || null,
   });
 }
 
@@ -533,6 +535,22 @@ export async function updateJob(
     d.handlerKind === "partner" ? d.handlerPartnerId || null : null;
   const assignedToUserId =
     d.handlerKind === "officer" ? d.assignedToUserId || null : null;
+
+  // A site can only be set on a job that has none (one that came in for a
+  // site not in the system yet); otherwise it stays locked.
+  const newSiteId = existing.siteId === null && d.siteId ? d.siteId : null;
+  if (newSiteId) {
+    const site = await prisma.site.findUnique({
+      where: { id: newSiteId },
+      select: { active: true },
+    });
+    if (!site || !site.active) {
+      return {
+        error: "That site isn't available.",
+        fieldErrors: { siteId: ["Pick an active site"] },
+      };
+    }
+  }
 
   if (handlerPartnerId) {
     const partner = await prisma.partner.findUnique({
@@ -573,6 +591,7 @@ export async function updateJob(
       notes: d.notes ?? null,
       excludeFromClientReport: d.excludeFromClientReport,
       partnerReportRef: d.partnerReportRef ?? null,
+      ...(newSiteId ? { siteId: newSiteId } : {}),
     },
   });
 
@@ -581,12 +600,14 @@ export async function updateJob(
     entityId: jobId,
     action: "edited",
     userId: me.id,
+    ...(newSiteId ? { diff: { siteId: { from: null, to: newSiteId } } } : {}),
   });
 
   revalidatePath("/dispatch");
   revalidatePath(`/dispatch/${jobId}`);
   revalidatePath("/activities");
   if (existing.siteId) revalidatePath(`/sites/${existing.siteId}`);
+  if (newSiteId) revalidatePath(`/sites/${newSiteId}`);
   redirect(`/dispatch/${jobId}`);
 }
 
