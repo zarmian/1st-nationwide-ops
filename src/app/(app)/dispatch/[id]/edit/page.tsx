@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { requireStaff } from "@/lib/authz";
 import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
+import { khPropertyFromNotes } from "@/lib/keyholdingSite";
 import { updateJob } from "../../_actions";
 import { EditJobForm } from "../../_components/EditJobForm";
 
@@ -59,6 +60,15 @@ export default async function EditJobPage({
         orderBy: { name: "asc" },
         select: { id: true, name: true, code: true, postcodeFormatted: true },
       });
+  // The property Keyholding sent, offered as a new site — unless a site at
+  // its postcode is already in the system (then that one's the answer).
+  const property = job.site ? null : khPropertyFromNotes(job.notes);
+  const samePostcode = property
+    ? await prisma.site.findFirst({
+        where: { postcode: property.postcode },
+        select: { id: true },
+      })
+    : null;
 
   // Shift-type jobs have their own flow — don't expose them in the picker
   // here.
@@ -103,6 +113,12 @@ export default async function EditJobPage({
         jobSources={allJobSources}
         officers={officers}
         partners={partners}
+        newSite={
+          property && !samePostcode
+            ? { label: `${property.name}, ${property.addressLine}${property.city ? `, ${property.city}` : ""} ${property.postcodeFormatted}` }
+            : null
+        }
+        suggestedSiteId={samePostcode?.id ?? null}
         sites={sites.map((s) => ({
           id: s.id,
           label: `${s.code ? `${s.code} — ` : ""}${s.name}${s.postcodeFormatted ? ` (${s.postcodeFormatted})` : ""}`,

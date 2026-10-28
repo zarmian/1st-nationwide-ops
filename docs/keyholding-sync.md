@@ -62,6 +62,19 @@ the **last 3 days → next 7 days** (recent completions + upcoming jobs). By han
 - **Officer: left unallocated** — the Executor column is ignored and the
   office allocates; re-imports never touch an allocation.
 - **Site:** matched by the postcode in Addresses (then property name).
+  - A job for a property that isn't in the system comes in **without a site**.
+    Its notes keep the property (`Property: Name (#number).`) and the address.
+    The next imports attach the site by themselves once a site at that
+    postcode exists, for jobs still in the window.
+  - On the job's **Edit** page, the site list offers **"Add as a new site:
+    …"** (`src/lib/keyholdingSite.ts`). It makes the site from the property's
+    name, address, town and postcode, for the job's customer, places it on the
+    map from the postcode, sets the service from the job's type and notes the
+    Keyholding property number. It then attaches this job and every other job
+    still waiting for the same property.
+  - Region and rates aren't set, so fill them in on the new site.
+  - When a site at that postcode is already in the system, that site is listed
+    first instead ("Same postcode: …") and no new one is offered.
 - **Link, don't duplicate.** Most of these jobs already exist — generated from
   the site's lock/unlock/patrol schedule, or entered by hand. So each Keyholding
   job is first **linked** to the existing job at the same site, same type,

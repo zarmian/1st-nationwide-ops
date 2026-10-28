@@ -18,6 +18,7 @@ import { cancelJobCore, closeJobCore } from "@/lib/jobActions";
 import { logActivity } from "@/lib/audit";
 import { findDuplicateJobWarnings } from "@/lib/duplicateCheck";
 import { parseUkDateTimeLocal } from "@/lib/dates";
+import { addSiteFromKeyholdingJob } from "@/lib/keyholdingSite";
 import {
   materializeLockUnlockJobs,
   materializePatrolVisits,
@@ -455,7 +456,14 @@ const EditJobInput = z
     notes: z.string().trim().max(2000).optional().nullable(),
     excludeFromClientReport: z.boolean().default(false),
     partnerReportRef: z.string().trim().max(200).optional().nullable(),
-    siteId: z.string().uuid("Pick a site from the list").or(z.literal("")).optional().nullable(),
+    // A site's id, or "new" to add the job's Keyholding property as a site.
+    siteId: z
+      .string()
+      .uuid("Pick a site from the list")
+      .or(z.literal(""))
+      .or(z.literal("new"))
+      .optional()
+      .nullable(),
   })
   .superRefine((d, ctx) => {
     if (d.handlerKind === "partner" && (!d.handlerPartnerId || d.handlerPartnerId === "")) {
@@ -538,7 +546,8 @@ export async function updateJob(
 
   // A site can only be set on a job that has none (one that came in for a
   // site not in the system yet); otherwise it stays locked.
-  const newSiteId = existing.siteId === null && d.siteId ? d.siteId : null;
+  const addNewSite = existing.siteId === null && d.siteId === "new";
+  let newSiteId = existing.siteId === null && d.siteId && d.siteId !== "new" ? d.siteId : null;
   if (newSiteId) {
     const site = await prisma.site.findUnique({
       where: { id: newSiteId },
@@ -569,6 +578,15 @@ export async function updateJob(
         fieldErrors: { handlerPartnerId: ["Not a subcontracting partner"] },
       };
     }
+  }
+
+  // Everything checked: add the property as a site now (it attaches this
+  // job, and any other waiting for the same property).
+  if (addNewSite) {
+    const made = await addSiteFromKeyholdingJob(jobId, me.id);
+    if (!made.ok) return { error: made.error, fieldErrors: { siteId: [made.error] } };
+    newSiteId = made.siteId;
+    revalidatePath("/sites");
   }
 
   await prisma.job.update({
