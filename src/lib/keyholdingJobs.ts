@@ -233,7 +233,8 @@ type Prepared = {
   notes: string;
 };
 
-function prepare(r: KeyholdingRow):
+/** Exported for tests: the job fields (and notes) the import makes from a row. */
+export function prepare(r: KeyholdingRow):
   | { ok: true; row: Prepared }
   | { ok: false; skip: KhSkip } {
   const reference = cell(r, "#");

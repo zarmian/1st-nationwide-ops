@@ -51,6 +51,8 @@ export function EditJobForm({
   officers,
   partners,
   sites,
+  newSite = null,
+  suggestedSiteId = null,
   action,
 }: {
   job: EditableJob;
@@ -60,6 +62,10 @@ export function EditJobForm({
   partners: { id: string; name: string }[];
   /** Active sites to pick from — only for a job with no site yet. */
   sites: { id: string; label: string }[];
+  /** The partner's property, offered as a new site ("new"). */
+  newSite?: { label: string } | null;
+  /** An existing site at the property's postcode — listed first. */
+  suggestedSiteId?: string | null;
   action: (state: EditJobState, fd: FormData) => Promise<EditJobState>;
 }) {
   const [state, formAction] = useFormState(action, {});
@@ -113,6 +119,15 @@ export function EditJobForm({
             </label>
             <select id="siteId" name="siteId" defaultValue="" className="input">
               <option value="">Not in the system yet</option>
+              {newSite && <option value="new">Add as a new site: {newSite.label}</option>}
+              {suggestedSiteId &&
+                sites
+                  .filter((s) => s.id === suggestedSiteId)
+                  .map((s) => (
+                    <option key={`same-${s.id}`} value={s.id}>
+                      Same postcode: {s.label}
+                    </option>
+                  ))}
               {sites.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
@@ -122,8 +137,13 @@ export function EditJobForm({
             {fe.siteId && <p className="text-xs text-red-600 mt-1">{fe.siteId.join(", ")}</p>}
             <p className="text-xs text-slate-600 mt-1">
               This job came in for a site that isn&rsquo;t in the system (the partner&rsquo;s
-              name for it is in the notes). Add the site under Sites, then pick it here. Once
-              set, the site is locked like any other job&rsquo;s.
+              name for it is in the notes).{" "}
+              {newSite
+                ? "Choose “Add as a new site” to add it from the details the partner sent — any other job waiting for the same property gets it too — or pick a site from the list."
+                : suggestedSiteId
+                  ? "A site at the same postcode is already in the system — it's at the top of the list."
+                  : "Add the site under Sites, then pick it here."}{" "}
+              Once set, the site is locked like any other job&rsquo;s.
             </p>
           </div>
         )}
