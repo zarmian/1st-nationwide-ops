@@ -4,7 +4,9 @@
  *
  * Drives the real UI (no REST API exists): logs in, opens Jobs Management →
  * Jobs, sets the From/To date filter, clicks Find, and reads the results table
- * (mapping the 33 columns by header), paging through with the CUBA pager.
+ * (mapping the 33 columns by header). When the results run past one page of
+ * 50, it searches smaller date ranges instead of paging — the portal's Next
+ * button stopped moving on (Oct 2026).
  *
  * Always saves the mapped jobs to keyholding-jobs.json + a capture. When
  * KEYHOLDING_JOBS_IMPORT_URL + NEXUS_IMPORT_SECRET are set it POSTs them to
@@ -30,6 +32,15 @@ const daysAgo = (n) => {
   d.setUTCDate(d.getUTCDate() - n);
   return iso(d);
 };
+const addDays = (isoStr, n) => {
+  const d = new Date(`${isoStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return iso(d);
+};
+const daySpan = (a, b) =>
+  Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 86_400_000);
+/** "1-50 rows of …": the results run past one page (one page reads "42 rows"). */
+const morePages = (status) => /^\s*\d+\s*-\s*\d+\s+rows?\s+of\b/i.test(status ?? "");
 // Default window: the last 3 days (completions) through the next 7 (upcoming
 // jobs to allocate), so the nightly run catches both.
 const FROM = env("KEYHOLDING_FROM", daysAgo(3));
@@ -110,10 +121,10 @@ async function openJobs(page) {
   await page.waitForTimeout(6000);
 }
 
-async function setDatesAndFind(page) {
+async function setDatesAndFind(page, from, to) {
   const dfs = page.locator("input.v-datefield-textfield");
   const n = await dfs.count();
-  console.log(`Found ${n} date fields (From/To); setting ${uk(FROM)} → ${uk(TO)}`);
+  console.log(`Found ${n} date fields (From/To); setting ${uk(from)} → ${uk(to)}`);
   // Vaadin DateField ignores a raw .fill() — it needs real keystrokes so the
   // GWT widget parses the value. Type char-by-char, then Tab to commit (NOT
   // Escape: that closes the CUBA screen).
@@ -125,8 +136,8 @@ async function setDatesAndFind(page) {
     await field.press("Tab");
     await page.waitForTimeout(300);
   }
-  if (n >= 1) await typeDate(dfs.nth(0), uk(FROM));
-  if (n >= 2) await typeDate(dfs.nth(1), uk(TO));
+  if (n >= 1) await typeDate(dfs.nth(0), uk(from));
+  if (n >= 2) await typeDate(dfs.nth(1), uk(to));
   const vals = await dfs.evaluateAll((els) => els.map((e) => e.value));
   console.log("Date fields now read:", JSON.stringify(vals));
   await page.waitForTimeout(500);
@@ -195,6 +206,54 @@ function mapRows(rows) {
   });
 }
 
+/** Read every row of the current results into byRef, page by page, and
+ *  return the last paging status. Stops when Next is gone or disabled — or
+ *  when a page brings no new jobs (Next not moving on). */
+async function readPages(page, byRef) {
+  let lastStatus = null;
+  for (let pagerPage = 1; pagerPage <= MAX_PAGES; pagerPage++) {
+    const sizeBefore = byRef.size;
+    // Load every (vertically virtualised) row on this pager page by scrolling
+    // the table body until nothing new appears.
+    let stable = 0;
+    for (let s = 0; s < 150; s++) {
+      const { rows, status } = await extractTable(page);
+      lastStatus = status;
+      const before = byRef.size;
+      for (const cells of rows) {
+        const ref = (cells[0] ?? "").trim();
+        if (ref) byRef.set(ref, cells);
+      }
+      const { scrolled } = await scrollTableBody(page);
+      // Stop only once we can't scroll further AND no new rows arrive for
+      // several passes (Vaadin lazy-loads on scroll).
+      if (byRef.size === before && !scrolled) {
+        if (++stable >= 5) break;
+      } else {
+        stable = 0;
+      }
+      await page.waitForTimeout(500);
+    }
+    console.log(`Pager page ${pagerPage}: total ${byRef.size} — status "${lastStatus}"`);
+    if (pagerPage > 1 && byRef.size === sizeBefore) {
+      console.warn("The next page brought no new jobs — stopping here.");
+      break;
+    }
+    if (!(await nextPage(page))) break;
+    await page.waitForTimeout(2500);
+    await page.evaluate(() => {
+      const t = document.querySelector(".v-table");
+      if (t)
+        for (const el of t.querySelectorAll("*"))
+          if (el.scrollHeight > el.clientHeight + 20) {
+            el.scrollTop = 0;
+            break;
+          }
+    });
+  }
+  return lastStatus;
+}
+
 async function run() {
   const browser = await chromium.launch();
   // A very tall viewport makes the Vaadin Table (height:100%) render a whole
@@ -210,42 +269,23 @@ async function run() {
     console.log("Login OK.");
     await dismissNotices(page);
     await openJobs(page);
-    await setDatesAndFind(page);
-
-    for (let pagerPage = 1; pagerPage <= MAX_PAGES; pagerPage++) {
-      // Load every (vertically virtualised) row on this pager page by scrolling
-      // the table body until nothing new appears.
-      let stable = 0;
-      for (let s = 0; s < 150; s++) {
-        const { rows, status } = await extractTable(page);
-        lastStatus = status;
-        const before = byRef.size;
-        for (const cells of rows) {
-          const ref = (cells[0] ?? "").trim();
-          if (ref) byRef.set(ref, cells);
-        }
-        const { scrolled } = await scrollTableBody(page);
-        // Stop only once we can't scroll further AND no new rows arrive for
-        // several passes (Vaadin lazy-loads on scroll).
-        if (byRef.size === before && !scrolled) {
-          if (++stable >= 5) break;
-        } else {
-          stable = 0;
-        }
-        await page.waitForTimeout(500);
+    // Search the whole window; when the results run past one page, search its
+    // halves instead (down to a single day) so each search fits on one page.
+    const windows = [[FROM, TO]];
+    while (windows.length) {
+      const [from, to] = windows.shift();
+      await setDatesAndFind(page, from, to);
+      const { status } = await extractTable(page);
+      if (morePages(status) && from < to) {
+        const mid = addDays(from, Math.floor(daySpan(from, to) / 2));
+        console.log(`More than one page of jobs from ${uk(from)} to ${uk(to)} — searching it in two halves.`);
+        windows.unshift([from, mid], [addDays(mid, 1), to]);
+        continue;
       }
-      console.log(`Pager page ${pagerPage}: total ${byRef.size} — status "${lastStatus}"`);
-      if (!(await nextPage(page))) break;
-      await page.waitForTimeout(2500);
-      await page.evaluate(() => {
-        const t = document.querySelector(".v-table");
-        if (t)
-          for (const el of t.querySelectorAll("*"))
-            if (el.scrollHeight > el.clientHeight + 20) {
-              el.scrollTop = 0;
-              break;
-            }
-      });
+      if (morePages(status)) {
+        console.warn(`More than one page of jobs on ${uk(from)} — reading as many pages as the portal gives.`);
+      }
+      lastStatus = await readPages(page, byRef);
     }
 
     const jobs = mapRows(Array.from(byRef.values()));

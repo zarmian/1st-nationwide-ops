@@ -32,16 +32,15 @@ export type EditableJob = {
   notes: string | null;
   partnerReportRef: string | null;
   excludeFromClientReport: boolean;
-  siteName: string;
-  siteCode: string | null;
-  sitePostcode: string;
+  /** Null when the job came in for a site that isn't in the system yet. */
+  site: { name: string; code: string | null; postcode: string } | null;
 };
 
 /**
  * Admin-only edit form for any Job. Pre-filled from the existing record.
  * Most fields are editable; site is locked (changing it would orphan
  * billing/key-handover lineage — admin can cancel + recreate if they
- * really need to). Status is also non-editable here — that flows through
+ * really need to). A job with no site yet can have one picked, once. Status is also non-editable here — that flows through
  * the cancel button, completion flow, or review queue so the state
  * machine stays honest.
  */
@@ -51,6 +50,7 @@ export function EditJobForm({
   jobSources,
   officers,
   partners,
+  sites,
   action,
 }: {
   job: EditableJob;
@@ -58,6 +58,8 @@ export function EditJobForm({
   jobSources: PickerOption[];
   officers: { id: string; name: string }[];
   partners: { id: string; name: string }[];
+  /** Active sites to pick from — only for a job with no site yet. */
+  sites: { id: string; label: string }[];
   action: (state: EditJobState, fd: FormData) => Promise<EditJobState>;
 }) {
   const [state, formAction] = useFormState(action, {});
@@ -89,20 +91,42 @@ export function EditJobForm({
       <div className="card p-5 space-y-4">
         <h2 className="font-semibold text-brand-navy">Basics</h2>
 
-        <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
-          <div className="text-xs uppercase tracking-wider text-slate-500 mb-0.5">
-            Site (locked)
+        {job.site ? (
+          <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
+            <div className="text-xs uppercase tracking-wider text-slate-500 mb-0.5">
+              Site (locked)
+            </div>
+            <div className="font-medium text-brand-navy">
+              {job.site.code ? `${job.site.code} — ` : ""}
+              {job.site.name}
+            </div>
+            <div className="text-xs text-slate-500">{job.site.postcode}</div>
+            <p className="text-xs text-slate-500 mt-1">
+              Changing site after creation would orphan billing + key-handover
+              history. Cancel and recreate if you need to move a job.
+            </p>
           </div>
-          <div className="font-medium text-brand-navy">
-            {job.siteCode ? `${job.siteCode} — ` : ""}
-            {job.siteName}
+        ) : (
+          <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+            <label className="label" htmlFor="siteId">
+              Site
+            </label>
+            <select id="siteId" name="siteId" defaultValue="" className="input">
+              <option value="">Not in the system yet</option>
+              {sites.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            {fe.siteId && <p className="text-xs text-red-600 mt-1">{fe.siteId.join(", ")}</p>}
+            <p className="text-xs text-slate-600 mt-1">
+              This job came in for a site that isn&rsquo;t in the system (the partner&rsquo;s
+              name for it is in the notes). Add the site under Sites, then pick it here. Once
+              set, the site is locked like any other job&rsquo;s.
+            </p>
           </div>
-          <div className="text-xs text-slate-500">{job.sitePostcode}</div>
-          <p className="text-xs text-slate-500 mt-1">
-            Changing site after creation would orphan billing + key-handover
-            history. Cancel and recreate if you need to move a job.
-          </p>
-        </div>
+        )}
 
         <div className="grid md:grid-cols-3 gap-4">
           <div>

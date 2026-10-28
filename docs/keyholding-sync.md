@@ -24,8 +24,15 @@ Vaadin UIDL). So a robot drives the real screen, like a person would.
    (char-by-char + Tab — Vaadin ignores a raw fill; never Escape, it closes the
    screen) and clicks **Find**.
 4. Reads the results table (Vaadin Table) — rows are `v-table-row` **and**
-   `v-table-row-odd` — mapping the 34 cells by position, and pages with the
-   CUBA **`.c-paging-next`** button (50 rows/page).
+   `v-table-row-odd` — mapping the 34 cells by position. One page holds 50
+   rows; a single page's status reads "42 rows", a longer list "1-50 rows of …".
+   - **More than one page:** it searches the two halves of the date range
+     instead (and halves again, down to a single day) until each search fits
+     on one page. On 28 Oct 2026 the portal's **`.c-paging-next`** button
+     stopped moving past rows 1–50, and the robot paged in place until the
+     20-minute limit.
+   - Paging is only left for a single day with more than 50 jobs. It stops as
+     soon as a page brings no new jobs.
 5. POSTs the rows (chunked) to `/api/imports/keyholding-jobs`.
 
 Every **4 hours** (the last step of the **Partner syncs** workflow) it reads
