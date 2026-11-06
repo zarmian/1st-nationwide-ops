@@ -280,6 +280,17 @@ describe("pickSite", () => {
     expect(p.site).toBeNull();
     expect(!p.site && p.reason).toMatch(/not recognised/);
   });
+
+  it("doesn't take a site because both places end in 'End'", () => {
+    const withEnd = [...sites, site("fern", "Shurgard Fern End", 50.9, -1.3, "Fern End")];
+    const p = pickSite(at("Ashby End"), withEnd);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.reason).toMatch(/not recognised/);
+    // With the phone at the right site, GPS finds it instead.
+    const g = pickSite(at("Ashby End", 51.5533, -0.2504), withEnd);
+    expect(g.site?.id).toBe("neasden");
+    expect(g.site && g.how).toBe("gps");
+  });
 });
 
 describe("pickSite with the client named in the site", () => {
