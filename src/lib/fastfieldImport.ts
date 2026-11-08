@@ -910,7 +910,7 @@ export const RECHECK_EVERY_MS = 24 * 3_600_000;
 /** When the matching rules last changed. Move it forward with any change to
  *  how reports are matched, so every waiting report is tried again under the
  *  new rules (newest first) instead of keeping the note from the old ones. */
-export const RULES_CHANGED_AT = new Date("2026-11-06T06:00:00Z");
+export const RULES_CHANGED_AT = new Date("2026-11-08T15:00:00Z");
 
 export type WaitingReport = {
   id: string;
