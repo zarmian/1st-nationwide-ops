@@ -120,11 +120,13 @@ function sortForDisplay(sites: SiteCandidate[], tokens: string[]): SiteCandidate
   });
 }
 
-/** Words that say nothing about which site is meant. */
-const FILLER_WORDS = new Set(["site", "sites", "the", "and", "of", "at", "ltd", "limited", "plc", "co", "uk"]);
+/** Words that say nothing about which site is meant. "End" is one: it ends
+ *  too many place names to tell them apart, so "Ashby End" mustn't find
+ *  "Fern End" just because both have it. */
+const FILLER_WORDS = new Set(["site", "sites", "the", "and", "of", "at", "ltd", "limited", "plc", "co", "uk", "end"]);
 
 /**
- * A weak word — a number, one or two characters, or filler like "site".
+ * A weak word — a number, one or two characters, or filler like "site" or "end".
  * It only counts as a whole word (so "1" doesn't hit "SUP00202" or a
  * postcode), and only to choose between sites a real word already found:
  * "Dratford site 1" finds nothing rather than whichever site has "site"

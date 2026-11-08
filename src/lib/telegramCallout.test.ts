@@ -151,6 +151,22 @@ describe("matchSite", () => {
     if (m12.kind === "one") expect(m12.site.id).toBe("d2");
   });
 
+  it("doesn't pick a site on 'end' alone (two places that both end in End)", () => {
+    const sites = [
+      ...SITES,
+      { id: "fe", name: "Fern End", code: null, postcode: "SO99 1AA", address: "Mill Road, Fern End" },
+    ];
+    // Another "… End" that isn't in the list: "end" mustn't find Fern End.
+    expect(matchSite("Ashby End", sites).kind).toBe("none");
+    expect(matchSite("end", sites).kind).toBe("none");
+    // Its own name still finds it, whole or in part.
+    for (const q of ["Fern End", "fern"]) {
+      const m = matchSite(q, sites);
+      expect(m.kind).toBe("one");
+      if (m.kind === "one") expect(m.site.id).toBe("fe");
+    }
+  });
+
   it("still matches a short postcode area with a name (tesco br1)", () => {
     const m = matchSite("Tesco BR1", SITES);
     expect(m.kind).toBe("one");
