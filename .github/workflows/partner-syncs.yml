@@ -1,6 +1,6 @@
 name: Partner syncs
 
-# Every 4 hours, one after the other in a single run:
+# About every 4 hours, one after the other in a single run:
 #   1. Nexus callouts      — dashboard "Upcoming Activities" → open VPI job stubs
 #   2. Nexus activities    — completed activities, last 3 days → completed stubs
 #   3. Keyholding jobs     — Chase2Base jobs, last 3 days → next 7 days
@@ -19,11 +19,23 @@ name: Partner syncs
 # (so GitHub emails the owner) and the captures are kept for 1 day.
 #
 # Secrets: the same ones the four individual workflows use.
+#
+# Backup start times: GitHub skips or delays a lot of scheduled runs, so
+# there's a backup start time between each pair of regular ones. Every
+# scheduled run first checks when the syncs last ran, and stops there (about
+# a minute of Actions time) if that was under 3 hours ago. So the syncs still
+# run about every 4 hours, and a run GitHub skipped is made up within about
+# 2 hours instead of 4. A run started by hand always syncs.
 
 on:
   schedule:
     - cron: "7 1-23/4 * * *" # 01:07 05:07 09:07 13:07 17:07 21:07 UTC
+    - cron: "37 3-23/4 * * *" # backups: 03:37 07:37 11:37 15:37 19:37 23:37 UTC
   workflow_dispatch:
+
+permissions:
+  contents: read # check out the robots
+  actions: read # see when the syncs last ran
 
 concurrency:
   group: partner-syncs # shared with the three manual workflows so imports never overlap
@@ -34,20 +46,61 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      # A scheduled run stops here if the syncs ran under 3 hours ago (see
+      # "Backup start times" above). Only an explicit "due=false" stops the
+      # run: if this check can't tell, or breaks, the syncs run as usual.
+      - name: Check when the syncs last ran
+        id: due
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set +e
+          if [ "$EVENT" != "schedule" ]; then echo "due=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # The start of the latest earlier run that really synced (not one that stopped here).
+          last=""
+          if ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/partner-syncs.yml/runs?status=completed&per_page=12" \
+              --jq '.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure") | .id'); then
+            for id in $ids; do
+              case "$id" in "" | *[!0-9]*) break ;; esac
+              t=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+                --jq '[.jobs[].steps[] | select(.name == "Nexus callouts" and .conclusion != "skipped")][0].started_at // empty') || break
+              if [ -n "$t" ]; then last="$t"; break; fi
+            done
+          fi
+          last_s=""
+          [ -n "$last" ] && last_s=$(date -u -d "$last" +%s 2>/dev/null)
+          case "$last_s" in "" | *[!0-9]*) last_s="" ;; esac
+          if [ -n "$last_s" ] && [ $(( $(date -u +%s) - last_s )) -lt 10800 ]; then
+            echo "The syncs last ran at $last, under 3 hours ago, so this run stops here."
+            echo "due=false" >> "$GITHUB_OUTPUT"
+          else
+            shown="an unknown time"; [ -n "$last_s" ] && shown="$last"
+            echo "The syncs last ran at $shown. Syncing now."
+            echo "due=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v7
+        if: steps.due.outputs.due != 'false'
 
       - uses: actions/setup-node@v7
+        if: steps.due.outputs.due != 'false'
         with:
           node-version: "22"
 
       - name: Install Playwright + Chromium
+        if: steps.due.outputs.due != 'false'
         run: |
           npm init -y >/dev/null 2>&1 || true
           npm install playwright@1.48.0
           npx playwright install --with-deps chromium
 
+      # "Check when the syncs last ran" finds earlier syncs by this step's
+      # name. If it's renamed there, every run simply syncs.
       - name: Nexus callouts
         id: callouts
+        if: steps.due.outputs.due != 'false'
         continue-on-error: true
         timeout-minutes: 10
         env:
@@ -60,6 +113,7 @@ jobs:
 
       - name: Nexus completed activities
         id: activities
+        if: steps.due.outputs.due != 'false'
         continue-on-error: true
         timeout-minutes: 15
         env:
@@ -72,6 +126,7 @@ jobs:
 
       - name: Keyholding jobs
         id: keyholding
+        if: steps.due.outputs.due != 'false'
         continue-on-error: true
         timeout-minutes: 20
         env:
@@ -85,6 +140,7 @@ jobs:
       # Counts only in the log; saves no capture files.
       - name: FastField forms
         id: fastfield
+        if: steps.due.outputs.due != 'false'
         continue-on-error: true
         timeout-minutes: 12
         env:
@@ -95,7 +151,7 @@ jobs:
         run: node scripts/fastfield-forms.mjs
 
       - name: Fail the run if any sync failed
-        if: steps.callouts.outcome != 'success' || steps.activities.outcome != 'success' || steps.keyholding.outcome != 'success' || steps.fastfield.outcome != 'success'
+        if: steps.due.outputs.due != 'false' && (steps.callouts.outcome != 'success' || steps.activities.outcome != 'success' || steps.keyholding.outcome != 'success' || steps.fastfield.outcome != 'success')
         run: |
           echo "Nexus callouts:   ${{ steps.callouts.outcome }}"
           echo "Nexus activities: ${{ steps.activities.outcome }}"
