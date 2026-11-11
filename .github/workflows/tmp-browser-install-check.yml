@@ -1,0 +1,47 @@
+name: Browser install check (temporary)
+
+# Temporary: checks both paths of scripts/install-browser.sh on GitHub's real
+# Ubuntu 24.04 image before the change merges. No secrets, no portal access.
+# Deleted again before merging.
+on:
+  pull_request:
+    paths:
+      - scripts/install-browser.sh
+      - .github/workflows/tmp-browser-install-check.yml
+
+permissions:
+  contents: read
+
+jobs:
+  full:
+    name: Full install (the robots' normal path)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install Playwright + Chromium
+        timeout-minutes: 15
+        run: bash scripts/install-browser.sh
+      - name: Launch Chromium
+        run: node -e "require('playwright').chromium.launch().then(async (b) => { const p = await b.newPage(); await p.setContent('<p>launched</p>'); console.log('Chromium', b.version(), await p.textContent('p')); await b.close(); })"
+
+  browser-only:
+    name: Browser only (the second try), on a fresh runner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install just the browser, no system packages
+        timeout-minutes: 10
+        run: |
+          npm init -y >/dev/null 2>&1 || true
+          npm install playwright@1.48.0
+          npx playwright install chromium
+      - name: Launch Chromium
+        run: node -e "require('playwright').chromium.launch().then(async (b) => { const p = await b.newPage(); await p.setContent('<p>launched</p>'); console.log('Chromium', b.version(), await p.textContent('p')); await b.close(); })"

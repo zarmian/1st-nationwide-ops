@@ -43,7 +43,7 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # not ubuntu-latest: see scripts/install-browser.sh
     timeout-minutes: 45
     steps:
       # A scheduled run stops here if the syncs ran under 3 hours ago (see
@@ -91,10 +91,8 @@ jobs:
 
       - name: Install Playwright + Chromium
         if: steps.due.outputs.due != 'false'
-        run: |
-          npm init -y >/dev/null 2>&1 || true
-          npm install playwright@1.48.0
-          npx playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: bash scripts/install-browser.sh
 
       # "Check when the syncs last ran" finds earlier syncs by this step's
       # name. If it's renamed there, every run simply syncs.
