@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   callouts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # not ubuntu-latest: see scripts/install-browser.sh
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -42,10 +42,8 @@ jobs:
           node-version: "22"
 
       - name: Install Playwright + Chromium
-        run: |
-          npm init -y >/dev/null 2>&1 || true
-          npm install playwright@1.48.0
-          npx playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: bash scripts/install-browser.sh
 
       - name: Read + import Nexus callouts
         env:

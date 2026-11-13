@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   sync:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # not ubuntu-latest: see scripts/install-browser.sh
     # Usually ~13 minutes, nearly all of it the import (20 sites per call).
     # On 22 Oct 2026 a slow Nexus export pushed it past the old 15-minute
     # limit and it stopped halfway, so leave plenty of room.
@@ -48,10 +48,8 @@ jobs:
           node-version: "22"
 
       - name: Install Playwright + Chromium
-        run: |
-          npm init -y >/dev/null 2>&1 || true
-          npm install playwright@1.48.0
-          npx playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: bash scripts/install-browser.sh
 
       - name: Run Nexus sync
         env:
