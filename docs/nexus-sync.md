@@ -105,7 +105,8 @@ screen and turns each row into an internal **job stub** the office can assign.
   17:07 / 21:07 UTC — callouts, then completed activities, then Keyholding, in
   one run). Backup start times in between (03:37 / 07:37 … 23:37) make up a
   run GitHub skipped; they stop after a quick check when the syncs ran under
-  3 hours ago. By hand: Actions → **Nexus callouts** → Run workflow, with a
+  3 hours ago (1 hour while the repo is public, when Actions minutes are
+  free). By hand: Actions → **Nexus callouts** → Run workflow, with a
   **Preview** toggle for a dry run.
 - **Nexus's annual "Review Details" check:** once a year Nexus intercepts the
   dashboard with a 4-step review of the business details it holds. A person

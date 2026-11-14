@@ -23,9 +23,12 @@ name: Partner syncs
 # Backup start times: GitHub skips or delays a lot of scheduled runs, so
 # there's a backup start time between each pair of regular ones. Every
 # scheduled run first checks when the syncs last ran, and stops there (about
-# a minute of Actions time) if that was under 3 hours ago. So the syncs still
-# run about every 4 hours, and a run GitHub skipped is made up within about
-# 2 hours instead of 4. A run started by hand always syncs.
+# a minute of Actions time) if that was recent: under 1 hour ago while the
+# repo is public, under 3 hours once it's private. GitHub often starts two
+# runs 1-2 hours apart and then none for hours, so while Actions minutes are
+# free the second run syncs too; a private repo's free minutes are limited,
+# so there the syncs stay about 4 hours apart. A run started by hand always
+# syncs.
 
 on:
   schedule:
@@ -46,9 +49,11 @@ jobs:
     runs-on: ubuntu-24.04 # not ubuntu-latest: see scripts/install-browser.sh
     timeout-minutes: 45
     steps:
-      # A scheduled run stops here if the syncs ran under 3 hours ago (see
-      # "Backup start times" above). Only an explicit "due=false" stops the
-      # run: if this check can't tell, or breaks, the syncs run as usual.
+      # A scheduled run stops here if the syncs ran recently (see "Backup
+      # start times" above). Only an explicit "due=false" stops the run: if
+      # this check can't tell when the syncs last ran, or breaks, the syncs
+      # run as usual. If it can't tell whether the repo is public, it uses
+      # the private repo's 3 hours.
       - name: Check when the syncs last ran
         id: due
         continue-on-error: true
@@ -58,6 +63,11 @@ jobs:
         run: |
           set +e
           if [ "$EVENT" != "schedule" ]; then echo "due=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Recent means under 1 hour while the repo is public, under 3 hours otherwise.
+          limit=10800; ago="3 hours"
+          if [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq '.private' 2>/dev/null)" = "false" ]; then
+            limit=3600; ago="1 hour"
+          fi
           # The start of the latest earlier run that really synced (not one that stopped here).
           last=""
           if ids=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/partner-syncs.yml/runs?status=completed&per_page=12" \
@@ -72,8 +82,8 @@ jobs:
           last_s=""
           [ -n "$last" ] && last_s=$(date -u -d "$last" +%s 2>/dev/null)
           case "$last_s" in "" | *[!0-9]*) last_s="" ;; esac
-          if [ -n "$last_s" ] && [ $(( $(date -u +%s) - last_s )) -lt 10800 ]; then
-            echo "The syncs last ran at $last, under 3 hours ago, so this run stops here."
+          if [ -n "$last_s" ] && [ $(( $(date -u +%s) - last_s )) -lt "$limit" ]; then
+            echo "The syncs last ran at $last, under $ago ago, so this run stops here."
             echo "due=false" >> "$GITHUB_OUTPUT"
           else
             shown="an unknown time"; [ -n "$last_s" ] && shown="$last"
