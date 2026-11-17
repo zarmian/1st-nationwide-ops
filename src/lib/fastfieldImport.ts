@@ -40,6 +40,7 @@ import {
   extractFacts,
   MATCH_WINDOW_MIN,
   WIDE_MATCH_WINDOW_MIN,
+  groupByPlace,
   pickActivity,
   pickActivityWide,
   pickOfficer,
@@ -50,6 +51,7 @@ import {
   SHIFT_AROUND_LATE_MIN,
   shiftAround,
   shiftsOn,
+  siteKey,
   type ActivityCandidate,
   type CustomerRow,
   type FastFieldAnswer,
@@ -285,10 +287,28 @@ export type Ctx = {
    *  run, and jobs it would have created. */
   claimed: Set<string>;
   virtual: { siteId: string; when: Date; type: string }[];
+  /** Skipped places by siteKey (Admin → FastField → Skip). */
+  skips: Map<string, { id: string; label: string }> | null;
 };
 
 function newCtx(): Ctx {
-  return { sites: new Map(), customers: null, people: null, claimed: new Set(), virtual: [] };
+  return { sites: new Map(), customers: null, people: null, claimed: new Set(), virtual: [], skips: null };
+}
+
+async function skipsFor(ctx: Ctx): Promise<Map<string, { id: string; label: string }>> {
+  if (!ctx.skips) {
+    const rows = await prisma.fastFieldSkip.findMany({ select: { id: true, siteKey: true, label: true } });
+    ctx.skips = new Map(rows.map((r) => [r.siteKey, { id: r.id, label: r.label }]));
+  }
+  return ctx.skips;
+}
+
+/** The skipped place a report that would wait belongs to, if any. A report
+ *  that matches an activity is never skipped. */
+async function skipFor(ctx: Ctx, d: Decision, siteText: string | null) {
+  if (d.action !== "unmatched") return undefined;
+  const key = siteKey(siteText);
+  return key ? (await skipsFor(ctx)).get(key) : undefined;
 }
 
 /** Active clients, for a client named in a report's site ("Shurgard self
@@ -675,6 +695,8 @@ export type Counts = {
   linkedByType: Record<string, number>;
   created: number;
   unmatched: Record<UnmatchedReason, number>;
+  /** Would have waited, but typed as a skipped place: set aside. */
+  skipped: number;
 };
 
 export type ImportSummary = Counts & {
@@ -692,6 +714,7 @@ function emptyCounts(): Counts {
     linkedByType: {},
     created: 0,
     unmatched: { site: 0, none: 0, taken: 0, ambiguous: 0, shift: 0 },
+    skipped: 0,
   };
 }
 
@@ -716,9 +739,15 @@ function tally(summary: ImportSummary, d: Decision, formId: number) {
   addDecision(f, d);
 }
 
+function tallySkipped(summary: ImportSummary, formId: number) {
+  summary.skipped++;
+  (summary.byForm[String(formId)] ??= emptyCounts()).skipped++;
+}
+
 function addCounts(into: Counts, from: Counts): Counts {
   into.linked += from.linked;
   into.created += from.created;
+  into.skipped = (into.skipped ?? 0) + (from.skipped ?? 0);
   for (const [t, n] of Object.entries(from.linkedByType)) {
     into.linkedByType[t] = (into.linkedByType[t] ?? 0) + n;
   }
@@ -814,8 +843,10 @@ export async function importFastField(
 
     try {
       const decision = await decide(ctx, facts, form, preview);
+      const skip = await skipFor(ctx, decision, facts.siteText);
       if (preview) {
-        tally(summary, decision, form.formId);
+        if (skip) tallySkipped(summary, form.formId);
+        else tally(summary, decision, form.formId);
         if (decision.action === "link" && decision.target.kind !== "shift") {
           ctx.claimed.add(decision.target.id);
         }
@@ -842,9 +873,10 @@ export async function importFastField(
             answers: r.answers as unknown as Prisma.InputJsonValue,
             photoUrls: r.photoUrls ?? [],
             signatureUrl: r.signatureUrl ?? null,
-            status: "UNMATCHED",
-            note: decision.note,
+            status: skip ? "IGNORED" : "UNMATCHED",
+            note: skip ? skipNote(skip.label) : decision.note,
             siteId: decision.site?.id ?? null,
+            skipId: skip?.id ?? null,
           },
           select: { id: true },
         });
@@ -856,6 +888,10 @@ export async function importFastField(
         throw e;
       }
 
+      if (skip) {
+        tallySkipped(summary, form.formId);
+        continue;
+      }
       await applyAndTally(ctx, row.id, decision, form.formId, summary);
     } catch (e) {
       console.error("FastField import failed for one report:", errCode(e));
@@ -1728,9 +1764,71 @@ export async function setReportIgnored(
   }
   await prisma.fastFieldReport.update({
     where: { id: reportId },
-    data: { status: ignored ? "IGNORED" : "UNMATCHED", ...(note ? { note } : {}) },
+    // Brought back on its own, it no longer belongs to a skipped place.
+    data: { status: ignored ? "IGNORED" : "UNMATCHED", ...(note ? { note } : {}), ...(ignored ? {} : { skipId: null }) },
   });
   return { ok: true };
+}
+
+// ── Skipped places ────────────────────────────────────────────────────────
+
+const skipNote = (label: string) => `Set aside: "${label}" is a skipped place.`;
+
+/**
+ * Skip a place: set aside every waiting report whose site, as typed, is the
+ * same place (siteKey) — and new ones as they arrive, unless they match an
+ * activity. Skipping a place that's already skipped sets aside any report
+ * typed like it that's waiting again.
+ */
+export async function skipPlace(
+  key: string,
+  by: string,
+): Promise<{ ok: true; label: string; setAside: number } | { ok: false; error: string }> {
+  if (!key || siteKey(key) !== key) return { ok: false, error: "That place doesn't look right." };
+  const waiting = (
+    await prisma.fastFieldReport.findMany({
+      where: { status: "UNMATCHED", siteText: { not: null } },
+      select: { id: true, siteText: true, submittedAt: true },
+    })
+  ).filter((r) => siteKey(r.siteText) === key);
+  const label =
+    groupByPlace(waiting.map((r) => ({ siteText: r.siteText, submittedAt: r.submittedAt, siteName: null })))[0]
+      ?.label ?? key;
+  const skip = await prisma.fastFieldSkip.upsert({
+    where: { siteKey: key },
+    create: { siteKey: key, label: label.slice(0, 200), createdBy: by },
+    update: {},
+    select: { id: true, label: true },
+  });
+  if (waiting.length === 0) return { ok: true, label: skip.label, setAside: 0 };
+  const res = await prisma.fastFieldReport.updateMany({
+    where: { id: { in: waiting.map((r) => r.id) }, status: "UNMATCHED" },
+    data: { status: "IGNORED", skipId: skip.id, note: skipNote(skip.label) },
+  });
+  return { ok: true, label: skip.label, setAside: res.count };
+}
+
+/** Stop skipping a place: the reports it set aside wait again (the robot tries
+ *  them again), and new ones typed like it wait as usual. */
+export async function stopSkipping(
+  skipId: string,
+  by: string,
+): Promise<{ ok: true; label: string; broughtBack: number } | { ok: false; error: string }> {
+  const skip = await prisma.fastFieldSkip.findUnique({ where: { id: skipId }, select: { id: true, label: true } });
+  if (!skip) return { ok: false, error: "That place isn't skipped any more." };
+  const [res] = await prisma.$transaction([
+    prisma.fastFieldReport.updateMany({
+      where: { skipId: skip.id, status: "IGNORED" },
+      data: {
+        status: "UNMATCHED",
+        skipId: null,
+        checkedAt: null,
+        note: `Brought back by ${by}. The robot tries it again.`,
+      },
+    }),
+    prisma.fastFieldSkip.delete({ where: { id: skip.id } }),
+  ]);
+  return { ok: true, label: skip.label, broughtBack: res.count };
 }
 
 export type NearbyActivity = {

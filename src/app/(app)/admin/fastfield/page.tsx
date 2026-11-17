@@ -3,19 +3,23 @@ import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
-import { splitSiaNumber } from "@/lib/fastfield";
+import { groupByPlace, splitSiaNumber } from "@/lib/fastfield";
 import { FormSettingsRow } from "./_components/FormSettingsRow";
 import { RetryButton } from "./_components/RetryButton";
+import { SkipPlaceButton, StopSkippingButton } from "./_components/SkipPlace";
 import { ReportStatusChip, activityLabel, describePreview } from "./_components/labels";
 
 export const dynamic = "force-dynamic";
 // "Try matching again" works for up to 50 seconds.
 export const maxDuration = 60;
 
+/** Places shown in "Waiting, by place" (the biggest first). */
+const PLACES_SHOWN = 12;
+
 export default async function FastFieldPage() {
   await requireAdmin();
 
-  const [forms, customers, byStatus, unmatched, recent] = await Promise.all([
+  const [forms, customers, byStatus, unmatched, recent, waitingAll, skips] = await Promise.all([
     prisma.fastFieldForm.findMany({
       orderBy: [{ mode: "desc" }, { name: "asc" }],
       select: {
@@ -71,7 +75,24 @@ export default async function FastFieldPage() {
         shift: { select: { id: true } },
       },
     }),
+    prisma.fastFieldReport.findMany({
+      where: { status: "UNMATCHED" },
+      select: { siteText: true, submittedAt: true, site: { select: { name: true } } },
+    }),
+    prisma.fastFieldSkip.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        label: true,
+        createdBy: true,
+        createdAt: true,
+        _count: { select: { reports: { where: { status: "IGNORED" } } } },
+      },
+    }),
   ]);
+  const places = groupByPlace(
+    waitingAll.map((r) => ({ siteText: r.siteText, submittedAt: r.submittedAt, siteName: r.site?.name ?? null })),
+  );
 
   const counts = new Map<number, { attached: number; unmatched: number }>();
   let totalUnmatched = 0;
@@ -144,6 +165,65 @@ export default async function FastFieldPage() {
         )}
       </div>
 
+      {places.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Waiting, by place</h2>
+            <p className="text-xs text-slate-500">
+              Reports waiting to be linked, grouped by the site the officer typed. <span className="font-medium">Skip</span>{" "}
+              sets aside all of a place&rsquo;s waiting reports, and new ones typed the same way as they
+              arrive, for a place you don&rsquo;t need them for. Reports that match an activity still link
+              as usual. Nothing is deleted: stop skipping under &ldquo;Skipped places&rdquo; to bring them back.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {places.slice(0, PLACES_SHOWN).map((g) => (
+              <li key={g.key} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-slate-900 break-words">&ldquo;{g.label}&rdquo;</div>
+                  <div className="text-xs text-slate-500">
+                    {g.count} waiting · latest {formatDateTime(g.latest)}
+                    {g.siteName ? ` · matched to ${g.siteName}` : " · site not recognised"}
+                  </div>
+                </div>
+                <SkipPlaceButton placeKey={g.key} label={g.label} count={g.count} />
+              </li>
+            ))}
+          </ul>
+          {places.length > PLACES_SHOWN && (
+            <div className="px-4 py-2 text-xs text-slate-500 border-t border-slate-100">
+              {places.length - PLACES_SHOWN} more place{places.length - PLACES_SHOWN === 1 ? "" : "s"} with fewer
+              reports.
+            </div>
+          )}
+        </div>
+      )}
+
+      {skips.length > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Skipped places</h2>
+            <p className="text-xs text-slate-500">
+              New reports typed like these are set aside as they arrive, unless they match an activity.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {skips.map((k) => (
+              <li key={k.id} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-slate-900 break-words">&ldquo;{k.label}&rdquo;</div>
+                  <div className="text-xs text-slate-500">
+                    {k._count.reports} set aside · skipped {formatDateTime(k.createdAt)}
+                    {k.createdBy ? ` by ${k.createdBy}` : ""}
+                  </div>
+                </div>
+                <StopSkippingButton skipId={k.id} label={k.label} count={k._count.reports} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -153,7 +233,8 @@ export default async function FastFieldPage() {
             <p className="text-xs text-slate-500">
               Reports that didn&rsquo;t match an activity on their own. The robot tries them again
               every 5 minutes, starting with those whose site has had a shift or job recorded since.
-              Open one to link it, create the job, or set it aside.
+              Open one to link it, create the job, or set it aside, or skip a whole place under
+              &ldquo;Waiting, by place&rdquo; above.
             </p>
           </div>
           {totalUnmatched > 0 && <RetryButton />}

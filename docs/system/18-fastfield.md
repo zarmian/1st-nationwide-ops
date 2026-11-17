@@ -51,6 +51,7 @@ Migrations:
 - The outcome:
   - `status`: `LINKED`, `CREATED`, `UNMATCHED` or `IGNORED`;
   - `note`: how it was matched, or why not;
+  - `skipId?`: the **`FastFieldSkip`** (skipped place) that set it aside, if one did;
   - links: `siteId?`, then `jobId?`, `patrolVisitId?` or `shiftId?`;
   - `formSubmissionId?` (unique) and `jobCreated`.
 
@@ -170,6 +171,16 @@ A report often arrives before its work is in the app — a static shift logged t
 - **Try matching again** (admin) does the same for the last 60 days, then the rest longest-untried first, for up to 50 seconds; pressing again carries on.
 - Until 23 October 2026 the retry always took the **oldest** 50 waiting reports — mostly ones that can never match — so newer reports were never tried again once their shift was logged.
 
+### Skipping a place
+
+Some places will never have work in the app to attach their reports to: a site we don't keep, or one whose shifts aren't recorded. Officers keep filing patrol rounds there, and the reports pile up in Needs linking. **Admin → FastField → Waiting, by place** groups the waiting reports by the site as typed and offers **Skip** on each place.
+
+- A place is the typed site cut down to lowercase letters and digits (`siteKey`), so "AB1 2CD", "ab12cd" and "AB12CD" are one place. Different words for the same place (a postcode and a building name) are different places, each skipped on its own.
+- **Skip** (`skipPlace`) saves a `FastFieldSkip` row (`siteKey`, `label` = the spelling typed most often, `createdBy`) and sets aside (`IGNORED`) every waiting report of that place, with `skipId` and the note *Set aside: "…" is a skipped place.* Linked or created reports are never touched.
+- **New reports** of a skipped place are set aside as they're imported, but only when they'd otherwise wait: one that matches an activity still links or creates its job as usual. The robot's summary line counts them as *set aside N (skipped places)*, and a preview as *N set aside (skipped places)*.
+- **Stop skipping** (`stopSkipping`, under **Skipped places**) deletes the row and puts the reports it set aside back to `UNMATCHED`, with `checkedAt` cleared so the recheck tries them again. A report set aside by hand isn't affected, and **Bring back** on one skipped report clears its `skipId`, so it waits like any other.
+- Nothing is deleted. A set-aside report stays in the database, which also keeps the robot from importing it again: it imports only submission ids it hasn't seen.
+
 ## Business rules & invariants
 
 - **Nothing is imported until a form is On.**
@@ -198,7 +209,7 @@ A report often arrives before its work is in the app — a static shift logged t
 |---|---|---|
 | `POST /api/imports/fastfield` | the robot (bearer) | `plan`, `import`, `retry`; `?preview=1`; `run` id for preview counts |
 | `POST /api/imports/fastfield/photo?submission=&name=` | the robot (bearer) | one JPEG/PNG/WebP ≤ 4 MB → `{ url }` |
-| `/admin/fastfield` | admin | form settings with the last preview, "Needs linking" (with when each was last tried), "Try matching again", recently attached |
+| `/admin/fastfield` | admin | form settings with the last preview, "Needs linking" (with when each was last tried), "Try matching again", "Waiting, by place" with **Skip**, "Skipped places" with **Stop skipping**, recently attached |
 | `GET /api/cron/fastfield-recheck` | Vercel cron, every 5 min | tries waiting reports again, those with new work at their site first |
 | `/admin/fastfield/[id]` | admin | one report: answers, photos, how it matched. Pick a site (grouped by client) and link to a shift, job or visit (those within 3 hours, or within 18 hours when none are that close); create the job; or set the report aside. |
 | `/admin/reports/[id]` | admin, dispatcher | a FastField-sourced submission shows the FastField answers |

@@ -2059,6 +2059,9 @@ model FastFieldReport {
   jobCreated       Boolean               @default(false)
   /// When the robot last tried to match it while waiting (null = only at import).
   checkedAt        DateTime?
+  /// The skipped place that set it aside (Admin → FastField → Skip).
+  skipId           String?               @db.Uuid
+  skip             FastFieldSkip?        @relation(fields: [skipId], references: [id], onDelete: SetNull)
   createdAt        DateTime              @default(now())
   updatedAt        DateTime              @updatedAt
 
@@ -2067,6 +2070,24 @@ model FastFieldReport {
   @@index([jobId])
   @@index([patrolVisitId])
   @@index([shiftId])
+  @@index([skipId])
+}
+
+/// A place skipped on FastField: the waiting reports whose site, as typed,
+/// matches were set aside when it was skipped, and new ones typed the same
+/// way are set aside as they arrive, unless they match an activity. Stopping
+/// the skip brings back the reports it set aside. Managed on Admin → FastField.
+model FastFieldSkip {
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// The site as typed, lowercased, letters and digits only (siteKey():
+  /// "AB1 2CD" and "ab12cd" are both "ab12cd").
+  siteKey   String            @unique
+  /// How it was typed, for showing.
+  label     String
+  /// Who skipped it, for showing.
+  createdBy String?
+  createdAt DateTime          @default(now())
+  reports   FastFieldReport[]
 }
 
 // ── Daily check ────────────────────────────────────────────────────────────
