@@ -4,6 +4,7 @@ import {
   apartText,
   extractFacts,
   extractPostcode,
+  groupByPlace,
   parseFastFieldTime,
   pickActivity,
   pickActivityWide,
@@ -13,6 +14,7 @@ import {
   pickSiteByActivity,
   narrowSiteText,
   shiftAround,
+  siteKey,
   splitSiaNumber,
   visitTypeOf,
   type ActivityCandidate,
@@ -668,5 +670,58 @@ describe("apartText", () => {
     expect(apartText(45)).toBe("45 min");
     expect(apartText(360)).toBe("6 h");
     expect(apartText(310)).toBe("5 h 10 min");
+  });
+});
+
+describe("siteKey", () => {
+  it("makes spellings that differ only in case, spaces or punctuation the same place", () => {
+    expect(siteKey("AB1 2CD")).toBe("ab12cd");
+    expect(siteKey("ab12cd")).toBe("ab12cd");
+    expect(siteKey("  Fern  Court! ")).toBe("ferncourt");
+    expect(siteKey("Fern-Court")).toBe("ferncourt");
+  });
+
+  it("is null when nothing is typed", () => {
+    expect(siteKey(null)).toBeNull();
+    expect(siteKey("")).toBeNull();
+    expect(siteKey(" – ")).toBeNull();
+  });
+});
+
+describe("groupByPlace", () => {
+  const at = (day: number) => new Date(Date.UTC(2026, 10, day, 21));
+  const rows = [
+    { siteText: "Fern Court", submittedAt: at(1), siteName: null },
+    { siteText: "fern court", submittedAt: at(2), siteName: null },
+    { siteText: "Fern  Court", submittedAt: at(3), siteName: null },
+    { siteText: "AB12CD", submittedAt: at(4), siteName: null },
+    { siteText: "AB1 2CD", submittedAt: at(5), siteName: null },
+    { siteText: "AB12CD", submittedAt: at(6), siteName: null },
+    { siteText: "Mill Yard", submittedAt: at(7), siteName: "Mill Yard Depot" },
+    { siteText: null, submittedAt: at(8), siteName: null },
+    { siteText: "  ", submittedAt: at(9), siteName: null },
+  ];
+
+  it("groups by place, biggest first, then the most recent; leaves out reports with no site typed", () => {
+    const g = groupByPlace(rows);
+    expect(g.map((x) => [x.key, x.count])).toEqual([
+      ["ab12cd", 3], // the same size as "ferncourt", but more recent
+      ["ferncourt", 3],
+      ["millyard", 1],
+    ]);
+    expect(g[0].latest).toEqual(at(6));
+  });
+
+  it("labels a group with the spelling typed most often, the latest on a tie", () => {
+    const g = groupByPlace(rows);
+    expect(g.find((x) => x.key === "ab12cd")?.label).toBe("AB12CD");
+    // "Fern Court" and "Fern  Court" are one spelling once spaces are tidied.
+    expect(g.find((x) => x.key === "ferncourt")?.label).toBe("Fern Court");
+  });
+
+  it("says which site the robot matched them to", () => {
+    const g = groupByPlace(rows);
+    expect(g.find((x) => x.key === "millyard")?.siteName).toBe("Mill Yard Depot");
+    expect(g.find((x) => x.key === "ab12cd")?.siteName).toBeNull();
   });
 });

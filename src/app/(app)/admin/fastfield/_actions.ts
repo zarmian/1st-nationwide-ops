@@ -14,6 +14,8 @@ import {
   linkReportToVisit,
   retryUnmatched,
   setReportIgnored,
+  skipPlace,
+  stopSkipping,
 } from "@/lib/fastfieldImport";
 
 /** What a FastField form can report — and the job made when nothing matches. */
@@ -133,6 +135,44 @@ export async function ignoreFastFieldReport(
   if (!res.ok) return fail(res.error);
   refresh(reportId);
   return okVoid();
+}
+
+/** Skip a place: set aside its waiting reports, and new ones typed the same
+ *  way as they arrive (unless they match an activity). */
+export async function skipFastFieldPlace(
+  key: string,
+): Promise<ActionResult<{ label: string; setAside: number }>> {
+  const me = await requireAdmin();
+  const parsed = z.string().min(1).max(300).regex(/^[a-z0-9]+$/).safeParse(key);
+  if (!parsed.success) return fail("That place doesn't look right.");
+  const res = await skipPlace(parsed.data, me.name || "the office");
+  if (!res.ok) return fail(res.error);
+  await logActivity({
+    entity: "FastFieldSkip",
+    entityId: parsed.data,
+    action: `skipped (${res.setAside} set aside)`,
+    userId: me.id,
+  }).catch(() => {});
+  refresh();
+  return ok({ label: res.label, setAside: res.setAside });
+}
+
+/** Stop skipping a place: its set-aside reports wait again. */
+export async function stopSkippingFastFieldPlace(
+  skipId: string,
+): Promise<ActionResult<{ label: string; broughtBack: number }>> {
+  const me = await requireAdmin();
+  if (!z.string().uuid().safeParse(skipId).success) return fail("That place doesn't look right.");
+  const res = await stopSkipping(skipId, me.name || "the office");
+  if (!res.ok) return fail(res.error);
+  await logActivity({
+    entity: "FastFieldSkip",
+    entityId: skipId,
+    action: `stopped skipping (${res.broughtBack} brought back)`,
+    userId: me.id,
+  }).catch(() => {});
+  refresh();
+  return ok({ label: res.label, broughtBack: res.broughtBack });
 }
 
 /** Re-run matching on the waiting reports from the last 60 days — the ones

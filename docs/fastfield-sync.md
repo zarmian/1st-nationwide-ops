@@ -65,6 +65,7 @@ Starting settings:
   - or **Create job**;
   - or **Set aside** (for tests and duplicates).
   - **Try matching again** re-checks them all, for example after you add a missing shift or callout.
+- **Waiting, by place** groups the waiting reports by the site the officer typed. **Skip** a place you don't need its reports for, such as a site that isn't in the app. All its waiting reports are set aside, and new ones typed the same way are set aside as they arrive, unless they match an activity. **Skipped places** lists them, and **Stop skipping** brings their reports back. Nothing is deleted.
 - On a job, patrol visit or shift, the attached report shows as a *FastField report*. It opens in the review page with all its answers and photos.
 
 ## If it fails

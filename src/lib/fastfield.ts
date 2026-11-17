@@ -184,6 +184,71 @@ export function normalisePostcode(pc: string | null | undefined): string {
   return (pc ?? "").replace(/\s+/g, "").toUpperCase();
 }
 
+/** A site as typed, cut down to lowercase letters and digits, so spellings
+ *  that differ only in case, spaces or punctuation are the same place:
+ *  "AB1 2CD", "ab12cd" and "AB12CD" are all "ab12cd". Null when nothing's left.
+ *  Skipped places (Admin → FastField) are matched on this. */
+export function siteKey(text: string | null | undefined): string | null {
+  const k = (text ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  return k || null;
+}
+
+export type PlaceGroup = {
+  key: string;
+  /** The spelling typed most often (the latest one on a tie). */
+  label: string;
+  count: number;
+  /** The site the robot matched them to, if any (the most common). */
+  siteName: string | null;
+  latest: Date;
+};
+
+/** Waiting reports grouped by the site as typed (siteKey), biggest group
+ *  first, then the most recent. Reports with no site typed are left out. */
+export function groupByPlace(
+  rows: { siteText: string | null; submittedAt: Date; siteName: string | null }[],
+): PlaceGroup[] {
+  const groups = new Map<
+    string,
+    { spellings: Map<string, { n: number; last: number }>; sites: Map<string, number>; count: number; latest: Date }
+  >();
+  for (const r of rows) {
+    const key = siteKey(r.siteText);
+    if (!key) continue;
+    const g = groups.get(key) ?? { spellings: new Map(), sites: new Map(), count: 0, latest: r.submittedAt };
+    const spelling = r.siteText!.trim().replace(/\s+/g, " ");
+    const s = g.spellings.get(spelling) ?? { n: 0, last: 0 };
+    s.n++;
+    s.last = Math.max(s.last, r.submittedAt.getTime());
+    g.spellings.set(spelling, s);
+    if (r.siteName) g.sites.set(r.siteName, (g.sites.get(r.siteName) ?? 0) + 1);
+    g.count++;
+    if (r.submittedAt > g.latest) g.latest = r.submittedAt;
+    groups.set(key, g);
+  }
+  const most = <T,>(m: Map<string, T>, score: (v: T) => [number, number]): string | null => {
+    let best: string | null = null;
+    let bestScore: [number, number] = [-1, -1];
+    for (const [k, v] of m) {
+      const sc = score(v);
+      if (sc[0] > bestScore[0] || (sc[0] === bestScore[0] && sc[1] > bestScore[1])) {
+        best = k;
+        bestScore = sc;
+      }
+    }
+    return best;
+  };
+  return [...groups.entries()]
+    .map(([key, g]) => ({
+      key,
+      label: most(g.spellings, (s) => [s.n, s.last]) ?? key,
+      count: g.count,
+      siteName: most(g.sites, (n) => [n, 0]),
+      latest: g.latest,
+    }))
+    .sort((a, b) => b.count - a.count || b.latest.getTime() - a.latest.getTime());
+}
+
 /** What kind of visit a form says it was, from a short "type"-style answer
  *  ("Lock up", "Unlock", "Call out", "Patrol"). Null when it doesn't say. */
 export function visitTypeOf(answers: FastFieldAnswer[]): string | null {

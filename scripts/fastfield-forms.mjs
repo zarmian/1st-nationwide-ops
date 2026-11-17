@@ -456,7 +456,7 @@ async function importReports(reports, total) {
 }
 
 function addCounts(total, s) {
-  for (const k of ["received", "alreadyImported", "formOff", "linked", "created", "failed"]) {
+  for (const k of ["received", "alreadyImported", "formOff", "linked", "created", "skipped", "failed"]) {
     if (s[k] != null) total[k] = (total[k] ?? 0) + s[k];
   }
   total.linkedByType ??= {};
@@ -506,6 +506,7 @@ function describe(total) {
     `created ${total.created ?? 0}, ` +
     `unmatched ${unmatched}` +
     (reasons.length ? ` (${reasons.map(([r, n]) => `${REASON_WORDS[r] ?? r} ${n}`).join(", ")})` : "") +
+    (total.skipped ? `, set aside ${total.skipped} (skipped places)` : "") +
     (total.failed ? `, failed ${total.failed}` : "")
   );
 }

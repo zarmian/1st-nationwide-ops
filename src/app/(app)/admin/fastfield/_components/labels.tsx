@@ -52,21 +52,24 @@ export function describePreview(raw: unknown): string {
     created?: number;
     linkedByType?: Record<string, number>;
     unmatched?: Record<string, number>;
+    skipped?: number;
   };
   const linked = c.linked ?? 0;
   const created = c.created ?? 0;
+  const skipped = c.skipped ?? 0;
   const byType = Object.entries(c.linkedByType ?? {})
     .filter(([, n]) => n > 0)
     .map(([t, n]) => `${n} ${PLURAL[t] ?? t.toLowerCase()}`)
     .join(", ");
   const reasons = Object.entries(c.unmatched ?? {}).filter(([, n]) => n > 0);
   const toLink = reasons.reduce((n, [, x]) => n + x, 0);
-  if (linked + created + toLink === 0) return "no new reports.";
+  if (linked + created + toLink + skipped === 0) return "no new reports.";
   return (
     `would link ${linked}${byType ? ` (${byType})` : ""}, create ${created}` +
     (toLink
       ? `; ${toLink} to link by hand (${reasons.map(([r, n]) => `${n} ${REASON[r] ?? r}`).join(", ")})`
       : "") +
+    (skipped ? `; ${skipped} set aside (skipped places)` : "") +
     "."
   );
 }
