@@ -38,6 +38,7 @@ import {
 import {
   apartText,
   extractFacts,
+  MANUAL_LINK_WINDOW_MIN,
   MATCH_WINDOW_MIN,
   WIDE_MATCH_WINDOW_MIN,
   groupByPlace,
@@ -49,6 +50,7 @@ import {
   pickSiteByActivity,
   SHIFT_AROUND_EARLY_MIN,
   SHIFT_AROUND_LATE_MIN,
+  shiftApartMin,
   shiftAround,
   shiftsOn,
   siteKey,
@@ -488,6 +490,30 @@ function toShiftCandidate(s: {
 
 async function shiftsNear(siteId: string, when: Date): Promise<ShiftCandidate[]> {
   return (await shiftsNearSites([siteId], when)).map(toShiftCandidate);
+}
+
+/** Shifts at a site that come within MANUAL_LINK_WINDOW_MIN of a time, for
+ *  linking by hand. */
+async function shiftsForLinking(siteId: string, when: Date): Promise<ShiftCandidate[]> {
+  const reach = MANUAL_LINK_WINDOW_MIN * 60000;
+  const t = when.getTime();
+  // A shift that ends within reach started at most a day before that.
+  const range = { gte: new Date(t - reach - 24 * 3_600_000), lte: new Date(t + reach) };
+  const rows = await prisma.shift.findMany({
+    where: { siteId, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
+    select: {
+      id: true,
+      officerId: true,
+      scheduledStartsAt: true,
+      scheduledEndsAt: true,
+      actualStartedAt: true,
+      actualEndedAt: true,
+    },
+    take: 100,
+  });
+  return rows
+    .map(toShiftCandidate)
+    .filter((s) => s.end.getTime() >= t - reach && s.start.getTime() <= t + reach);
 }
 
 /**
@@ -1844,9 +1870,10 @@ export type NearbyActivity = {
   taken: boolean;
 };
 
-/** Activities near a report's time at a site, for linking by hand: the shifts
- *  on at the time, then jobs and visits within 3 hours — or, when there are
- *  none, within 18 hours — nearest first. */
+/** Activities at a site for linking a report by hand: anything there from a
+ *  day before the report's time to a day after (MANUAL_LINK_WINDOW_MIN; the
+ *  robot only looks within 3 hours, or 18). The shifts on at the time come
+ *  first, then the rest, nearest first. */
 export async function activitiesNearReport(
   reportId: string,
   siteId: string,
@@ -1858,20 +1885,17 @@ export async function activitiesNearReport(
   if (!report) return [];
   const facts = factsOf(report);
   const t = facts.when.getTime();
-  const [near, shifts] = await Promise.all([
-    candidatesNear(siteId, facts.when),
-    shiftsNear(siteId, facts.when),
+  const [candidates, shifts] = await Promise.all([
+    candidatesNear(siteId, facts.when, MANUAL_LINK_WINDOW_MIN),
+    shiftsForLinking(siteId, facts.when),
   ]);
-  const candidates = near.length
-    ? near
-    : await candidatesNear(siteId, facts.when, WIDE_MATCH_WINDOW_MIN);
-  const shiftRows: NearbyActivity[] = shiftsOn(facts.when, shifts).map((s) => ({
+  const shiftRows: NearbyActivity[] = shifts.map((s) => ({
     kind: "shift",
     id: s.id,
     type: "SHIFT",
     at: s.start,
     until: s.end,
-    minutesApart: 0,
+    minutesApart: shiftApartMin(facts.when, s),
     taken: false,
   }));
   const jobRows: NearbyActivity[] = candidates.map((c) => {
@@ -1887,5 +1911,9 @@ export async function activitiesNearReport(
       taken: c.taken,
     };
   });
-  return [...shiftRows, ...jobRows.sort((a, b) => a.minutesApart - b.minutesApart)];
+  const onAtTheTime = shiftRows.filter((r) => r.minutesApart === 0);
+  const rest = [...shiftRows.filter((r) => r.minutesApart > 0), ...jobRows].sort(
+    (a, b) => a.minutesApart - b.minutesApart,
+  );
+  return [...onAtTheTime, ...rest];
 }

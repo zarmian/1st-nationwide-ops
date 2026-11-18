@@ -154,7 +154,8 @@ export default async function FastFieldReportPage({
             <div>
               <h2 className="font-semibold text-brand-navy">Link it to an activity</h2>
               <p className="text-sm text-slate-500">
-                Pick the site, then the activity this report is about — or create the job if
+                Pick the site, then the activity this report is about. Everything there from a day
+                before to a day after the report is listed, nearest first. Or create the job if
                 nobody logged it.
               </p>
             </div>
@@ -192,8 +193,7 @@ export default async function FastFieldReportPage({
             <>
               {nearby.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  No shift on, and nothing within 18 hours of {formatDateTime(facts.when)}, at this
-                  site.
+                  Nothing at this site from a day before to a day after {formatDateTime(facts.when)}.
                 </p>
               ) : (
                 <ul className="divide-y divide-slate-100 border border-slate-100 rounded-lg">
@@ -202,7 +202,13 @@ export default async function FastFieldReportPage({
                       <span className="font-medium text-slate-900">{activityLabel(a.type)}</span>
                       <span className="text-slate-500">
                         {a.kind === "shift" && a.until
-                          ? `${formatDateTime(a.at)}–${formatTime(a.until)} · on at the time`
+                          ? `${formatDateTime(a.at)}–${formatTime(a.until)} · ${
+                              a.minutesApart === 0
+                                ? "on at the time"
+                                : a.until.getTime() < facts.when.getTime()
+                                  ? `ended ${apartText(a.minutesApart)} before`
+                                  : `starts ${apartText(a.minutesApart)} after`
+                            }`
                           : `${formatDateTime(a.at)} · ${apartText(a.minutesApart)} ${
                               a.at.getTime() < facts.when.getTime() ? "before" : "after"
                             }`}

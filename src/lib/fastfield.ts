@@ -684,6 +684,14 @@ export function shiftsOn(when: Date, shifts: ShiftCandidate[]): ShiftCandidate[]
   );
 }
 
+/** Minutes between a report's time and a shift: 0 when the shift was on at
+ *  the time (as shiftsOn counts it), else to its nearer end. */
+export function shiftApartMin(when: Date, s: ShiftCandidate): number {
+  if (shiftsOn(when, [s]).length) return 0;
+  const t = when.getTime();
+  return Math.round((t < s.start.getTime() ? s.start.getTime() - t : t - s.end.getTime()) / 60000);
+}
+
 /**
  * The static / dog-handler shift a patrol report was filed during: the one on
  * at the time, or — if two were — the one worked by the officer named in the
@@ -768,6 +776,9 @@ export const MATCH_WINDOW_MIN = 180;
 /** When nothing is that close: how far either side to look for the same kind
  *  of work (a report filed late, or a job logged at the wrong time). */
 export const WIDE_MATCH_WINDOW_MIN = 18 * 60;
+/** Linking by hand (Admin → FastField → a report) lists the activities this
+ *  far either side of the report. The robot never looks this far. */
+export const MANUAL_LINK_WINDOW_MIN = 24 * 60;
 
 /** Kinds of work that can stand in for each other. */
 export type Family = "patrol" | "callout" | "lock" | "unlock";

@@ -211,7 +211,7 @@ Some places will never have work in the app to attach their reports to: a site w
 | `POST /api/imports/fastfield/photo?submission=&name=` | the robot (bearer) | one JPEG/PNG/WebP ≤ 4 MB → `{ url }` |
 | `/admin/fastfield` | admin | form settings with the last preview, "Needs linking" (with when each was last tried), "Try matching again", "Waiting, by place" with **Skip**, "Skipped places" with **Stop skipping**, recently attached |
 | `GET /api/cron/fastfield-recheck` | Vercel cron, every 5 min | tries waiting reports again, those with new work at their site first |
-| `/admin/fastfield/[id]` | admin | one report: answers, photos, how it matched. Pick a site (grouped by client) and link to a shift, job or visit (those within 3 hours, or within 18 hours when none are that close); create the job; or set the report aside. |
+| `/admin/fastfield/[id]` | admin | one report: answers, photos, how it matched. Pick a site (grouped by client) and link to a shift, job or visit (anything there from a day before to a day after the report's time, nearest first, with the shifts on at the time at the top; `MANUAL_LINK_WINDOW_MIN`, wider than the robot's 3 or 18 hours); create the job; or set the report aside. |
 | `/admin/reports/[id]` | admin, dispatcher | a FastField-sourced submission shows the FastField answers |
 | `/shifts/[id]` | admin, dispatcher | "FastField patrol reports" lists the rounds filed during the shift |
 

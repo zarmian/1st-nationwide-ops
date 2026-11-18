@@ -14,6 +14,7 @@ import {
   pickSiteByActivity,
   narrowSiteText,
   shiftAround,
+  shiftApartMin,
   siteKey,
   splitSiaNumber,
   visitTypeOf,
@@ -723,5 +724,21 @@ describe("groupByPlace", () => {
     const g = groupByPlace(rows);
     expect(g.find((x) => x.key === "millyard")?.siteName).toBe("Mill Yard Depot");
     expect(g.find((x) => x.key === "ab12cd")?.siteName).toBeNull();
+  });
+});
+
+describe("shiftApartMin", () => {
+  const shift = { id: "s1", officerId: null, start: new Date("2026-11-17T19:00:00Z"), end: new Date("2026-11-18T07:00:00Z") };
+  const at = (iso: string) => new Date(iso);
+
+  it("is 0 while the shift is on, with the usual leeway either side", () => {
+    expect(shiftApartMin(at("2026-11-17T23:00:00Z"), shift)).toBe(0);
+    expect(shiftApartMin(at("2026-11-17T18:40:00Z"), shift)).toBe(0); // 20 min early
+    expect(shiftApartMin(at("2026-11-18T07:50:00Z"), shift)).toBe(0); // 50 min late
+  });
+
+  it("counts to the nearer end when it wasn't on", () => {
+    expect(shiftApartMin(at("2026-11-17T09:00:00Z"), shift)).toBe(600); // 10 h before it starts
+    expect(shiftApartMin(at("2026-11-18T19:30:00Z"), shift)).toBe(750); // 12 h 30 min after it ends
   });
 });
