@@ -94,6 +94,8 @@ export type ActivityRow = {
   started: string | null;
   finished: string | null;
   partnerRef: string | null;
+  /** FastField reports attached to it (the officer's patrol rounds or job forms). */
+  fastfieldReports: number;
   notes?: string[];
 };
 
@@ -226,6 +228,7 @@ export async function loadActivities(ctx: ToolContext, f: ActivityFilters) {
             partner: { select: { name: true } },
             assignedTo: { select: { name: true } },
             handledByPartner: { select: { name: true } },
+            _count: { select: { fastfieldReports: true } },
           },
         })
       : [],
@@ -252,6 +255,7 @@ export async function loadActivities(ctx: ToolContext, f: ActivityFilters) {
             officer: { select: { name: true } },
             handledByPartner: { select: { name: true } },
             patrolSchedule: { select: { kind: true } },
+            _count: { select: { fastfieldReports: true } },
           },
         })
       : [],
@@ -277,6 +281,7 @@ export async function loadActivities(ctx: ToolContext, f: ActivityFilters) {
             },
             officer: { select: { name: true } },
             handledByPartner: { select: { name: true } },
+            _count: { select: { fastfieldReports: true } },
           },
         })
       : [],
@@ -312,6 +317,7 @@ export async function loadActivities(ctx: ToolContext, f: ActivityFilters) {
       started: ukIso(j.startedAt),
       finished: ukIso(j.completedAt),
       partnerRef: j.partnerActivityRef,
+      fastfieldReports: j._count.fastfieldReports,
       ...(notes.length ? { notes } : {}),
     });
   }
@@ -337,6 +343,7 @@ export async function loadActivities(ctx: ToolContext, f: ActivityFilters) {
       started: ukIso(v.arrivedAt),
       finished: ukIso(v.departedAt),
       partnerRef: v.partnerActivityRef,
+      fastfieldReports: v._count.fastfieldReports,
       ...(v.reportedViaPartnerApp ? { notes: ["reported in the partner's app"] } : {}),
     });
   }
@@ -361,6 +368,7 @@ export async function loadActivities(ctx: ToolContext, f: ActivityFilters) {
       started: ukIso(s.actualStartedAt),
       finished: ukIso(s.actualEndedAt),
       partnerRef: null,
+      fastfieldReports: s._count.fastfieldReports,
     });
   }
 
