@@ -155,7 +155,7 @@ export async function buildMcpServer(principal: McpPrincipal): Promise<McpServer
     {
       title: "List activities",
       description:
-        "Jobs, patrol visits and shifts scheduled within a UK date window (default today; up to 93 days), earliest first, with totals by status. Filter by site, customer, partner, officer or region (part of a name works), by kind and by status group. Same data and rules as the Activities log in the app.",
+        "Jobs, patrol visits and shifts scheduled within a UK date window (default today; up to 93 days), earliest first, with totals by status. Filter by site, customer, partner, officer or region (part of a name works), by kind and by status group. Each row says how many FastField reports are attached to it (fastfieldReports). Same data and rules as the Activities log in the app.",
       input: {
         from: dateArg.optional().describe("First UK day (YYYY-MM-DD). Default today."),
         to: dateArg.optional().describe("Last UK day, inclusive. Default = from."),

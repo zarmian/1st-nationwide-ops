@@ -74,7 +74,7 @@ All tools are annotated `readOnlyHint: true`, `destructiveHint: false` (so Claud
 | Tool | Who | What it reuses / mirrors |
 |---|---|---|
 | `get_operations_overview` | Admin, Office | Dispatch board buckets (`ukDayStart`, overdue = open/assigned before today), one UK day's work by status (scheduled-date rule), open alarms (last 24 h, `computeAlarmSla`), officers on duty. |
-| `list_activities` | Admin, Office | Activities log: `jobScheduledRange`/`visitScheduledRange`/`shiftScheduledRange`, job filters on `Job.customerId/partnerId`, visit/shift filters via the site, `STATUS_GROUPS`, `KIND_LABEL`. Up to 93 days; earliest first; exact totals by status. |
+| `list_activities` | Admin, Office | Activities log: `jobScheduledRange`/`visitScheduledRange`/`shiftScheduledRange`, job filters on `Job.customerId/partnerId`, visit/shift filters via the site, `STATUS_GROUPS`, `KIND_LABEL`. Up to 93 days; earliest first; exact totals by status. Each row has `fastfieldReports`, the number of FastField reports attached (a count only, no answers). |
 | `get_activity` | Admin, Office (money admin-only) | One job / patrol visit / shift by id, alarm id or partner reference (`LINK-…`, `J…`): times, people, notes, alarm + SLA, `proofVerdict` (GPS vs geofence). |
 | `list_alarms` | Admin, Office | `/alarms`: `AlarmEvent.priority`, received → on site, `summariseAlarmSla`; UK days on `receivedAt` (default last 7 days). |
 | `search_sites` | Admin, Office | `/sites` filters (`buildSiteWhereAnd`). |
