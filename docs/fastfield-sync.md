@@ -61,7 +61,7 @@ Starting settings:
 ## Day to day
 
 - **Needs linking** on `/admin/fastfield` lists the reports that didn't match on their own:
-  - open one, pick the site, then **Link** the right shift or activity;
+  - open one, pick the site, then **Link** the right shift or activity (everything at the site from a day before to a day after the report is listed);
   - or **Create job**;
   - or **Set aside** (for tests and duplicates).
   - **Try matching again** re-checks them all, for example after you add a missing shift or callout.
