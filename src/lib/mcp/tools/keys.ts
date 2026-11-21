@@ -59,7 +59,8 @@ export async function findKeys(
         internalNo: true,
         type: true,
         status: true,
-        notes: true,
+        // Never notes: codes get typed into them (an alarm code on a CODE
+        // entry, a padlock combination), and the connector never shows codes.
         site: { select: { code: true, name: true } },
         keySet: { select: { label: true, internalNo: true } },
         currentHolder: { select: { name: true } },
@@ -104,7 +105,6 @@ export async function findKeys(
               signedOffBy: last.signedOffBy?.name ?? null,
             }
           : null,
-        notes: k.notes,
       };
     }),
   };
