@@ -289,7 +289,7 @@ export async function buildMcpServer(principal: McpPrincipal): Promise<McpServer
     {
       title: "Find keys",
       description:
-        "Search the key register: keys, fobs and padlocks by site, current holder (an officer's name, or 'office' for keys held by 1NW), status or label, with each key's latest handover.",
+        "Search the key register: keys, fobs and padlocks by site, current holder (an officer's name, or 'office' for keys held by 1NW), status or label, with each key's latest handover. Key notes are never shown, so codes kept with a key stay out.",
       input: {
         site: z.string().optional().describe("Site code, name, postcode or id"),
         holder: z.string().optional().describe("Officer name, or 'office'"),

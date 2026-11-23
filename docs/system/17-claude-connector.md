@@ -79,7 +79,7 @@ All tools are annotated `readOnlyHint: true`, `destructiveHint: false` (so Claud
 | `list_alarms` | Admin, Office | `/alarms`: `AlarmEvent.priority`, received → on site, `summariseAlarmSla`; UK days on `receivedAt` (default last 7 days). |
 | `search_sites` | Admin, Office | `/sites` filters (`buildSiteWhereAnd`). |
 | `get_site` | Admin, Office | Site profile **without** `AccessInstruction`; schedules, key sets + holders, customer contacts, last 14 days + next 7 days of work. |
-| `find_keys` | Admin, Office | `/keys`: status, holder (`office` = held by 1NW), latest handover. |
+| `find_keys` | Admin, Office | `/keys`: status, holder (`office` = held by 1NW), latest handover. Never selects `Key.notes`: codes get typed into them (alarm codes on CODE entries, padlock combinations). |
 | `list_officers` | Admin, Office | `/officers`: region, phone, on duty, last seen, SIA status (`statusFor`). |
 | `get_compliance` | **Admin** | `/compliance` (`loadComplianceRegister`). |
 | `list_accounts` | **Admin** | `/admin/customers` + `/admin/partners` with contacts. |
