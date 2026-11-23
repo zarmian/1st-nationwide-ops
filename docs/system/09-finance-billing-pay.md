@@ -28,7 +28,7 @@ Four rate models, all keyed by `RateService` + `RateUnit` (see `01-data-model.md
 | --- | --- | --- | --- |
 | `SiteRate` | `@@unique([siteId, service])` | Per-site customer price **override** | `amount Decimal(10,2)`, `unit`, `includedMinutes`, `excessRatePerMin Decimal(10,4)` |
 | `CustomerRate` | `@@unique([customerId, service])` | Customer **default** card (applies to all its sites) | same shape as `SiteRate` |
-| `OfficerRate` | `@@unique([officerId, service])`; `officerId` null = **company default** | What we pay an officer | same shape; a `PER_MONTH` row = the monthly retainer |
+| `OfficerRate` | `@@unique([officerId, service])`; `officerId` null = **company default** | What we pay an officer | same shape; a `PER_MONTH` row = the monthly retainer; `SOUTH_MOBILE_DAY_SHIFT` / `SOUTH_MOBILE_NIGHT_SHIFT` (unit `PER_SHIFT`) = pay per South Mobile rota shift |
 | `PartnerRate` | `@@unique([partnerId, service])` | Two-sided partner card | `chargeToUs`, `payToOfficer` |
 
 **Snapshot columns** live on the activity rows themselves:
@@ -38,7 +38,7 @@ Four rate models, all keyed by `RateService` + `RateUnit` (see `01-data-model.md
 - `Shift` additionally: `payableMinutes` (worked minutes rounded up to the next 30-min block — the pay basis).
 
 `RateService` values: `ALARM_RESPONSE, KEYHOLDING, LOCKUP, UNLOCK, VPI, PATROL, STATIC_GUARDING, DOG_HANDLER, ADHOC, ANNUAL_SUBSCRIPTION, SITE_SETUP`.
-`RateUnit` values: `PER_VISIT, PER_HOUR, PER_MONTH, PER_YEAR, FIXED`.
+`RateUnit` values: `PER_VISIT, PER_HOUR, PER_MONTH, PER_YEAR, FIXED, PER_SHIFT` (`PER_SHIFT` only for the South Mobile shift rates; the officer-rates action forces it for those services and refuses it for any other).
 
 **Invoicing & recurring** (added — see `01-data-model.md`):
 
@@ -77,7 +77,8 @@ Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurrin
 | --- | --- |
 | `src/lib/billing.ts` | The calculator. Pure functions (`calculateBilling`, `calculatePay`, `mergeRates`, `jobTypeToRateService`, `durationMinutes`, `roundUpToHalfHour`, `jobAccountingDate`/`visitAccountingDate`/`shiftAccountingDate`) + DB helpers (`billForSite`, `payForOfficer`, `applyBillingTo{Visit,Job,Shift}`, `applyPayTo{Visit,Job,Shift}`, `snapshotJobFinanceIfNeeded`). |
 | `src/lib/activityWhen.ts` | Canonical "when" for an activity — display (`jobWhen`/`visitWhen`/`shiftWhen`) and the scheduled-date Prisma window fragments (`jobScheduledRange`/`visitScheduledRange`/`shiftScheduledRange`) used by every finance/payroll query. |
-| `src/lib/payroll.ts` | `buildPayrollReport` (retainer + activity pay + **adjustments** → net), `monthsBetween`, `csvHeader`/`csvLineFor` — month roll-up + CSV shaping. |
+| `src/lib/payroll.ts` | `buildPayrollReport` (retainer + activity pay + **South Mobile shifts** + **adjustments** → net), `monthsBetween`, `csvHeader`/`csvLineFor` — month roll-up + CSV shaping. |
+| `src/lib/rotaPay.ts` | `loadSouthShiftPay` — South Mobile rota shifts per officer in a window × the per-shift rate (own, else company default); `priceSouthShifts`, `southShiftRate`, `countsInWindow` (unit-tested). Shared by payroll and the payslip. |
 | `src/lib/payslip.ts` | `loadPayslip` (per-officer statement: retainer + activity grouped by service + adjustments → gross/net) + `sendPayslipEmail`. |
 | `src/lib/receivables.ts` | `loadReceivables` + `ageBucket` (unit-tested) — outstanding invoices aged current / 1–30 / 31–60 / 61–90 / 90+. |
 | `src/lib/vatReturn.ts` | `loadVatReturn` (output VAT by invoice/tax-point date → Box 1 + Box 6, by-rate split) + `calendarQuarter`/`recentQuarters` (unit-tested). |
@@ -93,7 +94,7 @@ Activities link to their invoice via `Job/PatrolVisit/Shift.invoiceId`; recurrin
 | `src/app/(app)/finance/_actions.ts` | `recalculateBilling` — the "Bill missing" / "Recompute" bulk action. |
 | `src/app/(app)/finance/activities/page.tsx` | Admin activity ledger with billed/paid columns + group-by pivot. |
 | `src/app/(app)/finance/officers/[id]/page.tsx`, `.../partners/[id]/page.tsx` | Per-account drill-downs. |
-| `src/app/(app)/finance/payroll/page.tsx` | Payroll table (retainer + activity pay). |
+| `src/app/(app)/finance/payroll/page.tsx` | Payroll table (retainer + activity pay + South Mobile shifts). |
 | `src/app/api/payroll/export/route.ts` | `GET /api/payroll/export?from&to` → CSV. |
 | `src/app/api/cron/pay-summary/route.ts` | Month-end officer pay-summary SMS. |
 | Rate editors | `src/app/(app)/admin/customers/[id]/rates/` (customer card), `src/app/(app)/sites/[id]/_components/SiteRatesEditor.tsx` + `_actions.ts` (site overrides), `src/app/(app)/admin/officer-rates/` (officer pay), `src/components/RateCardForm.tsx` (shared form). |
@@ -160,8 +161,9 @@ When an activity is created **with a fixed unit and a known account**, billing +
 `buildPayrollReport(from, to)` (`payroll.ts`) produces one row per active `OFFICER`/`DISPATCHER` (including zero-pay officers, so gaps are visible):
 - **Retainer** = the officer's `PER_MONTH` `OfficerRate` (per-officer, else company default; `ANNUAL_SUBSCRIPTION` accepted as legacy) × `monthsBetween(from,to)` (partial months count as whole).
 - **Activity pay** = sum of `paidAmount` over that officer's `COMPLETED` `PatrolVisit`s, completed `Job`s and completed `Shift`s whose scheduled date falls in the window (via the `*ScheduledRange` fragments, requiring `paidAt` set).
+- **South Mobile shifts** = each South Mobile `RotaAssignment` (`DAY`/`NIGHT`) whose start (09:00 / 18:00 UK on its date) falls in the window **and has already happened**, × the officer's `SOUTH_MOBILE_DAY_SHIFT` / `SOUTH_MOBILE_NIGHT_SHIFT` rate (per-officer, else company default). No rate = the shift pays nothing and is flagged (`southUnpricedShifts`). North Mobile is paid by the retainer, so its 24-hour shifts add nothing. The payroll page flags an officer who gets both a retainer and South shifts, since South shifts replace the monthly standing charge.
 - **Adjustments** = signed sum of that officer's `PayAdjustment` rows dated in the window.
-- `total = retainer + activityPay + adjustments` (net pay). `/api/payroll/export` returns `csvHeader()` + `csvLineFor()` rows as `text/csv` (admin-only; validates `from`/`to`; includes an `adjustments` column). `/finance/payroll` renders the same report on screen with a **Payslip →** link per officer.
+- `total = retainer + activityPay + southShiftPay + adjustments` (net pay). `/api/payroll/export` returns `csvHeader()` + `csvLineFor()` rows as `text/csv` (admin-only; validates `from`/`to`; includes an `adjustments` column, and `south_mobile_shifts` / `south_mobile_shift_pay` as the **last** two columns so older position-based sheets still line up). `/finance/payroll` renders the same report on screen with a **Payslip →** link per officer.
 
 ### 6. P&L (`/finance`)
 `finance/page.tsx` (admin-only, default range = current month) reads snapshots over the scheduled-date window, counting **only completed work** (`status=COMPLETED` visits/shifts, `completedAt`-set non-cancelled jobs):
@@ -205,7 +207,7 @@ When an activity is created **with a fixed unit and a known account**, billing +
 `periodsDue(charge, from, to)` (`recurring.ts`, unit-tested) computes the period keys a `RecurringCharge` is due for (MONTHLY/QUARTERLY/ANNUAL/ONE_OFF, respecting start/end); `dueRecurringLines` returns those not yet run. The invoice flow picks these up as lines and materialises one `RecurringChargeRun` per period (unique per charge + period, so never billed twice). Voiding an invoice deletes its runs.
 
 ### 11. Officer payslips + pay adjustments (`/finance/officers/[id]/payslip`)
-`loadPayslip(officerId, from, to)` (`payslip.ts`) builds a per-officer statement using the **same rules as payroll** so the two reconcile: retainer (`PER_MONTH` `OfficerRate`, per-officer else company default × whole months) + activity pay (completed, paid visits/jobs/shifts on the scheduled-date window) **grouped by service**, plus **manual `PayAdjustment` lines** dated into the period → `gross` and `net`. Adjustments are added/deleted inline (signed amount — negative deducts). PDF via `PayslipPdf.tsx`; `sendPayslipEmail` emails it to the officer. Adjustments flow into `buildPayrollReport`'s net total and the payroll CSV.
+`loadPayslip(officerId, from, to)` (`payslip.ts`) builds a per-officer statement using the **same rules as payroll** so the two reconcile: retainer (`PER_MONTH` `OfficerRate`, per-officer else company default × whole months) + activity pay (completed, paid visits/jobs/shifts on the scheduled-date window) **grouped by service** + South Mobile shifts (one line each for day and night: count × rate, via `loadSouthShiftPay`), plus **manual `PayAdjustment` lines** dated into the period → `gross` and `net`. Adjustments are added/deleted inline (signed amount — negative deducts). PDF via `PayslipPdf.tsx`; `sendPayslipEmail` emails it to the officer. Adjustments flow into `buildPayrollReport`'s net total and the payroll CSV.
 
 ### 12. Payables (`/finance/payables`)
 `loadPayables(asOf)` (`payables.ts`, reusing the receivables ageing buckets) lists **unpaid `SupplierCost` bills** (`paidOn` null) aged by their due date (`dueOn`, else bill date), with per-bucket + per-supplier totals and a one-click **mark paid** (`markCostPaidAction` stamps `paidOn`). An informational **"Owed to partners"** panel sums `partnerChargeToUsAmount` per handling partner (settled outside this ledger). Costs carry a Paid / Owed status; the add-cost form takes an optional due date.
@@ -282,7 +284,8 @@ When an activity is created **with a fixed unit and a known account**, billing +
 - **Email is a no-op until configured.** `sendInvoiceEmail`/`sendPayslipEmail` return a clear "not set up yet" result unless `RESEND_API_KEY` is set (and `EMAIL_FROM` a verified sender), mirroring the SMS/WhatsApp drivers — nothing throws, the button just reports it. Set both in Vercel to enable.
 - **"Mark paid" vs recorded payments.** The invoice status buttons still expose a manual **Mark paid** override; using it sets `PAID` without an `InvoicePayment`, so the payments card shows a full balance while the chip says paid. Prefer **Record payment** when you want the balance and the receivables/aged-debt figures to be right.
 - **Receivables/VAT are invoice-date based, not cash.** Receivables ages by `dueAt`; the VAT return uses the invoice (tax-point) date. Businesses on the VAT cash-accounting scheme owe VAT when paid — the page flags this. The **payments** export is the cash-basis companion.
-- **Payslip reconciles with payroll by construction** — both call the same retainer + paid-activity rules. If you change one, change the other (or extract the shared roll-up).
+- **Payslip reconciles with payroll by construction** — both call the same retainer + paid-activity rules, and both price South Mobile shifts with `loadSouthShiftPay`. If you change one, change the other (or extract the shared roll-up).
+- **Rota pay isn't in the P&L or the pay-summary SMS.** Like the monthly retainer, South Mobile shift pay is a fixed cost from the rota, not an activity snapshot, so `/finance` officer pay and the month-end SMS (activity pay only) leave it out. Payroll, payslips and the cash-flow payroll estimate include it.
 - **Costs use net for profit, reclaimable-only for Box 4.** `/finance` net profit deducts **net** supplier costs (VAT is passed through); the VAT return's Box 4 counts only costs flagged `reclaimable`. A cost's VAT + gross are derived from `net × rate` at save time — edit means delete + re-add.
 - **Reminders send the highest unsent stage, never a backlog.** Adding the feature to a 90-days-overdue invoice sends one `overdue_30` reminder, then stops (no threshold beyond 30). The daily cron is safe to re-run; `@@unique([invoiceId, stage])` dedupes.
 - **Credit notes and receivables/VAT.** A credit note only counts when `ISSUED`; voiding it reverses the balance reduction and the VAT net-off. The receivables `paid` column still shows payments only, so with a credit note `total − paid ≠ balance` by the credited amount — the **balance** is the correct figure.

@@ -19,7 +19,7 @@ Every module doc follows the same shape, so you can skim consistently:
 | 02 | [Access, Auth & Roles](./02-access-auth-roles.md) | NextAuth, the 5 roles, middleware + layout gating, rate limiting, duty tokens, admin bootstrap. |
 | 03 | [Sites, Customers & Regions](./03-sites-customers-regions.md) | The site register, customers/contacts, access instructions, import & geocoding. |
 | 04 | [Keys](./04-keys.md) | Keys, key sets, movements, holders, encrypted access codes. |
-| 05 | [Patrols, Shifts & Rota](./05-patrols-shifts-rota.md) | Recurring patrol/lock-unlock schedules → materialised visits/jobs; guarding shifts + hourly checks; weekly rota. |
+| 05 | [Patrols, Shifts & Rota](./05-patrols-shifts-rota.md) | Recurring patrol/lock-unlock schedules → materialised visits/jobs; guarding shifts + hourly checks; the mobile patrol rota (North 24 h, South day/night). |
 | 06 | [Dispatch, Jobs & Alarms](./06-dispatch-jobs-alarms.md) | The universal `Job` lifecycle, callouts (dispatcher + bot), alarms. |
 | 07 | [Officer Reports & Forms](./07-officer-reports-forms.md) | The public `/submit` flow, dynamic form templates/blueprints, the review queue, client reports. |
 | 08 | [Partners](./08-partners.md) | The three relationship modes in depth; partner officers, portal, rates. |

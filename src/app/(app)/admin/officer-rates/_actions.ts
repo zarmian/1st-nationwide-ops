@@ -18,9 +18,21 @@ const SERVICES = [
   "ADHOC",
   "ANNUAL_SUBSCRIPTION",
   "SITE_SETUP",
+  "SOUTH_MOBILE_DAY_SHIFT",
+  "SOUTH_MOBILE_NIGHT_SHIFT",
 ] as const;
 
-const UNITS = ["PER_VISIT", "PER_HOUR", "PER_MONTH", "PER_YEAR", "FIXED"] as const;
+const UNITS = [
+  "PER_VISIT",
+  "PER_HOUR",
+  "PER_MONTH",
+  "PER_YEAR",
+  "FIXED",
+  "PER_SHIFT",
+] as const;
+
+/** South Mobile rota shifts: always paid per shift, and only they are. */
+const PER_SHIFT_SERVICES = new Set<string>(["SOUTH_MOBILE_DAY_SHIFT", "SOUTH_MOBILE_NIGHT_SHIFT"]);
 
 const RateInput = z.object({
   officerId: z.string().uuid().or(z.literal("")).nullable(),
@@ -71,6 +83,19 @@ export async function upsertOfficerRate(
   }
   const d = parsed.data;
   const officerId = d.officerId && d.officerId !== "" ? d.officerId : null;
+  const perShift = PER_SHIFT_SERVICES.has(d.service);
+  if (!perShift && d.unit === "PER_SHIFT") {
+    return {
+      error: "“Per shift” is only for South Mobile day and night shifts.",
+      fieldErrors: { unit: ["Pick another unit for this service."] },
+    };
+  }
+  // A South Mobile shift rate is a flat amount per rota shift: no minutes.
+  if (perShift) {
+    d.unit = "PER_SHIFT";
+    d.includedMinutes = null;
+    d.excessRatePerMin = null;
+  }
 
   // Custom upsert because the unique key includes a nullable column.
   const existing = await prisma.officerRate.findFirst({

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { upsertOfficerRate, deleteOfficerRate } from "./_actions";
 import { RateForm } from "./_components/RateForm";
@@ -18,6 +19,8 @@ const SERVICE_LABEL: Record<string, string> = {
   ADHOC: "Ad-hoc",
   ANNUAL_SUBSCRIPTION: "Monthly retainer",
   SITE_SETUP: "Site setup",
+  SOUTH_MOBILE_DAY_SHIFT: "South Mobile day shift",
+  SOUTH_MOBILE_NIGHT_SHIFT: "South Mobile night shift",
 };
 
 function fmtMoney(amount: unknown, currency: string): string {
@@ -59,7 +62,15 @@ export default async function OfficerRatesPage() {
             Company defaults apply to all officers unless a per-officer
             override exists for the same service. Monthly retainer = the
             standing charge paid regardless of activity (use service
-            "Monthly retainer", unit "per month").
+            "Monthly retainer", unit "per month"); North Mobile officers are
+            paid this way. South Mobile is paid per shift instead: set
+            "South Mobile day shift" and "South Mobile night shift", and
+            each South shift an officer is on in the{" "}
+            <Link href="/rota" className="text-brand-blue-dark hover:underline">
+              rota
+            </Link>{" "}
+            pays that amount. A South Mobile officer shouldn&rsquo;t also have
+            a monthly retainer.
           </>
         }
       />

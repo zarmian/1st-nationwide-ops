@@ -6,32 +6,33 @@ import { useToast } from "@/components/Toast";
 import { setMyAvailability } from "../../../rota/_actions";
 
 /**
- * One toggle button on /m/rota — represents a single (date, shift)
- * slot. Optimistic UI flips immediately; the server action persists
- * the OfficerAvailability row.
+ * One toggle button on /m/rota — represents a single (date, half) slot:
+ * Day (09:00–18:00) or Night (18:00–09:00). Optimistic UI flips
+ * immediately; the server action persists the OfficerAvailability row.
  *
- * If dispatch has already placed the officer on the rota for this
- * slot, we show the region as a chip and disable the toggle —
- * removing yourself from a confirmed rota is intentionally not a
- * self-service action.
+ * If the office has already put the officer on a rota shift that takes
+ * this half (North Mobile's 24 hours take both), we show the patrol as a
+ * chip and disable the toggle — removing yourself from a confirmed rota
+ * is intentionally not a self-service action.
  */
 export function AvailabilityToggle({
   date,
   shift,
   initialAvailable,
-  assignedRegions,
+  assignedTo,
 }: {
   date: string;
   shift: "DAY" | "NIGHT";
   initialAvailable: boolean;
-  assignedRegions: string[];
+  /** Patrols the officer is already on for this half. */
+  assignedTo: string[];
 }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [available, setAvailable] = useState(initialAvailable);
 
-  const locked = assignedRegions.length > 0;
+  const locked = assignedTo.length > 0;
 
   function onToggle() {
     if (locked) return;
@@ -62,7 +63,7 @@ export function AvailabilityToggle({
       <div className="flex flex-col items-end gap-0.5">
         <span className="text-xs text-slate-500">{label}</span>
         <span className="chip-mint text-[10px]">
-          {assignedRegions.join(", ")}
+          {[...new Set(assignedTo)].join(", ")}
         </span>
       </div>
     );
@@ -80,6 +81,7 @@ export function AvailabilityToggle({
           : "bg-white text-slate-600 border-slate-300 hover:border-brand-blue-dark hover:text-brand-navy")
       }
       aria-pressed={available}
+      aria-label={`${label}, ${shift === "DAY" ? "09:00 to 18:00" : "18:00 to 09:00"}`}
     >
       {label}
       <span className="block text-[10px] leading-none mt-0.5">

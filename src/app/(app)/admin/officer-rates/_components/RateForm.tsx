@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import type { RateState } from "../_actions";
 
@@ -15,7 +16,12 @@ const SERVICES = [
   { v: "ADHOC", label: "Ad-hoc" },
   { v: "ANNUAL_SUBSCRIPTION", label: "Monthly retainer" },
   { v: "SITE_SETUP", label: "Site setup (one-off)" },
+  { v: "SOUTH_MOBILE_DAY_SHIFT", label: "South Mobile day shift" },
+  { v: "SOUTH_MOBILE_NIGHT_SHIFT", label: "South Mobile night shift" },
 ];
+
+/** Rota shifts are always paid per shift. */
+const PER_SHIFT_SERVICES = new Set(["SOUTH_MOBILE_DAY_SHIFT", "SOUTH_MOBILE_NIGHT_SHIFT"]);
 
 const UNITS = [
   { v: "PER_VISIT", label: "per visit" },
@@ -24,6 +30,7 @@ const UNITS = [
   { v: "PER_YEAR", label: "per year" },
   { v: "FIXED", label: "fixed (one-off)" },
 ];
+const PER_SHIFT_UNIT = { v: "PER_SHIFT", label: "per shift" };
 
 export function RateForm({
   action,
@@ -34,6 +41,9 @@ export function RateForm({
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
+  const [service, setService] = useState("ALARM_RESPONSE");
+  const [unit, setUnit] = useState("PER_VISIT");
+  const perShift = PER_SHIFT_SERVICES.has(service);
 
   return (
     <form action={formAction} className="card p-4 space-y-3">
@@ -68,7 +78,19 @@ export function RateForm({
           <label className="label" htmlFor="service">
             Service
           </label>
-          <select id="service" name="service" defaultValue="ALARM_RESPONSE" className="input">
+          <select
+            id="service"
+            name="service"
+            value={service}
+            onChange={(e) => {
+              const next = e.target.value;
+              setService(next);
+              // South Mobile shifts are only ever paid per shift.
+              if (PER_SHIFT_SERVICES.has(next)) setUnit("PER_SHIFT");
+              else if (unit === "PER_SHIFT") setUnit("PER_VISIT");
+            }}
+            className="input"
+          >
             {SERVICES.map((s) => (
               <option key={s.v} value={s.v}>
                 {s.label}
@@ -98,8 +120,14 @@ export function RateForm({
           <label className="label" htmlFor="unit">
             Unit
           </label>
-          <select id="unit" name="unit" defaultValue="PER_VISIT" className="input">
-            {UNITS.map((u) => (
+          <select
+            id="unit"
+            name="unit"
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+            className="input"
+          >
+            {(perShift ? [PER_SHIFT_UNIT] : UNITS).map((u) => (
               <option key={u.v} value={u.v}>
                 {u.label}
               </option>

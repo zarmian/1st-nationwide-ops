@@ -1,6 +1,6 @@
 # Patrols, Shifts & Rota
 
-> How recurring patrols/VPI, lock-up/unlock jobs, static-guarding/dog-handler shifts, and the region availability rota are scheduled, materialised by crons, executed on the ground, and attributed to a date for reporting and pay.
+> How recurring patrols/VPI, lock-up/unlock jobs, static-guarding/dog-handler shifts, and the mobile patrol rota (North Mobile 24 hours, South Mobile day and night) are scheduled, materialised by crons, executed on the ground, and attributed to a date for reporting and pay.
 
 ## Purpose & scope
 
@@ -11,9 +11,9 @@ Three loosely-related scheduling subsystems, documented together because they sh
 | Patrols / VPI | `PatrolSchedule` | `PatrolVisit` | `/submit` + `/api/visits/[id]/on-site` |
 | Lock-up / unlock | `LockUnlockSchedule` | `Job` (type `LOCK`/`UNLOCK`) | `/submit` (see `06-dispatch-jobs-alarms.md`) |
 | Static guarding / dog handler | *(none — created directly)* | `Shift` | `/duty/[token]` public link |
-| Rota & availability | `OfficerAvailability` (officer) + `RotaAssignment` (dispatch) | *(planning layer only — no concrete activity)* | `/m/rota` |
+| Mobile patrol rota & availability | `OfficerAvailability` (officer) + `RotaAssignment` (dispatch) | *(no concrete activity — South Mobile rows are paid per shift by payroll)* | `/m/rota` |
 
-Key architectural fact: **patrol visits and lock/unlock jobs are materialised nightly by Vercel crons from their schedules**, deduplicated so re-runs never double up. Shifts are created directly (no recurrence engine). The rota is a **planning layer decoupled from `Shift`/`PatrolVisit`** — it records who is on-call per region per half-day and never auto-creates a concrete activity.
+Key architectural fact: **patrol visits and lock/unlock jobs are materialised nightly by Vercel crons from their schedules**, deduplicated so re-runs never double up. Shifts are created directly (no recurrence engine). The rota is **decoupled from `Shift`/`PatrolVisit`** — it records who's on each mobile patrol shift (North Mobile: one 24-hour shift a day; South Mobile: a day and a night shift) and never auto-creates a concrete activity. Payroll pays each South Mobile shift on it a set amount (see `09-finance-billing-pay.md`).
 
 Out of scope here (cross-referenced): dispatch board & Job lifecycle (`06-dispatch-jobs-alarms.md`), rate resolution & pay snapshots (`09-finance-billing-pay.md`), WhatsApp/SMS/Telegram queueing (`10-notifications.md`), cron authentication & mechanics (`13-crons.md`).
 
@@ -106,19 +106,29 @@ Each check-in is a `FormSubmission` with `form = SHIFT_CHECK` and `payload = { k
 
 **Enums:** `ShiftType {STATIC_GUARDING, DOG_HANDLER}` · `ShiftStatus {PENDING, IN_PROGRESS, COMPLETED, MISSED, ABANDONED}`.
 
-### Rota & availability
+### Mobile patrol rota & availability
 
-**`OfficerAvailability`** — officer-set. One row per `(officerId, date, shift)`; **existence = available, absence = not**. `date` is `@db.Date`; `shift` is `RotaShift`. Unique `[officerId, date, shift]`, index `[date, shift]`. `onDelete: Cascade` on officer.
+The rota covers the two mobile patrols (times in `src/lib/rota.ts`):
 
-**`RotaAssignment`** — dispatcher-set. Officer X on for region R, date D, half-day S. Fields: `date @db.Date`, `shift RotaShift`, `regionId → Region`, `officerId → User` (cascade), `notes?`, `createdByUserId?`. Unique `[date, shift, regionId, officerId]` (multiple officers per region+shift allowed), indexes `[officerId, date]` and `[regionId, date, shift]`.
+| Patrol | Shift (`RotaShift`) | Hours (UK) | Pay |
+| --- | --- | --- | --- |
+| North Mobile (`NORTH_MOBILE`) | `FULL_DAY` | 24 hours, 09:00 → 09:00 next day | the officer's monthly retainer (unchanged) |
+| South Mobile (`SOUTH_MOBILE`) | `DAY` | 09:00 → 18:00 | `SOUTH_MOBILE_DAY_SHIFT` rate, per shift |
+| South Mobile (`SOUTH_MOBILE`) | `NIGHT` | 18:00 → 09:00 next day | `SOUTH_MOBILE_NIGHT_SHIFT` rate, per shift |
 
-**Enum `RotaShift {DAY, NIGHT}`** — `DAY` = 06:00–18:00 UK, `NIGHT` = 18:00–06:00 UK (next calendar day). The `date` anchor is the calendar date the half-day **starts** on. `@db.Date` columns hold pure UK calendar dates; actions parse `"YYYY-MM-DD"` to midnight UTC so no timezone maths is needed.
+**`OfficerAvailability`** — officer-set. One row per `(officerId, date, shift)`; **existence = available, absence = not**. `date` is `@db.Date`; `shift` is `DAY` (09:00–18:00) or `NIGHT` (18:00–09:00) — the halves an officer can tick. The North 24 hours needs both. Unique `[officerId, date, shift]`, index `[date, shift]`. `onDelete: Cascade` on officer.
+
+**`RotaAssignment`** — dispatcher-set. Officer X on patrol P, date D, shift S. Fields: `date @db.Date`, `shift RotaShift`, `patrol RotaPatrol?`, `regionId? → Region`, `officerId → User` (cascade), `notes?`, `createdByUserId?`. Unique `[date, shift, patrol, officerId]` (multiple officers per patrol+shift allowed), index `[officerId, date]`. `patrol` is null only on rows from the older region-based rota (before Nov 2026): they keep `regionId`, the board and payroll ignore them, and `/m/rota` shows them with the region name.
+
+**Enums** — `RotaShift {DAY, NIGHT, FULL_DAY}` and `RotaPatrol {NORTH_MOBILE, SOUTH_MOBILE}`. The `date` anchor is the calendar date the shift **starts** on, so a South night or North 24 hours dated the 13th runs to 09:00 on the 14th. `@db.Date` columns hold pure UK calendar dates; actions parse `"YYYY-MM-DD"` to midnight UTC (`dateValue`) so no timezone maths is needed.
 
 ## Key files
 
 - `prisma/schema.prisma` — all models/enums above.
 - `src/lib/patrolDates.ts` — pure schedule evaluation: `evaluateSchedule` (with skip reason), `shouldCreateVisitOn`, `matchesEveryNWeeks`, `resolvePatrolSlots`, `normalisePatrolTimes`, `defaultScheduledAt`.
 - `src/lib/scheduleSync.ts` — shared materialisation library: `materializePatrolVisits`, `materializeLockUnlockJobs`, `maybeCreateLockUnlock`. Called by both crons and the dispatch "Sync schedules" button. Idempotent.
+- `src/lib/rota.ts` — pure rota rules: the patrols and shifts (`ROTA_SLOTS`, `SHIFT_HOURS`, labels), `shiftsOverlap` (one officer can't be on overlapping shifts; back-to-back at 09:00 is fine), `availabilityFor` (full / partial / none from the ticked halves), `shiftStartsAt` (UK, DST-aware) and `"YYYY-MM-DD"` date helpers. Unit-tested.
+- `src/lib/rotaPay.ts` — South Mobile per-shift pay for payroll and payslips (see `09-...`).
 - `src/lib/activityWhen.ts` — canonical scheduled-date attribution: `visitWhen`/`shiftWhen`/`jobWhen` (display) and `visitScheduledRange`/`shiftScheduledRange`/`jobScheduledRange` (Prisma where-fragments for month windows).
 - `src/lib/shiftChecks.ts` — pure check-in slot maths: `computeCheckSlots`, `openSlotAt`, `nextSlotAfter`, `missedSlots`; `CHECKIN_LEAD_MIN = 10`. Shared client + server.
 - `src/lib/geo.ts` — `evaluateGeofence`, `haversineMeters`, `roundMeters`, `DEFAULT_GEOFENCE_M = 300`.
@@ -137,8 +147,8 @@ Pages / actions:
 - `src/app/(app)/shifts/_actions.ts` — `createShift`, `updateShift`, `deleteShift`, `sendShiftLinkSms`, `startShift`, `endShift`, `recordCompletedShift`.
 - `src/app/(app)/shifts/_components/*` — `NewShiftForm`, `CompletedShiftForm`, `ShiftLinkCard` (copy + send SMS), `DeleteShiftButton`.
 - `src/app/duty/[token]/page.tsx` + `DutyRunner.tsx` + `CameraCapture.tsx` + `_actions.ts` — the public, token-gated officer runner (`startDuty`, `checkInDuty`, `endDuty`).
-- `src/app/(app)/rota/page.tsx` + `_components/RotaCell.tsx` + `_actions.ts` — dispatcher rota board (`assignToRota`, `unassignFromRota`, `setMyAvailability`).
-- `src/app/(app)/m/rota/page.tsx` + `_components/AvailabilityToggle.tsx` — officer availability + read-only own assignments.
+- `src/app/(app)/rota/page.tsx` + `_components/RotaCell.tsx` + `_actions.ts` — dispatcher rota board: per day, North Mobile 24 hours, South Mobile day, South Mobile night (`assignToRota`, `unassignFromRota`, `setMyAvailability`). Admins also see the South per-shift pay.
+- `src/app/(app)/m/rota/page.tsx` + `_components/AvailabilityToggle.tsx` — officer availability (Day / Night halves) + read-only own assignments.
 - `src/app/api/cron/patrol-visits/route.ts`, `.../lockunlock-jobs/route.ts`, `.../visit-statuses/route.ts`, `.../shift-checks/route.ts` — the four crons.
 - `src/app/api/visits/[id]/on-site/route.ts`, `src/app/api/shifts/[id]/report/route.ts`, `src/app/api/submissions/route.ts` — on-site tap, PDF, and the shared submission handler.
 - `vercel.json` — cron schedules.
@@ -206,8 +216,9 @@ Cron `*/15 * * * *` → `GET /api/cron/shift-checks` does four things (summary; 
 
 ### 9. Rota planning
 
-- Officer, `/m/rota`: `AvailabilityToggle` → `setMyAvailability` (`rota/_actions.ts`, `requireUser`) upserts (available) or deletes (unavailable) one `OfficerAvailability` row. Also renders read-only "you're on the rota for" assignments.
-- Dispatcher, `/rota`: week grid (regions × day×shift). `RotaCell` picker lists officers who marked themselves available for that `(date, shift)` and aren't yet placed in any region; `assignToRota` creates a `RotaAssignment` (P2002 unique-violation treated as idempotent), `unassignFromRota` deletes one. Both `requireStaff`.
+- Officer, `/m/rota`: `AvailabilityToggle` → `setMyAvailability` (`rota/_actions.ts`, `requireUser`) upserts (available) or deletes (unavailable) one `OfficerAvailability` row for a Day or Night half. Also renders read-only "you're on the rota for" assignments; a half taken by an assignment (North's 24 hours take both) is locked.
+- Dispatcher, `/rota`: a week, each day with North Mobile 24 hours, South Mobile day and South Mobile night. `RotaCell`'s picker lists every active officer/dispatcher not already on that shift or on an overlapping one, grouped **Available** (ticked every half the shift needs) → **Partly available** → **Not marked available**. `assignToRota({date, patrol, shift, officerId})` checks the patrol has that shift, the officer is active, and (server-side) that they aren't on an overlapping shift the day before, of or after; then creates the `RotaAssignment` (P2002 unique-violation treated as idempotent). `unassignFromRota` deletes one. Both `requireStaff`.
+- Pay: each South Mobile shift on the rota that has started pays the officer's per-shift rate in payroll and on their payslip; North Mobile stays on the monthly retainer.
 
 ### 10. Manual "Sync schedules" (dispatch)
 
@@ -225,7 +236,7 @@ Cron `*/15 * * * *` → `GET /api/cron/shift-checks` does four things (summary; 
 - **Check-in window**: opens 10 min before due (`CHECKIN_LEAD_MIN`), closes `dueAt + graceMinutes`; first slot one interval after start, last strictly before scheduled end; one check-in per slot.
 - **Shift pay basis**: `worked = actualEnd − actualStart`; `payableMinutes = roundUpToHalfHour(worked)` (any part-block = a full 30 min). Bill on `worked`, pay on `payable`. Partner-handled shifts leave `paidAmount` null — the cost is the partner's `partnerChargeToUsAmount`.
 - **Auto-approve**: PATROL/VPI/LOCK/UNLOCK submissions skip the review queue (land APPROVED, snapshot finance immediately); ALARM_RESPONSE/ADHOC require admin review.
-- **Rota is planning-only**: `OfficerAvailability`/`RotaAssignment` are `@db.Date` rows decoupled from any concrete `Shift`/`PatrolVisit`; nothing is auto-created from an assignment. Multiple officers may be assigned per region+shift.
+- **The rota creates no activity**: `OfficerAvailability`/`RotaAssignment` are `@db.Date` rows decoupled from any concrete `Shift`/`PatrolVisit`; nothing is auto-created from an assignment. Multiple officers may be assigned per patrol+shift, but one officer never to two overlapping shifts. South Mobile rows are pay records: taking someone off a past South shift lowers their pay for that period.
 - **Cron auth** (`cronAuth.ts`): requires `Authorization: Bearer $CRON_SECRET`; bypassed only when `CRON_SECRET` is unset **and** not production.
 
 ## Entry points

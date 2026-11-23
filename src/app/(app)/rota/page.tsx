@@ -1,240 +1,239 @@
 import Link from "next/link";
-import { parseIsoDate } from "@/lib/dates";
 import { prisma } from "@/lib/db";
 import { requireStaff } from "@/lib/authz";
+import { ukDayString } from "@/lib/dates";
+import { formatMoney } from "@/lib/numbers";
 import { PageHeader } from "@/components/PageHeader";
-import { RotaCell } from "./_components/RotaCell";
+import {
+  PATROL_LABEL,
+  ROTA_SLOTS,
+  SHIFT_LABEL,
+  addDays,
+  availabilityFor,
+  dateKey,
+  dateValue,
+  dayLabel,
+  mondayOf,
+  shiftHours,
+  shiftsOverlap,
+  type AvailabilityShift,
+  type RotaPatrolCode,
+  type RotaShiftCode,
+} from "@/lib/rota";
+import { SOUTH_SHIFT_SERVICE } from "@/lib/rotaPay";
+import { RotaCell, type PickableOfficer } from "./_components/RotaCell";
 
 export const dynamic = "force-dynamic";
 
-const SHIFTS = ["DAY", "NIGHT"] as const;
-type Shift = (typeof SHIFTS)[number];
-
 /**
- * Dispatcher rota board. Week-at-a-time view with regions as rows and
- * day×shift as columns. Each cell shows who's already rota'd plus a
- * picker of the officers who marked themselves available for that
- * (date, shift) but haven't been assigned to any region yet.
+ * Mobile patrol rota board, a week at a time. Each day has three shifts:
+ * North Mobile (24 hours), South Mobile day and South Mobile night. Each
+ * shows who's on, plus a picker of officers: the ones who marked themselves
+ * available first, then everyone else. Officers already on a shift that
+ * overlaps (the North 24-hour shift overlaps both South shifts that day)
+ * aren't offered.
  */
-
-function ymd(d: Date): string {
-  const pad = (n: number) => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-// Week anchor is a Europe/London day (shared UK-aware parser).
-function parseLocalDate(s: string | undefined): Date | null {
-  return parseIsoDate(s);
-}
-
-function startOfWeek(d: Date): Date {
-  const day = (d.getDay() + 6) % 7; // 0 = Monday
-  const monday = new Date(d);
-  monday.setDate(d.getDate() - day);
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-}
-
-function addDays(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n);
-  return x;
-}
-
-function fmtDayShort(d: Date): string {
-  return d.toLocaleDateString("en-GB", {
-    weekday: "short",
-    day: "2-digit",
-    month: "short",
-  });
-}
-
 export default async function RotaBoardPage({
   searchParams,
 }: {
   searchParams: { week?: string };
 }) {
-  await requireStaff();
+  const me = await requireStaff();
 
-  const today = new Date();
-  const anchor = parseLocalDate(searchParams.week) ?? today;
-  const monday = startOfWeek(anchor);
-  const sunday = addDays(monday, 6);
+  const today = ukDayString(new Date());
+  const anchor = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.week ?? "")
+    ? searchParams.week!
+    : today;
+  const monday = mondayOf(anchor);
+  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  const sunday = days[6]!;
 
-  // Date column for Postgres DATE comparison. We want all 7 days,
-  // inclusive of Sunday.
-  const rangeStart = new Date(
-    Date.UTC(monday.getFullYear(), monday.getMonth(), monday.getDate()),
-  );
-  const rangeEnd = new Date(
-    Date.UTC(sunday.getFullYear(), sunday.getMonth(), sunday.getDate()),
-  );
-
-  const [regions, availability, assignments, officers] = await Promise.all([
-    prisma.region.findMany({ orderBy: { name: "asc" } }),
+  const [availability, assignments, officers, southRates] = await Promise.all([
     prisma.officerAvailability.findMany({
-      where: { date: { gte: rangeStart, lte: rangeEnd } },
-      include: { officer: { select: { id: true, name: true, regionId: true } } },
+      where: { date: { gte: dateValue(monday), lte: dateValue(sunday) } },
+      select: { officerId: true, date: true, shift: true },
     }),
+    // A day either side of the week, so a clash across midnight at the
+    // week's edges still keeps an officer out of the picker.
     prisma.rotaAssignment.findMany({
-      where: { date: { gte: rangeStart, lte: rangeEnd } },
-      include: { officer: { select: { id: true, name: true } } },
+      where: {
+        patrol: { not: null },
+        date: {
+          gte: dateValue(addDays(monday, -1)),
+          lte: dateValue(addDays(sunday, 1)),
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        date: true,
+        shift: true,
+        patrol: true,
+        officerId: true,
+        officer: { select: { name: true } },
+      },
     }),
     prisma.user.findMany({
       where: { active: true, role: { in: ["OFFICER", "DISPATCHER"] } },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, regionId: true },
+      select: { id: true, name: true },
     }),
+    // Pay is admin-only, like Officer pay rates.
+    me.role === "ADMIN"
+      ? prisma.officerRate.findMany({
+          where: {
+            officerId: null,
+            service: { in: [SOUTH_SHIFT_SERVICE.DAY, SOUTH_SHIFT_SERVICE.NIGHT] },
+          },
+          select: { service: true, amount: true, currency: true },
+        })
+      : Promise.resolve([]),
   ]);
 
-  // Bucket lookups: key = "YYYY-MM-DD|SHIFT".
-  const availabilityKey = (date: Date, shift: Shift) =>
-    `${ymd(new Date(date))}|${shift}`;
-
-  const availMap = new Map<
-    string,
-    { officerId: string; officerName: string; regionId: number | null }[]
-  >();
+  // The halves each officer marked, per day: "YYYY-MM-DD|officerId".
+  const marked = new Map<string, Set<AvailabilityShift>>();
   for (const a of availability) {
-    const k = availabilityKey(a.date, a.shift as Shift);
-    const list = availMap.get(k) ?? [];
-    list.push({
-      officerId: a.officer.id,
-      officerName: a.officer.name,
-      regionId: a.officer.regionId,
-    });
-    availMap.set(k, list);
+    if (a.shift !== "DAY" && a.shift !== "NIGHT") continue;
+    const k = `${dateKey(a.date)}|${a.officerId}`;
+    const set = marked.get(k) ?? new Set<AvailabilityShift>();
+    set.add(a.shift);
+    marked.set(k, set);
   }
 
-  // assignmentMap: key = "YYYY-MM-DD|SHIFT|regionId" → assignments.
-  const assignMap = new Map<
-    string,
-    { id: string; officerId: string; officerName: string }[]
-  >();
-  for (const r of assignments) {
-    const k = `${ymd(new Date(r.date))}|${r.shift}|${r.regionId}`;
-    const list = assignMap.get(k) ?? [];
-    list.push({
-      id: r.id,
-      officerId: r.officer.id,
-      officerName: r.officer.name,
-    });
-    assignMap.set(k, list);
-  }
+  const rows = assignments.map((a) => ({
+    id: a.id,
+    date: dateKey(a.date),
+    shift: a.shift as RotaShiftCode,
+    patrol: a.patrol as RotaPatrolCode,
+    officerId: a.officerId,
+    officerName: a.officer.name,
+  }));
 
-  // assignedByDateShift: every officerId already placed in *any* region
-  // for this (date, shift) — used to grey them out in the picker.
-  const assignedByDateShift = new Map<string, Set<string>>();
-  for (const r of assignments) {
-    const k = `${ymd(new Date(r.date))}|${r.shift}`;
-    const set = assignedByDateShift.get(k) ?? new Set<string>();
-    set.add(r.officerId);
-    assignedByDateShift.set(k, set);
-  }
-
-  const days = Array.from({ length: 7 }, (_, i) => addDays(monday, i));
-
-  const prevWeek = ymd(addDays(monday, -7));
-  const nextWeek = ymd(addDays(monday, 7));
+  const dayRate = southRates.find((r) => r.service === SOUTH_SHIFT_SERVICE.DAY);
+  const nightRate = southRates.find((r) => r.service === SOUTH_SHIFT_SERVICE.NIGHT);
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Rota"
-        subtitle="Region-wise day and night cover. Day = 06:00–18:00, Night = 18:00–06:00. Assign officers from the list of who marked themselves available on /m/rota."
+        subtitle="Mobile patrol cover. North Mobile is one 24-hour shift a day, 09:00 to 09:00. South Mobile has a day shift, 09:00 to 18:00, and a night shift, 18:00 to 09:00. Officers tick the halves they can work on My rota."
         actions={
           <>
-            <Link href={`/rota?week=${prevWeek}`} className="btn-ghost text-sm">
+            <Link href={`/rota?week=${addDays(monday, -7)}`} className="btn-ghost text-sm">
               ← Previous week
             </Link>
             <Link href="/rota" className="btn-secondary text-sm">
               This week
             </Link>
-            <Link href={`/rota?week=${nextWeek}`} className="btn-ghost text-sm">
+            <Link href={`/rota?week=${addDays(monday, 7)}`} className="btn-ghost text-sm">
               Next week →
             </Link>
           </>
         }
       />
 
+      {me.role === "ADMIN" && (
+        <div className="card p-3 text-sm text-slate-600">
+          {dayRate || nightRate ? (
+            <>
+              South Mobile pays per shift: day{" "}
+              <span className="font-medium text-brand-navy tabular-nums">
+                {dayRate ? formatMoney(Number(dayRate.amount), { currency: dayRate.currency }) : "not set"}
+              </span>
+              , night{" "}
+              <span className="font-medium text-brand-navy tabular-nums">
+                {nightRate
+                  ? formatMoney(Number(nightRate.amount), { currency: nightRate.currency })
+                  : "not set"}
+              </span>{" "}
+              (company default). North Mobile is paid by the monthly retainer.{" "}
+            </>
+          ) : (
+            <>
+              South Mobile shifts aren&rsquo;t paid yet: set the day and night
+              shift amounts. North Mobile is paid by the monthly retainer.{" "}
+            </>
+          )}
+          <Link href="/admin/officer-rates" className="text-brand-blue-dark hover:underline">
+            Officer pay rates →
+          </Link>
+        </div>
+      )}
+
       <div className="text-sm text-slate-600">
-        Week of{" "}
-        <span className="font-medium text-brand-navy">{fmtDayShort(monday)}</span>{" "}
-        – <span className="font-medium text-brand-navy">{fmtDayShort(sunday)}</span>
+        Week of <span className="font-medium text-brand-navy">{dayLabel(monday)}</span>{" "}
+        – <span className="font-medium text-brand-navy">{dayLabel(sunday)}</span>
       </div>
 
       <div className="space-y-6">
         {days.map((day) => {
-          const dayKey = ymd(day);
-          const isToday = dayKey === ymd(today);
+          const isToday = day === today;
           return (
-            <div key={dayKey} className="card overflow-hidden">
+            <section key={day} className="card overflow-hidden" aria-labelledby={`rota-${day}`}>
               <div
                 className={
                   "px-4 py-2 border-b border-slate-100 flex items-baseline justify-between gap-2 " +
                   (isToday ? "bg-brand-blue-50" : "bg-slate-50")
                 }
               >
-                <h2 className="font-semibold text-brand-navy">
-                  {fmtDayShort(day)}
+                <h2 id={`rota-${day}`} className="font-semibold text-brand-navy">
+                  {dayLabel(day)}
                   {isToday && (
-                    <span className="ml-2 chip-info text-[10px] align-middle">
-                      Today
-                    </span>
+                    <span className="ml-2 chip-info text-[10px] align-middle">Today</span>
                   )}
                 </h2>
               </div>
-              {SHIFTS.map((shift) => {
-                const k = `${dayKey}|${shift}`;
-                const availableHere = availMap.get(k) ?? [];
-                const alreadyAssigned =
-                  assignedByDateShift.get(k) ?? new Set<string>();
-                return (
-                  <div
-                    key={shift}
-                    className="border-t border-slate-100 px-4 py-3"
-                  >
-                    <div className="flex items-baseline justify-between mb-2">
-                      <h3 className="text-sm font-medium text-brand-navy">
-                        {shift === "DAY" ? "Day" : "Night"} shift
-                        <span className="ml-2 text-xs text-slate-500 font-normal">
-                          {shift === "DAY"
-                            ? "06:00 – 18:00"
-                            : "18:00 – 06:00"}
-                        </span>
-                      </h3>
-                      <span className="text-xs text-slate-500">
-                        {availableHere.length} available
-                      </span>
+              <div className="divide-y divide-slate-100">
+                {ROTA_SLOTS.map((slot) => {
+                  const here = { date: day, shift: slot.shift };
+                  const assigned = rows.filter(
+                    (r) => r.date === day && r.patrol === slot.patrol && r.shift === slot.shift,
+                  );
+                  const onThisShift = new Set(assigned.map((a) => a.officerId));
+                  // Officers on a shift that overlaps this one can't be added.
+                  const busy = new Set(
+                    rows
+                      .filter((r) => !onThisShift.has(r.officerId) && shiftsOverlap(here, r))
+                      .map((r) => r.officerId),
+                  );
+                  const pickable: PickableOfficer[] = officers
+                    .filter((o) => !onThisShift.has(o.id) && !busy.has(o.id))
+                    .map((o) => {
+                      const halves = marked.get(`${day}|${o.id}`) ?? new Set<AvailabilityShift>();
+                      const availability = availabilityFor(slot, halves);
+                      return {
+                        id: o.id,
+                        name: o.name,
+                        availability,
+                        note:
+                          availability === "partial"
+                            ? halves.has("DAY")
+                              ? "day only"
+                              : "night only"
+                            : null,
+                      };
+                    });
+                  return (
+                    <div key={`${slot.patrol}-${slot.shift}`} className="px-4 py-2">
+                      <RotaCell
+                        date={day}
+                        patrol={slot.patrol}
+                        shift={slot.shift}
+                        patrolLabel={PATROL_LABEL[slot.patrol]}
+                        shiftLabel={SHIFT_LABEL[slot.shift]}
+                        hours={shiftHours(slot.shift)}
+                        assigned={assigned.map((a) => ({
+                          id: a.id,
+                          officerId: a.officerId,
+                          officerName: a.officerName,
+                        }))}
+                        pickable={pickable}
+                      />
                     </div>
-                    <div className="space-y-2">
-                      {regions.map((region) => {
-                        const cellKey = `${dayKey}|${shift}|${region.id}`;
-                        const cellAssigned = assignMap.get(cellKey) ?? [];
-                        const pickable = availableHere
-                          .filter((a) => !alreadyAssigned.has(a.officerId))
-                          .map((a) => ({
-                            id: a.officerId,
-                            name: a.officerName,
-                            homeRegion: a.regionId === region.id,
-                          }));
-                        return (
-                          <RotaCell
-                            key={region.id}
-                            regionName={region.name}
-                            regionId={region.id}
-                            date={dayKey}
-                            shift={shift}
-                            assigned={cellAssigned}
-                            pickable={pickable}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            </section>
           );
         })}
       </div>

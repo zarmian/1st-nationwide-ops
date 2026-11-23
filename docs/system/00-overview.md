@@ -12,7 +12,7 @@ This folder (`docs/system/`) is a **module-by-module reference** written so the 
 |---|---|
 | **Sites & customers** | Every site we cover — services, region, keys, access notes, rates. |
 | **Keys** | Every key / fob / padlock / code, which set it belongs to, and who holds it. |
-| **Scheduling** | Recurring patrol visits and lock/unlock schedules; static-guarding & dog shifts; a weekly rota. |
+| **Scheduling** | Recurring patrol visits and lock/unlock schedules; static-guarding & dog shifts; the mobile patrol rota (North Mobile 24 hours, South Mobile day and night, South paid per shift). |
 | **Dispatch / Jobs** | One universal `Job` record for every callout, patrol, lock/unlock, VPI, alarm response. Live board + history. |
 | **Officer reports** | One permanent public URL (`/submit`); officer picks a site + job type and fills a dynamic form. |
 | **Review & client reports** | Admin reviews submissions and issues the customer report (PDF/email). |

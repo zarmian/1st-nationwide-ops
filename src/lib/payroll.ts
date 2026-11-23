@@ -12,6 +12,9 @@
  *      the "monthly retainer" service on OfficerRate (see migration notes).
  *      Look it up by the per-officer rate first, falling back to a company
  *      default. Multiplied by the number of whole months in the period.
+ *      North Mobile officers are paid this way.
+ *   3. South Mobile shift pay: each South Mobile rota shift the officer is on
+ *      (that has started) × the per-shift rate (src/lib/rotaPay.ts).
  *
  * Outputs one row per active officer/dispatcher, even those with zero pay,
  * so admin can see who's missing from the run.
@@ -22,6 +25,7 @@ import {
   shiftScheduledRange,
   visitScheduledRange,
 } from "@/lib/activityWhen";
+import { loadSouthShiftPay } from "@/lib/rotaPay";
 
 export type PayrollRow = {
   officerId: string;
@@ -34,9 +38,15 @@ export type PayrollRow = {
   retainerMonths: number;
   activityPay: number;
   activityCount: number;
+  /** South Mobile rota shifts in the period (day + night). */
+  southShifts: number;
+  /** What those shifts pay at the per-shift rates. */
+  southShiftPay: number;
+  /** South shifts paying nothing because no per-shift rate is set. */
+  southUnpricedShifts: number;
   /** Signed sum of manual PayAdjustment lines dated into the period. */
   adjustments: number;
-  /** Net pay: retainer + activity + adjustments. */
+  /** Net pay: retainer + activity + South shifts + adjustments. */
   total: number;
   currency: string;
 };
@@ -48,6 +58,7 @@ export type PayrollReport = {
   totals: {
     retainer: number;
     activityPay: number;
+    southShiftPay: number;
     adjustments: number;
     grand: number;
   };
@@ -211,6 +222,9 @@ export async function buildPayrollReport(
     adjustmentByOfficer.set(a.officerId, Number(a._sum.amount ?? 0));
   }
 
+  // South Mobile rota shifts, paid per shift.
+  const southPay = await loadSouthShiftPay(from, to);
+
   const months = monthsBetween(from, to);
 
   const rows: PayrollRow[] = officers.map((o) => {
@@ -222,8 +236,10 @@ export async function buildPayrollReport(
     const activity = payByOfficer.get(o.id);
     const activityPay = activity?.amount ?? 0;
     const activityCount = activity?.count ?? 0;
+    const south = southPay.get(o.id);
+    const southShiftPay = south?.amount ?? 0;
     const adjustments = adjustmentByOfficer.get(o.id) ?? 0;
-    const total = retainerAmount + activityPay + adjustments;
+    const total = retainerAmount + activityPay + southShiftPay + adjustments;
     return {
       officerId: o.id,
       name: o.name,
@@ -235,6 +251,9 @@ export async function buildPayrollReport(
       retainerMonths: months,
       activityPay: round2(activityPay),
       activityCount,
+      southShifts: south?.shifts ?? 0,
+      southShiftPay: round2(southShiftPay),
+      southUnpricedShifts: south?.unpricedShifts ?? 0,
       adjustments: round2(adjustments),
       total: round2(total),
       currency: retainerCurrency,
@@ -245,10 +264,11 @@ export async function buildPayrollReport(
     (acc, r) => ({
       retainer: acc.retainer + r.retainerAmount,
       activityPay: acc.activityPay + r.activityPay,
+      southShiftPay: acc.southShiftPay + r.southShiftPay,
       adjustments: acc.adjustments + r.adjustments,
       grand: acc.grand + r.total,
     }),
-    { retainer: 0, activityPay: 0, adjustments: 0, grand: 0 },
+    { retainer: 0, activityPay: 0, southShiftPay: 0, adjustments: 0, grand: 0 },
   );
 
   return { from, to, rows, totals };
@@ -261,7 +281,8 @@ function round2(n: number): number {
 /**
  * One CSV row per officer. Escaping is conservative — quote every field
  * and double up any internal quotes — so the output round-trips through
- * Excel and Google Sheets cleanly.
+ * Excel and Google Sheets cleanly. The South Mobile columns come last so a
+ * sheet that reads the older columns by position still lines up.
  */
 export function csvLineFor(row: PayrollRow): string {
   const cells = [
@@ -277,6 +298,8 @@ export function csvLineFor(row: PayrollRow): string {
     row.adjustments.toFixed(2),
     row.total.toFixed(2),
     row.currency,
+    String(row.southShifts),
+    row.southShiftPay.toFixed(2),
   ];
   return cells.map(csvCell).join(",");
 }
@@ -295,6 +318,8 @@ export function csvHeader(): string {
     "adjustments",
     "total",
     "currency",
+    "south_mobile_shifts",
+    "south_mobile_shift_pay",
   ]
     .map(csvCell)
     .join(",");
