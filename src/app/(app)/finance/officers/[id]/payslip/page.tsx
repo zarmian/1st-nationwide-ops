@@ -136,6 +136,24 @@ export default async function PayslipPage({
                   </td>
                 </tr>
               )}
+              {slip.southShifts?.lines.map((l) => (
+                <tr key={l.shift}>
+                  <td>
+                    {l.label}
+                    <span className="text-slate-500">
+                      {" "}
+                      ·{" "}
+                      {l.rate == null
+                        ? "no rate set"
+                        : `${formatMoney(l.rate, { currency: c })} per shift`}
+                    </span>
+                  </td>
+                  <td className="col-num">{l.count}</td>
+                  <td className="col-num">
+                    {formatMoney(l.amount, { currency: c })}
+                  </td>
+                </tr>
+              ))}
               {slip.earnings.map((e) => (
                 <tr key={e.service}>
                   <td>{e.service}</td>
@@ -145,10 +163,10 @@ export default async function PayslipPage({
                   </td>
                 </tr>
               ))}
-              {!slip.retainer && slip.earnings.length === 0 && (
+              {!slip.retainer && !slip.southShifts && slip.earnings.length === 0 && (
                 <tr>
                   <td colSpan={3} className="px-4 py-6 text-center text-slate-500">
-                    No retainer or activity pay in this period.
+                    No retainer, South Mobile shifts or activity pay in this period.
                   </td>
                 </tr>
               )}
@@ -178,6 +196,19 @@ export default async function PayslipPage({
             <span className="tabular-nums">{formatMoney(slip.net, { currency: c })}</span>
           </div>
         </div>
+
+        {slip.southShifts && slip.southShifts.unpricedShifts > 0 && (
+          <p className="text-xs text-amber-800">
+            {slip.southShifts.unpricedShifts} South Mobile shift
+            {slip.southShifts.unpricedShifts === 1 ? " has" : "s have"} no pay
+            rate, so {slip.southShifts.unpricedShifts === 1 ? "it pays" : "they pay"}{" "}
+            nothing yet. Set the rate on{" "}
+            <Link href="/admin/officer-rates" className="underline">
+              Officer pay rates
+            </Link>
+            .
+          </p>
+        )}
 
         <p className="text-xs text-slate-500">
           {slip.activityCount} paid{" "}

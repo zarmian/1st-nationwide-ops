@@ -8,9 +8,11 @@
  *   2. Activity   — sum of `paidAmount` on completed, paid visits + jobs +
  *                   shifts, windowed on the scheduled (accounting) date and
  *                   grouped by service so the officer sees what they did.
- *   3. Adjustments — manual PayAdjustment lines dated into the period (signed).
+ *   3. South Mobile shifts — each South Mobile rota shift × its per-shift
+ *                   rate (src/lib/rotaPay.ts), the same rule as payroll.
+ *   4. Adjustments — manual PayAdjustment lines dated into the period (signed).
  *
- *   net = retainer + activity + Σ adjustments
+ *   net = retainer + activity + South shifts + Σ adjustments
  */
 import { prisma } from "@/lib/db";
 import {
@@ -19,6 +21,7 @@ import {
   visitScheduledRange,
 } from "@/lib/activityWhen";
 import { monthsBetween } from "@/lib/payroll";
+import { loadSouthShiftPay, type SouthShiftPay } from "@/lib/rotaPay";
 import { sendEmail, isEmailConfigured } from "@/lib/email";
 import { COMPANY } from "@/lib/company";
 
@@ -56,9 +59,11 @@ export type Payslip = {
   earnings: PayslipEarningLine[];
   activityTotal: number;
   activityCount: number;
+  /** South Mobile rota shifts paid per shift, or null when there were none. */
+  southShifts: SouthShiftPay | null;
   adjustments: PayslipAdjustmentLine[];
   adjustmentsTotal: number;
-  /** retainer + activity (before adjustments). */
+  /** retainer + activity + South shifts (before adjustments). */
   gross: number;
   /** gross + Σ adjustments. */
   net: number;
@@ -75,7 +80,7 @@ export async function loadPayslip(
   });
   if (!officer) return null;
 
-  const [visits, jobs, shifts, adjustmentRows, retainerRates] =
+  const [visits, jobs, shifts, adjustmentRows, retainerRates, southPay] =
     await Promise.all([
       prisma.patrolVisit.findMany({
         where: {
@@ -115,6 +120,7 @@ export async function loadPayslip(
         where: { unit: "PER_MONTH", OR: [{ officerId }, { officerId: null }] },
         select: { officerId: true, amount: true, currency: true },
       }),
+      loadSouthShiftPay(from, to, { officerId }),
     ]);
 
   // Group activity pay by service label.
@@ -169,7 +175,10 @@ export async function loadPayslip(
     adjustments.reduce((n, a) => n + a.amount, 0),
   );
 
-  const gross = round2((retainer?.amount ?? 0) + activityTotal);
+  const southShifts = southPay.get(officerId) ?? null;
+  const gross = round2(
+    (retainer?.amount ?? 0) + activityTotal + (southShifts?.amount ?? 0),
+  );
   const net = round2(gross + adjustmentsTotal);
 
   return {
@@ -181,6 +190,7 @@ export async function loadPayslip(
     earnings,
     activityTotal,
     activityCount,
+    southShifts,
     adjustments,
     adjustmentsTotal,
     gross,

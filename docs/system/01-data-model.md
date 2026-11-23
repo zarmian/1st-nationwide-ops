@@ -45,14 +45,15 @@ Operating region (London, etc.); the only `Int`-keyed model.
 - Relations: `sites`, `officers` (`OfficerRegion`), `rotaAssignments`.
 
 #### OfficerAvailability
-Officer-set availability for a UK date + half-day shift. Existence = available.
-- `officerId`, `date @db.Date`, `shift RotaShift`, `notes`.
+Officer-set availability for a UK date + half: `DAY` (09:00–18:00) or `NIGHT` (18:00–09:00). Existence = available.
+- `officerId`, `date @db.Date`, `shift RotaShift` (only `DAY`/`NIGHT` are written), `notes`.
 - `@@unique([officerId, date, shift])`, `@@index([date, shift])`. Cascade-deletes with the officer.
 
 #### RotaAssignment
-Dispatcher-set "officer X is on for region R, date D, shift S".
-- `date @db.Date`, `shift RotaShift`, `regionId`, `officerId`, `notes`, `createdByUserId`.
-- `@@unique([date, shift, regionId, officerId])` (multiple officers per region+shift allowed); indexes on `[officerId, date]`, `[regionId, date, shift]`.
+Dispatcher-set "officer X is on mobile patrol P, date D, shift S": North Mobile `FULL_DAY` (24 h, 09:00–09:00) or South Mobile `DAY`/`NIGHT`. South Mobile rows drive per-shift pay (`src/lib/rotaPay.ts`).
+- `date @db.Date` (the UK day the shift starts), `shift RotaShift`, `patrol RotaPatrol?`, `regionId?`, `officerId`, `notes`, `createdByUserId`.
+- `patrol` is null only on rows from the older region-based rota (before Nov 2026); those keep `regionId`, aren't shown on the board and aren't paid. New rows leave `regionId` null.
+- `@@unique([date, shift, patrol, officerId])` (multiple officers per patrol+shift allowed); index on `[officerId, date]`.
 
 ### Customers & sites
 
@@ -203,7 +204,7 @@ Per-site customer-facing price override. `siteId` (cascade), `service RateServic
 Customer-level **default** rate card — same shape as `SiteRate`, keyed `@@unique([customerId, service])` (cascade). A `SiteRate` for the same service overrides it (site wins).
 
 #### OfficerRate
-What we **pay** an officer per service. `officerId?` (null = company default), `service`, `amount`, `unit`, `includedMinutes?`, `excessRatePerMin?`, `validFrom/To?`. `@@unique([officerId, service])`. Per-officer beats company default. A `PER_MONTH` / `ANNUAL_SUBSCRIPTION` row is treated as the monthly retainer by payroll.
+What we **pay** an officer per service. `officerId?` (null = company default), `service`, `amount`, `unit`, `includedMinutes?`, `excessRatePerMin?`, `validFrom/To?`. `@@unique([officerId, service])`. Per-officer beats company default. A `PER_MONTH` / `ANNUAL_SUBSCRIPTION` row is treated as the monthly retainer by payroll. `SOUTH_MOBILE_DAY_SHIFT` / `SOUTH_MOBILE_NIGHT_SHIFT` rows (always unit `PER_SHIFT`) are what each South Mobile rota shift pays.
 
 #### PartnerRate
 Partner rate card — both sides in one row. `partnerId` (cascade), `service`, `chargeToUs Decimal(10,2)`, `payToOfficer Decimal(10,2)`, `currency`, `unit`. `@@unique([partnerId, service])`. Auto-fills partner-recorded activity finance fields (and subcontracted patrol visits, snapshotted at materialisation).
@@ -314,7 +315,7 @@ FK map (model → what it points at, via which field):
 | Region | leadUserId → User |
 | User | regionId → Region; partnerId → Partner |
 | OfficerAvailability | officerId → User |
-| RotaAssignment | regionId → Region; officerId → User; createdByUserId → User |
+| RotaAssignment | regionId → Region (older rows only); officerId → User; createdByUserId → User |
 | Customer | — |
 | CustomerContact | customerId → Customer |
 | Site | regionId → Region; customerId → Customer; partnerId → Partner; defaultResponderId → User |
@@ -363,7 +364,8 @@ FK map (model → what it points at, via which field):
 | ScheduleKind | PATROL, VPI | What a PatrolSchedule/Visit is. |
 | DayOfWeek | MON…SUN | Day selector for schedules. |
 | VisitStatus | PENDING, IN_PROGRESS, COMPLETED, LATE, MISSED, CANCELLED | PatrolVisit lifecycle. |
-| RotaShift | DAY, NIGHT | Half-day rota (DAY 06:00–18:00 UK, NIGHT 18:00–06:00). |
+| RotaShift | DAY, NIGHT, FULL_DAY | Rota shift, dated by its start day: DAY 09:00–18:00 UK, NIGHT 18:00–09:00, FULL_DAY 24 h 09:00–09:00 (North Mobile). Availability uses DAY/NIGHT only. |
+| RotaPatrol | NORTH_MOBILE, SOUTH_MOBILE | The mobile patrol a rota shift is for. |
 | OnboardingStage | PROPOSED, SURVEY, KEY_COLLECTION, GO_LIVE, CANCELLED | Onboarding pipeline stage (collapsed from the original per-key stages). |
 | CustomerProgram | TESCO, SHURGARD, OTHER | Onboarding program. |
 | AlarmSource | ARC_EMAIL, ARC_PHONE, PARTNER_EMAIL, PARTNER_PHONE, CUSTOMER_PHONE, MANUAL, WEBHOOK | How an alarm reached us. |
@@ -382,8 +384,8 @@ FK map (model → what it points at, via which field):
 | ReportStatus | PENDING, SENT, FAILED, CANCELLED | ClientReport delivery state. |
 | AlarmPriority | LOW, MEDIUM, HIGH | Priority on AlarmEvent/Job. |
 | AlarmOutcome | FALSE_ALARM, GENUINE, RESOLVED, ESCALATED_TO_POLICE, OTHER | How an alarm was resolved. |
-| RateService | ALARM_RESPONSE, KEYHOLDING, LOCKUP, UNLOCK, VPI, PATROL, STATIC_GUARDING, DOG_HANDLER, ADHOC, ANNUAL_SUBSCRIPTION, SITE_SETUP | The priceable service on all four rate models. |
-| RateUnit | PER_VISIT, PER_HOUR, PER_MONTH, PER_YEAR, FIXED | How a rate amount is charged. |
+| RateService | ALARM_RESPONSE, KEYHOLDING, LOCKUP, UNLOCK, VPI, PATROL, STATIC_GUARDING, DOG_HANDLER, ADHOC, ANNUAL_SUBSCRIPTION, SITE_SETUP, SOUTH_MOBILE_DAY_SHIFT, SOUTH_MOBILE_NIGHT_SHIFT | The priceable service on all four rate models. The two South Mobile values are officer pay only. |
+| RateUnit | PER_VISIT, PER_HOUR, PER_MONTH, PER_YEAR, FIXED, PER_SHIFT | How a rate amount is charged. `PER_SHIFT` is only for the South Mobile shift rates. |
 | InvoiceStatus | DRAFT, SENT, PAID, VOID | Customer invoice lifecycle. |
 | CreditNoteStatus | ISSUED, VOID | Credit note lifecycle. |
 | ContractCadence | MONTHLY, QUARTERLY, ANNUAL | Value cadence of a Contract. |

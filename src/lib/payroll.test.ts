@@ -41,6 +41,9 @@ describe("csvLineFor / csvHeader", () => {
     retainerMonths: 1,
     activityPay: 234.5,
     activityCount: 12,
+    southShifts: 0,
+    southShiftPay: 0,
+    southUnpricedShifts: 0,
     adjustments: 0,
     total: 734.5,
     currency: "GBP",
@@ -67,6 +70,11 @@ describe("csvLineFor / csvHeader", () => {
     expect(csvLineFor(withAdj)).toContain('"-50.00"');
   });
 
+  it("adds South Mobile shifts and their pay at the end", () => {
+    const south: PayrollRow = { ...row, southShifts: 9, southShiftPay: 765, total: 1499.5 };
+    expect(csvLineFor(south).endsWith('"GBP","9","765.00"')).toBe(true);
+  });
+
   it("header has the columns we promise", () => {
     expect(csvHeader()).toBe(
       [
@@ -82,6 +90,8 @@ describe("csvLineFor / csvHeader", () => {
         "adjustments",
         "total",
         "currency",
+        "south_mobile_shifts",
+        "south_mobile_shift_pay",
       ]
         .map((c) => `"${c}"`)
         .join(","),

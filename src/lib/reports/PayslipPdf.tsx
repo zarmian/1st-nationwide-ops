@@ -181,6 +181,16 @@ function PayslipDocument({ data }: { data: Payslip }) {
             <Text style={s.cAmt}>{money(data.retainer.amount, c)}</Text>
           </View>
         ) : null}
+        {data.southShifts?.lines.map((l) => (
+          <View key={l.shift} style={s.tRow}>
+            <Text style={s.cDesc}>
+              {l.label}
+              {l.rate == null ? " (no rate set)" : ` at ${money(l.rate, c)} per shift`}
+            </Text>
+            <Text style={s.cQty}>{l.count}</Text>
+            <Text style={s.cAmt}>{money(l.amount, c)}</Text>
+          </View>
+        ))}
         {data.earnings.map((e, i) => (
           <View key={i} style={s.tRow}>
             <Text style={s.cDesc}>{e.service}</Text>
@@ -188,7 +198,7 @@ function PayslipDocument({ data }: { data: Payslip }) {
             <Text style={s.cAmt}>{money(e.amount, c)}</Text>
           </View>
         ))}
-        {!data.retainer && data.earnings.length === 0 ? (
+        {!data.retainer && !data.southShifts && data.earnings.length === 0 ? (
           <View style={s.tRow}>
             <Text style={s.cDesc}>No activity pay in this period</Text>
             <Text style={s.cQty}>0</Text>

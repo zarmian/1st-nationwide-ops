@@ -43,6 +43,7 @@ export default async function PayrollPage({
   const report = await buildPayrollReport(fromDate, toDate);
 
   const exportHref = `/api/payroll/export?from=${ymd(fromDate)}&to=${ymd(toDate)}`;
+  const southShiftCount = report.rows.reduce((n, r) => n + r.southShifts, 0);
 
   return (
     <div className="section">
@@ -53,7 +54,12 @@ export default async function PayrollPage({
         subtitle={
           <>
             Monthly retainer (from each officer's <code>per month</code>{" "}
-            OfficerRate row) plus the sum of paid activity snapshots in
+            OfficerRate row, which is how North Mobile is paid), plus South
+            Mobile shifts on the{" "}
+            <Link href="/rota" className="text-brand-blue-dark hover:underline">
+              rota
+            </Link>{" "}
+            at the per-shift rates, plus the sum of paid activity snapshots in
             the period. One row per active officer / dispatcher.
           </>
         }
@@ -94,7 +100,7 @@ export default async function PayrollPage({
         </button>
       </form>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <div className="kpi">
           <div className="kpi-label">Retainer</div>
           <div className="kpi-value">{fmt(report.totals.retainer, "GBP")}</div>
@@ -107,6 +113,13 @@ export default async function PayrollPage({
           <div className="kpi-label">Activity pay</div>
           <div className="kpi-value">{fmt(report.totals.activityPay, "GBP")}</div>
           <div className="kpi-hint">paid visits, jobs &amp; shifts</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi-label">South Mobile shifts</div>
+          <div className="kpi-value">{fmt(report.totals.southShiftPay, "GBP")}</div>
+          <div className="kpi-hint">
+            {southShiftCount} shift{southShiftCount === 1 ? "" : "s"} on the rota
+          </div>
         </div>
         <div className="kpi">
           <div className="kpi-label">Adjustments</div>
@@ -139,6 +152,7 @@ export default async function PayrollPage({
               <th className="col-num">Retainer</th>
               <th className="col-num">Activity pay</th>
               <th className="col-num">Activities</th>
+              <th className="col-num">South shifts</th>
               <th className="col-num">Adjustments</th>
               <th className="col-num">Total</th>
               <th></th>
@@ -157,6 +171,23 @@ export default async function PayrollPage({
                   <div className="text-xs text-slate-500">
                     {r.role.toLowerCase()}
                   </div>
+                  {r.retainerAmount > 0 && r.southShifts > 0 && (
+                    <div className="mt-1 text-xs text-amber-800">
+                      Paid both the monthly retainer and South Mobile shifts.
+                      If the shifts replace the retainer, remove it on{" "}
+                      <Link href="/admin/officer-rates" className="underline">
+                        Officer pay rates
+                      </Link>
+                      .
+                    </div>
+                  )}
+                  {r.southUnpricedShifts > 0 && (
+                    <div className="mt-1 text-xs text-amber-800">
+                      {r.southUnpricedShifts} South Mobile shift
+                      {r.southUnpricedShifts === 1 ? " has" : "s have"} no pay
+                      rate yet.
+                    </div>
+                  )}
                 </td>
                 <td className="text-slate-600 font-mono text-xs">
                   {r.siaNumber ?? "—"}
@@ -168,6 +199,18 @@ export default async function PayrollPage({
                   {fmt(r.activityPay, r.currency)}
                 </td>
                 <td className="col-num text-slate-500">{r.activityCount}</td>
+                <td className="col-num text-slate-700">
+                  {r.southShifts === 0 ? (
+                    <span className="text-slate-400">—</span>
+                  ) : (
+                    <>
+                      {fmt(r.southShiftPay, r.currency)}
+                      <div className="text-xs text-slate-500">
+                        {r.southShifts} shift{r.southShifts === 1 ? "" : "s"}
+                      </div>
+                    </>
+                  )}
+                </td>
                 <td
                   className={
                     "col-num " +
@@ -195,7 +238,7 @@ export default async function PayrollPage({
             ))}
             {report.rows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                   No active officers — add one at{" "}
                   <Link href="/officers" className="text-brand-blue-dark hover:underline">
                     /officers

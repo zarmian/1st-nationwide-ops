@@ -79,7 +79,7 @@ export default async function OperationsHubPage() {
       },
     }),
     prisma.rotaAssignment.count({
-      where: { date: { gte: rotaWeekStart, lt: rotaWeekEnd } },
+      where: { patrol: { not: null }, date: { gte: rotaWeekStart, lt: rotaWeekEnd } },
     }),
   ]);
 
@@ -134,7 +134,7 @@ export default async function OperationsHubPage() {
       href: "/rota",
       title: "Rota",
       blurb:
-        "Who's on for each region and shift — officer availability and the daily assignment grid.",
+        "Who's on North Mobile (24 hours) and South Mobile (day and night) — officer availability and the daily rota.",
       stat: rotaThisWeek,
       statLabel: "booked · next 7 days",
       icon: CalendarRange,

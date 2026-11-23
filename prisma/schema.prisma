@@ -115,13 +115,24 @@ enum VisitStatus {
   CANCELLED
 }
 
-/// Rota half-day. DAY = 06:00-18:00 UK, NIGHT = 18:00-06:00 UK (next
-/// calendar day). The "date" anchor on rota rows is the calendar date
-/// the shift STARTS on, so a NIGHT entry for 2026-06-13 covers
-/// 18:00 on Sat 13 Jun through 06:00 on Sun 14 Jun.
+/// Rota shift. The "date" anchor on rota rows is the UK calendar date the
+/// shift STARTS on, so a NIGHT entry for 2026-06-13 covers 18:00 on Sat
+/// 13 Jun through 09:00 on Sun 14 Jun. Times live in src/lib/rota.ts:
+///   DAY      = 09:00-18:00 UK (South Mobile day shift)
+///   NIGHT    = 18:00-09:00 UK, next calendar day (South Mobile night shift)
+///   FULL_DAY = 24 hours, 09:00-09:00 UK, next calendar day (North Mobile)
+/// Officer availability only uses DAY and NIGHT.
 enum RotaShift {
   DAY
   NIGHT
+  FULL_DAY
+}
+
+/// The mobile patrol a rota shift is for. North Mobile runs one 24-hour
+/// shift a day; South Mobile runs a day shift and a night shift.
+enum RotaPatrol {
+  NORTH_MOBILE
+  SOUTH_MOBILE
 }
 
 enum OnboardingStage {
@@ -281,6 +292,9 @@ enum RateService {
   ADHOC
   ANNUAL_SUBSCRIPTION
   SITE_SETUP
+  /// Officer pay only: a South Mobile rota shift (unit PER_SHIFT).
+  SOUTH_MOBILE_DAY_SHIFT
+  SOUTH_MOBILE_NIGHT_SHIFT
 }
 
 enum RateUnit {
@@ -289,6 +303,8 @@ enum RateUnit {
   PER_MONTH
   PER_YEAR
   FIXED
+  /// Officer pay only: each South Mobile rota shift covered.
+  PER_SHIFT
 }
 
 enum NotificationChannel {
@@ -353,26 +369,30 @@ model OfficerAvailability {
   @@index([date, shift])
 }
 
-/// Dispatcher-set rota assignment — officer X is on for region R on
-/// date D, shift S. Multiple officers can be assigned per region+shift
-/// (the unique key includes officer). Officers see their own
-/// assignments on /m/rota; dispatch manages all of them on /rota.
+/// Dispatcher-set rota assignment — officer X is on patrol P (North or
+/// South Mobile) on date D, shift S. Multiple officers can be assigned per
+/// patrol+shift (the unique key includes officer). Officers see their own
+/// assignments on /m/rota; dispatch manages all of them on /rota. South
+/// Mobile shifts are paid per shift from this table (src/lib/rotaPay.ts).
 model RotaAssignment {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  date            DateTime  @db.Date
+  id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  date            DateTime    @db.Date
   shift           RotaShift
-  regionId        Int
-  region          Region    @relation(fields: [regionId], references: [id])
-  officerId       String    @db.Uuid
-  officer         User      @relation("RotaAssignmentOfficer", fields: [officerId], references: [id], onDelete: Cascade)
+  /// Null only on rows from the older region-based rota (before Nov 2026),
+  /// which the board no longer shows and payroll ignores.
+  patrol          RotaPatrol?
+  /// Older region-based rota rows only. New rows leave it null.
+  regionId        Int?
+  region          Region?     @relation(fields: [regionId], references: [id])
+  officerId       String      @db.Uuid
+  officer         User        @relation("RotaAssignmentOfficer", fields: [officerId], references: [id], onDelete: Cascade)
   notes           String?
-  createdByUserId String?   @db.Uuid
-  createdBy       User?     @relation("RotaAssignmentCreatedBy", fields: [createdByUserId], references: [id])
-  createdAt       DateTime  @default(now())
+  createdByUserId String?     @db.Uuid
+  createdBy       User?       @relation("RotaAssignmentCreatedBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime    @default(now())
 
-  @@unique([date, shift, regionId, officerId])
+  @@unique([date, shift, patrol, officerId])
   @@index([officerId, date])
-  @@index([regionId, date, shift])
 }
 
 model User {

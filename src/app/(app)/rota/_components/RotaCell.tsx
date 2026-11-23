@@ -4,48 +4,64 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import { assignToRota, unassignFromRota } from "../_actions";
+import type { Availability, RotaPatrolCode, RotaShiftCode } from "@/lib/rota";
 
 type Assigned = { id: string; officerId: string; officerName: string };
-type Pickable = { id: string; name: string; homeRegion: boolean };
+
+export type PickableOfficer = {
+  id: string;
+  name: string;
+  /** How far the halves they marked on My rota cover this shift. */
+  availability: Availability;
+  /** e.g. "day only" when they marked one half of a 24-hour shift. */
+  note: string | null;
+};
+
+const GROUPS: { key: Availability; title: string }[] = [
+  { key: "full", title: "Available" },
+  { key: "partial", title: "Partly available" },
+  { key: "none", title: "Not marked available" },
+];
 
 /**
- * One row of the rota board — one region, one (date, shift). Shows the
- * officers already assigned as removable chips, plus an inline picker
- * of officers who are available for the same date+shift but not yet
- * placed in any region.
+ * One shift on the rota board: one patrol, one day, one shift. Shows the
+ * officers already on it as removable chips, plus a picker of everyone who
+ * can still be added, the ones who marked themselves available first.
  */
 export function RotaCell({
-  regionName,
-  regionId,
   date,
+  patrol,
   shift,
+  patrolLabel,
+  shiftLabel,
+  hours,
   assigned,
   pickable,
 }: {
-  regionName: string;
-  regionId: number;
   date: string;
-  shift: "DAY" | "NIGHT";
+  patrol: RotaPatrolCode;
+  shift: RotaShiftCode;
+  patrolLabel: string;
+  shiftLabel: string;
+  hours: string;
   assigned: Assigned[];
-  pickable: Pickable[];
+  pickable: PickableOfficer[];
 }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, startTransition] = useTransition();
   const [showPicker, setShowPicker] = useState(false);
+  const where = `${patrolLabel}, ${shiftLabel.toLowerCase()}`;
 
   function handleAssign(officerId: string, officerName: string) {
     startTransition(async () => {
-      const res = await assignToRota({ date, shift, regionId, officerId });
+      const res = await assignToRota({ date, patrol, shift, officerId });
       if (res.ok) {
-        toast.show({
-          tone: "success",
-          message: `${officerName} added to ${regionName} ${shift.toLowerCase()}`,
-        });
+        toast.show({ tone: "success", message: `${officerName} is on ${where}` });
         setShowPicker(false);
         router.refresh();
       } else {
-        toast.show({ tone: "error", message: res.error ?? "Couldn't assign" });
+        toast.show({ tone: "error", message: res.error ?? "Couldn't add them" });
       }
     });
   }
@@ -54,46 +70,37 @@ export function RotaCell({
     startTransition(async () => {
       const res = await unassignFromRota({ assignmentId });
       if (res.ok) {
-        toast.show({
-          tone: "success",
-          message: `${officerName} removed from rota`,
-        });
+        toast.show({ tone: "success", message: `${officerName} taken off ${where}` });
         router.refresh();
       } else {
-        toast.show({ tone: "error", message: res.error ?? "Couldn't remove" });
+        toast.show({ tone: "error", message: res.error ?? "Couldn't remove them" });
       }
     });
   }
 
-  // Sort pickable so the officers whose home region matches come first.
-  const sortedPickable = [...pickable].sort((a, b) => {
-    if (a.homeRegion !== b.homeRegion) return a.homeRegion ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
+  const availableCount = pickable.filter((p) => p.availability === "full").length;
 
   return (
-    <div className="grid grid-cols-[140px_1fr_auto] gap-3 items-start py-1.5">
-      <div className="text-sm font-medium text-brand-navy pt-1">
-        {regionName}
+    <div className="grid grid-cols-1 sm:grid-cols-[200px_1fr_auto] gap-2 sm:gap-3 items-start py-1.5">
+      <div className="pt-1">
+        <div className="text-sm font-medium text-brand-navy">{patrolLabel}</div>
+        <div className="text-xs text-slate-500">
+          {shiftLabel} · {hours}
+        </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
         {assigned.length === 0 ? (
-          <span className="text-xs text-slate-400 italic pt-1">
-            No one assigned
-          </span>
+          <span className="text-xs text-slate-400 italic pt-1">No one on</span>
         ) : (
           assigned.map((a) => (
-            <span
-              key={a.id}
-              className="inline-flex items-center gap-1 chip-mint text-xs"
-            >
+            <span key={a.id} className="inline-flex items-center gap-1 chip-mint text-xs">
               {a.officerName}
               <button
                 type="button"
                 onClick={() => handleRemove(a.id, a.officerName)}
                 disabled={pending}
-                aria-label={`Remove ${a.officerName}`}
-                className="hover:text-red-700 disabled:opacity-50"
+                aria-label={`Take ${a.officerName} off ${where}`}
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full hover:text-red-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-blue disabled:opacity-50"
               >
                 ×
               </button>
@@ -104,34 +111,48 @@ export function RotaCell({
       <div className="relative">
         {showPicker ? (
           <div className="flex items-start gap-2">
-            <div className="rounded-xl border border-slate-200 bg-white shadow-card p-1 min-w-[180px] max-h-48 overflow-y-auto">
-              {sortedPickable.length === 0 ? (
+            <div
+              className="rounded-xl border border-slate-200 bg-white shadow-card p-1 min-w-[200px] max-h-64 overflow-y-auto overscroll-contain"
+              role="group"
+              aria-label={`Add an officer to ${where}`}
+            >
+              {pickable.length === 0 ? (
                 <p className="text-xs text-slate-500 italic px-2 py-1">
-                  No one available
+                  No one free for this shift
                 </p>
               ) : (
-                sortedPickable.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => handleAssign(p.id, p.name)}
-                    disabled={pending}
-                    className="w-full text-left px-2 py-1 text-xs rounded hover:bg-brand-blue-50 disabled:opacity-50"
-                  >
-                    {p.name}
-                    {p.homeRegion && (
-                      <span className="ml-1 text-[10px] text-brand-blue-dark">
-                        · home
-                      </span>
-                    )}
-                  </button>
-                ))
+                GROUPS.map((g) => {
+                  const list = pickable.filter((p) => p.availability === g.key);
+                  if (list.length === 0) return null;
+                  return (
+                    <div key={g.key} className="py-0.5">
+                      <div className="px-2 pt-1 pb-0.5 text-[10px] font-medium uppercase tracking-wider text-slate-500">
+                        {g.title}
+                      </div>
+                      {list.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleAssign(p.id, p.name)}
+                          disabled={pending}
+                          className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-brand-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-blue disabled:opacity-50"
+                        >
+                          {p.name}
+                          {p.note && (
+                            <span className="ml-1 text-[10px] text-slate-500">· {p.note}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })
               )}
             </div>
             <button
               type="button"
               onClick={() => setShowPicker(false)}
-              className="text-xs text-slate-500 hover:text-brand-navy pt-1"
+              aria-label="Close"
+              className="text-xs text-slate-500 hover:text-brand-navy pt-1 px-1"
             >
               ✕
             </button>
@@ -141,13 +162,12 @@ export function RotaCell({
             type="button"
             onClick={() => setShowPicker(true)}
             disabled={pending || pickable.length === 0}
-            className="text-xs text-brand-blue-dark hover:text-brand-navy underline disabled:text-slate-400 disabled:no-underline whitespace-nowrap"
+            aria-label={`Add an officer to ${where}`}
+            className="text-xs text-brand-blue-dark hover:text-brand-navy underline disabled:text-slate-400 disabled:no-underline whitespace-nowrap py-1"
           >
             + Add
-            {pickable.length > 0 && (
-              <span className="ml-1 text-slate-500">
-                ({pickable.length})
-              </span>
+            {availableCount > 0 && (
+              <span className="ml-1 text-slate-500">({availableCount} available)</span>
             )}
           </button>
         )}

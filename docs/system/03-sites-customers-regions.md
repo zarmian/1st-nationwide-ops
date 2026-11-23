@@ -6,7 +6,7 @@
 
 - **`Site`** is the hub model of the whole platform: keys, schedules, alarms, jobs, submissions, shifts and rates all reference it. This doc covers the site CRUD surface, the ownership model (customer vs partner), site metadata, and the access-code sub-record.
 - **`Customer`** = a *direct* customer (Shurgard, Aegis, Orbis). Owns sites, jobs, default rate cards and contacts.
-- **`Region`** = an operating area used to group sites and officers and drive the rota.
+- **`Region`** = an operating area used to group sites and officers. (The rota used to be per region; it is now per mobile patrol — see `05-patrols-shifts-rota.md`.)
 - **`AccessInstruction`** = 1:1 side-table on a site holding alarm/padlock codes (encrypted at rest) and entry steps. The alarm-code half is edited here; the padlock-code half overlaps with keys — see `04-keys.md`.
 - **Import + geocoding**: the generic sites CSV importer (`sitesImport.ts`), the Nexus-specific importer (`nexusImport.ts`), and postcode → lat/lng backfill (`geocode.ts`).
 - Partner-as-customer / partner-as-subcontractor semantics are summarised here but owned by the partners doc. Rates are summarised here but owned by `09-finance-billing-pay.md`.
