@@ -1277,7 +1277,7 @@ export async function reviewFastField(opts: {
   const filed = { submittedAt: { gte: opts.from, lte: opts.to } };
   const [byStatus, linkedByHand, createdByHand, waitingRows] = await Promise.all([
     prisma.fastFieldReport.groupBy({ by: ["status"], where: filed, _count: { _all: true } }),
-    prisma.fastFieldReport.count({ where: { ...filed, status: "LINKED", note: { startsWith: "Linked by " } } }),
+    prisma.fastFieldReport.count({ where: { ...filed, status: "LINKED", linkedByHand: true } }),
     prisma.fastFieldReport.count({ where: { ...filed, status: "CREATED", note: { contains: " created by " } } }),
     prisma.fastFieldReport.findMany({
       // Reports taken off a shift by hand wait for a person, not the robot.
@@ -1514,7 +1514,7 @@ async function createSubmission(
 export async function linkReportToJob(
   reportId: string,
   jobId: string,
-  opts: { note?: string; ctx?: Ctx } = {},
+  opts: { note?: string; ctx?: Ctx; byHand?: boolean } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error };
@@ -1574,6 +1574,7 @@ export async function linkReportToJob(
         jobId: job.id,
         siteId: job.siteId,
         formSubmissionId: submissionId,
+        linkedByHand: !!opts.byHand,
         ...(opts.note ? { note: opts.note } : {}),
       },
     });
@@ -1590,7 +1591,7 @@ export async function linkReportToJob(
 export async function linkReportToVisit(
   reportId: string,
   visitId: string,
-  opts: { note?: string; ctx?: Ctx } = {},
+  opts: { note?: string; ctx?: Ctx; byHand?: boolean } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error };
@@ -1654,6 +1655,7 @@ export async function linkReportToVisit(
         patrolVisitId: visit.id,
         siteId: visit.siteId,
         formSubmissionId: submissionId,
+        linkedByHand: !!opts.byHand,
         ...(opts.note ? { note: opts.note } : {}),
       },
     });
@@ -1686,7 +1688,7 @@ export async function linkReportToVisit(
 export async function linkReportToShift(
   reportId: string,
   shiftId: string,
-  opts: { note?: string; ctx?: Ctx } = {},
+  opts: { note?: string; ctx?: Ctx; byHand?: boolean } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error };
@@ -1705,12 +1707,12 @@ export async function linkReportToShift(
   if (!shift) return { ok: false, error: "Shift not found." };
 
   const facts = factsOf(report);
-  // Only a shift the report fits inside: never one it starts before or
-  // finishes after.
+  // The robot only puts a report on a shift it fits (within the shift, give
+  // or take the allowance). A person linking by hand can pick any shift.
   const window = toShiftCandidate(shift);
   const span = reportSpan(facts);
   const fit = shiftFit(span, window);
-  if (!fit.fits) {
+  if (!opts.byHand && !fit.fits) {
     return {
       ok: false,
       error: `This report (${spanText(span)}) ${outsideShiftText(fit)} (${shiftHoursText(
@@ -1733,9 +1735,10 @@ export async function linkReportToShift(
         status: "LINKED",
         shiftId: shift.id,
         siteId: shift.siteId,
-        // It fits the shift (checked above), so the shift check can skip it.
+        // It fits (checked above), or a person chose it: the check skips it.
         shiftCheckedAt: new Date(),
         unlinkedAt: null,
+        linkedByHand: !!opts.byHand,
         formSubmissionId: submissionId,
         ...(opts.note ? { note: opts.note } : {}),
       },
@@ -1890,6 +1893,7 @@ async function takeOffShift(
         formSubmissionId: null,
         unlinkedAt: now,
         checkedAt: now,
+        linkedByHand: false,
         note,
       },
     });
@@ -1971,6 +1975,8 @@ export async function reportsOutsideTheirShift(
     where: {
       status: "LINKED",
       shiftId: { not: null },
+      // Put there by a person, on purpose.
+      linkedByHand: false,
       submittedAt: { gte: new Date(now.getTime() - sinceDays * 86_400_000) },
     },
     orderBy: { submittedAt: "desc" },
@@ -2029,7 +2035,8 @@ const SHIFT_CHECK_BATCH = 300;
  * report on a shift that it hasn't checked yet, or whose shift has changed
  * since (`shiftCheckedAt`), so its first pass covers every report ever put on
  * a shift, then only new links, edited shifts, and every report again after
- * the shift-fit rule changes (SHIFT_RULES_CHANGED_AT). A report that doesn't fit
+ * the shift-fit rule changes (SHIFT_RULES_CHANGED_AT). Reports a person linked
+ * by hand are left where they were put. A report that doesn't fit
  * moves to another shift at the site it does fit, else comes off its shift
  * and waits in Needs linking (`unlinkedAt`: the robot won't link it again,
  * and never makes or bills a job for it). Each change goes on the shift's
@@ -2061,6 +2068,7 @@ export async function checkShiftLinks(
       SELECT r.id FROM "FastFieldReport" r
       JOIN "Shift" s ON s.id = r."shiftId"
       WHERE r.status = 'LINKED'
+        AND r."linkedByHand" = false
         AND (r."shiftCheckedAt" IS NULL
           OR s."updatedAt" > r."shiftCheckedAt"
           OR r."shiftCheckedAt" < ${SHIFT_RULES_CHANGED_AT})

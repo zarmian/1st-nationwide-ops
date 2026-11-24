@@ -35,6 +35,7 @@ export default async function FastFieldReportPage({
     select: {
       id: true,
       status: true,
+      linkedByHand: true,
       note: true,
       submittedAt: true,
       startedAt: true,
@@ -180,7 +181,12 @@ export default async function FastFieldReportPage({
             <p className="font-medium text-slate-900">
               On the static shift {shiftHoursText(onShift.shift)}
             </p>
-            {onShift.outside ? (
+            {onShift.outside && report.linkedByHand ? (
+              <p className="text-amber-900">
+                This report ({spanText(onShift.span)}) {onShift.outside}, but it was linked here by
+                hand, so the robot leaves it on this shift.
+              </p>
+            ) : onShift.outside ? (
               <p className="text-amber-900">
                 This report ({spanText(onShift.span)}) {onShift.outside}, so it doesn&rsquo;t belong
                 on it. Unlink it, then link it to the right activity.
@@ -204,11 +210,11 @@ export default async function FastFieldReportPage({
               <h2 className="font-semibold text-brand-navy">Link it to an activity</h2>
               <p className="text-sm text-slate-500">
                 Pick the site, then the activity this report is about. Everything there from a day
-                before to a day after the report is listed, nearest first. A shift can only be
-                linked when the report falls within it, give or take {SHIFT_GRACE_MIN} minutes: it
-                can&rsquo;t start more than {SHIFT_GRACE_MIN} minutes before the shift starts or
-                finish more than {SHIFT_GRACE_MIN} minutes after it ends. Or create the job if
-                nobody logged it.
+                before to a day after the report is listed, nearest first. You can link it to any
+                of them. A shift the report falls outside of (more than {SHIFT_GRACE_MIN} minutes
+                before it starts or after it ends) is marked; the robot won&rsquo;t put a report
+                there itself, but leaves one you link by hand where you put it. Or create the job
+                if nobody logged it.
               </p>
             </div>
             <IgnoreButton reportId={report.id} ignored={report.status === "IGNORED"} />
@@ -262,7 +268,7 @@ export default async function FastFieldReportPage({
                       {a.kind === "shift" &&
                         (a.outside ? (
                           <span className="text-xs text-amber-800">
-                            can&rsquo;t link: the report {a.outside}
+                            outside the shift: the report {a.outside}
                           </span>
                         ) : (
                           <span className="text-xs text-emerald-700">the report fits</span>
@@ -282,11 +288,9 @@ export default async function FastFieldReportPage({
                       >
                         view
                       </Link>
-                      {!(a.kind === "shift" && a.outside) && (
-                        <span className="ml-auto">
-                          <LinkButton reportId={report.id} kind={a.kind} activityId={a.id} />
-                        </span>
-                      )}
+                      <span className="ml-auto">
+                        <LinkButton reportId={report.id} kind={a.kind} activityId={a.id} />
+                      </span>
                     </li>
                   ))}
                 </ul>

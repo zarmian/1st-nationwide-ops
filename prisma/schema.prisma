@@ -2086,6 +2086,10 @@ model FastFieldReport {
   /// When the robot last checked that this report fits inside its shift. Null
   /// = not yet; it checks again whenever the shift changes after this.
   shiftCheckedAt   DateTime?
+  /// Linked by a person (Admin → FastField → Link), to any activity. The
+  /// robot's shift check leaves such a report where it was put, even outside
+  /// the shift's time.
+  linkedByHand     Boolean               @default(false)
   /// The skipped place that set it aside (Admin → FastField → Skip).
   skipId           String?               @db.Uuid
   skip             FastFieldSkip?        @relation(fields: [skipId], references: [id], onDelete: SetNull)
