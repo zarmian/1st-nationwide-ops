@@ -5,6 +5,10 @@ import { DeleteShiftButton } from "../_components/DeleteShiftButton";
 import { ShiftLinkCard } from "../_components/ShiftLinkCard";
 import { PageHeader } from "@/components/PageHeader";
 import { dutyUrl } from "@/lib/dutyLink";
+import { getSessionUser } from "@/lib/authz";
+import { spanText } from "@/lib/fastfield";
+import { checkReportOnShift } from "@/lib/fastfieldImport";
+import { UnlinkButton } from "../../admin/fastfield/_components/ReportActions";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +32,7 @@ const ACTION_LABEL: Record<string, string> = {
   started_on_duty: "Started on site",
   ended_on_duty: "Ended on site",
   link_sent: "Link sent by SMS",
+  fastfield_unlinked: "FastField report unlinked",
 };
 
 function fmt(d: Date | null): string {
@@ -125,7 +130,11 @@ export default async function ShiftDetailPage({
           orderBy: { submittedAt: "asc" },
           select: {
             id: true,
+            status: true,
             submittedAt: true,
+            startedAt: true,
+            finishedAt: true,
+            answers: true,
             photoUrls: true,
             formSubmission: { select: { review: { select: { id: true } } } },
           },
@@ -139,6 +148,11 @@ export default async function ShiftDetailPage({
     }),
   ]);
   if (!shift) notFound();
+  const viewer = await getSessionUser();
+  const isAdmin = viewer?.role === "ADMIN";
+  // Each FastField report's own time, and whether it fits inside the shift.
+  const ffReports = shift.fastfieldReports.map((r) => ({ ...r, check: checkReportOnShift(r, shift) }));
+  const ffOutside = ffReports.filter((r) => r.check.outside).length;
 
   const officerLabel =
     shift.officer?.name ??
@@ -416,34 +430,58 @@ export default async function ShiftDetailPage({
         </div>
       </div>
 
-      {shift.fastfieldReports.length > 0 && (
+      {ffReports.length > 0 && (
         <div className="card overflow-hidden">
           <div className="px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-brand-navy">
-              FastField patrol reports ({shift.fastfieldReports.length})
+              FastField patrol reports ({ffReports.length})
             </h2>
             <p className="text-xs text-slate-500">
-              Patrol rounds the officer filed on FastField during this shift.
+              Patrol rounds the officer filed on FastField during this shift, at the times in each
+              report. A report must fit inside the shift: it can&rsquo;t start before the shift
+              starts or finish after it ends.
+              {isAdmin && " Unlink one that doesn't belong here; it goes back to Admin → FastField to link again."}
             </p>
+            {ffOutside > 0 && (
+              <p className="mt-1 text-xs font-medium text-amber-800" role="status">
+                {ffOutside} report{ffOutside === 1 ? " is" : "s are"} outside the shift&rsquo;s time.
+              </p>
+            )}
           </div>
           <ul className="divide-y divide-slate-100 text-sm">
-            {shift.fastfieldReports.map((r, i) => {
+            {ffReports.map((r, i) => {
               const reviewId = r.formSubmission?.review?.id;
               return (
-                <li key={r.id} className="px-4 py-2 flex flex-wrap items-center gap-x-3">
+                <li
+                  key={r.id}
+                  className={
+                    "px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 " +
+                    (r.check.outside ? "bg-amber-50" : "")
+                  }
+                >
                   <span className="text-slate-500">{i + 1}</span>
-                  <span className="text-slate-700">{fmt(r.submittedAt)}</span>
+                  <span className="text-slate-700">{spanText(r.check.span)}</span>
                   {r.photoUrls.length > 0 && (
                     <span className="text-xs text-slate-500">
                       {r.photoUrls.length} photo{r.photoUrls.length === 1 ? "" : "s"}
                     </span>
                   )}
-                  <Link
-                    href={reviewId ? `/admin/reports/${reviewId}` : `/admin/fastfield/${r.id}`}
-                    className="ml-auto text-xs text-brand-blue-dark hover:underline"
-                  >
-                    Open report →
-                  </Link>
+                  {r.check.outside && (
+                    <span className="text-xs font-medium text-amber-800">
+                      Outside the shift: {r.check.outside}
+                    </span>
+                  )}
+                  <span className="ml-auto flex items-center gap-3">
+                    <Link
+                      href={reviewId ? `/admin/reports/${reviewId}` : `/admin/fastfield/${r.id}`}
+                      className="text-xs text-brand-blue-dark hover:underline"
+                    >
+                      Open report →
+                    </Link>
+                    {isAdmin && r.status === "LINKED" && (
+                      <UnlinkButton reportId={r.id} className="btn btn-ghost text-xs" />
+                    )}
+                  </span>
                 </li>
               );
             })}

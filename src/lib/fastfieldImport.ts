@@ -8,8 +8,9 @@
  * are used for Shurgard and others), so the site in the report decides the
  * client: a postcode typed in the site name, else the name, else GPS
  * (lib/fastfield.ts). The report then goes to:
- *   - the static / dog-handler shift on at the time, for patrol forms — a
- *     shift takes any number of reports, one per patrol round;
+ *   - the static / dog-handler shift it fits inside, for patrol forms — a
+ *     shift takes any number of reports, one per patrol round, and a report
+ *     never goes on a shift it starts before or finishes after;
  *   - otherwise the nearest job or patrol visit there within 3 hours.
  * It is attached the way an officer's own report is: a FormSubmission with an
  * approved review, and (for a job or visit) the activity marked done with the
@@ -48,11 +49,13 @@ import {
   pickShift,
   pickSite,
   pickSiteByActivity,
-  SHIFT_AROUND_EARLY_MIN,
-  SHIFT_AROUND_LATE_MIN,
+  outsideShiftText,
+  reportSpan,
   shiftApartMin,
-  shiftAround,
+  shiftFit,
+  shiftHoursText,
   shiftsOn,
+  spanText,
   siteKey,
   type ActivityCandidate,
   type CustomerRow,
@@ -60,6 +63,7 @@ import {
   type FastFieldFacts,
   type FastFieldIncoming,
   type PersonRow,
+  type ReportSpan,
   type ShiftCandidate,
   type SiteHow,
   type SiteRow,
@@ -445,13 +449,16 @@ async function candidatesNear(
   ];
 }
 
-/** Static / dog-handler shifts at the sites that started up to a day (plus
- *  the late margin) before the report — shifts can be long — or up to the
- *  early margin after it, with their full window. */
-async function shiftsNearSites(siteIds: string[], when: Date) {
+/** How far back a shift a report fits inside can have started. */
+const SHIFT_REACH_MS = 36 * 3_600_000;
+
+/** Static / dog-handler shifts at the sites that a report starting at `from`
+ *  could fit inside: those that started (scheduled or actual) by then, up to
+ *  36 hours before — shifts can be long — with their full window. */
+async function shiftsNearSites(siteIds: string[], from: Date) {
   const range = {
-    gte: new Date(when.getTime() - (24 * 60 + SHIFT_AROUND_LATE_MIN) * 60000),
-    lte: new Date(when.getTime() + SHIFT_AROUND_EARLY_MIN * 60000),
+    gte: new Date(from.getTime() - SHIFT_REACH_MS),
+    lte: from,
   };
   return prisma.shift.findMany({
     where: { siteId: { in: siteIds }, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
@@ -488,8 +495,8 @@ function toShiftCandidate(s: {
   };
 }
 
-async function shiftsNear(siteId: string, when: Date): Promise<ShiftCandidate[]> {
-  return (await shiftsNearSites([siteId], when)).map(toShiftCandidate);
+async function shiftsNear(siteId: string, from: Date): Promise<ShiftCandidate[]> {
+  return (await shiftsNearSites([siteId], from)).map(toShiftCandidate);
 }
 
 /** Shifts at a site that come within MANUAL_LINK_WINDOW_MIN of a time, for
@@ -517,18 +524,22 @@ async function shiftsForLinking(siteId: string, when: Date): Promise<ShiftCandid
 }
 
 /**
- * Which of these sites had work on at the report's time: a static shift on,
- * or a job or visit within 3 hours. Used when the form's site fits several
- * sites, or none but the phone was near some.
+ * Which of these sites had work on at the report's time: a static shift the
+ * report fits inside, or a job or visit within 3 hours. Used when the form's
+ * site fits several sites, or none but the phone was near some.
  */
-async function sitesWithWorkOn(siteIds: string[], when: Date): Promise<Set<string>> {
+async function sitesWithWorkOn(
+  siteIds: string[],
+  when: Date,
+  span: ReportSpan,
+): Promise<Set<string>> {
   if (siteIds.length === 0) return new Set();
   const range = {
     gte: new Date(when.getTime() - MATCH_WINDOW_MIN * 60000),
     lte: new Date(when.getTime() + MATCH_WINDOW_MIN * 60000),
   };
   const [shifts, jobs, visits] = await Promise.all([
-    shiftsNearSites(siteIds, when),
+    shiftsNearSites(siteIds, span.from),
     prisma.job.findMany({
       where: {
         siteId: { in: siteIds },
@@ -554,7 +565,7 @@ async function sitesWithWorkOn(siteIds: string[], when: Date): Promise<Set<strin
   ]);
   const out = new Set<string>();
   for (const sh of shifts) {
-    if (shiftsOn(when, [toShiftCandidate(sh)]).length) out.add(sh.siteId);
+    if (shiftsOn(span, [toShiftCandidate(sh)]).length) out.add(sh.siteId);
   }
   for (const r of [...jobs, ...visits]) if (r.siteId) out.add(r.siteId);
   return out;
@@ -599,6 +610,7 @@ async function decide(
     const active = await sitesWithWorkOn(
       sp.candidates.map((c) => c.id),
       facts.when,
+      reportSpan(facts),
     );
     const byWork = pickSiteByActivity(facts, sp.candidates, active);
     if (!byWork) return { action: "unmatched", site: null, reason: "site", note: sp.reason };
@@ -607,8 +619,11 @@ async function decide(
   }
   const kind = (facts.visitType as JobType | null) ?? form.jobType;
   const at = formatDateTime(facts.when);
-  const shifts = await shiftsNear(site.id, facts.when);
-  const shiftsNow = shiftsOn(facts.when, shifts);
+  // A report only goes on a shift it fits inside: it doesn't start before
+  // the shift starts or finish after it ends.
+  const span = reportSpan(facts);
+  const shifts = await shiftsNear(site.id, span.from);
+  const shiftsNow = shiftsOn(span, shifts);
   const officerId = await officerFor(ctx, facts);
 
   const toShift = (sh: ShiftCandidate, note: string): Decision => ({
@@ -617,16 +632,16 @@ async function decide(
     target: { kind: "shift", id: sh.id, type: "SHIFT" },
     note: note + how,
   });
-  const span = (sh: ShiftCandidate) => `${formatTime(sh.start)}–${formatTime(sh.end)}`;
+  const hours = (sh: ShiftCandidate) => `${formatTime(sh.start)}–${formatTime(sh.end)}`;
   const sharedNote = " Two shifts were on; it went to the one that started first.";
 
   // A patrol round during a static shift belongs to that shift.
   if (kind === "PATROL" && shiftsNow.length) {
-    const ps = pickShift(facts.when, shiftsNow, officerId);
+    const ps = pickShift(span, shiftsNow, officerId);
     if (ps.pick) {
       return toShift(
         ps.pick,
-        `Filed during the static shift at ${site.name} (${span(ps.pick)}).${ps.shared ? sharedNote : ""}`,
+        `Filed during the static shift at ${site.name} (${hours(ps.pick)}).${ps.shared ? sharedNote : ""}`,
       );
     }
   }
@@ -679,21 +694,11 @@ async function decide(
   // duty dealt with it, so it goes to the shift (no job is made, nothing is
   // billed twice).
   if (shiftsNow.length) {
-    const ps = pickShift(facts.when, shiftsNow, officerId);
+    const ps = pickShift(span, shiftsNow, officerId);
     if (ps.pick) {
       return toShift(
         ps.pick,
-        `Filed during the static shift at ${site.name} (${span(ps.pick)}), with no other activity to attach it to.${ps.shared ? sharedNote : ""}`,
-      );
-    }
-  }
-  // A patrol round sent in a little before or after a shift.
-  if (kind === "PATROL") {
-    const sa = shiftAround(facts.when, shifts);
-    if (sa) {
-      return toShift(
-        sa.pick,
-        `Filed ${apartText(sa.gapMin)} ${sa.after ? "after the static shift ended" : "before the static shift started"} at ${site.name} (${span(sa.pick)}), so it went to that shift.`,
+        `Filed during the static shift at ${site.name} (${hours(ps.pick)}), with no other activity to attach it to.${ps.shared ? sharedNote : ""}`,
       );
     }
   }
@@ -972,7 +977,7 @@ export const RECHECK_EVERY_MS = 24 * 3_600_000;
 /** When the matching rules last changed. Move it forward with any change to
  *  how reports are matched, so every waiting report is tried again under the
  *  new rules (newest first) instead of keeping the note from the old ones. */
-export const RULES_CHANGED_AT = new Date("2026-11-08T15:00:00Z");
+export const RULES_CHANGED_AT = new Date("2026-11-24T05:55:00Z");
 
 export type WaitingReport = {
   id: string;
@@ -1047,6 +1052,8 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
   const rows = await prisma.fastFieldReport.findMany({
     where: {
       status: "UNMATCHED",
+      // Taken off a shift by hand: left for a person.
+      unlinkedAt: null,
       submittedAt: { gte: new Date(now.getTime() - sinceDays * 86_400_000) },
       form: { mode: "ON" },
     },
@@ -1152,10 +1159,13 @@ async function recheckOne(ctx: Ctx, id: string, summary: ImportSummary): Promise
       startedAt: true,
       finishedAt: true,
       answers: true,
+      unlinkedAt: true,
       form: { select: FORM_SELECT },
     },
   });
   if (!row || row.status !== "UNMATCHED" || row.form.mode !== "ON") return false;
+  // Taken off a shift by hand: the robot never links it again.
+  if (row.unlinkedAt) return false;
   const facts = extractFacts({
     submittedAt: row.submittedAt,
     startedAt: row.startedAt,
@@ -1267,7 +1277,8 @@ export async function reviewFastField(opts: {
     prisma.fastFieldReport.count({ where: { ...filed, status: "LINKED", note: { startsWith: "Linked by " } } }),
     prisma.fastFieldReport.count({ where: { ...filed, status: "CREATED", note: { contains: " created by " } } }),
     prisma.fastFieldReport.findMany({
-      where: { ...filed, status: "UNMATCHED" },
+      // Reports taken off a shift by hand wait for a person, not the robot.
+      where: { ...filed, status: "UNMATCHED", unlinkedAt: null },
       orderBy: { submittedAt: "desc" },
       take: opts.limit,
       select: {
@@ -1322,7 +1333,7 @@ export async function reviewFastField(opts: {
     if (d.site) {
       const [acts, shifts] = await Promise.all([
         candidatesNear(d.site.id, facts.when, 24 * 60),
-        shiftsNear(d.site.id, facts.when),
+        shiftsForLinking(d.site.id, facts.when),
       ]);
       const t = facts.when.getTime();
       row.nearby = {
@@ -1678,11 +1689,32 @@ export async function linkReportToShift(
   if ("error" in report) return { ok: false, error: report.error };
   const shift = await prisma.shift.findUnique({
     where: { id: shiftId },
-    select: { id: true, siteId: true },
+    select: {
+      id: true,
+      siteId: true,
+      officerId: true,
+      scheduledStartsAt: true,
+      scheduledEndsAt: true,
+      actualStartedAt: true,
+      actualEndedAt: true,
+    },
   });
   if (!shift) return { ok: false, error: "Shift not found." };
 
   const facts = factsOf(report);
+  // Only a shift the report fits inside: never one it starts before or
+  // finishes after.
+  const window = toShiftCandidate(shift);
+  const span = reportSpan(facts);
+  const fit = shiftFit(span, window);
+  if (!fit.fits) {
+    return {
+      ok: false,
+      error: `This report (${spanText(span)}) ${outsideShiftText(fit)} (${shiftHoursText(
+        window,
+      )}). A report can only go on a shift it fits inside.`,
+    };
+  }
   const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
   await prisma.$transaction(async (tx) => {
     const submissionId = await createSubmission(
@@ -1796,6 +1828,161 @@ export async function setReportIgnored(
   return { ok: true };
 }
 
+/**
+ * Take a report off its shift by hand. The patrol round it added to the shift
+ * goes (its FormSubmission and approved review), and the report goes back to
+ * Needs linking, stamped `unlinkedAt` so the robot never puts it back: a
+ * person links it elsewhere or sets it aside. Linking a report to a shift
+ * changes no billing, so there's nothing to undo there.
+ */
+export async function unlinkReportFromShift(reportId: string, by: string): Promise<ActionResult> {
+  const report = await prisma.fastFieldReport.findUnique({
+    where: { id: reportId },
+    select: {
+      id: true,
+      status: true,
+      shiftId: true,
+      formSubmissionId: true,
+      shift: { select: { scheduledStartsAt: true } },
+      formSubmission: {
+        select: { review: { select: { id: true, _count: { select: { clientReports: true } } } } },
+      },
+    },
+  });
+  if (!report) return { ok: false, error: "FastField report not found." };
+  if (report.status !== "LINKED" || !report.shiftId) {
+    return { ok: false, error: "This report isn't on a shift." };
+  }
+  const review = report.formSubmission?.review ?? null;
+  if (review && review._count.clientReports > 0) {
+    return {
+      ok: false,
+      error: "This report has been sent to the client in a report, so it can't be taken off the shift.",
+    };
+  }
+  const now = new Date();
+  const which = report.shift ? ` that started ${formatDateTime(report.shift.scheduledStartsAt)},` : "";
+  await prisma.$transaction(async (tx) => {
+    await tx.fastFieldReport.update({
+      where: { id: report.id },
+      data: {
+        status: "UNMATCHED",
+        shiftId: null,
+        formSubmissionId: null,
+        unlinkedAt: now,
+        checkedAt: now,
+        note: `Taken off the shift${which} by ${by}. The robot won't link it again: link it to the right activity or set it aside.`,
+      },
+    });
+    if (report.formSubmissionId) {
+      if (review) await tx.reportReview.delete({ where: { id: review.id } });
+      await tx.formSubmission.delete({ where: { id: report.formSubmissionId } });
+    }
+  });
+  return { ok: true };
+}
+
+// ── Reports on a shift they don't fit ─────────────────────────────────────
+
+type ShiftTimes = {
+  id: string;
+  officerId: string | null;
+  scheduledStartsAt: Date;
+  scheduledEndsAt: Date;
+  actualStartedAt: Date | null;
+  actualEndedAt: Date | null;
+};
+
+const SHIFT_TIMES_SELECT = {
+  id: true,
+  officerId: true,
+  scheduledStartsAt: true,
+  scheduledEndsAt: true,
+  actualStartedAt: true,
+  actualEndedAt: true,
+} as const;
+
+export type ShiftReportCheck = {
+  span: ReportSpan;
+  /** The shift's window: earliest of the scheduled / actual start, latest of
+   *  the ends. */
+  shift: { start: Date; end: Date };
+  /** Why the report doesn't fit the shift, or null when it does. */
+  outside: string | null;
+};
+
+/** Whether a report on a shift fits inside it (it may have gone on before
+ *  the rule, or the shift's times may have been changed since). */
+export function checkReportOnShift(
+  report: { submittedAt: Date; startedAt: Date | null; finishedAt: Date | null; answers: unknown },
+  shift: ShiftTimes,
+): ShiftReportCheck {
+  const span = reportSpan(
+    extractFacts({
+      submittedAt: report.submittedAt,
+      startedAt: report.startedAt,
+      finishedAt: report.finishedAt,
+      answers: report.answers as FastFieldAnswer[],
+    }),
+  );
+  const window = toShiftCandidate(shift);
+  const fit = shiftFit(span, window);
+  return { span, shift: { start: window.start, end: window.end }, outside: fit.fits ? null : outsideShiftText(fit) };
+}
+
+export type OutsideShiftRow = ShiftReportCheck & {
+  reportId: string;
+  shiftId: string;
+  siteName: string;
+  outside: string;
+};
+
+/** How far back Admin → FastField looks for reports on a shift they don't fit. */
+export const OUTSIDE_CHECK_DAYS = 14;
+
+/**
+ * Reports on a shift they don't fit inside — they start before it starts or
+ * finish after it ends — filed in the last `sinceDays`, newest first. Each
+ * report's own times come from its answers, so this reads them in Node.
+ */
+export async function reportsOutsideTheirShift(
+  sinceDays = OUTSIDE_CHECK_DAYS,
+  now: Date = new Date(),
+): Promise<OutsideShiftRow[]> {
+  const rows = await prisma.fastFieldReport.findMany({
+    where: {
+      status: "LINKED",
+      shiftId: { not: null },
+      submittedAt: { gte: new Date(now.getTime() - sinceDays * 86_400_000) },
+    },
+    orderBy: { submittedAt: "desc" },
+    take: 2000,
+    select: {
+      id: true,
+      submittedAt: true,
+      startedAt: true,
+      finishedAt: true,
+      answers: true,
+      shift: { select: { ...SHIFT_TIMES_SELECT, site: { select: { name: true } } } },
+    },
+  });
+  const out: OutsideShiftRow[] = [];
+  for (const r of rows) {
+    if (!r.shift) continue;
+    const check = checkReportOnShift(r, r.shift);
+    if (check.outside) {
+      out.push({
+        ...check,
+        outside: check.outside,
+        reportId: r.id,
+        shiftId: r.shift.id,
+        siteName: r.shift.site.name,
+      });
+    }
+  }
+  return out;
+}
+
 // ── Skipped places ────────────────────────────────────────────────────────
 
 const skipNote = (label: string) => `Set aside: "${label}" is a skipped place.`;
@@ -1865,15 +2052,19 @@ export type NearbyActivity = {
   at: Date;
   /** Shifts: when it ends. */
   until?: Date;
-  /** 0 for a shift that was on at the time. */
+  /** 0 for a shift the report fits inside. */
   minutesApart: number;
   taken: boolean;
+  /** Shifts only: why the report can't go on it ("started 25 min before the
+   *  shift"), or null when it fits inside. */
+  outside?: string | null;
 };
 
 /** Activities at a site for linking a report by hand: anything there from a
  *  day before the report's time to a day after (MANUAL_LINK_WINDOW_MIN; the
- *  robot only looks within 3 hours, or 18). The shifts on at the time come
- *  first, then the rest, nearest first. */
+ *  robot only looks within 3 hours, or 18). The shifts the report fits inside
+ *  come first, then the rest, nearest first. A shift it doesn't fit is listed
+ *  with the reason, and can't be linked. */
 export async function activitiesNearReport(
   reportId: string,
   siteId: string,
@@ -1885,19 +2076,24 @@ export async function activitiesNearReport(
   if (!report) return [];
   const facts = factsOf(report);
   const t = facts.when.getTime();
+  const span = reportSpan(facts);
   const [candidates, shifts] = await Promise.all([
     candidatesNear(siteId, facts.when, MANUAL_LINK_WINDOW_MIN),
     shiftsForLinking(siteId, facts.when),
   ]);
-  const shiftRows: NearbyActivity[] = shifts.map((s) => ({
-    kind: "shift",
-    id: s.id,
-    type: "SHIFT",
-    at: s.start,
-    until: s.end,
-    minutesApart: shiftApartMin(facts.when, s),
-    taken: false,
-  }));
+  const shiftRows: NearbyActivity[] = shifts.map((s) => {
+    const fit = shiftFit(span, s);
+    return {
+      kind: "shift",
+      id: s.id,
+      type: "SHIFT",
+      at: s.start,
+      until: s.end,
+      minutesApart: shiftApartMin(span, s),
+      taken: false,
+      outside: fit.fits ? null : outsideShiftText(fit),
+    };
+  });
   const jobRows: NearbyActivity[] = candidates.map((c) => {
     const at = c.times.reduce((best, x) =>
       Math.abs(x.getTime() - t) < Math.abs(best.getTime() - t) ? x : best,
@@ -1911,9 +2107,9 @@ export async function activitiesNearReport(
       taken: c.taken,
     };
   });
-  const onAtTheTime = shiftRows.filter((r) => r.minutesApart === 0);
-  const rest = [...shiftRows.filter((r) => r.minutesApart > 0), ...jobRows].sort(
+  const fitting = shiftRows.filter((r) => !r.outside);
+  const rest = [...shiftRows.filter((r) => r.outside), ...jobRows].sort(
     (a, b) => a.minutesApart - b.minutesApart,
   );
-  return [...onAtTheTime, ...rest];
+  return [...fitting, ...rest];
 }
