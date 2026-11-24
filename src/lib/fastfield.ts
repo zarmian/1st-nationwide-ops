@@ -770,6 +770,30 @@ export function pickShift(
   return { pick: first, shared: true };
 }
 
+/**
+ * What the robot's shift check does with a report already on a shift: leave
+ * it when it fits; when it doesn't, move it to another shift at the site that
+ * it does fit (the same choice `pickShift` makes), else take it off.
+ */
+export function shiftLinkAction(
+  span: ReportSpan,
+  current: ShiftCandidate,
+  others: ShiftCandidate[],
+  officerId: string | null,
+):
+  | { kind: "fit" }
+  | { kind: "move"; to: ShiftCandidate; why: Exclude<ShiftFit, { fits: true }> }
+  | { kind: "off"; why: Exclude<ShiftFit, { fits: true }> } {
+  const fit = shiftFit(span, current);
+  if (fit.fits) return { kind: "fit" };
+  const ps = pickShift(
+    span,
+    others.filter((s) => s.id !== current.id),
+    officerId,
+  );
+  return ps.pick ? { kind: "move", to: ps.pick, why: fit } : { kind: "off", why: fit };
+}
+
 // ── Activity ──────────────────────────────────────────────────────────────
 
 export type ActivityCandidate = {

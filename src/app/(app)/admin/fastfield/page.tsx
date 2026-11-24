@@ -23,7 +23,7 @@ const OUTSIDE_SHOWN = 25;
 export default async function FastFieldPage() {
   await requireAdmin();
 
-  const [forms, customers, byStatus, unmatched, recent, waitingAll, skips, outside] = await Promise.all([
+  const [forms, customers, byStatus, unmatched, recent, waitingAll, skips, outside, offShifts] = await Promise.all([
     prisma.fastFieldForm.findMany({
       orderBy: [{ mode: "desc" }, { name: "asc" }],
       select: {
@@ -94,6 +94,8 @@ export default async function FastFieldPage() {
       },
     }),
     reportsOutsideTheirShift(),
+    // Waiting reports taken off a shift (by the robot's shift check or by hand).
+    prisma.fastFieldReport.count({ where: { status: "UNMATCHED", unlinkedAt: { not: null } } }),
   ]);
   const places = groupByPlace(
     waitingAll.map((r) => ({ siteText: r.siteText, submittedAt: r.submittedAt, siteName: r.site?.name ?? null })),
@@ -121,7 +123,7 @@ export default async function FastFieldPage() {
         title="FastField"
         backHref="/admin"
         backLabel="Admin"
-        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift it fits inside, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift. A report only ever goes on a shift it fits inside: it can't start before the shift starts or finish after it ends."
+        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift it fits inside, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift. A report only ever goes on a shift it fits inside: it can't start before the shift starts or finish after it ends. Every 5 minutes the robot also checks the reports already on shifts and takes off (or moves to a shift it fits) any that don't."
       />
 
       <div className="card overflow-hidden">
@@ -237,9 +239,10 @@ export default async function FastFieldPage() {
             </h2>
             <p className="text-xs text-slate-600">
               Reports from the last {OUTSIDE_CHECK_DAYS} days that are on a static shift but start
-              before it starts or finish after it ends: put there before this check, or the
-              shift&rsquo;s times changed since. Unlink each one; it moves to Needs linking below,
-              where you can link it to the right activity or set it aside.
+              before it starts or finish after it ends. The robot checks every report on a shift
+              every 5 minutes and sorts these out by itself: it moves each to a shift at the site it
+              does fit, or takes it off to wait in Needs linking. One already sent to the client in a
+              report stays. To do one now, unlink it.
             </p>
           </div>
           <ul className="divide-y divide-slate-100">
@@ -281,7 +284,9 @@ export default async function FastFieldPage() {
             <p className="text-xs text-slate-500">
               Reports that didn&rsquo;t match an activity on their own. The robot tries them again
               every 5 minutes, starting with those whose site has had a shift or job recorded since
-              (but never one you took off a shift: that one waits for you).
+              (but never one taken off a shift: that one waits for you).
+              {offShifts > 0 &&
+                ` ${offShifts} of them ${offShifts === 1 ? "was" : "were"} taken off a shift because the report didn't fit its time — each says why.`}{" "}
               Open one to link it, create the job, or set it aside, or skip a whole place under
               &ldquo;Waiting, by place&rdquo; above.
             </p>

@@ -166,13 +166,24 @@ Since 24 November 2026 a report only ever goes on a shift it fits inside, whethe
 - **Checks on reports already on a shift** (`checkReportOnShift`), for ones linked before the rule or whose shift's times were changed later:
   - `/shifts/[id]` lists each report with its own time and flags any outside the shift;
   - `/admin/fastfield/[id]` says whether the report fits its shift;
-  - Admin → FastField lists **On a shift, outside its time** for the last 14 days (`reportsOutsideTheirShift`, `OUTSIDE_CHECK_DAYS`). It reads the answers in Node, up to 2,000 reports.
+  - Admin → FastField lists **On a shift, outside its time** for the last 14 days (`reportsOutsideTheirShift`, `OUTSIDE_CHECK_DAYS`). It reads the answers in Node, up to 2,000 reports. With the robot's shift check below, this list only holds reports between its runs.
+
+### The robot's shift check (automatic)
+
+Every 5 minutes, before retrying waiting reports, the `fastfield-recheck` cron runs `checkShiftLinks` (15 s budget):
+- **What it checks:** each LINKED report on a shift whose `shiftCheckedAt` is empty, or older than its shift's `updatedAt` (the shift was edited since). Every existing report started empty, so **the first passes cover every report ever put on a shift**, newest first, 300 at a time until the budget runs out; the next run carries on. After that, only new links (stamped when linked, since they fit) and edited shifts come up.
+- **What it does** (`shiftLinkAction`, unit-tested):
+  - fits → stamps `shiftCheckedAt`;
+  - doesn't fit, but fits another shift at the site (the same choice as `pickShift`, the officer's own first) → **moved** there, with its patrol round; the note says from where and why;
+  - fits no shift there → **taken off** like Unlink (`takeOffShift`): back to Needs linking with `unlinkedAt`, a note saying why ("…finished 10 min after the shift ended"), and the robot never links it again — so it never makes or bills a job from it;
+  - has gone to the client in a client report → left, stamped, counted as `kept`.
+- Each move or take-off goes on the shifts' history as "FastField robot". The cron's reply carries `shiftCheck: { checked, fit, moved, takenOff, kept, more }`.
 
 ### Unlinking a report from a shift
 
 **Unlink** (admin; on the report page, each report on the shift page, and the outside-its-time list) runs `unlinkReportFromShift`:
 - it deletes the patrol round the report added to the shift (its `FormSubmission` and approved `ReportReview`). Linking to a shift bills nothing, so there's nothing else to undo;
-- the report goes back to **UNMATCHED** (Needs linking) with a note saying who took it off, and `unlinkedAt` is set;
+- the report goes back to **UNMATCHED** (Needs linking) with a note saying who took it off, and `unlinkedAt` is set (the robot's shift check does the same when a report doesn't fit);
 - **the robot never links it again**: the recheck (`dueReports`, `recheckOne`) and the connector's dry run (`reviewFastField`) skip reports with `unlinkedAt`. A person links it to the right activity or sets it aside;
 - it is refused when the report has gone to the client in a client report;
 - the shift's history records "FastField report unlinked".

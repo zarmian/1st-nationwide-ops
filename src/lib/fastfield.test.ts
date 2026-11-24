@@ -18,6 +18,7 @@ import {
   shiftApartMin,
   shiftFit,
   shiftHoursText,
+  shiftLinkAction,
   siteKey,
   spanText,
   splitSiaNumber,
@@ -462,6 +463,47 @@ describe("pickShift", () => {
     expect(p.pick && p.shared).toBe(true);
     const same = [shift("b", "19:00", "07:00"), shift("a", "19:00", "07:00")];
     expect(pickShift(when, same, null).pick?.id).toBe("a");
+  });
+});
+
+describe("shiftLinkAction", () => {
+  const sh = (id: string, start: string, end: string, officerId: string | null = null): ShiftCandidate => ({
+    id,
+    start: new Date(start),
+    end: new Date(end),
+    officerId,
+  });
+  const night = sh("night", "2026-11-23T19:00:00Z", "2026-11-24T07:00:00Z");
+  const day = sh("day", "2026-11-24T07:00:00Z", "2026-11-24T19:00:00Z");
+  const at = (from: string, to = from) => ({ from: new Date(from), to: new Date(to) });
+
+  it("leaves a report that fits its shift", () => {
+    expect(shiftLinkAction(at("2026-11-23T23:10:00Z"), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
+  it("moves a report to the shift at the site it does fit", () => {
+    const a = shiftLinkAction(at("2026-11-24T07:20:00Z", "2026-11-24T07:30:00Z"), night, [night, day], null);
+    expect(a.kind).toBe("move");
+    if (a.kind === "move") {
+      expect(a.to.id).toBe("day");
+      expect(a.why).toEqual({ fits: false, side: "after", minutes: 30 });
+    }
+  });
+
+  it("takes it off when it fits no shift there", () => {
+    const a = shiftLinkAction(at("2026-11-24T06:55:00Z", "2026-11-24T07:10:00Z"), night, [night, day], null);
+    expect(a).toEqual({ kind: "off", why: { fits: false, side: "after", minutes: 10 } });
+  });
+
+  it("never moves it back onto the shift it's on", () => {
+    expect(shiftLinkAction(at("2026-11-23T18:40:00Z"), night, [night], null).kind).toBe("off");
+  });
+
+  it("prefers the officer's own shift when it fits two", () => {
+    const a1 = sh("a1", "2026-11-24T07:00:00Z", "2026-11-24T19:00:00Z", "u1");
+    const a2 = sh("a2", "2026-11-24T07:00:00Z", "2026-11-24T19:00:00Z", "u2");
+    const a = shiftLinkAction(at("2026-11-24T08:00:00Z"), night, [night, a1, a2], "u2");
+    expect(a.kind === "move" && a.to.id).toBe("a2");
   });
 });
 
