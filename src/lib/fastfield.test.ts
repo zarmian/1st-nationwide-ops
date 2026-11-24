@@ -526,41 +526,56 @@ describe("shiftLinkAction", () => {
 
 describe("reportSpan", () => {
   const d = (iso: string) => new Date(iso);
-  const none = { arrivedAt: null, departedAt: null, openedAt: null, closedAt: null };
+  const none = { arrivedAt: null, departedAt: null, submittedAt: d("2026-11-18T07:50:00Z") };
 
   it("uses the arrival and departure typed in the form", () => {
     const span = reportSpan({
       ...none,
       arrivedAt: d("2026-11-17T23:10:00Z"),
       departedAt: d("2026-11-17T23:25:00Z"),
-      openedAt: d("2026-11-18T07:40:00Z"),
-      closedAt: d("2026-11-18T07:45:00Z"),
-      when: d("2026-11-17T23:10:00Z"),
     });
     expect(span.from.toISOString()).toBe("2026-11-17T23:10:00.000Z");
     expect(span.to.toISOString()).toBe("2026-11-17T23:25:00.000Z");
   });
 
   it("is one moment when the form gives only one typed time", () => {
-    const span = reportSpan({ ...none, arrivedAt: d("2026-11-17T23:10:00Z"), when: d("2026-11-17T23:10:00Z") });
-    expect(span.to.getTime()).toBe(span.from.getTime());
+    const arrival = reportSpan({ ...none, arrivedAt: d("2026-11-17T23:10:00Z") });
+    expect(arrival.from.toISOString()).toBe("2026-11-17T23:10:00.000Z");
+    expect(arrival.to.getTime()).toBe(arrival.from.getTime());
+    const departure = reportSpan({ ...none, departedAt: d("2026-11-17T23:40:00Z") });
+    expect(departure.from.toISOString()).toBe("2026-11-17T23:40:00.000Z");
   });
 
-  it("falls back to when the form was opened and finished on the phone", () => {
-    const span = reportSpan({
-      ...none,
-      openedAt: d("2026-11-17T23:10:00Z"),
-      closedAt: d("2026-11-17T23:18:00Z"),
-      when: d("2026-11-17T23:10:00Z"),
+  it("never uses when the form was opened or finished on the phone", () => {
+    const facts = extractFacts({
+      submittedAt: "2026-11-18T07:50:00Z",
+      startedAt: "2026-11-18T06:50:00Z",
+      finishedAt: "2026-11-18T07:45:00Z",
+      answers: [
+        { key: "a", label: "Arrive Date/Time", type: "DatePicker", value: "2026-11-18T06:20:00.000Z" },
+        { key: "b", label: "Signed Off Date/Time", type: "DatePicker", value: "2026-11-18T06:35:00.000Z" },
+      ],
     });
-    expect(span.from.toISOString()).toBe("2026-11-17T23:10:00.000Z");
-    expect(span.to.toISOString()).toBe("2026-11-17T23:18:00.000Z");
+    const span = reportSpan(facts);
+    expect(span.from.toISOString()).toBe("2026-11-18T06:20:00.000Z");
+    expect(span.to.toISOString()).toBe("2026-11-18T06:35:00.000Z");
   });
 
-  it("falls back to the submitted time, and never ends before it starts", () => {
-    const span = reportSpan({ ...none, closedAt: d("2026-11-17T22:00:00Z"), when: d("2026-11-17T23:00:00Z") });
-    expect(span.from.toISOString()).toBe("2026-11-17T23:00:00.000Z");
-    expect(span.to.toISOString()).toBe("2026-11-17T23:00:00.000Z");
+  it("with no time typed at all, uses when it was sent", () => {
+    const facts = extractFacts({
+      submittedAt: "2026-11-18T07:50:00Z",
+      startedAt: "2026-11-18T06:50:00Z",
+      finishedAt: "2026-11-18T07:45:00Z",
+      answers: [],
+    });
+    const span = reportSpan(facts);
+    expect(span.from.toISOString()).toBe("2026-11-18T07:50:00.000Z");
+    expect(span.to.toISOString()).toBe("2026-11-18T07:50:00.000Z");
+  });
+
+  it("never ends before it starts", () => {
+    const span = reportSpan({ ...none, arrivedAt: d("2026-11-17T23:10:00Z"), departedAt: d("2026-11-17T23:00:00Z") });
+    expect(span.to.getTime()).toBe(span.from.getTime());
   });
 });
 

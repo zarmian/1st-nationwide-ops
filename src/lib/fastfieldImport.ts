@@ -980,7 +980,7 @@ export const RECHECK_EVERY_MS = 24 * 3_600_000;
 /** When the matching rules last changed. Move it forward with any change to
  *  how reports are matched, so every waiting report is tried again under the
  *  new rules (newest first) instead of keeping the note from the old ones. */
-export const RULES_CHANGED_AT = new Date("2026-11-24T09:05:00Z");
+export const RULES_CHANGED_AT = new Date("2026-11-24T09:25:00Z");
 
 export type WaitingReport = {
   id: string;
@@ -2028,7 +2028,8 @@ const SHIFT_CHECK_BATCH = 300;
  * start before the shift starts or finish after it ends. It looks at each
  * report on a shift that it hasn't checked yet, or whose shift has changed
  * since (`shiftCheckedAt`), so its first pass covers every report ever put on
- * a shift, then only new links and edited shifts. A report that doesn't fit
+ * a shift, then only new links, edited shifts, and every report again after
+ * the shift-fit rule changes (SHIFT_RULES_CHANGED_AT). A report that doesn't fit
  * moves to another shift at the site it does fit, else comes off its shift
  * and waits in Needs linking (`unlinkedAt`: the robot won't link it again,
  * and never makes or bills a job for it). Each change goes on the shift's
@@ -2060,7 +2061,9 @@ export async function checkShiftLinks(
       SELECT r.id FROM "FastFieldReport" r
       JOIN "Shift" s ON s.id = r."shiftId"
       WHERE r.status = 'LINKED'
-        AND (r."shiftCheckedAt" IS NULL OR s."updatedAt" > r."shiftCheckedAt")
+        AND (r."shiftCheckedAt" IS NULL
+          OR s."updatedAt" > r."shiftCheckedAt"
+          OR r."shiftCheckedAt" < ${SHIFT_RULES_CHANGED_AT})
       ORDER BY r."submittedAt" DESC
       LIMIT ${SHIFT_CHECK_BATCH}`;
     const ids = due.map((d) => d.id).filter((id) => !tried.has(id));
@@ -2111,9 +2114,10 @@ export async function checkShiftLinks(
   return summary;
 }
 
-/** When the shift-fit rule last changed (the 30-minute allowance): reports
- *  the robot took off before this are tried again under the new rule. */
-export const SHIFT_RULES_CHANGED_AT = new Date("2026-11-24T09:05:00Z");
+/** When the shift-fit rule last changed (24 Nov: the 30-minute allowance,
+ *  then only times typed on the form): every report on a shift is checked
+ *  again, and those the robot took off are tried again, under the new rule. */
+export const SHIFT_RULES_CHANGED_AT = new Date("2026-11-24T09:25:00Z");
 
 /**
  * Reports the robot took off a shift go back on one they now fit — after the
