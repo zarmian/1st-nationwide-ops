@@ -90,12 +90,14 @@ export async function linkFastFieldReport(
 ): Promise<ActionResult> {
   const me = await requireAdmin();
   const note = `Linked by ${me.name || "the office"}.`;
+  // By hand, any report can go on any activity, shifts included: the robot's
+  // shift check leaves it there.
   const res =
     kind === "job"
-      ? await linkReportToJob(reportId, activityId, { note })
+      ? await linkReportToJob(reportId, activityId, { note, byHand: true })
       : kind === "visit"
-        ? await linkReportToVisit(reportId, activityId, { note })
-        : await linkReportToShift(reportId, activityId, { note });
+        ? await linkReportToVisit(reportId, activityId, { note, byHand: true })
+        : await linkReportToShift(reportId, activityId, { note, byHand: true });
   if (!res.ok) return fail(res.error);
   refresh(reportId);
   return okVoid();

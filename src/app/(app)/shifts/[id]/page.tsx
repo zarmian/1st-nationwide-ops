@@ -134,6 +134,7 @@ export default async function ShiftDetailPage({
           select: {
             id: true,
             status: true,
+            linkedByHand: true,
             submittedAt: true,
             startedAt: true,
             finishedAt: true,
@@ -473,6 +474,7 @@ export default async function ShiftDetailPage({
                   {r.check.outside && (
                     <span className="text-xs font-medium text-amber-800">
                       Outside the shift: {r.check.outside}
+                      {r.linkedByHand ? " (linked by hand)" : ""}
                     </span>
                   )}
                   <span className="ml-auto flex items-center gap-3">
