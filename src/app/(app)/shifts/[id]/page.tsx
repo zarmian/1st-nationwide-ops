@@ -6,7 +6,7 @@ import { ShiftLinkCard } from "../_components/ShiftLinkCard";
 import { PageHeader } from "@/components/PageHeader";
 import { dutyUrl } from "@/lib/dutyLink";
 import { getSessionUser } from "@/lib/authz";
-import { spanText } from "@/lib/fastfield";
+import { SHIFT_GRACE_MIN, spanText } from "@/lib/fastfield";
 import { checkReportOnShift } from "@/lib/fastfieldImport";
 import { UnlinkButton } from "../../admin/fastfield/_components/ReportActions";
 
@@ -35,6 +35,7 @@ const ACTION_LABEL: Record<string, string> = {
   fastfield_unlinked: "FastField report unlinked",
   fastfield_moved_off: "FastField report moved to another shift it fits",
   fastfield_moved_on: "FastField report moved here from another shift",
+  fastfield_put_back: "FastField report put back on this shift",
 };
 
 function fmt(d: Date | null): string {
@@ -440,8 +441,9 @@ export default async function ShiftDetailPage({
             </h2>
             <p className="text-xs text-slate-500">
               Patrol rounds the officer filed on FastField during this shift, at the times in each
-              report. A report must fit inside the shift: it can&rsquo;t start before the shift
-              starts or finish after it ends.
+              report. A report must fall within the shift, give or take {SHIFT_GRACE_MIN} minutes:
+              it can&rsquo;t start more than {SHIFT_GRACE_MIN} minutes before the shift starts or
+              finish more than {SHIFT_GRACE_MIN} minutes after it ends.
               {isAdmin && " Unlink one that doesn't belong here; it goes back to Admin → FastField to link again."}
             </p>
             {ffOutside > 0 && (

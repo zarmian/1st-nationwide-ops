@@ -49,6 +49,7 @@ import {
   pickShift,
   pickSite,
   pickSiteByActivity,
+  SHIFT_GRACE_MIN,
   outsideShiftText,
   reportSpan,
   shiftLinkAction,
@@ -454,12 +455,13 @@ async function candidatesNear(
 const SHIFT_REACH_MS = 36 * 3_600_000;
 
 /** Static / dog-handler shifts at the sites that a report starting at `from`
- *  could fit inside: those that started (scheduled or actual) by then, up to
- *  36 hours before — shifts can be long — with their full window. */
+ *  could fit: those that started (scheduled or actual) up to 36 hours before
+ *  it — shifts can be long — or within the allowance after it, with their
+ *  full window. */
 async function shiftsNearSites(siteIds: string[], from: Date) {
   const range = {
     gte: new Date(from.getTime() - SHIFT_REACH_MS),
-    lte: from,
+    lte: new Date(from.getTime() + SHIFT_GRACE_MIN * 60000),
   };
   return prisma.shift.findMany({
     where: { siteId: { in: siteIds }, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
@@ -634,7 +636,7 @@ async function decide(
     note: note + how,
   });
   const hours = (sh: ShiftCandidate) => `${formatTime(sh.start)}–${formatTime(sh.end)}`;
-  const sharedNote = " Two shifts were on; it went to the one that started first.";
+  const sharedNote = " It fitted two shifts; it went to the closer one.";
 
   // A patrol round during a static shift belongs to that shift.
   if (kind === "PATROL" && shiftsNow.length) {
@@ -978,7 +980,7 @@ export const RECHECK_EVERY_MS = 24 * 3_600_000;
 /** When the matching rules last changed. Move it forward with any change to
  *  how reports are matched, so every waiting report is tried again under the
  *  new rules (newest first) instead of keeping the note from the old ones. */
-export const RULES_CHANGED_AT = new Date("2026-11-24T05:55:00Z");
+export const RULES_CHANGED_AT = new Date("2026-11-24T09:05:00Z");
 
 export type WaitingReport = {
   id: string;
@@ -1713,7 +1715,7 @@ export async function linkReportToShift(
       ok: false,
       error: `This report (${spanText(span)}) ${outsideShiftText(fit)} (${shiftHoursText(
         window,
-      )}). A report can only go on a shift it fits inside.`,
+      )}), more than the ${SHIFT_GRACE_MIN} minutes allowed. A report can only go on a shift it fits.`,
     };
   }
   const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
@@ -1733,6 +1735,7 @@ export async function linkReportToShift(
         siteId: shift.siteId,
         // It fits the shift (checked above), so the shift check can skip it.
         shiftCheckedAt: new Date(),
+        unlinkedAt: null,
         formSubmissionId: submissionId,
         ...(opts.note ? { note: opts.note } : {}),
       },
@@ -2011,6 +2014,8 @@ export type ShiftCheckSummary = {
   takenOff: number;
   /** …that don't fit but were sent to the client in a report, so stay. */
   kept: number;
+  /** Reports the robot had taken off, put back on a shift they now fit. */
+  putBack: number;
   /** Whether more were waiting to be checked when the time ran out. */
   more: boolean;
 };
@@ -2034,9 +2039,21 @@ export async function checkShiftLinks(
 ): Promise<ShiftCheckSummary> {
   const started = Date.now();
   const budget = opts.budgetMs ?? 15_000;
-  const summary: ShiftCheckSummary = { checked: 0, fit: 0, moved: 0, takenOff: 0, kept: 0, more: false };
+  const summary: ShiftCheckSummary = {
+    checked: 0,
+    fit: 0,
+    moved: 0,
+    takenOff: 0,
+    kept: 0,
+    putBack: 0,
+    more: false,
+  };
   const ctx = newCtx();
   const tried = new Set<string>();
+
+  // First, reports the robot took off that may fit a shift now — up to half
+  // the time, so the check itself always gets a turn.
+  await putBackTakenOff(ctx, started + budget / 2, summary);
 
   while (Date.now() - started < budget) {
     const due = await prisma.$queryRaw<{ id: string }[]>`
@@ -2092,6 +2109,76 @@ export async function checkShiftLinks(
   }
   summary.more = true;
   return summary;
+}
+
+/** When the shift-fit rule last changed (the 30-minute allowance): reports
+ *  the robot took off before this are tried again under the new rule. */
+export const SHIFT_RULES_CHANGED_AT = new Date("2026-11-24T09:05:00Z");
+
+/**
+ * Reports the robot took off a shift go back on one they now fit — after the
+ * shift-fit rule changes (SHIFT_RULES_CHANGED_AT), or once a shift at their
+ * site is added or changed since the robot last looked. Shifts only: never a
+ * job, never a new job. Reports someone unlinked by hand stay off.
+ */
+async function putBackTakenOff(ctx: Ctx, until: number, summary: ShiftCheckSummary): Promise<void> {
+  const due = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT r.id FROM "FastFieldReport" r
+    WHERE r.status = 'UNMATCHED'
+      AND r."unlinkedAt" IS NOT NULL
+      AND r."siteId" IS NOT NULL
+      AND r.note LIKE '%by the robot:%'
+      AND (r."checkedAt" IS NULL
+        OR r."checkedAt" < ${SHIFT_RULES_CHANGED_AT}
+        OR EXISTS (
+          SELECT 1 FROM "Shift" s WHERE s."siteId" = r."siteId" AND s."updatedAt" > r."checkedAt"
+        ))
+    ORDER BY r."submittedAt" DESC
+    LIMIT ${SHIFT_CHECK_BATCH}`;
+  for (const { id } of due) {
+    if (Date.now() >= until) {
+      summary.more = true;
+      return;
+    }
+    try {
+      const r = await prisma.fastFieldReport.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          status: true,
+          siteId: true,
+          submittedAt: true,
+          startedAt: true,
+          finishedAt: true,
+          answers: true,
+        },
+      });
+      if (!r || r.status !== "UNMATCHED" || !r.siteId) continue;
+      const facts = extractFacts({
+        submittedAt: r.submittedAt,
+        startedAt: r.startedAt,
+        finishedAt: r.finishedAt,
+        answers: r.answers as FastFieldAnswer[],
+      });
+      const span = reportSpan(facts);
+      const ps = pickShift(span, await shiftsNear(r.siteId, span.from), await officerFor(ctx, facts));
+      if (ps.pick) {
+        const res = await linkReportToShift(r.id, ps.pick.id, {
+          ctx,
+          note: `Put back on the shift ${shiftHoursText(ps.pick)} by the robot: it fits with the ${SHIFT_GRACE_MIN}-minute allowance.`,
+        });
+        if (res.ok) {
+          summary.putBack++;
+          await logShiftChange(ps.pick.id, "fastfield_put_back", { fastfieldReportId: r.id });
+          continue;
+        }
+      }
+      // Still fits no shift: don't look again until a shift there changes.
+      await prisma.fastFieldReport.update({ where: { id: r.id }, data: { checkedAt: new Date() } });
+    } catch (e) {
+      console.error("FastField put-back failed for one report:", errCode(e));
+    }
+  }
 }
 
 async function checkOneShiftLink(
@@ -2152,7 +2239,7 @@ async function checkOneShiftLink(
   }
   await takeOffShift(
     { id: r.id, formSubmissionId: r.formSubmissionId, reviewId: review?.id ?? null },
-    `Taken off the shift ${shiftHoursText(current)} by the robot: ${why}, and it doesn't fit any other shift there. Link it to the right activity or set it aside.`,
+    `Taken off the shift ${shiftHoursText(current)} by the robot: ${why} — more than the ${SHIFT_GRACE_MIN} minutes allowed — and it doesn't fit any other shift there. Link it to the right activity or set it aside.`,
   );
   await logShiftChange(shift.id, "fastfield_unlinked", { fastfieldReportId: r.id, by: "robot" });
   return "takenOff";
