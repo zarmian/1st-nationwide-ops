@@ -111,7 +111,7 @@ It stops starting new reports at the time limit, and the next run carries on.
    - **Then GPS alone**, within 500 m.
    - **Still not settled — by the work on there** (`pickSiteByActivity`). This applies when the postcode or name fits several sites, or none fits but the phone was within 2 km of some. If exactly one of those sites had work on at the time (a static shift the report fits inside, or a job or visit within 3 hours), that's the site. It isn't used when that site is more than 5 km from the phone's GPS fix.
 3. **What it's about.** The kind is the visit type from the form, else the form's *Reports* setting.
-   - **Patrol report that fits inside a static or dog-handler shift at that site**: it is attached to the shift (`pickShift`). **Fits inside** (`shiftFit`) means the report's own time starts no earlier than the shift starts and finishes no later than it ends — never before the start or after the end, with no leeway. The shift's window is the earliest of its scheduled and actual start to the latest of its ends. If it fits two shifts, the officer named in the form decides, else the one that started first. A shift takes any number of reports, and attaching one bills nothing.
+   - **Patrol report that fits a static or dog-handler shift at that site**: it is attached to the shift (`pickShift`). **Fits** (`shiftFit`) means the report's own time starts no more than **30 minutes** before the shift starts and finishes no more than 30 minutes after it ends (`SHIFT_GRACE_MIN`). The shift's window is the earliest of its scheduled and actual start to the latest of its ends. If it fits two shifts: the one it's strictly inside, then the officer named in the form, then the one it runs least past, then the earlier. A shift takes any number of reports, and attaching one bills nothing.
    - **Otherwise:**
      - jobs and patrol visits at the site with any time within **3 hours** are considered. Cancelled jobs, partner-handled jobs and shift jobs are left out.
      - The nearest wins, and an activity of the report's own kind counts as 30 min closer.
@@ -126,7 +126,7 @@ It stops starting new reports at the time limit, and the next run carries on.
 4. **Outcome:**
    - A pick → **LINKED**.
    - No job or visit to attach it to:
-     - **it fits inside a static shift** → **LINKED to the shift**, whatever the report's kind. The guard on duty dealt with it, so no job is made and nothing is billed twice;
+     - **it fits a static shift** → **LINKED to the shift**, whatever the report's kind. The guard on duty dealt with it, so no job is made and nothing is billed twice;
      - otherwise, if nothing was near the time and the site belongs to the form's *Make the job* client (Shurgard) → **CREATED**: a completed job of the report's kind;
      - otherwise → **UNMATCHED**.
    - An UNMATCHED report's note says why: site not recognised, nothing near the time, or the activity already has a report. (*Ambiguous* and *shift* no longer happen for new reports. Older ones may still carry them.)
@@ -158,11 +158,11 @@ Each runs in one transaction. It creates the `FormSubmission` (officer name from
 
 Imports create no `ClientReport`, no customer SMS ack and no visit-completed notification. The client already had FastField's own report, and imports can be weeks old.
 
-### A report must fit inside its shift
+### A report must fit its shift
 
-Since 24 November 2026 a report only ever goes on a shift it fits inside, whether the robot or a person links it:
-- **The robot** has no leeway either side of a shift (it used to take reports from 30 min before the start to 60 min after the end, and patrol rounds up to 2 hours before or 6 hours after the nearest shift — `shiftAround`, now gone).
-- **Linking by hand** (`linkReportToShift`) refuses a shift the report doesn't fit, saying which end it runs past ("started 25 min before the shift"). The list on the report page shows those shifts with the reason and no **Link** button.
+Since 24 November 2026 a report only ever goes on a shift it fits — within the shift, give or take 30 minutes either side (`SHIFT_GRACE_MIN`) — whether the robot or a person links it:
+- **History:** the robot used to take reports from 30 min before the start to 60 min after the end, and patrol rounds up to 2 hours before or 6 hours after the nearest shift (`shiftAround`, now gone). The first version of this rule (24 Nov, morning) allowed no leeway at all; rounds a few minutes either side then couldn't be linked, so the 30-minute allowance followed the same day.
+- **Linking by hand** (`linkReportToShift`) refuses a shift the report doesn't fit, saying which end it runs past and by how much ("started 45 min before the shift, more than the 30 minutes allowed"). The list on the report page shows those shifts with the reason and no **Link** button.
 - **Checks on reports already on a shift** (`checkReportOnShift`), for ones linked before the rule or whose shift's times were changed later:
   - `/shifts/[id]` lists each report with its own time and flags any outside the shift;
   - `/admin/fastfield/[id]` says whether the report fits its shift;
@@ -175,9 +175,10 @@ Every 5 minutes, before retrying waiting reports, the `fastfield-recheck` cron r
 - **What it does** (`shiftLinkAction`, unit-tested):
   - fits → stamps `shiftCheckedAt`;
   - doesn't fit, but fits another shift at the site (the same choice as `pickShift`, the officer's own first) → **moved** there, with its patrol round; the note says from where and why;
-  - fits no shift there → **taken off** like Unlink (`takeOffShift`): back to Needs linking with `unlinkedAt`, a note saying why ("…finished 10 min after the shift ended"), and the robot never links it again — so it never makes or bills a job from it;
+  - fits no shift there → **taken off** like Unlink (`takeOffShift`): back to Needs linking with `unlinkedAt`, a note saying why ("…finished 50 min after the shift ended — more than the 30 minutes allowed"), and it's never matched to a job — so it never makes or bills one;
   - has gone to the client in a client report → left, stamped, counted as `kept`.
-- Each move or take-off goes on the shifts' history as "FastField robot". The cron's reply carries `shiftCheck: { checked, fit, moved, takenOff, kept, more }`.
+- **Putting back** (`putBackTakenOff`, first, with up to half the budget): a report the robot took off (its note says "by the robot:") is tried again — shifts only — after the shift-fit rule changes (`SHIFT_RULES_CHANGED_AT`) or once a shift at its site is added or changed since it was last looked at (`checkedAt`). If it now fits one, it's linked there ("Put back on the shift … by the robot"). Reports someone unlinked by hand are never put back.
+- Each move, take-off or put-back goes on the shifts' history as "FastField robot". The cron's reply carries `shiftCheck: { checked, fit, moved, takenOff, kept, putBack, more }`.
 
 ### Unlinking a report from a shift
 

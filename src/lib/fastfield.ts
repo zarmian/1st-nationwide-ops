@@ -708,50 +708,61 @@ export function shiftHoursText(s: { start: Date; end: Date }): string {
   return `${formatDateTime(s.start)}–${formatTime(s.end)}`;
 }
 
-/** Whether a report fits inside a shift, and if not, which end it runs past
- *  and by how many minutes (at least 1). */
+/** Whether a report fits a shift, and if not, which end it runs past and by
+ *  how many minutes from the shift's own start or end (at least 1). */
 export type ShiftFit =
   | { fits: true }
   | { fits: false; side: "before" | "after"; minutes: number };
 
+/** How far a report may run past either end of a shift and still count as on
+ *  it — a round started just before the shift, or finished just after. */
+export const SHIFT_GRACE_MIN = 30;
+
 /**
- * A report fits a shift when it starts no earlier than the shift starts and
- * finishes no later than the shift ends — never before the start or after the
- * end. Only then can it go on the shift, by the robot or by hand.
+ * A report fits a shift when it starts no more than 30 minutes before the
+ * shift starts and finishes no more than 30 minutes after it ends
+ * (SHIFT_GRACE_MIN; pass 0 for "strictly inside"). Only then can it go on the
+ * shift — by the robot, by hand, or staying on in the robot's shift check.
  */
-export function shiftFit(span: ReportSpan, s: { start: Date; end: Date }): ShiftFit {
+export function shiftFit(
+  span: ReportSpan,
+  s: { start: Date; end: Date },
+  graceMin: number = SHIFT_GRACE_MIN,
+): ShiftFit {
+  const grace = graceMin * 60000;
   const early = s.start.getTime() - span.from.getTime();
-  if (early > 0) return { fits: false, side: "before", minutes: Math.max(1, Math.round(early / 60000)) };
+  if (early > grace) return { fits: false, side: "before", minutes: Math.max(1, Math.round(early / 60000)) };
   const late = span.to.getTime() - s.end.getTime();
-  if (late > 0) return { fits: false, side: "after", minutes: Math.max(1, Math.round(late / 60000)) };
+  if (late > grace) return { fits: false, side: "after", minutes: Math.max(1, Math.round(late / 60000)) };
   return { fits: true };
 }
 
-/** "started 25 min before the shift" / "finished 1 h 10 min after the shift
- *  ended" — why a report doesn't fit. */
+/** "started 45 min before the shift" / "finished 1 h 10 min after the shift
+ *  ended" — why a report doesn't fit (always more than the allowance). */
 export function outsideShiftText(fit: Exclude<ShiftFit, { fits: true }>): string {
   return fit.side === "before"
     ? `started ${apartText(fit.minutes)} before the shift`
     : `finished ${apartText(fit.minutes)} after the shift ended`;
 }
 
-/** Shifts at the site the report fits inside. */
+/** Shifts at the site the report fits (with the allowance). */
 export function shiftsOn(span: ReportSpan, shifts: ShiftCandidate[]): ShiftCandidate[] {
   return shifts.filter((s) => shiftFit(span, s).fits);
 }
 
-/** Minutes a report falls outside a shift: 0 when it fits, else how far it
- *  runs past the start or the end. */
+/** Minutes a report runs past a shift's start or end: 0 when it's strictly
+ *  inside, else how far (within the allowance it still fits). */
 export function shiftApartMin(span: ReportSpan, s: ShiftCandidate): number {
-  const fit = shiftFit(span, s);
+  const fit = shiftFit(span, s, 0);
   return fit.fits ? 0 : fit.minutes;
 }
 
 /**
- * The static / dog-handler shift a patrol report was filed during: the one it
- * fits inside, or — if it fits two — the one worked by the officer named in
- * the form, else the one that started first (`shared`). A shift takes any
- * number of reports (one per patrol round), and linking one changes no billing.
+ * The static / dog-handler shift a patrol report was filed during, among those
+ * it fits: the one it's strictly inside, if any; then the one worked by the
+ * officer named in the form; then the one it runs least past, then the one
+ * that started first (`shared` = it had to choose). A shift takes any number
+ * of reports (one per patrol round), and linking one changes no billing.
  */
 export function pickShift(
   span: ReportSpan,
@@ -760,12 +771,17 @@ export function pickShift(
 ): { pick: ShiftCandidate; shared: boolean } | { pick: null; reason: "none" } {
   const on = shiftsOn(span, shifts);
   if (on.length === 0) return { pick: null, reason: "none" };
-  if (on.length === 1) return { pick: on[0], shared: false };
-  const theirs = officerId ? on.filter((s) => s.officerId === officerId) : [];
+  const inside = on.filter((s) => shiftFit(span, s, 0).fits);
+  const best = inside.length ? inside : on;
+  if (best.length === 1) return { pick: best[0], shared: false };
+  const theirs = officerId ? best.filter((s) => s.officerId === officerId) : [];
   if (theirs.length === 1) return { pick: theirs[0], shared: false };
-  const pool = theirs.length > 1 ? theirs : on;
+  const pool = theirs.length > 1 ? theirs : best;
   const first = [...pool].sort(
-    (a, b) => a.start.getTime() - b.start.getTime() || a.id.localeCompare(b.id),
+    (a, b) =>
+      shiftApartMin(span, a) - shiftApartMin(span, b) ||
+      a.start.getTime() - b.start.getTime() ||
+      a.id.localeCompare(b.id),
   )[0];
   return { pick: first, shared: true };
 }

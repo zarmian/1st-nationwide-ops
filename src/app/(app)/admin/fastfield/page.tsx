@@ -3,7 +3,7 @@ import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
-import { groupByPlace, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
+import { SHIFT_GRACE_MIN, groupByPlace, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
 import { OUTSIDE_CHECK_DAYS, reportsOutsideTheirShift } from "@/lib/fastfieldImport";
 import { FormSettingsRow } from "./_components/FormSettingsRow";
 import { RetryButton } from "./_components/RetryButton";
@@ -123,7 +123,7 @@ export default async function FastFieldPage() {
         title="FastField"
         backHref="/admin"
         backLabel="Admin"
-        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift it fits inside, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift. A report only ever goes on a shift it fits inside: it can't start before the shift starts or finish after it ends. Every 5 minutes the robot also checks the reports already on shifts and takes off (or moves to a shift it fits) any that don't."
+        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift it fits, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift. A report only ever goes on a shift it fits, give or take 30 minutes: it can't start more than 30 minutes before the shift starts or finish more than 30 minutes after it ends. Every 5 minutes the robot also checks the reports already on shifts and takes off (or moves to a shift it fits) any that don't."
       />
 
       <div className="card overflow-hidden">
@@ -239,7 +239,8 @@ export default async function FastFieldPage() {
             </h2>
             <p className="text-xs text-slate-600">
               Reports from the last {OUTSIDE_CHECK_DAYS} days that are on a static shift but start
-              before it starts or finish after it ends. The robot checks every report on a shift
+              more than {SHIFT_GRACE_MIN} minutes before it starts or finish more than{" "}
+              {SHIFT_GRACE_MIN} minutes after it ends. The robot checks every report on a shift
               every 5 minutes and sorts these out by itself: it moves each to a shift at the site it
               does fit, or takes it off to wait in Needs linking. One already sent to the client in a
               report stays. To do one now, unlink it.

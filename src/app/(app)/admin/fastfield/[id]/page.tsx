@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { FastFieldAnswers } from "@/components/FastFieldAnswers";
 import { formatDateTime, formatTime } from "@/lib/dates";
 import {
+  SHIFT_GRACE_MIN,
   apartText,
   extractFacts,
   reportSpan,
@@ -185,7 +186,7 @@ export default async function FastFieldReportPage({
                 on it. Unlink it, then link it to the right activity.
               </p>
             ) : (
-              <p className="text-slate-500">The report fits inside the shift.</p>
+              <p className="text-slate-500">The report fits the shift.</p>
             )}
           </div>
           <UnlinkButton
@@ -204,8 +205,10 @@ export default async function FastFieldReportPage({
               <p className="text-sm text-slate-500">
                 Pick the site, then the activity this report is about. Everything there from a day
                 before to a day after the report is listed, nearest first. A shift can only be
-                linked when the report fits inside it: it can&rsquo;t start before the shift starts
-                or finish after it ends. Or create the job if nobody logged it.
+                linked when the report falls within it, give or take {SHIFT_GRACE_MIN} minutes: it
+                can&rsquo;t start more than {SHIFT_GRACE_MIN} minutes before the shift starts or
+                finish more than {SHIFT_GRACE_MIN} minutes after it ends. Or create the job if
+                nobody logged it.
               </p>
             </div>
             <IgnoreButton reportId={report.id} ignored={report.status === "IGNORED"} />
@@ -262,7 +265,7 @@ export default async function FastFieldReportPage({
                             can&rsquo;t link: the report {a.outside}
                           </span>
                         ) : (
-                          <span className="text-xs text-emerald-700">the report fits inside</span>
+                          <span className="text-xs text-emerald-700">the report fits</span>
                         ))}
                       {a.taken && (
                         <span className="text-xs text-amber-800">already has a FastField report</span>

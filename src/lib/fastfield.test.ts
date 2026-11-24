@@ -436,17 +436,30 @@ describe("pickShift", () => {
     expect(p.pick?.id).toBe("night");
   });
 
-  it("never takes a report from before the start or after the end", () => {
-    expect(pickShift(at("2026-10-17T18:40:00.000Z"), [shift("night", "19:00", "07:00")], null).pick).toBeNull();
-    expect(pickShift(at("2026-10-17T19:05:00.000Z"), [shift("day", "07:00", "19:00")], null).pick).toBeNull();
-    // Right on the start and the end still fits.
-    expect(pickShift(at("2026-10-17T19:00:00.000Z"), [shift("night", "19:00", "07:00")], null).pick?.id).toBe("night");
-    expect(pickShift(at("2026-10-17T19:00:00.000Z"), [shift("day", "07:00", "19:00")], null).pick?.id).toBe("day");
+  it("takes a report up to 30 minutes either side of the shift, and no further", () => {
+    const night = [shift("night", "19:00", "07:00")];
+    const day = [shift("day", "07:00", "19:00")];
+    expect(pickShift(at("2026-10-17T18:40:00.000Z"), night, null).pick?.id).toBe("night"); // 20 min early
+    expect(pickShift(at("2026-10-17T18:30:00.000Z"), night, null).pick?.id).toBe("night"); // exactly 30
+    expect(pickShift(at("2026-10-17T18:25:00.000Z"), night, null).pick).toBeNull(); // 35 min early
+    expect(pickShift(at("2026-10-17T19:20:00.000Z"), day, null).pick?.id).toBe("day"); // 20 min late
+    expect(pickShift(at("2026-10-17T19:35:00.000Z"), day, null).pick).toBeNull(); // 35 min late
   });
 
-  it("needs the whole report inside: one that runs past the end doesn't fit", () => {
-    const span = { from: new Date("2026-10-17T18:50:00.000Z"), to: new Date("2026-10-17T19:10:00.000Z") };
-    expect(pickShift(span, [shift("day", "07:00", "19:00")], null).pick).toBeNull();
+  it("counts the whole report: one that runs more than 30 minutes past the end doesn't fit", () => {
+    const day = [shift("day", "07:00", "19:00")];
+    expect(pickShift({ from: new Date("2026-10-17T18:50:00.000Z"), to: new Date("2026-10-17T19:40:00.000Z") }, day, null).pick).toBeNull();
+    expect(pickShift({ from: new Date("2026-10-17T18:50:00.000Z"), to: new Date("2026-10-17T19:25:00.000Z") }, day, null).pick?.id).toBe("day");
+  });
+
+  it("prefers the shift the report is strictly inside over one it fits with the allowance", () => {
+    // 07:10 fits the night shift (10 min after it ends) and is inside the day shift.
+    const p = pickShift(
+      { from: new Date("2026-10-18T07:10:00.000Z"), to: new Date("2026-10-18T07:10:00.000Z") },
+      [shift("night", "19:00", "07:00"), { id: "day", start: new Date("2026-10-18T07:00:00.000Z"), end: new Date("2026-10-18T19:00:00.000Z"), officerId: null }],
+      null,
+    );
+    expect(p.pick?.id).toBe("day");
   });
 
   it("picks the officer's own shift when it fits two", () => {
@@ -481,22 +494,26 @@ describe("shiftLinkAction", () => {
     expect(shiftLinkAction(at("2026-11-23T23:10:00Z"), night, [night, day], null)).toEqual({ kind: "fit" });
   });
 
+  it("leaves a report within the 30-minute allowance", () => {
+    expect(shiftLinkAction(at("2026-11-24T06:55:00Z", "2026-11-24T07:10:00Z"), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
   it("moves a report to the shift at the site it does fit", () => {
-    const a = shiftLinkAction(at("2026-11-24T07:20:00Z", "2026-11-24T07:30:00Z"), night, [night, day], null);
+    const a = shiftLinkAction(at("2026-11-24T07:40:00Z", "2026-11-24T07:50:00Z"), night, [night, day], null);
     expect(a.kind).toBe("move");
     if (a.kind === "move") {
       expect(a.to.id).toBe("day");
-      expect(a.why).toEqual({ fits: false, side: "after", minutes: 30 });
+      expect(a.why).toEqual({ fits: false, side: "after", minutes: 50 });
     }
   });
 
   it("takes it off when it fits no shift there", () => {
-    const a = shiftLinkAction(at("2026-11-24T06:55:00Z", "2026-11-24T07:10:00Z"), night, [night, day], null);
-    expect(a).toEqual({ kind: "off", why: { fits: false, side: "after", minutes: 10 } });
+    const a = shiftLinkAction(at("2026-11-24T11:00:00Z", "2026-11-24T11:10:00Z"), night, [night], null);
+    expect(a).toEqual({ kind: "off", why: { fits: false, side: "after", minutes: 250 } });
   });
 
   it("never moves it back onto the shift it's on", () => {
-    expect(shiftLinkAction(at("2026-11-23T18:40:00Z"), night, [night], null).kind).toBe("off");
+    expect(shiftLinkAction(at("2026-11-23T18:00:00Z"), night, [night], null).kind).toBe("off");
   });
 
   it("prefers the officer's own shift when it fits two", () => {
@@ -556,10 +573,17 @@ describe("shiftFit", () => {
     expect(shiftFit(span("2026-11-17T23:00:00Z", "2026-11-17T23:12:00Z"), shift).fits).toBe(true);
   });
 
+  it("allows 30 minutes either side, and no more", () => {
+    expect(shiftFit(span("2026-11-17T18:30:00Z", "2026-11-17T18:45:00Z"), shift).fits).toBe(true);
+    expect(shiftFit(span("2026-11-18T07:00:00Z", "2026-11-18T07:30:00Z"), shift).fits).toBe(true);
+    expect(shiftFit(span("2026-11-17T18:29:00Z"), shift)).toEqual({ fits: false, side: "before", minutes: 31 });
+    expect(shiftFit(span("2026-11-18T07:31:00Z"), shift)).toEqual({ fits: false, side: "after", minutes: 31 });
+  });
+
   it("says when a report starts before the shift", () => {
-    const fit = shiftFit(span("2026-11-17T18:35:00Z", "2026-11-17T18:50:00Z"), shift);
-    expect(fit).toEqual({ fits: false, side: "before", minutes: 25 });
-    if (!fit.fits) expect(outsideShiftText(fit)).toBe("started 25 min before the shift");
+    const fit = shiftFit(span("2026-11-17T18:20:00Z", "2026-11-17T18:35:00Z"), shift);
+    expect(fit).toEqual({ fits: false, side: "before", minutes: 40 });
+    if (!fit.fits) expect(outsideShiftText(fit)).toBe("started 40 min before the shift");
   });
 
   it("says when a report finishes after the shift ends", () => {
@@ -568,8 +592,8 @@ describe("shiftFit", () => {
     if (!fit.fits) expect(outsideShiftText(fit)).toBe("finished 1 h 10 min after the shift ended");
   });
 
-  it("counts a few seconds over as a minute, never zero", () => {
-    const fit = shiftFit(span("2026-11-18T07:00:20Z"), shift);
+  it("strictly (no allowance), counts a few seconds over as a minute, never zero", () => {
+    const fit = shiftFit(span("2026-11-18T07:00:20Z"), shift, 0);
     expect(fit).toEqual({ fits: false, side: "after", minutes: 1 });
   });
 });
