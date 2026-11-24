@@ -282,9 +282,12 @@ export type FastFieldFacts = {
   /** From the form's arrival / departure fields (null when not given). */
   arrivedAt: Date | null;
   departedAt: Date | null;
-  /** When the form was opened / finished on the phone, if plausible. */
+  /** When the form was opened / finished on the phone, if plausible. Never
+   *  used to judge a report against a shift (reportSpan). */
   openedAt: Date | null;
   closedAt: Date | null;
+  /** When it was sent from the phone. */
+  submittedAt: Date;
   /** The moment used to find the activity: arrival, else form opened,
    *  else submitted. */
   when: Date;
@@ -427,6 +430,7 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
     departedAt,
     openedAt,
     closedAt,
+    submittedAt,
     when: arrivedAt ?? openedAt ?? submittedAt,
     lat: coords?.lat ?? null,
     lng: coords?.lng ?? null,
@@ -675,23 +679,18 @@ export type ShiftCandidate = {
 export type ReportSpan = { from: Date; to: Date };
 
 /**
- * A report's own time, for fitting it to a shift: the arrival and departure
- * times typed in the form when it has them (the officer's account of when the
- * round was done), else when the form was opened on the phone to when it was
- * finished, else when it was submitted.
+ * A report's own time, for fitting it to a shift: only the times typed in
+ * the form — from the arrival to the departure (one moment when only one is
+ * typed), the officer's account of when the round was done. When and how
+ * long the form was open on the phone never counts. A form with no time typed
+ * at all falls back to when it was sent, the only time left.
  */
 export function reportSpan(
-  f: Pick<FastFieldFacts, "arrivedAt" | "departedAt" | "openedAt" | "closedAt" | "when">,
+  f: Pick<FastFieldFacts, "arrivedAt" | "departedAt" | "submittedAt">,
 ): ReportSpan {
-  let from: Date;
-  let to: Date;
-  if (f.arrivedAt || f.departedAt) {
-    from = (f.arrivedAt ?? f.departedAt)!;
-    to = f.departedAt ?? from;
-  } else {
-    from = f.openedAt ?? f.when;
-    to = f.closedAt ?? from;
-  }
+  if (!f.arrivedAt && !f.departedAt) return { from: f.submittedAt, to: f.submittedAt };
+  const from = (f.arrivedAt ?? f.departedAt)!;
+  const to = f.departedAt ?? from;
   return { from, to: to.getTime() < from.getTime() ? from : to };
 }
 
