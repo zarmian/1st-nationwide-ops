@@ -5,10 +5,17 @@ import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { FastFieldAnswers } from "@/components/FastFieldAnswers";
 import { formatDateTime, formatTime } from "@/lib/dates";
-import { apartText, extractFacts, type FastFieldAnswer } from "@/lib/fastfield";
-import { activitiesNearReport } from "@/lib/fastfieldImport";
+import {
+  apartText,
+  extractFacts,
+  reportSpan,
+  shiftHoursText,
+  spanText,
+  type FastFieldAnswer,
+} from "@/lib/fastfield";
+import { activitiesNearReport, checkReportOnShift } from "@/lib/fastfieldImport";
 import { ReportStatusChip, activityLabel } from "../_components/labels";
-import { CreateJobForm, IgnoreButton, LinkButton } from "../_components/ReportActions";
+import { CreateJobForm, IgnoreButton, LinkButton, UnlinkButton } from "../_components/ReportActions";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +47,16 @@ export default async function FastFieldReportPage({
       site: { select: { id: true, name: true } },
       job: { select: { id: true, type: true, status: true } },
       patrolVisit: { select: { id: true, scheduledAt: true } },
-      shift: { select: { id: true } },
+      shift: {
+        select: {
+          id: true,
+          officerId: true,
+          scheduledStartsAt: true,
+          scheduledEndsAt: true,
+          actualStartedAt: true,
+          actualEndedAt: true,
+        },
+      },
       formSubmission: { select: { review: { select: { id: true } } } },
     },
   });
@@ -53,6 +69,10 @@ export default async function FastFieldReportPage({
     answers: report.answers as unknown as FastFieldAnswer[],
   });
   const open = report.status === "UNMATCHED" || report.status === "IGNORED";
+  const span = reportSpan(facts);
+  // On a shift: does the report fit inside it?
+  const onShift =
+    report.shift && report.status === "LINKED" ? checkReportOnShift(report, report.shift) : null;
 
   // Linking by hand: the activities near the report's time at a chosen site,
   // from the form's client's sites (or everyone's, grouped by client).
@@ -102,8 +122,8 @@ export default async function FastFieldReportPage({
       <div className="card p-4 space-y-1 text-sm">
         {report.note && <p className="text-slate-800">{report.note}</p>}
         <p className="text-slate-500">
-          Site as typed: {report.siteText ?? "—"} · Arrived {formatDateTime(facts.arrivedAt)} · Left{" "}
-          {formatDateTime(facts.departedAt)}
+          Site as typed: {report.siteText ?? "—"} · Report time {spanText(span)} · Arrived{" "}
+          {formatDateTime(facts.arrivedAt)} · Left {formatDateTime(facts.departedAt)}
           {facts.lat != null && facts.lng != null && (
             <>
               {" "}
@@ -148,6 +168,34 @@ export default async function FastFieldReportPage({
         )}
       </div>
 
+      {onShift && report.shift && (
+        <div
+          className={
+            "card p-4 flex flex-wrap items-center justify-between gap-3 text-sm " +
+            (onShift.outside ? "border-amber-300 bg-amber-50" : "")
+          }
+        >
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-slate-900">
+              On the static shift {shiftHoursText(onShift.shift)}
+            </p>
+            {onShift.outside ? (
+              <p className="text-amber-900">
+                This report ({spanText(onShift.span)}) {onShift.outside}, so it doesn&rsquo;t belong
+                on it. Unlink it, then link it to the right activity.
+              </p>
+            ) : (
+              <p className="text-slate-500">The report fits inside the shift.</p>
+            )}
+          </div>
+          <UnlinkButton
+            reportId={report.id}
+            label="Unlink from this shift"
+            className={onShift.outside ? "btn btn-primary" : "btn btn-secondary"}
+          />
+        </div>
+      )}
+
       {open && (
         <div className="card p-5 space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -155,8 +203,9 @@ export default async function FastFieldReportPage({
               <h2 className="font-semibold text-brand-navy">Link it to an activity</h2>
               <p className="text-sm text-slate-500">
                 Pick the site, then the activity this report is about. Everything there from a day
-                before to a day after the report is listed, nearest first. Or create the job if
-                nobody logged it.
+                before to a day after the report is listed, nearest first. A shift can only be
+                linked when the report fits inside it: it can&rsquo;t start before the shift starts
+                or finish after it ends. Or create the job if nobody logged it.
               </p>
             </div>
             <IgnoreButton reportId={report.id} ignored={report.status === "IGNORED"} />
@@ -202,17 +251,19 @@ export default async function FastFieldReportPage({
                       <span className="font-medium text-slate-900">{activityLabel(a.type)}</span>
                       <span className="text-slate-500">
                         {a.kind === "shift" && a.until
-                          ? `${formatDateTime(a.at)}–${formatTime(a.until)} · ${
-                              a.minutesApart === 0
-                                ? "on at the time"
-                                : a.until.getTime() < facts.when.getTime()
-                                  ? `ended ${apartText(a.minutesApart)} before`
-                                  : `starts ${apartText(a.minutesApart)} after`
-                            }`
+                          ? `${formatDateTime(a.at)}–${formatTime(a.until)}`
                           : `${formatDateTime(a.at)} · ${apartText(a.minutesApart)} ${
                               a.at.getTime() < facts.when.getTime() ? "before" : "after"
                             }`}
                       </span>
+                      {a.kind === "shift" &&
+                        (a.outside ? (
+                          <span className="text-xs text-amber-800">
+                            can&rsquo;t link: the report {a.outside}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-emerald-700">the report fits inside</span>
+                        ))}
                       {a.taken && (
                         <span className="text-xs text-amber-800">already has a FastField report</span>
                       )}
@@ -228,9 +279,11 @@ export default async function FastFieldReportPage({
                       >
                         view
                       </Link>
-                      <span className="ml-auto">
-                        <LinkButton reportId={report.id} kind={a.kind} activityId={a.id} />
-                      </span>
+                      {!(a.kind === "shift" && a.outside) && (
+                        <span className="ml-auto">
+                          <LinkButton reportId={report.id} kind={a.kind} activityId={a.id} />
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

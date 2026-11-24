@@ -3,9 +3,11 @@ import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
-import { groupByPlace, splitSiaNumber } from "@/lib/fastfield";
+import { groupByPlace, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
+import { OUTSIDE_CHECK_DAYS, reportsOutsideTheirShift } from "@/lib/fastfieldImport";
 import { FormSettingsRow } from "./_components/FormSettingsRow";
 import { RetryButton } from "./_components/RetryButton";
+import { UnlinkButton } from "./_components/ReportActions";
 import { SkipPlaceButton, StopSkippingButton } from "./_components/SkipPlace";
 import { ReportStatusChip, activityLabel, describePreview } from "./_components/labels";
 
@@ -15,11 +17,13 @@ export const maxDuration = 60;
 
 /** Places shown in "Waiting, by place" (the biggest first). */
 const PLACES_SHOWN = 12;
+/** Reports shown under "On a shift, outside its time" (the newest first). */
+const OUTSIDE_SHOWN = 25;
 
 export default async function FastFieldPage() {
   await requireAdmin();
 
-  const [forms, customers, byStatus, unmatched, recent, waitingAll, skips] = await Promise.all([
+  const [forms, customers, byStatus, unmatched, recent, waitingAll, skips, outside] = await Promise.all([
     prisma.fastFieldForm.findMany({
       orderBy: [{ mode: "desc" }, { name: "asc" }],
       select: {
@@ -89,6 +93,7 @@ export default async function FastFieldPage() {
         _count: { select: { reports: { where: { status: "IGNORED" } } } },
       },
     }),
+    reportsOutsideTheirShift(),
   ]);
   const places = groupByPlace(
     waitingAll.map((r) => ({ siteText: r.siteText, submittedAt: r.submittedAt, siteName: r.site?.name ?? null })),
@@ -116,7 +121,7 @@ export default async function FastFieldPage() {
         title="FastField"
         backHref="/admin"
         backLabel="Admin"
-        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift on at the time, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift."
+        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift it fits inside, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift. A report only ever goes on a shift it fits inside: it can't start before the shift starts or finish after it ends."
       />
 
       <div className="card overflow-hidden">
@@ -224,6 +229,49 @@ export default async function FastFieldPage() {
         </div>
       )}
 
+      {outside.length > 0 && (
+        <div className="card overflow-hidden border-amber-300">
+          <div className="px-4 py-3 border-b border-slate-100 bg-amber-50">
+            <h2 className="font-semibold text-brand-navy">
+              On a shift, outside its time ({outside.length})
+            </h2>
+            <p className="text-xs text-slate-600">
+              Reports from the last {OUTSIDE_CHECK_DAYS} days that are on a static shift but start
+              before it starts or finish after it ends: put there before this check, or the
+              shift&rsquo;s times changed since. Unlink each one; it moves to Needs linking below,
+              where you can link it to the right activity or set it aside.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {outside.slice(0, OUTSIDE_SHOWN).map((r) => (
+              <li key={r.reportId} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <div className="min-w-0 flex-1">
+                  <div className="font-medium text-slate-900">{r.siteName}</div>
+                  <div className="text-xs text-slate-500">
+                    Report {spanText(r.span)} · shift {shiftHoursText(r.shift)}
+                  </div>
+                  <div className="text-xs text-amber-800">The report {r.outside}.</div>
+                </div>
+                <span className="flex items-center gap-3 text-xs">
+                  <Link href={`/admin/fastfield/${r.reportId}`} className="text-brand-blue-dark hover:underline">
+                    Report
+                  </Link>
+                  <Link href={`/shifts/${r.shiftId}`} className="text-brand-blue-dark hover:underline">
+                    Shift →
+                  </Link>
+                  <UnlinkButton reportId={r.reportId} className="btn btn-secondary text-xs" />
+                </span>
+              </li>
+            ))}
+          </ul>
+          {outside.length > OUTSIDE_SHOWN && (
+            <div className="px-4 py-2 text-xs text-slate-500 border-t border-slate-100">
+              Showing the newest {OUTSIDE_SHOWN} of {outside.length}.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -232,7 +280,8 @@ export default async function FastFieldPage() {
             </h2>
             <p className="text-xs text-slate-500">
               Reports that didn&rsquo;t match an activity on their own. The robot tries them again
-              every 5 minutes, starting with those whose site has had a shift or job recorded since.
+              every 5 minutes, starting with those whose site has had a shift or job recorded since
+              (but never one you took off a shift: that one waits for you).
               Open one to link it, create the job, or set it aside, or skip a whole place under
               &ldquo;Waiting, by place&rdquo; above.
             </p>

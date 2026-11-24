@@ -7,6 +7,7 @@ import {
   createFastFieldJob,
   ignoreFastFieldReport,
   linkFastFieldReport,
+  unlinkFastFieldReport,
 } from "../_actions";
 
 const CREATE_OPTIONS: { value: string; label: string }[] = [
@@ -124,6 +125,39 @@ export function IgnoreButton({ reportId, ignored }: { reportId: string; ignored:
       }
     >
       {ignored ? "Bring back" : "Set aside"}
+    </button>
+  );
+}
+
+/** Take a report off its shift. It goes back to Needs linking, and the robot
+ *  won't put it back. */
+export function UnlinkButton({
+  reportId,
+  label = "Unlink",
+  className = "btn btn-ghost",
+}: {
+  reportId: string;
+  label?: string;
+  className?: string;
+}) {
+  const { pending, run } = useAction();
+  return (
+    <button
+      type="button"
+      className={className}
+      disabled={pending}
+      onClick={() => {
+        if (
+          !window.confirm(
+            "Take this report off the shift?\n\nIt goes back to Needs linking on Admin → FastField, and the robot won't link it again. Link it to the right activity there, or set it aside.",
+          )
+        ) {
+          return;
+        }
+        run(() => unlinkFastFieldReport(reportId), "Report taken off the shift.");
+      }}
+    >
+      {pending ? "Unlinking…" : label}
     </button>
   );
 }

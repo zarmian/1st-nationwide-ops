@@ -104,13 +104,14 @@ It stops starting new reports at the time limit, and the next run carries on.
    - **Arrival and departure:** time answers labelled *Arrive / On site / Start* and *Depart / Off / Finish / Left*. They are kept only if within 72 h before, or 1 h after, submission.
    - **Visit type:** a short answer to a *type / visit / reason* question, such as "Lock up", "Unlock", "Call out" or "Patrol".
    - **The moment used for matching:** arrival, else when the form was opened on the phone, else submission.
+   - **The report's own time, for shifts** (`reportSpan`): from the arrival to the departure typed in the form when it has them (one moment when only one is typed), else from when the form was opened on the phone to when it was finished, else the submission time.
 2. **Site** (`pickSite`). It searches the form's client's active sites, or **all clients'** if the form isn't tied to one. If the typed site names exactly one client ("Shurgard self storage Woolwich"), only that client's sites are searched and its name is dropped from the text (`narrowSiteText`). "Self" and "storage" are always dropped, since every storage site shares them; without this, every "Access Self Storage …" outscored "Woolwich (SH-74)". Then:
    - **Postcode first.** Several sites with that postcode are told apart by the name, then by GPS within 2 km.
    - **Then the name**, using the Telegram bot's fuzzy match. Among several hits, a site with every word in its **name** beats one with them only in its address (a site on "Woolwich Road"), then GPS within 2 km settles it. Numbers and filler like "site" or "end" never find a site on their own and must match whole words, so a misspelt place ("Dratford site 1") is left for GPS or a person, not linked to a stranger.
    - **Then GPS alone**, within 500 m.
-   - **Still not settled — by the work on there** (`pickSiteByActivity`). This applies when the postcode or name fits several sites, or none fits but the phone was within 2 km of some. If exactly one of those sites had work on at the time (a static shift on, or a job or visit within 3 hours), that's the site. It isn't used when that site is more than 5 km from the phone's GPS fix.
+   - **Still not settled — by the work on there** (`pickSiteByActivity`). This applies when the postcode or name fits several sites, or none fits but the phone was within 2 km of some. If exactly one of those sites had work on at the time (a static shift the report fits inside, or a job or visit within 3 hours), that's the site. It isn't used when that site is more than 5 km from the phone's GPS fix.
 3. **What it's about.** The kind is the visit type from the form, else the form's *Reports* setting.
-   - **Patrol report while a static or dog-handler shift is on at that site** (30 min before the start to 60 min after the end): it is attached to the shift (`pickShift`). If two shifts were on, the officer named in the form decides, else the one that started first. A shift takes any number of reports, and attaching one bills nothing.
+   - **Patrol report that fits inside a static or dog-handler shift at that site**: it is attached to the shift (`pickShift`). **Fits inside** (`shiftFit`) means the report's own time starts no earlier than the shift starts and finishes no later than it ends — never before the start or after the end, with no leeway. The shift's window is the earliest of its scheduled and actual start to the latest of its ends. If it fits two shifts, the officer named in the form decides, else the one that started first. A shift takes any number of reports, and attaching one bills nothing.
    - **Otherwise:**
      - jobs and patrol visits at the site with any time within **3 hours** are considered. Cancelled jobs, partner-handled jobs and shift jobs are left out.
      - The nearest wins, and an activity of the report's own kind counts as 30 min closer.
@@ -125,8 +126,7 @@ It stops starting new reports at the time limit, and the next run carries on.
 4. **Outcome:**
    - A pick → **LINKED**.
    - No job or visit to attach it to:
-     - **a static shift was on** → **LINKED to the shift**, whatever the report's kind. The guard on duty dealt with it, so no job is made and nothing is billed twice;
-     - **a patrol report** filed up to **6 hours after** a shift at the site ended, or up to **2 hours before** one started (rounds sent in late) → **LINKED to that shift** (`shiftAround`, the nearest);
+     - **it fits inside a static shift** → **LINKED to the shift**, whatever the report's kind. The guard on duty dealt with it, so no job is made and nothing is billed twice;
      - otherwise, if nothing was near the time and the site belongs to the form's *Make the job* client (Shurgard) → **CREATED**: a completed job of the report's kind;
      - otherwise → **UNMATCHED**.
    - An UNMATCHED report's note says why: site not recognised, nothing near the time, or the activity already has a report. (*Ambiguous* and *shift* no longer happen for new reports. Older ones may still carry them.)
@@ -158,12 +158,33 @@ Each runs in one transaction. It creates the `FormSubmission` (officer name from
 
 Imports create no `ClientReport`, no customer SMS ack and no visit-completed notification. The client already had FastField's own report, and imports can be weeks old.
 
+### A report must fit inside its shift
+
+Since 24 November 2026 a report only ever goes on a shift it fits inside, whether the robot or a person links it:
+- **The robot** has no leeway either side of a shift (it used to take reports from 30 min before the start to 60 min after the end, and patrol rounds up to 2 hours before or 6 hours after the nearest shift — `shiftAround`, now gone).
+- **Linking by hand** (`linkReportToShift`) refuses a shift the report doesn't fit, saying which end it runs past ("started 25 min before the shift"). The list on the report page shows those shifts with the reason and no **Link** button.
+- **Checks on reports already on a shift** (`checkReportOnShift`), for ones linked before the rule or whose shift's times were changed later:
+  - `/shifts/[id]` lists each report with its own time and flags any outside the shift;
+  - `/admin/fastfield/[id]` says whether the report fits its shift;
+  - Admin → FastField lists **On a shift, outside its time** for the last 14 days (`reportsOutsideTheirShift`, `OUTSIDE_CHECK_DAYS`). It reads the answers in Node, up to 2,000 reports.
+
+### Unlinking a report from a shift
+
+**Unlink** (admin; on the report page, each report on the shift page, and the outside-its-time list) runs `unlinkReportFromShift`:
+- it deletes the patrol round the report added to the shift (its `FormSubmission` and approved `ReportReview`). Linking to a shift bills nothing, so there's nothing else to undo;
+- the report goes back to **UNMATCHED** (Needs linking) with a note saying who took it off, and `unlinkedAt` is set;
+- **the robot never links it again**: the recheck (`dueReports`, `recheckOne`) and the connector's dry run (`reviewFastField`) skip reports with `unlinkedAt`. A person links it to the right activity or sets it aside;
+- it is refused when the report has gone to the client in a client report;
+- the shift's history records "FastField report unlinked".
+
+Unlinking from a job or patrol visit isn't offered: linking marked those done and billed and paid them, which unlinking would have to reverse.
+
 ### Trying waiting reports again
 
 A report often arrives before its work is in the app — a static shift logged the next morning, a lock-up recorded late. It waits ("No activity…") until it's tried again.
 
 - **Every 5 minutes**, the `fastfield-recheck` cron (Vercel, database only) runs `retryUnmatched`. The robot's `retry` step does the same after each import.
-- It takes waiting reports from the last 30 days on forms that are On, best first (`dueForRecheck`):
+- It takes waiting reports from the last 30 days on forms that are On, except ones taken off a shift by hand, best first (`dueForRecheck`):
   1. reports whose site has had a job, shift or visit added or changed within 36 hours of their time, since they were last tried — newest report first;
   2. all of them, once any site has been added or changed since they were last tried (it may be the report's real site) — or the matching rules (`RULES_CHANGED_AT`, moved forward with any change to how reports are matched);
   3. any not tried for a day, longest-waiting first, so new rules reach every report.
@@ -209,11 +230,11 @@ Some places will never have work in the app to attach their reports to: a site w
 |---|---|---|
 | `POST /api/imports/fastfield` | the robot (bearer) | `plan`, `import`, `retry`; `?preview=1`; `run` id for preview counts |
 | `POST /api/imports/fastfield/photo?submission=&name=` | the robot (bearer) | one JPEG/PNG/WebP ≤ 4 MB → `{ url }` |
-| `/admin/fastfield` | admin | form settings with the last preview, "Needs linking" (with when each was last tried), "Try matching again", "Waiting, by place" with **Skip**, "Skipped places" with **Stop skipping**, recently attached |
+| `/admin/fastfield` | admin | form settings with the last preview, "On a shift, outside its time" (last 14 days) with **Unlink**, "Needs linking" (with when each was last tried), "Try matching again", "Waiting, by place" with **Skip**, "Skipped places" with **Stop skipping**, recently attached |
 | `GET /api/cron/fastfield-recheck` | Vercel cron, every 5 min | tries waiting reports again, those with new work at their site first |
-| `/admin/fastfield/[id]` | admin | one report: answers, photos, how it matched. Pick a site (grouped by client) and link to a shift, job or visit (anything there from a day before to a day after the report's time, nearest first, with the shifts on at the time at the top; `MANUAL_LINK_WINDOW_MIN`, wider than the robot's 3 or 18 hours); create the job; or set the report aside. |
+| `/admin/fastfield/[id]` | admin | one report: answers, photos, its own time, how it matched, and — on a shift — whether it fits, with **Unlink from this shift**. Pick a site (grouped by client) and link to a shift, job or visit (anything there from a day before to a day after the report's time, nearest first, with the shifts it fits inside at the top; `MANUAL_LINK_WINDOW_MIN`, wider than the robot's 3 or 18 hours). A shift it doesn't fit is listed with the reason and can't be linked. Or create the job, or set the report aside. |
 | `/admin/reports/[id]` | admin, dispatcher | a FastField-sourced submission shows the FastField answers |
-| `/shifts/[id]` | admin, dispatcher | "FastField patrol reports" lists the rounds filed during the shift |
+| `/shifts/[id]` | admin, dispatcher | "FastField patrol reports" lists the rounds filed during the shift, each with its own time; any outside the shift's time are flagged. Admins can **Unlink** each. |
 
 ## Extension points & gotchas
 

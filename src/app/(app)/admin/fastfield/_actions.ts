@@ -16,6 +16,7 @@ import {
   setReportIgnored,
   skipPlace,
   stopSkipping,
+  unlinkReportFromShift,
 } from "@/lib/fastfieldImport";
 
 /** What a FastField form can report — and the job made when nothing matches. */
@@ -133,6 +134,31 @@ export async function ignoreFastFieldReport(
     ignored ? `Set aside by ${me.name || "the office"}.` : undefined,
   );
   if (!res.ok) return fail(res.error);
+  refresh(reportId);
+  return okVoid();
+}
+
+/** Take a report off its shift: it goes back to Needs linking, and the robot
+ *  never puts it back. Logged on the shift's history. */
+export async function unlinkFastFieldReport(reportId: string): Promise<ActionResult> {
+  const me = await requireAdmin();
+  if (!z.string().uuid().safeParse(reportId).success) return fail("That report doesn't look right.");
+  const before = await prisma.fastFieldReport.findUnique({
+    where: { id: reportId },
+    select: { shiftId: true },
+  });
+  const res = await unlinkReportFromShift(reportId, me.name || "the office");
+  if (!res.ok) return fail(res.error);
+  if (before?.shiftId) {
+    await logActivity({
+      entity: "Shift",
+      entityId: before.shiftId,
+      action: "fastfield_unlinked",
+      userId: me.id,
+      diff: { fastfieldReportId: reportId },
+    }).catch(() => {});
+    revalidatePath(`/shifts/${before.shiftId}`);
+  }
   refresh(reportId);
   return okVoid();
 }
