@@ -33,6 +33,8 @@ const ACTION_LABEL: Record<string, string> = {
   ended_on_duty: "Ended on site",
   link_sent: "Link sent by SMS",
   fastfield_unlinked: "FastField report unlinked",
+  fastfield_moved_off: "FastField report moved to another shift it fits",
+  fastfield_moved_on: "FastField report moved here from another shift",
 };
 
 function fmt(d: Date | null): string {
@@ -518,7 +520,9 @@ export default async function ShiftDetailPage({
                     {ACTION_LABEL[h.action] ?? h.action}
                   </span>
                   <span className="text-xs text-slate-500">
-                    {h.user?.name ?? "Officer (link)"} · {fmt(h.createdAt)}
+                    {h.user?.name ??
+                      (h.action.startsWith("fastfield_") ? "FastField robot" : "Officer (link)")}{" "}
+                    · {fmt(h.createdAt)}
                   </span>
                 </div>
                 {diff && Object.keys(diff).length > 0 && (

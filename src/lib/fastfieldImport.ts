@@ -51,6 +51,7 @@ import {
   pickSiteByActivity,
   outsideShiftText,
   reportSpan,
+  shiftLinkAction,
   shiftApartMin,
   shiftFit,
   shiftHoursText,
@@ -1730,6 +1731,8 @@ export async function linkReportToShift(
         status: "LINKED",
         shiftId: shift.id,
         siteId: shift.siteId,
+        // It fits the shift (checked above), so the shift check can skip it.
+        shiftCheckedAt: new Date(),
         formSubmissionId: submissionId,
         ...(opts.note ? { note: opts.note } : {}),
       },
@@ -1860,8 +1863,21 @@ export async function unlinkReportFromShift(reportId: string, by: string): Promi
       error: "This report has been sent to the client in a report, so it can't be taken off the shift.",
     };
   }
-  const now = new Date();
   const which = report.shift ? ` that started ${formatDateTime(report.shift.scheduledStartsAt)},` : "";
+  await takeOffShift(
+    { id: report.id, formSubmissionId: report.formSubmissionId, reviewId: review?.id ?? null },
+    `Taken off the shift${which} by ${by}. The robot won't link it again: link it to the right activity or set it aside.`,
+  );
+  return { ok: true };
+}
+
+/** Take a report off its shift: its patrol round (submission + review) goes,
+ *  and it waits in Needs linking, never linked again by the robot. */
+async function takeOffShift(
+  report: { id: string; formSubmissionId: string | null; reviewId: string | null },
+  note: string,
+): Promise<void> {
+  const now = new Date();
   await prisma.$transaction(async (tx) => {
     await tx.fastFieldReport.update({
       where: { id: report.id },
@@ -1871,15 +1887,14 @@ export async function unlinkReportFromShift(reportId: string, by: string): Promi
         formSubmissionId: null,
         unlinkedAt: now,
         checkedAt: now,
-        note: `Taken off the shift${which} by ${by}. The robot won't link it again: link it to the right activity or set it aside.`,
+        note,
       },
     });
     if (report.formSubmissionId) {
-      if (review) await tx.reportReview.delete({ where: { id: review.id } });
+      if (report.reviewId) await tx.reportReview.delete({ where: { id: report.reviewId } });
       await tx.formSubmission.delete({ where: { id: report.formSubmissionId } });
     }
   });
-  return { ok: true };
 }
 
 // ── Reports on a shift they don't fit ─────────────────────────────────────
@@ -1981,6 +1996,173 @@ export async function reportsOutsideTheirShift(
     }
   }
   return out;
+}
+
+// ── The robot's shift check ───────────────────────────────────────────────
+
+export type ShiftCheckSummary = {
+  /** Reports on a shift looked at this time. */
+  checked: number;
+  /** …that fit their shift (stamped, not looked at again until the shift changes). */
+  fit: number;
+  /** …moved to another shift at the site that they do fit. */
+  moved: number;
+  /** …taken off their shift, waiting in Needs linking. */
+  takenOff: number;
+  /** …that don't fit but were sent to the client in a report, so stay. */
+  kept: number;
+  /** Whether more were waiting to be checked when the time ran out. */
+  more: boolean;
+};
+
+/** Reports checked per database round. */
+const SHIFT_CHECK_BATCH = 300;
+
+/**
+ * The robot's shift check: every report on a shift must fit inside it — not
+ * start before the shift starts or finish after it ends. It looks at each
+ * report on a shift that it hasn't checked yet, or whose shift has changed
+ * since (`shiftCheckedAt`), so its first pass covers every report ever put on
+ * a shift, then only new links and edited shifts. A report that doesn't fit
+ * moves to another shift at the site it does fit, else comes off its shift
+ * and waits in Needs linking (`unlinkedAt`: the robot won't link it again,
+ * and never makes or bills a job for it). Each change goes on the shift's
+ * history. Runs from the 5-minute recheck until its time budget is spent.
+ */
+export async function checkShiftLinks(
+  opts: { budgetMs?: number; now?: Date } = {},
+): Promise<ShiftCheckSummary> {
+  const started = Date.now();
+  const budget = opts.budgetMs ?? 15_000;
+  const summary: ShiftCheckSummary = { checked: 0, fit: 0, moved: 0, takenOff: 0, kept: 0, more: false };
+  const ctx = newCtx();
+  const tried = new Set<string>();
+
+  while (Date.now() - started < budget) {
+    const due = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT r.id FROM "FastFieldReport" r
+      JOIN "Shift" s ON s.id = r."shiftId"
+      WHERE r.status = 'LINKED'
+        AND (r."shiftCheckedAt" IS NULL OR s."updatedAt" > r."shiftCheckedAt")
+      ORDER BY r."submittedAt" DESC
+      LIMIT ${SHIFT_CHECK_BATCH}`;
+    const ids = due.map((d) => d.id).filter((id) => !tried.has(id));
+    if (ids.length === 0) return summary;
+    const rows = await prisma.fastFieldReport.findMany({
+      where: { id: { in: ids }, status: "LINKED" },
+      select: {
+        id: true,
+        submittedAt: true,
+        startedAt: true,
+        finishedAt: true,
+        answers: true,
+        formSubmissionId: true,
+        shift: { select: { ...SHIFT_TIMES_SELECT, siteId: true } },
+        formSubmission: {
+          select: { review: { select: { id: true, _count: { select: { clientReports: true } } } } },
+        },
+      },
+    });
+    const fitting: string[] = [];
+    for (const r of rows) {
+      tried.add(r.id);
+      if (!r.shift) continue;
+      if (Date.now() - started >= budget) {
+        summary.more = true;
+        break;
+      }
+      summary.checked++;
+      try {
+        const outcome = await checkOneShiftLink(ctx, r, r.shift);
+        if (outcome === "fit") fitting.push(r.id);
+        else summary[outcome]++;
+      } catch (e) {
+        console.error("FastField shift check failed for one report:", errCode(e));
+      }
+    }
+    if (fitting.length) {
+      await prisma.fastFieldReport.updateMany({
+        where: { id: { in: fitting } },
+        data: { shiftCheckedAt: opts.now ?? new Date() },
+      });
+      summary.fit += fitting.length;
+    }
+    if (summary.more) return summary;
+    if (due.length < SHIFT_CHECK_BATCH) return summary;
+  }
+  summary.more = true;
+  return summary;
+}
+
+async function checkOneShiftLink(
+  ctx: Ctx,
+  r: {
+    id: string;
+    submittedAt: Date;
+    startedAt: Date | null;
+    finishedAt: Date | null;
+    answers: unknown;
+    formSubmissionId: string | null;
+    formSubmission: { review: { id: string; _count: { clientReports: number } } | null } | null;
+  },
+  shift: ShiftTimes & { siteId: string },
+): Promise<"fit" | "moved" | "takenOff" | "kept"> {
+  const facts = extractFacts({
+    submittedAt: r.submittedAt,
+    startedAt: r.startedAt,
+    finishedAt: r.finishedAt,
+    answers: r.answers as FastFieldAnswer[],
+  });
+  const span = reportSpan(facts);
+  const current = toShiftCandidate(shift);
+  if (shiftFit(span, current).fits) return "fit";
+
+  const others = await shiftsNear(shift.siteId, span.from);
+  const action = shiftLinkAction(span, current, others, await officerFor(ctx, facts));
+  if (action.kind === "fit") return "fit";
+  const now = new Date();
+  const why = `the report (${spanText(span)}) ${outsideShiftText(action.why)}`;
+
+  if (action.kind === "move") {
+    const to = action.to;
+    await prisma.$transaction(async (tx) => {
+      await tx.fastFieldReport.update({
+        where: { id: r.id },
+        data: {
+          shiftId: to.id,
+          shiftCheckedAt: now,
+          note: `Moved by the robot from the shift ${shiftHoursText(current)} to the shift ${shiftHoursText(to)}, which it fits inside: ${why}.`,
+        },
+      });
+      if (r.formSubmissionId) {
+        await tx.formSubmission.update({ where: { id: r.formSubmissionId }, data: { shiftId: to.id } });
+      }
+    });
+    await logShiftChange(shift.id, "fastfield_moved_off", { fastfieldReportId: r.id, toShiftId: to.id });
+    await logShiftChange(to.id, "fastfield_moved_on", { fastfieldReportId: r.id, fromShiftId: shift.id });
+    return "moved";
+  }
+
+  const review = r.formSubmission?.review ?? null;
+  if (review && review._count.clientReports > 0) {
+    // Gone to the client in a report: leave it, but don't look again until
+    // the shift changes.
+    await prisma.fastFieldReport.update({ where: { id: r.id }, data: { shiftCheckedAt: now } });
+    return "kept";
+  }
+  await takeOffShift(
+    { id: r.id, formSubmissionId: r.formSubmissionId, reviewId: review?.id ?? null },
+    `Taken off the shift ${shiftHoursText(current)} by the robot: ${why}, and it doesn't fit any other shift there. Link it to the right activity or set it aside.`,
+  );
+  await logShiftChange(shift.id, "fastfield_unlinked", { fastfieldReportId: r.id, by: "robot" });
+  return "takenOff";
+}
+
+/** A line on the shift's history (Shift → History), written by the robot. */
+async function logShiftChange(shiftId: string, action: string, diff: Prisma.InputJsonValue): Promise<void> {
+  await prisma.activityLog
+    .create({ data: { entity: "Shift", entityId: shiftId, action, diff } })
+    .catch((e) => console.error("FastField shift check: history line not written:", errCode(e)));
 }
 
 // ── Skipped places ────────────────────────────────────────────────────────

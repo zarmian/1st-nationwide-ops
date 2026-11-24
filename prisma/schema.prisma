@@ -2079,9 +2079,13 @@ model FastFieldReport {
   jobCreated       Boolean               @default(false)
   /// When the robot last tried to match it while waiting (null = only at import).
   checkedAt        DateTime?
-  /// When someone took it off a shift by hand (Unlink). The robot never links
-  /// such a report again: it waits for a person to link it or set it aside.
+  /// When it was taken off a shift (Unlink, or by the robot because it didn't
+  /// fit the shift's time). The robot never links such a report again: it
+  /// waits for a person to link it or set it aside.
   unlinkedAt       DateTime?
+  /// When the robot last checked that this report fits inside its shift. Null
+  /// = not yet; it checks again whenever the shift changes after this.
+  shiftCheckedAt   DateTime?
   /// The skipped place that set it aside (Admin → FastField → Skip).
   skipId           String?               @db.Uuid
   skip             FastFieldSkip?        @relation(fields: [skipId], references: [id], onDelete: SetNull)
