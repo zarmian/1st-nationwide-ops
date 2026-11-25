@@ -1877,6 +1877,19 @@ export async function unlinkReportFromShift(reportId: string, by: string): Promi
   return { ok: true };
 }
 
+/**
+ * Take a report off whatever it is attached to, by a person: a shift, a job
+ * or a patrol visit. For a shift this is `unlinkReportFromShift`. `check`
+ * lists anything the person should look at afterwards (for example a job the
+ * link marked done or billed, which couldn't safely be put back).
+ */
+export async function unlinkReportFromActivity(
+  reportId: string,
+  by: string,
+): Promise<ActionResult & { check?: string[] }> {
+  return unlinkReportFromShift(reportId, by);
+}
+
 /** Take a report off its shift: its patrol round (submission + review) goes,
  *  and it waits in Needs linking, never linked again by the robot. */
 async function takeOffShift(
