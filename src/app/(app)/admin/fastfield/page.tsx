@@ -3,7 +3,7 @@ import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
-import { SHIFT_GRACE_MIN, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
+import { SHIFT_GRACE_MIN, reportTimeText, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
 import { OUTSIDE_CHECK_DAYS, reportsOutsideTheirShift, waitingPlaces } from "@/lib/fastfieldImport";
 import { takenOffText } from "@/lib/fastfieldAdminList";
 import { FirstCheckReview } from "./_components/FirstCheckReview";
@@ -291,13 +291,13 @@ export default async function FastFieldPage() {
           </div>
           <ul className="divide-y divide-slate-100">
             {outside.slice(0, OUTSIDE_SHOWN).map((r) => {
-              const what = `${r.siteName}, ${spanText(r.span)}`;
+              const what = `${r.siteName}, ${reportTimeText(r.span)}`;
               return (
                 <li key={r.reportId} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-slate-900 break-words">{r.siteName}</div>
                     <div className="text-xs text-slate-500">
-                      Report {spanText(r.span)} · shift {shiftHoursText(r.shift)}
+                      Report {reportTimeText(r.span)} · shift {shiftHoursText(r.shift)}
                     </div>
                     <div className="text-xs text-amber-800">The report {r.outside}.</div>
                   </div>

@@ -6,7 +6,7 @@ import { ShiftLinkCard } from "../_components/ShiftLinkCard";
 import { PageHeader } from "@/components/PageHeader";
 import { dutyUrl } from "@/lib/dutyLink";
 import { getSessionUser, requireStaffPage } from "@/lib/authz";
-import { SHIFT_GRACE_MIN, spanText } from "@/lib/fastfield";
+import { SHIFT_GRACE_MIN, reportTimeText, spanText } from "@/lib/fastfield";
 import { checkReportOnShift } from "@/lib/fastfieldImport";
 import { UnlinkButton } from "../../admin/fastfield/_components/ReportActions";
 
@@ -473,7 +473,7 @@ export default async function ShiftDetailPage({
           <ul className="divide-y divide-slate-100 text-sm">
             {ffReports.map((r, i) => {
               const reviewId = r.formSubmission?.review?.id;
-              const which = `Round ${i + 1}, ${spanText(r.check.span)}`;
+              const which = `Round ${i + 1}, ${reportTimeText(r.check.span)}`;
               return (
                 <li
                   key={r.id}
@@ -483,7 +483,7 @@ export default async function ShiftDetailPage({
                   }
                 >
                   <span className="text-slate-500">{i + 1}</span>
-                  <span className="text-slate-700">{spanText(r.check.span)}</span>
+                  <span className="text-slate-700">{reportTimeText(r.check.span)}</span>
                   {r.linkedByHand && <span className="chip-info text-[10px]">Linked by hand</span>}
                   {r.photoUrls.length > 0 && (
                     <span className="text-xs text-slate-500">

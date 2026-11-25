@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { dueForRecheck, type WaitingReport, type WorkChange } from "./fastfieldImport";
+import { checkReportOnShift, dueForRecheck, NO_TYPED_TIME, type WaitingReport, type WorkChange } from "./fastfieldImport";
 import { FASTFIELD_RULES_VERSION } from "./fastfieldRulesVersion";
 
 const NOW = new Date("2026-10-23T13:00:00Z");
@@ -90,5 +90,34 @@ describe("dueForRecheck", () => {
     expect(dueForRecheck([report("r", "s1", -5, -1, old)], [], null, NOW)).toEqual(["r"]);
     // The same report after the retry stamped it (checkedAt now, current version).
     expect(dueForRecheck([report("r", "s1", -5, 0)], [], null, NOW)).toEqual([]);
+  });
+});
+
+describe("checkReportOnShift: only typed times", () => {
+  const shift = {
+    id: "s1",
+    officerId: null,
+    scheduledStartsAt: new Date("2026-11-23T19:00:00Z"),
+    scheduledEndsAt: new Date("2026-11-24T07:00:00Z"),
+    actualStartedAt: null,
+    actualEndedAt: null,
+  };
+
+  it("can't check a report with no typed time — it's flagged for a person, never judged by its send time", () => {
+    // Sent at 02:00, well inside the shift: that doesn't count.
+    const c = checkReportOnShift({ submittedAt: new Date("2026-11-24T02:00:00Z"), answers: [] }, shift);
+    expect(c.span).toBeNull();
+    expect(c.outside).toBe(NO_TYPED_TIME);
+  });
+
+  it("checks a typed time as before", () => {
+    const c = checkReportOnShift(
+      {
+        submittedAt: new Date("2026-11-24T08:00:00Z"),
+        answers: [{ key: "a", label: "Arrival time", type: "DatePicker", value: "2026-11-24T02:00:00Z" }],
+      },
+      shift,
+    );
+    expect(c.outside).toBeNull();
   });
 });

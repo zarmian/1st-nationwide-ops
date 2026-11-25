@@ -18,7 +18,7 @@
 import type { FastFieldReportStatus, FastFieldUnlinkBy, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { FASTFIELD_RULES_VERSION } from "@/lib/fastfieldRulesVersion";
-import { shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
+import { reportTimeText, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
 import { checkReportOnShift, linkReportToShift } from "@/lib/fastfieldImport";
 
 /** The robot's first shift checks ran in this window (24 Nov 2026, UTC). */
@@ -350,7 +350,7 @@ export async function loadFirstCheckReview(limit: number = FIRST_CHECK_SHOWN): P
     items.push({
       reportId: r.id,
       site: r.site?.name ?? r.siteText ?? "Site not given",
-      reportTime: spanText(check.span),
+      reportTime: reportTimeText(check.span),
       form: r.form.name.trim(),
       officer: r.officerText ? splitSiaNumber(r.officerText).name ?? r.officerText : null,
       robot: { what: event.what, at: event.at },

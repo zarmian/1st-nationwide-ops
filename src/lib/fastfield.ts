@@ -501,10 +501,6 @@ const TYPED_BEFORE_SUBMIT_MS = 72 * 60 * 60 * 1000;
 const TYPED_AFTER_SUBMIT_MS = 15 * 60 * 1000;
 /** Typed arrival and departure further apart than this can't both be right. */
 const MAX_TYPED_SPAN_MS = 24 * 60 * 60 * 1000;
-/** The phone's own opened / finished times (only ever recorded on the
- *  activity when a report is attached) are trusted further back. */
-const OPENED_BEFORE_SUBMIT_MS = 7 * 24 * 60 * 60 * 1000;
-const OPENED_AFTER_SUBMIT_MS = 60 * 60 * 1000;
 
 /** The arrival / departure words that can only mean the officer was there
  *  (a subset of ARRIVE_LABEL / LEAVE_LABEL) — not "start", "end" or "off",
@@ -567,24 +563,23 @@ export type FastFieldFacts = {
   siaNumber: string | null;
   /** The officer's arrival and departure, from the times typed in the form.
    *  Null when none was typed, or when the typed times can't be right
-   *  (`timesNote` says why) — the send time stands in. */
+   *  (`timesNote` says why). Only typed times are ever used — never the
+   *  phone's opened / finished times, never the send time: a report with no
+   *  usable typed time has no time, and waits for a person. */
   arrivedAt: Date | null;
   departedAt: Date | null;
   /** Why the typed times weren't used ("Its typed times are more than a day
-   *  apart, so the send time was used."); the robot adds it to its note. */
+   *  apart, so the robot can't use them."); the robot adds it to its note. */
   timesNote?: string | null;
-  /** When the form was opened / finished on the phone, if plausible. Only
-   *  recorded on the activity when the report is attached (fastfieldImport
-   *  `visitTimes`) — never used to decide where it goes (`when`, reportSpan). */
-  openedAt: Date | null;
-  closedAt: Date | null;
-  /** When it was sent from the phone. */
+  /** When FastField received it. Never the report's time: it only bounds
+   *  which typed times are believable (72 h before … 15 min after) and gives
+   *  the day for a time typed without a date. */
   submittedAt: Date;
   /** The moment that decides where the report goes — the activity near it,
    *  the site's work on at the time, the middle of the list for linking by
-   *  hand: the typed arrival, else the typed departure, else the send time.
-   *  The start of reportSpan; never the phone's times. */
-  when: Date;
+   *  hand: the typed arrival, else the typed departure. Null when no usable
+   *  time was typed. The start of reportSpan. */
+  when: Date | null;
   lat: number | null;
   lng: number | null;
   /** First written note — shown on the admin list to help linking by hand. */
@@ -595,10 +590,11 @@ export type FastFieldFacts = {
   visitType: string | null;
 };
 
+/** What a report's facts are read from: the answers, and when FastField
+ *  received it. The phone's opened / finished times are deliberately not an
+ *  input — they are never used. */
 export type FactsInput = {
   submittedAt: string | Date;
-  startedAt?: string | Date | null;
-  finishedAt?: string | Date | null;
   answers: FastFieldAnswer[];
 };
 
@@ -623,8 +619,6 @@ export function splitSiaNumber(text: string): { name: string | null; sia: string
 export function extractFacts(input: FactsInput): FastFieldFacts {
   const answers = input.answers ?? [];
   const submittedAt = toDate(input.submittedAt) ?? new Date();
-  const startedAt = toDate(input.startedAt ?? null);
-  const finishedAt = toDate(input.finishedAt ?? null);
 
   const textAnswers = answers.filter((a) => answerKind(a.type) === "text");
   const textOf = (a: FastFieldAnswer) => answerText(a.value);
@@ -706,7 +700,8 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
   let arrivedAt: Date | null = arrival?.at ?? null;
   let departedAt: Date | null = departure?.at ?? null;
 
-  // Typed times that can't be right give way to the send time, with a note.
+  // Typed times that can't be right aren't used, with a note: the report
+  // then has no time.
   let timesNote: string | null = null;
   if (arrivedAt && departure && departedAt && departedAt.getTime() < arrivedAt.getTime()) {
     if (departure.clock) {
@@ -715,11 +710,11 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
       const nextDay = atUk(addDays(ukDayOf(departedAt), 1), departure.clock);
       departedAt = nearSent(nextDay, TYPED_BEFORE_SUBMIT_MS, TYPED_AFTER_SUBMIT_MS);
     } else {
-      timesNote = "Its typed departure is before its arrival, so the send time was used.";
+      timesNote = "Its typed departure is before its arrival, so the robot can't use its times.";
     }
   }
   if (arrivedAt && departedAt && departedAt.getTime() - arrivedAt.getTime() > MAX_TYPED_SPAN_MS) {
-    timesNote = "Its typed times are more than a day apart, so the send time was used.";
+    timesNote = "Its typed times are more than a day apart, so the robot can't use them.";
   }
   if (timesNote) {
     arrivedAt = null;
@@ -749,8 +744,6 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
       (textOf(a)?.length ?? 0) >= 3,
   );
   const summary = summaryAnswer ? textOf(summaryAnswer)!.slice(0, 280) : null;
-  const openedAt = nearSent(startedAt, OPENED_BEFORE_SUBMIT_MS, OPENED_AFTER_SUBMIT_MS);
-  const closedAt = nearSent(finishedAt, OPENED_BEFORE_SUBMIT_MS, OPENED_AFTER_SUBMIT_MS);
   const siteText = siteAnswer ? textOf(siteAnswer) : null;
   const postcode =
     extractPostcode(siteText) ??
@@ -768,10 +761,8 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
     arrivedAt,
     departedAt,
     timesNote,
-    openedAt,
-    closedAt,
     submittedAt,
-    when: arrivedAt ?? departedAt ?? submittedAt,
+    when: arrivedAt ?? departedAt ?? null,
     lat: coords?.lat ?? null,
     lng: coords?.lng ?? null,
     summary,
@@ -1140,19 +1131,23 @@ export type ReportSpan = { from: Date; to: Date };
 /**
  * A report's own time, for fitting it to a shift: only the times typed in
  * the form — from the arrival to the departure (one moment when only one is
- * typed), the officer's account of when the round was done. When and how
- * long the form was open on the phone never counts. A form with no usable
- * time typed (none at all, or typed times that can't be right — see
- * extractFacts) falls back to when it was sent, the only time left. It
+ * typed), the officer's account of when the round was done. Nothing else
+ * ever stands in: not the phone's opened / finished times, not the send
+ * time. Null when no usable time was typed (none at all, or typed times that
+ * can't be right — see extractFacts): such a report waits for a person. It
  * starts at the report's `when`.
  */
-export function reportSpan(
-  f: Pick<FastFieldFacts, "arrivedAt" | "departedAt" | "submittedAt">,
-): ReportSpan {
-  if (!f.arrivedAt && !f.departedAt) return { from: f.submittedAt, to: f.submittedAt };
+export function reportSpan(f: Pick<FastFieldFacts, "arrivedAt" | "departedAt">): ReportSpan | null {
+  if (!f.arrivedAt && !f.departedAt) return null;
   const from = (f.arrivedAt ?? f.departedAt)!;
   const to = f.departedAt ?? from;
   return { from, to: to.getTime() < from.getTime() ? from : to };
+}
+
+/** A report's time for people: spanText, or "no time typed" when the form
+ *  has no usable typed time. */
+export function reportTimeText(span: ReportSpan | null): string {
+  return span ? spanText(span) : "no time typed";
 }
 
 /** "17 Nov, 23:10–23:25", or "17 Nov, 23:50–18 Nov, 00:10" when it ends on

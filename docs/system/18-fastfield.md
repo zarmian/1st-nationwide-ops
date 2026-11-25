@@ -58,7 +58,7 @@ Migrations:
   - `answers Json`: the answers in form order, `[{ key, label, type, value, at?, lat?, lng? }]`, with photos already replaced by our URLs. `at` is when the field was tapped on the phone; it is never read as a time.
   - `photoUrls`, `signatureUrl`.
   - `siteText`, `officerText`: the site and officer as typed; `submittedBy`: the FastField user.
-  - GPS (`lat`, `lng`); `submittedAt`, the send time; `startedAt` / `finishedAt`, when the form was opened and finished on the phone (never used to decide where the report goes).
+  - GPS (`lat`, `lng`); `submittedAt`, the send time; `startedAt` / `finishedAt`, the phone's opened / finished times — never used for anything (the robot no longer sends them; older rows may still hold them).
 - The outcome:
   - `status`: `LINKED`, `CREATED`, `UNMATCHED` (waiting in Needs linking) or `IGNORED` (set aside);
   - `note`: how it was matched, or why not;
@@ -140,7 +140,7 @@ The 24 Nov list's **Put back** also writes `fastfield_linked` on the shift (`byH
 3. Call `Dashboard.GetCardData` for that card with `selectedUser: "All Users"` and the date window, 200 per page, to get every submission id and form name. If the login may not list all users, it falls back to the dashboard's own user filter.
 4. `POST /api/imports/fastfield { action: "plan" }`. The app records the forms and returns the ids that are **new** and on a form that is **On**, or also **Preview only** in a preview run. A preview also clears the forms' last-preview counts under the run's id.
 5. For each new id, three at a time:
-   - `Submission.GetSubmissionData` gives the answers in form order (values from `submission`, labels and types from `form`, capture times and GPS from `formMetaData.fieldMetaData`). The send time is the submission's `updatedAt` (else the time the form was finished); the opened and finished times come from `formMetaData`.
+   - `Submission.GetSubmissionData` gives the answers in form order (values from `submission`, labels and types from `form`, capture times and GPS from `formMetaData.fieldMetaData`). The send time is the submission's `updatedAt` (else the time the robot read it). The phone's opened and finished times in `formMetaData` aren't sent: they're never used.
    - Photos and the signature (`media` list, up to 60 a report) are fetched via `/api/media/amazon/<key>/redirect` and shrunk in the browser to a JPEG of at most 1600 px. Standard JPEG, PNG or WebP files of 1.2 MB or less are kept as they are.
    - Each one is uploaded to `./photo`, which stores it only if its first bytes say it's a JPEG, PNG or WebP (else `415 not_an_image`) and it's 4 MB or less. A preview copies nothing.
 6. `POST { action: "import", run, reports }`, three at a time. If the app refuses a batch, the reports go one by one so a single odd report can't block the rest. The import keeps only photo and signature addresses that are https, on Vercel Blob's public storage, under `uploads/fastfield/` (where the photo route puts them), and leaves out any other; the robot's summary counts them ("… left out (not on our storage)").
@@ -153,8 +153,8 @@ It stops starting new reports at the time limit, and the next run carries on.
 
 Where a report goes is decided only by the times **typed** in it. When a field was tapped on the phone (an answer's `at`), and when or how long the form was open (`startedAt` / `finishedAt`), never decide it.
 
-- **Its moment** (`when`): the typed arrival, else the typed departure, else the send time (`submittedAt`). Jobs and visits are matched around it, a site is settled by the work on there at that time, and the hand-link list and the connector's review centre on it.
-- **Its span** (`reportSpan`): from the typed arrival to the typed departure. One typed time on its own is that moment; with no usable typed time at all, it is the send time. Shift fit is judged on it everywhere: the robot's matching, the shift check, put-back, the outside-its-time list and the pages.
+- **Its moment** (`when`): the typed arrival, else the typed departure. With no usable typed time it has none. Jobs and visits are matched around it, a site is settled by the work on there at that time, and the hand-link list and the connector's review centre on it.
+- **Its span** (`reportSpan`): from the typed arrival to the typed departure. One typed time on its own is that moment; with no usable typed time at all there is no span, and the report waits for a person ("No time was typed on the form, so the robot can't tell which shift or job … it belongs to — link it by hand.", wait reason `time`). Shift fit is judged on it everywhere: the robot's matching, the shift check, put-back, the outside-its-time list and the pages.
 
 How the typed answers are read (`typedValue`, `timeRole`, `extractFacts`):
 - **Date and time answers.** A full date and time is that moment; without a zone it's UK time. A time on its own ("06:20", or a time on FastField's 1900 placeholder date) is a time of day: it goes on the form's own date (the first date answer labelled *date*, else the first date answer), else on the UK day the report was sent — the day before, when that would be more than 15 minutes after it was sent. A date on its own ("2026-11-24", or midnight under a label that asks for a date) only supplies the date.
@@ -166,11 +166,11 @@ How the typed answers are read (`typedValue`, `timeRole`, `extractFacts`):
   - Under an **alarm, an incident or a phone call** ("Alarm time", "Incident start time", "Time called") a time counts only with words that mean the officer was there: "Arrived at alarm" and "Time attended incident" count, "Time alarm turned off" doesn't. A callout, response or attendance is the officer's own job: "Callout start time" is an arrival and "Alarm callout finish time" a departure.
 - **When they count:** typed times from 72 hours before the send time (reports are often filled in offline and sent later) to 15 minutes after it. Others are on the wrong day and are left out.
 - **Putting them together:** a labelled arrival (the earliest) and departure (the latest) win; plain times fill a missing side, the earliest for the arrival and the latest for the departure. One plain time on its own is the report's moment. A departure typed as a time only that comes before the arrival is on the next day (a round over midnight).
-- **Times that can't be right:** a dated departure before the arrival, or an arrival and departure more than 24 hours apart, are both dropped. The send time stands in, and the report's note says why ("Its typed times are more than a day apart, so the send time was used.").
+- **Times that can't be right:** a dated departure before the arrival, or an arrival and departure more than 24 hours apart, are both dropped. The report then has no usable time, and its note says why ("Its typed times are more than a day apart, so the robot can't use them.").
 - FastField's own timestamps (the send time, opened, finished) are read as they arrive: with their zone if they carry one, else as UTC. Whether they carry one hasn't been checked.
-- The phone's opened / finished times (when within 7 days before, or an hour after, the send time) are only ever written on the activity, as its arrival and departure, when the report is attached and nothing was typed (see **Attaching**).
+- The phone's opened / finished times are never used: not to decide where a report goes, not written on the activity, not as a fallback for anything. Neither is the send time, except to say which typed times are believable (above) and which day a time typed without a date is on.
 
-Until 24 Nov 2026 the phone's times were the fallback for shifts, and until 25 Nov jobs and visits were matched around the phone's opened time; the owner had them dropped.
+Until 24 Nov 2026 the phone's times were the fallback for shifts, and until 25 Nov jobs and visits were matched around the phone's opened time; the owner had them dropped. Later on 25 Nov the owner had every other stand-in dropped too (rules version 2): no send time when nothing usable is typed, and no phone times on the activity.
 
 ### Matching one report (`importFastField` → `decide`)
 
@@ -226,7 +226,7 @@ The robot and the people on `/admin/fastfield` use the same four functions. Each
 5. **Update the activity** (`planJobLink` / `planVisitLink`). It fills only what's empty, and its write only goes through if the status is still the one read under the lock.
    - **Job:**
      - unfinished statuses (`OPEN`, `ASSIGNED`, `IN_PROGRESS`, `SUBMITTED`, `REVIEW_PENDING`) become `APPROVED`;
-     - fills `startedAt` (the arrival, which feeds the alarm SLA), `completedAt` (the departure, else the send time) and GPS;
+     - fills `startedAt` (the typed arrival, which feeds the alarm SLA), `completedAt` (the typed departure) and GPS — times only when typed: one not typed stays empty, and a job isn't billed until it has a finish time;
      - if nobody is assigned and it isn't partner work, assigns the matched officer (and the responder type);
      - then the bill and pay where still empty (`fillJobFinance`).
    - **Patrol visit:**
@@ -244,7 +244,7 @@ The robot and the people on `/admin/fastfield` use the same four functions. Each
      - billed and paid (`fillJobFinance`).
 
      It shows in the Shurgard daily report like any completed callout or lock-up.
-   - The arrival and departure written (on the round and the activity) are the typed ones. When nothing was typed, the phone's opened / finished times stand in, and the finish falls back to the send time.
+   - The arrival and departure written (on the round and the activity) are the typed ones. Nothing else ever stands in: a time that wasn't typed stays empty on the round and the activity (a person can add it there).
    - Billing and pay run **inside the link's transaction**, so a job or visit is never left done but unbilled.
 6. **Stamp the report:** its link, `linkedAt` (now), `linkedByHand`, `rulesVersion`; `unlinkedAt` and `unlinkedBy` cleared.
 7. **History:** `fastfield_linked` (or `fastfield_created`, or `fastfield_put_back`) on the activity, with the person (none for the robot) and `prev`: exactly what the link changed. That is the status before and after (when it changed it), each field it filled and the value it put in (start / finish or arrival / departure, location, officer and responder type, photos), whether it filled the bill and the pay, and `cancelled` when it left the activity alone. Unlink reads it back.
@@ -318,7 +318,7 @@ A report often arrives before its work is in the app — a static shift logged t
   2. reports last judged under older rules (`rulesVersion`), and all of them once any site has been added or changed since they were last tried (it may be the report's real site) — newest first;
   3. any not tried for a day, longest-waiting first.
 
-  The report's time in step 1 is when the form was opened on the phone, else when it was sent. It only sets the order, never where a report goes.
+  The report's time in step 1 is when it was received. It only sets the order, never where a report goes.
 - It works one report at a time, always at least one, until its time budget is spent. It stamps each report it tries (`checkedAt` and the rules version), including one that fails, so the next run carries on rather than retrying the same ones. A failed try writes its note only while the report still waits as it was: one attached, set aside or taken off meanwhile keeps what it says. Admin → FastField shows "Last tried …" on each waiting report.
 - **Try matching again** (admin) does the same for the **last 60 days**, then the rest longest-untried first, for up to **35 seconds**; pressing again carries on. It doesn't re-render the heavy page inside its own request (the button reloads it afterwards), says "The robot is matching right now — try again in a minute." while the run lock is taken, and shows a toast if it fails.
 - Until 23 October 2026 the retry always took the **oldest** 50 waiting reports — mostly ones that can never match — so newer reports were never tried again once their shift was logged.
@@ -335,7 +335,7 @@ The retry and the shift check (with the stranded release and put-back) share one
 
 The owner's rule: **a person can link any report to any shift, job or visit**. Nothing is hidden; the page says what the robot would make of each one, and what linking it does.
 - **Site picker:** every client's active sites, grouped by client: the form's client first, then the client of the site the report was matched to, then the rest A–Z, then sites with no client. Closed sites appear behind **Show closed sites (N)**; the report's matched site is always listed.
-- **The list** (`activitiesNearReport`): everything at the chosen site from **3 days** before the report's own time to 3 days after (`HAND_LINK_REACH_DAYS`), or on any UK day picked under **Another day**. That's shifts (partners', missed and abandoned ones too), jobs and visits, up to 200 of each. The shifts the report fits come first, then the rest, nearest first. Each row shows its time and how it sits beside the report ("the report fits", "outside the shift: the report started 45 min before the shift", "2 h 10 min after the report"), with a marker for anything the robot would skip: *cancelled — linking won't reopen it*, *a partner's job / visit / shift*, *the job of a patrol visit*, *stands for a shift*, *already has a report* (FastField or the officer's own), *marked missed / abandoned*.
+- **The list** (`activitiesNearReport`): everything at the chosen site from **3 days** before the report's own time to 3 days after (`HAND_LINK_REACH_DAYS`), or on any UK day picked under **Another day**. A report with no usable typed time has no time to centre on: the list starts on the UK day FastField received it (only where a person starts looking — nothing is decided by it), its rows say there's no typed time to compare, and linking it to a job or visit fills in no times there (the dialog says so). That's shifts (partners', missed and abandoned ones too), jobs and visits, up to 200 of each. The shifts the report fits come first, then the rest, nearest first. Each row shows its time and how it sits beside the report ("the report fits", "outside the shift: the report started 45 min before the shift", "2 h 10 min after the report"), with a marker for anything the robot would skip: *cancelled — linking won't reopen it*, *a partner's job / visit / shift*, *the job of a patrol visit*, *stands for a shift*, *already has a report* (FastField or the officer's own), *marked missed / abandoned*.
 - **Link** asks first. The dialog names the activity, its time, the site, the client and the report's own time, repeats the markers, says what linking does (a shift: nothing on it changes and nothing is billed; a job or visit not done yet: marked done, billed and paid; cancelled work or a shift's job: left as it is), and warns when it is a **different client's** activity than the form's or the matched site's ("their portal will show this report"). The toast says what happened. The link is stamped `linkedByHand`, with the note "Linked by <name>."
 - **Create job:** a completed job of the chosen kind at the chosen site (active sites only), after a confirmation with the same different-client warning.
 - **Set aside / Bring back** (below), and **Unlink** for an attached report (above).
@@ -367,7 +367,7 @@ Either way it gets a `fastfield_first_check_reviewed` line and drops off the lis
 
 The owner's rules, as the code applies them:
 
-1. **Typed times only.** A report's time comes only from the times typed in the form: from the typed arrival to the typed departure, and one typed time is that moment. When the form was open on the phone, and when a field was tapped, never decide where it goes. With no usable typed time, the send time is used. (The phone's opened / finished times are only written on the activity's own arrival and departure when a report is attached and nothing was typed. Whether reports with no typed time should wait for a person instead is still open for the owner.)
+1. **Typed times only.** A report's time comes only from the times typed in the form: from the typed arrival to the typed departure, and one typed time is that moment. Nothing else ever stands in — not the phone's opened / finished times, not when a field was tapped, not the send time. A report with no usable typed time waits for a person; the times written on an activity are only the typed ones; a robot link made before this rule with no typed time is kept and listed in "On a shift, outside its time" for a person.
 2. **Shift fit.** The robot only ever puts a report on a shift it fits: the report starts no earlier than 30 minutes before the shift starts and ends no later than 30 minutes after it ends. The shift's window runs from the earliest of its scheduled and actual start to the latest of its scheduled and actual end.
 3. **Hand links are unrestricted.** A person can link any report to any shift, job or visit. The robot never moves or takes off a hand link.
 4. **The 5-minute shift check.** The robot re-checks its own shift links and moves a report that no longer fits to another shift at the site that it fits, or takes it off — except one that has already gone to the client, which stays for a person.
@@ -411,7 +411,7 @@ The owner's rules, as the code applies them:
 
 - **Changing a rule.** Bump `FASTFIELD_RULES_VERSION` (`src/lib/fastfieldRulesVersion.ts`) by one in the same change, and add a line to its history. Every report is then judged once more: robot shift links by the shift check, robot take-offs by put-back, waiting reports by the retry. It replaced the "rules changed at" times of 24 Nov 2026, which were set before the deploy finished, so reports the old code judged during the deploy were never looked at again.
 - **Portal changes.** The robot relies on FastField's internal portal commands, not a public API. If FastField changes them, run **FastField discovery** (manual, values masked) and compare. The *Recent Submissions* card must stay on the robot login's dashboard.
-- **The send time** is FastField's `updatedAt` as the robot reads it; no separate sent time is known. Whether it moves when a submission is edited later in the portal is unchecked (a discovery run would show the submission's other keys, the card rows' keys, and whether `updatedAt` moves on later edits). If it does, an edited report's typed times can fall outside the 72-hour window and its time falls back to the edit.
+- **The send time** is FastField's `updatedAt` as the robot reads it; no separate sent time is known. Whether it moves when a submission is edited later in the portal is unchecked (a discovery run would show the submission's other keys, the card rows' keys, and whether `updatedAt` moves on later edits). If it does, an edited report's typed times can fall outside the 72-hour window and be dropped (the report then waits for a person).
 - **Links made before 25 Nov 2026** have no `prev` record, so Unlink can't undo what they changed on a job or visit. It says so in its `check` list.
 - **The daily-email check copies `loadShurgardReport`.** `fastfieldSentToClient.ts` mirrors which activities a day's email covers; keep the two in step when the email changes. The client portal isn't counted as sent, so the robot may still move a report a client has seen there.
 - **Refused reports** are kept without their answers. To import one after a fix, delete its row and run the robot over its date.

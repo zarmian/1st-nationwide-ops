@@ -8,7 +8,8 @@
  * are used for Shurgard and others), so the site in the report decides the
  * client: a postcode typed in the site name, else the name, else GPS
  * (lib/fastfield.ts). Where it goes is judged only by the times typed in it
- * (else when it was sent). The report then goes to:
+ * — never the phone's opened / finished times, never the send time: a report
+ * with no usable typed time waits for a person. The report then goes to:
  *   - a static / dog-handler shift it fits — starting no more than 30
  *     minutes before the shift and finishing no more than 30 minutes after
  *     it (shiftFit) — a patrol round first, any report with nothing else to
@@ -660,7 +661,7 @@ async function sitesWithWorkOn(
 
 // ── Deciding what to do with a report ─────────────────────────────────────
 
-export type UnmatchedReason = "site" | "none" | "taken" | "ambiguous" | "shift";
+export type UnmatchedReason = "site" | "none" | "taken" | "ambiguous" | "shift" | "time";
 
 type LinkTarget = { kind: "job" | "visit" | "shift"; id: string; type: string };
 
@@ -686,6 +687,10 @@ async function decide(
 ): Promise<Decision> {
   const sites = await sitesFor(ctx, form.customerId);
   const sp = pickSite(facts, sites, await customersFor(ctx));
+  // The report's time: only times typed on the form — never the phone's
+  // opened / finished times, never the send time.
+  const span = reportSpan(facts);
+  const when = facts.when;
   let site: SiteRow;
   let how: string;
   if (sp.site) {
@@ -693,11 +698,14 @@ async function decide(
     how = siteHow(sp.how, sp.distanceM);
   } else {
     // The form's site fits several sites, or none but the phone was near
-    // some: the one that had work on at the time.
+    // some: the one that had work on at the time — which needs a typed time.
+    if (!span || !when) {
+      return { action: "unmatched", site: null, reason: "site", note: withTimesNote(sp.reason, facts) };
+    }
     const active = await sitesWithWorkOn(
       sp.candidates.map((c) => c.id),
-      facts.when,
-      reportSpan(facts),
+      when,
+      span,
     );
     const byWork = pickSiteByActivity(facts, sp.candidates, active);
     if (!byWork) return { action: "unmatched", site: null, reason: "site", note: withTimesNote(sp.reason, facts) };
@@ -705,12 +713,24 @@ async function decide(
     how = siteHow("activity", null);
   }
   how = withTimesNote(how, facts); // typed times it couldn't use: every note says so
+  // With no usable typed time, nothing says when the round was done, so the
+  // robot can't tell which shift or job it belongs to: a person links it.
+  if (!span || !when) {
+    return {
+      action: "unmatched",
+      site,
+      reason: "time",
+      note:
+        (facts.timesNote
+          ? `The times typed on the form can't be right, so the robot can't tell which shift or job at ${site.name} it belongs to — link it by hand.`
+          : `No time was typed on the form, so the robot can't tell which shift or job at ${site.name} it belongs to — link it by hand.`) + how,
+    };
+  }
   const kind = (facts.visitType as JobType | null) ?? form.jobType;
-  const at = formatDateTime(facts.when);
+  const at = formatDateTime(when);
   // The robot only puts a report on a shift it fits: it starts no more than
   // SHIFT_GRACE_MIN before the shift starts and finishes no more than that
   // after it ends (shiftFit).
-  const span = reportSpan(facts);
   const shifts = await shiftsNear(site.id, span.from);
   const shiftsNow = shiftsOn(span, shifts);
   const officerId = await officerFor(ctx, facts);
@@ -735,7 +755,7 @@ async function decide(
     }
   }
 
-  let candidates = await candidatesNear(site.id, facts.when);
+  let candidates = await candidatesNear(site.id, when);
   if (preview) {
     candidates = candidates.map((c) => (ctx.claimed.has(c.id) ? { ...c, taken: true } : c));
     for (const v of ctx.virtual) {
@@ -745,15 +765,15 @@ async function decide(
     }
   }
 
-  let ap = pickActivity(facts.when, kind, candidates);
+  let ap = pickActivity(when, kind, candidates);
   // Nothing within 3 hours and no static shift on: a report filed late, or a
   // job logged at the wrong time — look for the same kind of work up to 18
   // hours either side (whose best match may already have a report).
   let wide = false;
   if (!ap.pick && ap.reason === "none" && !shiftsNow.length) {
-    let far = await candidatesNear(site.id, facts.when, WIDE_MATCH_WINDOW_MIN);
+    let far = await candidatesNear(site.id, when, WIDE_MATCH_WINDOW_MIN);
     if (preview) far = far.map((c) => (ctx.claimed.has(c.id) ? { ...c, taken: true } : c));
-    const wp = pickActivityWide(facts.when, kind, far, new Date());
+    const wp = pickActivityWide(when, kind, far, new Date());
     if (wp.pick || wp.reason === "taken") {
       ap = wp;
       wide = true;
@@ -761,7 +781,7 @@ async function decide(
   }
   if (ap.pick) {
     const nearest = ap.pick.times.reduce((best, t) =>
-      Math.abs(t.getTime() - facts.when.getTime()) < Math.abs(best.getTime() - facts.when.getTime()) ? t : best,
+      Math.abs(t.getTime() - when.getTime()) < Math.abs(best.getTime() - when.getTime()) ? t : best,
     );
     const close = ap.closeCall
       ? " Another activity was about as close, so it chose by the kind of work, then the nearer time."
@@ -834,7 +854,7 @@ function emptyCounts(): Counts {
     linked: 0,
     linkedByType: {},
     created: 0,
-    unmatched: { site: 0, none: 0, taken: 0, ambiguous: 0, shift: 0 },
+    unmatched: { site: 0, none: 0, taken: 0, ambiguous: 0, shift: 0, time: 0 },
     skipped: 0,
   };
 }
@@ -943,13 +963,18 @@ export async function importFastField(
     ).map((r) => r.submissionId),
   );
 
-  // Oldest first, so an earlier report claims an activity before a later one.
+  // Oldest first, so an earlier report claims an activity before a later one
+  // (by its typed time; one with none can't claim anything, so it's simply
+  // taken in the order received).
   const work = reports
     .map((r) => {
       const t = incomingTimes(r);
-      return { r, t, facts: extractFacts({ ...t, answers: r.answers }) };
+      return { r, t, facts: extractFacts({ submittedAt: t.submittedAt, answers: r.answers }) };
     })
-    .sort((a, b) => a.facts.when.getTime() - b.facts.when.getTime());
+    .sort(
+      (a, b) =>
+        (a.facts.when ?? a.facts.submittedAt).getTime() - (b.facts.when ?? b.facts.submittedAt).getTime(),
+    );
 
   const ctx = newCtx();
   const done = new Set<string>();
@@ -977,7 +1002,7 @@ export async function importFastField(
         if (decision.action === "link" && decision.target.kind !== "shift") {
           ctx.claimed.add(decision.target.id);
         }
-        if (decision.action === "create") {
+        if (decision.action === "create" && facts.when) {
           ctx.virtual.push({ siteId: decision.site.id, when: facts.when, type: decision.type });
         }
         continue;
@@ -1200,7 +1225,8 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
   const waiting: WaitingReport[] = rows.map((r) => ({
     id: r.id,
     siteId: r.siteId,
-    at: r.startedAt ?? r.submittedAt,
+    // Only the order it's retried in (never the phone's opened time).
+    at: r.submittedAt,
     submittedAt: r.submittedAt,
     lastLook: r.checkedAt ?? r.createdAt,
     rulesVersion: r.rulesVersion,
@@ -1307,8 +1333,6 @@ async function recheckOne(
   if (row.unlinkedAt) return false;
   const facts = extractFacts({
     submittedAt: row.submittedAt,
-    startedAt: row.startedAt,
-    finishedAt: row.finishedAt,
     answers: row.answers as unknown as FastFieldAnswer[],
   });
   const decision = await decide(ctx, facts, row.form, false);
@@ -1403,8 +1427,9 @@ async function retryUnmatchedNow(
 export type FastFieldReviewRow = {
   ref: string;
   filed: Date;
-  /** The moment used for matching (`FastFieldFacts.when`). */
-  at: Date;
+  /** The moment used for matching (`FastFieldFacts.when`): the typed time.
+   *  Null when none was typed — then nothing is matched by time. */
+  at: Date | null;
   form: string;
   siteTyped: string | null;
   site: string | null;
@@ -1501,7 +1526,7 @@ export async function reviewFastField(opts: {
   const wouldNow = {
     link: 0,
     create: 0,
-    wait: { site: 0, none: 0, taken: 0, ambiguous: 0, shift: 0 } as Record<UnmatchedReason, number>,
+    wait: { site: 0, none: 0, taken: 0, ambiguous: 0, shift: 0, time: 0 } as Record<UnmatchedReason, number>,
   };
   const rows: FastFieldReviewRow[] = [];
   const budget = opts.budgetMs ?? 40_000;
@@ -1509,8 +1534,6 @@ export async function reviewFastField(opts: {
   async function review(r: (typeof waitingRows)[number]): Promise<FastFieldReviewRow> {
     const facts = extractFacts({
       submittedAt: r.submittedAt,
-      startedAt: r.startedAt,
-      finishedAt: r.finishedAt,
       answers: r.answers as unknown as FastFieldAnswer[],
     });
     const d = await decide(ctx, facts, r.form, true);
@@ -1532,12 +1555,14 @@ export async function reviewFastField(opts: {
     else wouldNow.wait[d.reason]++;
     if (d.action !== "unmatched") return row;
 
-    if (d.site) {
+    // Work recorded near the report's time — only when a time was typed.
+    if (d.site && facts.when) {
+      const when = facts.when;
       const [acts, shifts] = await Promise.all([
-        candidatesNear(d.site.id, facts.when, 24 * 60),
-        shiftsForLinking(d.site.id, facts.when),
+        candidatesNear(d.site.id, when, 24 * 60),
+        shiftsForLinking(d.site.id, when),
       ]);
-      const t = facts.when.getTime();
+      const t = when.getTime();
       row.nearby = {
         activities: acts
           .map((c) => {
@@ -1644,8 +1669,6 @@ async function loadOpenReport(reportId: string): Promise<StoredReport | { error:
 function factsOf(report: StoredReport): FastFieldFacts {
   return extractFacts({
     submittedAt: report.submittedAt,
-    startedAt: report.startedAt,
-    finishedAt: report.finishedAt,
     answers: report.answers as unknown as FastFieldAnswer[],
   });
 }
@@ -1675,10 +1698,13 @@ const SUBMISSION_FORM: Record<string, string> = {
   VPI: "VPI",
 };
 
-function visitTimes(facts: FastFieldFacts, report: StoredReport) {
-  const arrived = facts.arrivedAt ?? facts.openedAt;
-  const departed = facts.departedAt ?? facts.closedAt;
-  return { arrived, departed, done: departed ?? report.submittedAt };
+/** The times a report puts on its activity: only those typed on the form.
+ *  Never the phone's opened / finished times or the send time — a time not
+ *  typed stays empty (a person can add it on the activity). */
+function visitTimes(facts: FastFieldFacts, _report?: StoredReport) {
+  const arrived = facts.arrivedAt;
+  const departed = facts.departedAt;
+  return { arrived, departed, done: departed };
 }
 
 async function createSubmission(
@@ -1880,7 +1906,7 @@ function reportFill(report: StoredReport, facts: FastFieldFacts, officerId: stri
     done,
     lat: facts.lat,
     lng: facts.lng,
-    locatedAt: arrived ?? report.submittedAt,
+    locatedAt: arrived,
     officerId,
     photoUrls: report.photoUrls,
   };
@@ -2111,16 +2137,25 @@ export async function linkReportToShift(
       },
     });
     // The robot only puts a report on a shift it fits (within the shift,
-    // give or take the allowance).
+    // give or take the allowance) — judged by the times typed on the form,
+    // so never one with no usable typed time. A person can link any report.
     const window = toShiftCandidate(shift);
-    const fit = shiftFit(span, window);
-    if (!byHand && !fit.fits) {
-      throw new AttachRefused(
-        `This report (${spanText(span)}) ${outsideShiftText(fit)} (${shiftHoursText(
-          window,
-        )}), more than the ${SHIFT_GRACE_MIN} minutes allowed. A report can only go on a shift it fits.`,
-        "FF_NO_FIT",
-      );
+    if (!byHand) {
+      if (!span) {
+        throw new AttachRefused(
+          "No usable time was typed on this report, so the robot can't tell whether it fits the shift — link it by hand.",
+          "FF_NO_FIT",
+        );
+      }
+      const fit = shiftFit(span, window);
+      if (!fit.fits) {
+        throw new AttachRefused(
+          `This report (${spanText(span)}) ${outsideShiftText(fit)} (${shiftHoursText(
+            window,
+          )}), more than the ${SHIFT_GRACE_MIN} minutes allowed. A report can only go on a shift it fits.`,
+          "FF_NO_FIT",
+        );
+      }
     }
     const submissionId = await createSubmission(
       tx,
@@ -2637,7 +2672,8 @@ const SHIFT_TIMES_SELECT = {
 } as const;
 
 export type ShiftReportCheck = {
-  span: ReportSpan;
+  /** The report's typed time; null when none was typed (it can't be checked). */
+  span: ReportSpan | null;
   /** The shift's window: earliest of the scheduled / actual start, latest of
    *  the ends. */
   shift: { start: Date; end: Date };
@@ -2648,21 +2684,24 @@ export type ShiftReportCheck = {
 /** Whether a report on a shift fits it, with the allowance (it may have gone
  *  on before the rule, by hand, or the shift's times may have changed since). */
 export function checkReportOnShift(
-  report: { submittedAt: Date; startedAt: Date | null; finishedAt: Date | null; answers: unknown },
+  report: { submittedAt: Date; answers: unknown },
   shift: ShiftTimes,
 ): ShiftReportCheck {
   const span = reportSpan(
     extractFacts({
       submittedAt: report.submittedAt,
-      startedAt: report.startedAt,
-      finishedAt: report.finishedAt,
       answers: report.answers as FastFieldAnswer[],
     }),
   );
   const window = toShiftCandidate(shift);
+  if (!span) return { span: null, shift: { start: window.start, end: window.end }, outside: NO_TYPED_TIME };
   const fit = shiftFit(span, window);
   return { span, shift: { start: window.start, end: window.end }, outside: fit.fits ? null : outsideShiftText(fit) };
 }
+
+/** What "outside the shift" says for a report with no usable typed time: it
+ *  can't be checked against the shift, so a person decides. */
+export const NO_TYPED_TIME = "has no usable time typed on the form, so it can't be checked against the shift";
 
 export type OutsideShiftRow = ShiftReportCheck & {
   reportId: string;
@@ -2978,12 +3017,14 @@ async function putBackOne(ctx: Ctx, id: string, summary: ShiftCheckSummary, fixe
     if (!r || r.status !== "UNMATCHED" || !r.siteId || r.unlinkedBy !== "ROBOT") return;
     const facts = extractFacts({
       submittedAt: r.submittedAt,
-      startedAt: r.startedAt,
-      finishedAt: r.finishedAt,
       answers: r.answers as FastFieldAnswer[],
     });
     const span = reportSpan(facts);
-    const ps = pickShift(span, await shiftsNear(r.siteId, span.from), await officerFor(ctx, facts));
+    // No usable typed time: it can't be shown to fit any shift, so it stays
+    // for a person (stamped below).
+    const ps = span
+      ? pickShift(span, await shiftsNear(r.siteId, span.from), await officerFor(ctx, facts))
+      : { pick: null };
     if (ps.pick) {
       const res = await linkReportToShift(r.id, ps.pick.id, {
         ctx,
@@ -3025,12 +3066,21 @@ async function checkOneShiftLink(
 ): Promise<"fit" | "moved" | "takenOff" | "kept"> {
   const facts = extractFacts({
     submittedAt: r.submittedAt,
-    startedAt: r.startedAt,
-    finishedAt: r.finishedAt,
     answers: r.answers as FastFieldAnswer[],
   });
   const span = reportSpan(facts);
   const current = toShiftCandidate(shift);
+  // No usable typed time (a link made before typed times were all that
+  // counted): nothing says when the round was done, so it can't be judged —
+  // neither moved nor taken off. It's kept, and shows for a person in "On a
+  // shift, outside its time" (checkReportOnShift flags it).
+  if (!span) {
+    await prisma.fastFieldReport.updateMany({
+      where: { id: r.id, status: "LINKED", shiftId: shift.id, linkedByHand: false },
+      data: { shiftCheckedAt: now, rulesVersion: FASTFIELD_RULES_VERSION },
+    });
+    return "kept";
+  }
   if (shiftFit(span, current).fits) return "fit";
 
   // Already gone to the client from this shift: neither moved nor taken off.
@@ -3474,6 +3524,9 @@ export type NearbyActivity = {
   forVisit?: boolean;
   /** Linking it marks it done: a job or visit that isn't finished yet. */
   marksDone: boolean;
+  /** The report has no usable typed time: nothing to compare this row with
+   *  (no fit, no "minutes apart"). A person decides. */
+  untimed?: boolean;
 };
 
 export type HandLinkActivities = {
@@ -3537,8 +3590,13 @@ export async function activitiesNearReport(
   });
   if (!report) return { rows: [], more: false };
   const facts = factsOf(report);
+  // Typed times only; with none, rows aren't compared with the report.
   const span = reportSpan(facts);
   const range = { gte: window.from, lte: window.to };
+  const near = (times: Date[], fallback: Date) =>
+    span
+      ? nearestToSpan(times.length ? times : [fallback], span)
+      : { at: times.length ? new Date(Math.min(...times.map((t) => t.getTime()))) : fallback, minutes: 0, side: undefined };
   const [jobs, visits, shifts] = await Promise.all([
     prisma.job.findMany({
       where: {
@@ -3580,11 +3638,11 @@ export async function activitiesNearReport(
         _count: { select: { fastfieldReports: true, formSubmissions: true } },
       },
     }),
-    shiftsForLinking(siteId, facts.when, window, HAND_LINK_TAKE + 1),
+    shiftsForLinking(siteId, window.from, window, HAND_LINK_TAKE + 1),
   ]);
   const present = (ds: (Date | null)[]) => ds.filter((d): d is Date => d != null);
   const shiftRows: NearbyActivity[] = shifts.slice(0, HAND_LINK_TAKE).map((s) => {
-    const fit = shiftFit(span, s);
+    const fit = span ? shiftFit(span, s) : null;
     return {
       kind: "shift",
       id: s.id,
@@ -3592,24 +3650,25 @@ export async function activitiesNearReport(
       status: s.status,
       at: s.start,
       until: s.end,
-      minutesApart: shiftApartMin(span, s),
-      outside: fit.fits ? null : outsideShiftText(fit),
+      minutesApart: span ? shiftApartMin(span, s) : 0,
+      outside: !fit || fit.fits ? null : outsideShiftText(fit),
       taken: false,
       partner: s.partner,
       marksDone: false,
+      ...(span ? {} : { untimed: true }),
     };
   });
   const jobRows: NearbyActivity[] = jobs.slice(0, HAND_LINK_TAKE).map((j) => {
-    const times = present([j.scheduledFor, j.startedAt, j.completedAt]);
-    const near = nearestToSpan(times.length ? times : [j.createdAt], span);
+    const n = near(present([j.scheduledFor, j.startedAt, j.completedAt]), j.createdAt);
     return {
       kind: "job",
       id: j.id,
       type: j.type,
       status: j.status,
-      at: near.at,
-      minutesApart: near.minutes,
-      side: near.side,
+      at: n.at,
+      minutesApart: n.minutes,
+      side: n.side,
+      ...(span ? {} : { untimed: true }),
       taken: j._count.fastfieldReports + j._count.formSubmissions > 0,
       partner: j.handledByPartnerId != null,
       forVisit: j.patrolVisitId != null,
@@ -3618,15 +3677,16 @@ export async function activitiesNearReport(
     };
   });
   const visitRows: NearbyActivity[] = visits.slice(0, HAND_LINK_TAKE).map((v) => {
-    const near = nearestToSpan(present([v.scheduledAt, v.arrivedAt, v.departedAt]), span);
+    const n = near(present([v.scheduledAt, v.arrivedAt, v.departedAt]), v.scheduledAt);
     return {
       kind: "visit",
       id: v.id,
       type: v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
       status: v.status,
-      at: near.at,
-      minutesApart: near.minutes,
-      side: near.side,
+      at: n.at,
+      minutesApart: n.minutes,
+      side: n.side,
+      ...(span ? {} : { untimed: true }),
       taken: v._count.fastfieldReports + v._count.formSubmissions > 0,
       partner: v.handledByPartnerId != null,
       marksDone: VISIT_UNFINISHED.includes(v.status),

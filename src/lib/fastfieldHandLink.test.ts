@@ -261,3 +261,23 @@ describe("sortForLinking", () => {
     expect(sorted.map((r) => r.id)).toEqual(["shift-fit", "job-near", "shift-out", "visit-far"]);
   });
 });
+
+describe("a report with no typed time", () => {
+  it("starts the hand-link list on the UK day FastField received it", () => {
+    const w = handLinkWindow(null, null, new Date("2026-11-24T23:30:00Z")); // 23:30 GMT
+    expect(w.day).toBe("2026-11-24");
+    expect(w.from.toISOString()).toBe("2026-11-24T00:00:00.000Z");
+  });
+
+  it("a picked day still wins", () => {
+    expect(handLinkWindow(null, "2026-11-20", new Date("2026-11-24T10:00:00Z")).day).toBe("2026-11-20");
+  });
+
+  it("says no times are filled in on a job or visit it's linked to", () => {
+    const o = linkOutcome({ kind: "job", noun: "callout", cancelled: false, marksDone: true, untimed: true });
+    expect(o.effect).toContain("No time was typed on the report, so none is filled in on the callout");
+    // Nothing to say for a shift, a cancelled job or one that stands for a shift.
+    expect(linkOutcome({ kind: "shift", noun: "static shift", cancelled: false, marksDone: false, untimed: true }).effect).not.toContain("No time was typed");
+    expect(linkOutcome({ kind: "job", noun: "callout", cancelled: true, marksDone: false, untimed: true }).effect).not.toContain("No time was typed");
+  });
+});

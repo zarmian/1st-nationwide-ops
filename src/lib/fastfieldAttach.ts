@@ -53,14 +53,15 @@ export type LinkPrev = {
 
 /** The report's side of a link: times, place and officer it brings. */
 export type ReportFill = {
-  /** When the officer got there, if known. */
+  /** When the officer got there — the arrival typed on the form, if any. */
   arrived: Date | null;
-  /** When they were done (their departure, else the send time). */
-  done: Date;
+  /** When they were done — the departure typed on the form, if any. Only
+   *  typed times are ever written: never the phone's times or the send time. */
+  done: Date | null;
   lat: number | null;
   lng: number | null;
-  /** The time the report's location is from (jobs). */
-  locatedAt: Date;
+  /** The time the report's location is from (jobs): the typed arrival, if any. */
+  locatedAt: Date | null;
   /** The officer the report names, if recognised. */
   officerId: string | null;
   /** Photos copied from the report. */
@@ -115,15 +116,17 @@ export function planJobLink(
     data.startedAt = r.arrived;
     filled.startedAt = iso(r.arrived);
   }
-  if (!job.completedAt) {
+  if (!job.completedAt && r.done) {
     data.completedAt = r.done;
     filled.completedAt = iso(r.done);
   }
   if (job.lat == null && r.lat != null) {
     data.lat = r.lat;
     data.lng = r.lng;
-    data.locatedAt = r.locatedAt;
-    filled.locatedAt = iso(r.locatedAt);
+    if (r.locatedAt) {
+      data.locatedAt = r.locatedAt;
+      filled.locatedAt = iso(r.locatedAt);
+    }
   }
   if (!job.assignedToUserId && !job.handledByPartnerId && r.officerId != null) {
     data.assignedToUserId = r.officerId;
@@ -181,21 +184,24 @@ export function planVisitLink(
   }
   const data: VisitLinkData = {};
   const filled: LinkFilled = {};
+  // Typed times only (one typed time stands for both ends).
   const arrivedAt = v.arrivedAt ?? r.arrived ?? r.done;
   if (complete) data.status = "COMPLETED";
-  if (!v.arrivedAt) {
+  if (!v.arrivedAt && arrivedAt) {
     data.arrivedAt = arrivedAt;
     filled.arrivedAt = iso(arrivedAt);
   }
-  if (!v.departedAt) {
+  if (!v.departedAt && r.done) {
     data.departedAt = r.done;
     filled.departedAt = iso(r.done);
   }
   if (v.lat == null && r.lat != null) {
     data.lat = r.lat;
     data.lng = r.lng;
-    data.locatedAt = arrivedAt;
-    filled.locatedAt = iso(arrivedAt);
+    if (arrivedAt) {
+      data.locatedAt = arrivedAt;
+      filled.locatedAt = iso(arrivedAt);
+    }
   }
   if (v.photoUrls.length === 0 && r.photoUrls.length > 0) {
     data.photoUrls = r.photoUrls;

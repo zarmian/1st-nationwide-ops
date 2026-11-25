@@ -15,5 +15,8 @@
  *   1 — 25 Nov 2026: the review fixes (typed times only everywhere, label and
  *       officer/site matching fixes, one report per activity, shift check by
  *       version).
+ *   2 — 25 Nov 2026: no other time ever stands in for a typed one — not the
+ *       phone's opened / finished times, not the send time. A report with no
+ *       usable typed time waits for a person.
  */
-export const FASTFIELD_RULES_VERSION = 1;
+export const FASTFIELD_RULES_VERSION = 2;
