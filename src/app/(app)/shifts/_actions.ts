@@ -19,6 +19,7 @@ import { newPublicToken } from "@/lib/tokens";
 import { isSmsConfigured, normaliseE164, sendSms } from "@/lib/sms";
 import { diffFields, logActivity } from "@/lib/audit";
 import { dutyUrl } from "@/lib/dutyLink";
+import { releaseShiftReports } from "@/lib/fastfieldImport";
 
 const SHIFT_TYPES = ["STATIC_GUARDING", "DOG_HANDLER"] as const;
 const HANDLER_KINDS = ["officer", "partner"] as const;
@@ -278,9 +279,16 @@ export async function deleteShift(
       cancelledByUserId: me.id,
     },
   });
-  await prisma.shift.delete({ where: { id: shiftId } });
+  // Its FastField patrol reports come off it with the delete — otherwise
+  // they'd stay attached to nothing, out of every list. They wait to be
+  // linked again (the robot puts one on another shift there that it fits).
+  await prisma.$transaction(async (tx) => {
+    await releaseShiftReports([shiftId], "shift_deleted", { tx, byUserId: me.id, byName: me.name });
+    await tx.shift.delete({ where: { id: shiftId } });
+  });
   revalidatePath("/shifts");
   revalidatePath("/dispatch");
+  revalidatePath("/admin/fastfield");
   return { ok: true };
 }
 

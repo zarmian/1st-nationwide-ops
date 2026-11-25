@@ -26,6 +26,8 @@
 import { Prisma, type FastFieldFormMode, type FastFieldUnlinkBy, type JobType } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { FASTFIELD_RULES_VERSION } from "@/lib/fastfieldRulesVersion";
+import { sentToClient } from "@/lib/fastfieldSentToClient";
+import { withRunLock } from "@/lib/runLock";
 import { formatDateTime, formatTime } from "@/lib/dates";
 import { haversineMeters } from "@/lib/geo";
 import { fillJobFinance, fillVisitFinance, type FinanceFilled } from "@/lib/billing";
@@ -381,58 +383,79 @@ async function officerFor(ctx: Ctx, facts: FastFieldFacts): Promise<string | nul
   return pickOfficer(facts, ctx.people.active) ?? pickOfficer(facts, ctx.people.inactive);
 }
 
+/** A moment as the database stores DateTimes (UTC, no zone), for raw SQL.
+ *  Prisma sends a Date as `timestamptz`; compared straight with a
+ *  `timestamp(3)` column that is only right while the session's time zone is
+ *  UTC, so convert it explicitly. */
+const asStored = (d: Date) => Prisma.sql`(${d}::timestamptz AT TIME ZONE 'UTC')`;
+
+/** At most this many jobs, and this many visits, per site and window. */
+const CANDIDATE_CAP = 50;
+
 /** Jobs and patrol visits at a site within the matching window (3 hours, or
- *  `windowMin`) either side of the report. */
+ *  `windowMin`) either side of the report: the nearest CANDIDATE_CAP of each,
+ *  measured from each one's nearest time (a job's creation only when it has
+ *  no other time), so the cap never drops a closer one for a farther one. */
 async function candidatesNear(
   siteId: string,
   when: Date,
   windowMin: number = MATCH_WINDOW_MIN,
 ): Promise<ActivityCandidate[]> {
-  const from = new Date(when.getTime() - windowMin * 60000);
-  const to = new Date(when.getTime() + windowMin * 60000);
-  const range = { gte: from, lte: to };
+  const at = asStored(when);
+  const lo = asStored(new Date(when.getTime() - windowMin * 60000));
+  const hi = asStored(new Date(when.getTime() + windowMin * 60000));
+  const away = (col: Prisma.Sql) => Prisma.sql`ABS(EXTRACT(EPOCH FROM (${col} - ${at})))`;
+  const job = (c: string) => Prisma.raw(`j."${c}"`);
+  const visit = (c: string) => Prisma.raw(`v."${c}"`);
   const [jobs, visits] = await Promise.all([
-    prisma.job.findMany({
-      where: {
-        siteId,
-        status: { not: "CANCELLED" },
-        handledByPartnerId: null,
-        patrolVisitId: null, // the visit itself is the candidate
-        type: { notIn: NOT_MATCHABLE },
-        OR: [
-          { scheduledFor: range },
-          { startedAt: range },
-          { completedAt: range },
-          { scheduledFor: null, startedAt: null, completedAt: null, createdAt: range },
-        ],
-      },
-      select: {
-        id: true,
-        type: true,
-        scheduledFor: true,
-        startedAt: true,
-        completedAt: true,
-        createdAt: true,
-        _count: { select: { fastfieldReports: true } },
-      },
-      take: 50,
-    }),
-    prisma.patrolVisit.findMany({
-      where: {
-        siteId,
-        status: { not: "CANCELLED" },
-        handledByPartnerId: null,
-        OR: [{ scheduledAt: range }, { arrivedAt: range }],
-      },
-      select: {
-        id: true,
-        scheduledAt: true,
-        arrivedAt: true,
-        departedAt: true,
-        _count: { select: { fastfieldReports: true } },
-      },
-      take: 50,
-    }),
+    prisma.$queryRaw<
+      {
+        id: string;
+        type: string;
+        scheduledFor: Date | null;
+        startedAt: Date | null;
+        completedAt: Date | null;
+        createdAt: Date;
+        taken: boolean;
+      }[]
+    >`
+      SELECT j.id, j.type::text AS type, j."scheduledFor", j."startedAt", j."completedAt", j."createdAt",
+             EXISTS (SELECT 1 FROM "FastFieldReport" f WHERE f."jobId" = j.id) AS taken
+      FROM "Job" j
+      WHERE j."siteId" = ${siteId}::uuid
+        AND j.status <> 'CANCELLED'
+        AND j."handledByPartnerId" IS NULL
+        AND j."patrolVisitId" IS NULL -- the visit itself is the candidate
+        AND j.type::text NOT IN (${Prisma.join(NOT_MATCHABLE)})
+        AND (j."scheduledFor" BETWEEN ${lo} AND ${hi}
+          OR j."startedAt" BETWEEN ${lo} AND ${hi}
+          OR j."completedAt" BETWEEN ${lo} AND ${hi}
+          OR (j."scheduledFor" IS NULL AND j."startedAt" IS NULL AND j."completedAt" IS NULL
+              AND j."createdAt" BETWEEN ${lo} AND ${hi}))
+      ORDER BY COALESCE(
+          LEAST(${away(job("scheduledFor"))}, ${away(job("startedAt"))}, ${away(job("completedAt"))}),
+          ${away(job("createdAt"))}),
+        j.id
+      LIMIT ${CANDIDATE_CAP}`,
+    prisma.$queryRaw<
+      {
+        id: string;
+        scheduledAt: Date;
+        arrivedAt: Date | null;
+        departedAt: Date | null;
+        taken: boolean;
+      }[]
+    >`
+      SELECT v.id, v."scheduledAt", v."arrivedAt", v."departedAt",
+             EXISTS (SELECT 1 FROM "FastFieldReport" f WHERE f."patrolVisitId" = v.id) AS taken
+      FROM "PatrolVisit" v
+      WHERE v."siteId" = ${siteId}::uuid
+        AND v.status <> 'CANCELLED'
+        AND v."handledByPartnerId" IS NULL
+        AND (v."scheduledAt" BETWEEN ${lo} AND ${hi} OR v."arrivedAt" BETWEEN ${lo} AND ${hi})
+      ORDER BY LEAST(${away(visit("scheduledAt"))}, ${away(visit("arrivedAt"))}, ${away(visit("departedAt"))}),
+        v.id
+      LIMIT ${CANDIDATE_CAP}`,
   ]);
   const present = (ds: (Date | null)[]) => ds.filter((d): d is Date => d != null);
   return [
@@ -443,7 +466,7 @@ async function candidatesNear(
         id: j.id,
         type: j.type,
         times: times.length ? times : [j.createdAt],
-        taken: j._count.fastfieldReports > 0,
+        taken: j.taken,
       };
     }),
     ...visits.map((v) => ({
@@ -451,7 +474,7 @@ async function candidatesNear(
       id: v.id,
       type: "PATROL",
       times: present([v.scheduledAt, v.arrivedAt, v.departedAt]),
-      taken: v._count.fastfieldReports > 0,
+      taken: v.taken,
     })),
   ];
 }
@@ -462,14 +485,22 @@ const SHIFT_REACH_MS = 36 * 3_600_000;
 /** Static / dog-handler shifts at the sites that a report starting at `from`
  *  could fit: those that started (scheduled or actual) up to 36 hours before
  *  it — shifts can be long — or within the allowance after it, with their
- *  full window. */
+ *  full window. The robot's own: never a partner's shift (their officers
+ *  report in their own app, as with partners' jobs and visits) and never one
+ *  nobody worked (missed or abandoned). The 50 that started latest — the
+ *  nearest — if there are more. */
 async function shiftsNearSites(siteIds: string[], from: Date) {
   const range = {
     gte: new Date(from.getTime() - SHIFT_REACH_MS),
     lte: new Date(from.getTime() + SHIFT_GRACE_MIN * 60000),
   };
   return prisma.shift.findMany({
-    where: { siteId: { in: siteIds }, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
+    where: {
+      siteId: { in: siteIds },
+      handledByPartnerId: null,
+      status: { notIn: ["MISSED", "ABANDONED"] },
+      OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }],
+    },
     select: {
       id: true,
       siteId: true,
@@ -479,6 +510,7 @@ async function shiftsNearSites(siteIds: string[], from: Date) {
       actualStartedAt: true,
       actualEndedAt: true,
     },
+    orderBy: [{ scheduledStartsAt: "desc" }, { id: "asc" }],
     take: 50,
   });
 }
@@ -880,6 +912,9 @@ export async function importFastField(
       continue;
     }
 
+    // Set once the report is stored, so a failure after that can say so on it.
+    let storedId: string | null = null;
+    const judgedAt = new Date();
     try {
       const decision = await decide(ctx, facts, form, preview);
       const skip = await skipFor(ctx, decision, facts.siteText);
@@ -916,6 +951,12 @@ export async function importFastField(
             note: skip ? skipNote(skip.label) : decision.note,
             siteId: decision.site?.id ?? null,
             skipId: skip?.id ?? null,
+            // Judged under the current rules. One still to be attached is
+            // stamped by the attach (or by its failure below), so a run cut
+            // off in between leaves it due for the next retry.
+            ...(skip || decision.action === "unmatched"
+              ? { rulesVersion: FASTFIELD_RULES_VERSION }
+              : {}),
           },
           select: { id: true },
         });
@@ -926,15 +967,19 @@ export async function importFastField(
         }
         throw e;
       }
+      storedId = row.id;
 
       if (skip) {
         tallySkipped(summary, form.formId);
         continue;
       }
-      await applyAndTally(ctx, row.id, decision, form.formId, summary);
+      await applyAndTally(ctx, row.id, decision, form.formId, summary, judgedAt);
     } catch (e) {
       console.error("FastField import failed for one report:", errCode(e));
       summary.failed++;
+      // Stored, but attaching it threw: its note still says what it was
+      // being matched to, which didn't happen.
+      if (storedId) await noteFailedAttempt(storedId, judgedAt, FAILED_ATTACH_NOTE);
     }
   }
   if (preview && run) await recordPreview(run, summary.byForm);
@@ -942,13 +987,15 @@ export async function importFastField(
 }
 
 /** Carry out a decision on a stored report. If attaching fails (the activity
- *  changed meanwhile), the report stays unmatched with the reason. */
+ *  changed meanwhile), a report still waiting says why; `at` is when the
+ *  decision's data was read. */
 async function applyAndTally(
   ctx: Ctx,
   reportId: string,
   decision: Decision,
   formId: number,
   summary: ImportSummary,
+  at: Date,
 ) {
   const applied = await applyDecision(ctx, reportId, decision);
   if (applied.ok) {
@@ -956,10 +1003,26 @@ async function applyAndTally(
     return;
   }
   summary.failed++;
-  await prisma.fastFieldReport.update({
-    where: { id: reportId },
-    data: { note: `Couldn't attach automatically: ${applied.error}` },
-  });
+  await noteFailedAttempt(reportId, at, `Couldn't attach automatically: ${applied.error}`);
+}
+
+const FAILED_ATTACH_NOTE =
+  "Couldn't attach automatically: something went wrong while attaching it. The robot tries it again later.";
+
+/**
+ * A run's attempt at a waiting report failed. Stamp the try (when its data
+ * was read, under the current rules) so the report doesn't stay first in line
+ * every run, holding the rest back; with `note`, say why on it. Only while
+ * it's still waiting as it was: a report attached, set aside or taken off
+ * meanwhile keeps what it says.
+ */
+async function noteFailedAttempt(reportId: string, at: Date, note?: string): Promise<void> {
+  await prisma.fastFieldReport
+    .updateMany({
+      where: { id: reportId, status: "UNMATCHED", unlinkedAt: null },
+      data: { checkedAt: at, rulesVersion: FASTFIELD_RULES_VERSION, ...(note ? { note } : {}) },
+    })
+    .catch((e) => console.error("FastField: a failed try wasn't recorded:", errCode(e)));
 }
 
 async function applyDecision(ctx: Ctx, reportId: string, d: Decision): Promise<ActionResult> {
@@ -979,22 +1042,21 @@ async function applyDecision(ctx: Ctx, reportId: string, d: Decision): Promise<A
 
 /** Work recorded this far either side of a report's time can change its match. */
 export const RECHECK_REACH_MS = 36 * 3_600_000;
-/** Every waiting report is looked at again at least this often — the rules
- *  or the sites may have changed even when its own site's work hasn't. */
+/** Every waiting report is looked at again at least this often — the sites
+ *  may have changed even when its own site's work hasn't. */
 export const RECHECK_EVERY_MS = 24 * 3_600_000;
-/** When the matching rules last changed. Move it forward with any change to
- *  how reports are matched, so every waiting report is tried again under the
- *  new rules (newest first) instead of keeping the note from the old ones. */
-export const RULES_CHANGED_AT = new Date("2026-11-24T09:25:00Z");
 
 export type WaitingReport = {
   id: string;
   siteId: string | null;
-  /** When the work happened, roughly: opened on the phone, else filed. */
+  /** When the work happened, roughly: opened on the phone, else filed. Only
+   *  says which work changes are near it. */
   at: Date;
   submittedAt: Date;
   /** When the robot last tried it (its import, if not since). */
   lastLook: Date;
+  /** The rules version it was last judged under (FASTFIELD_RULES_VERSION). */
+  rulesVersion: number;
 };
 
 /** A job, visit or shift added or changed: where, when it changed, and the
@@ -1006,7 +1068,8 @@ export type WorkChange = { siteId: string; changedAt: Date; from: Date; to: Date
  *   1. work at the report's site added or changed, near its time, since it
  *      was last tried — newest report first (a shift logged the morning after);
  *   2. any site added or changed since then (it may be the report's real
- *      site), or the matching rules — newest first;
+ *      site), or last judged under older rules (a lower rules version) —
+ *      newest first;
  *   3. not tried for a day — longest-waiting first.
  * With `all`, every report comes after those, longest-untried first, so
  * pressing "Try matching again" repeatedly works through them all.
@@ -1043,8 +1106,12 @@ export function dueForRecheck(
         t <= c.to.getTime() + RECHECK_REACH_MS,
     );
     if (near) work.push(r);
-    else if (latestSiteChange && latestSiteChange.getTime() > seen) sites.push(r);
-    else if (now.getTime() - seen >= RECHECK_EVERY_MS) stale.push(r);
+    else if (
+      (latestSiteChange && latestSiteChange.getTime() > seen) ||
+      r.rulesVersion < FASTFIELD_RULES_VERSION
+    ) {
+      sites.push(r);
+    } else if (now.getTime() - seen >= RECHECK_EVERY_MS) stale.push(r);
     else rest.push(r);
   }
   return [
@@ -1060,7 +1127,8 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
   const rows = await prisma.fastFieldReport.findMany({
     where: {
       status: "UNMATCHED",
-      // Taken off a shift by hand: left for a person.
+      // Taken off its activity — by a person (left for a person) or by the
+      // robot (only ever put back on a shift it fits: putBackTakenOff).
       unlinkedAt: null,
       submittedAt: { gte: new Date(now.getTime() - sinceDays * 86_400_000) },
       form: { mode: "ON" },
@@ -1072,6 +1140,7 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
       startedAt: true,
       checkedAt: true,
       createdAt: true,
+      rulesVersion: true,
     },
   });
   if (rows.length === 0) return [];
@@ -1081,6 +1150,7 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
     at: r.startedAt ?? r.submittedAt,
     submittedAt: r.submittedAt,
     lastLook: r.checkedAt ?? r.createdAt,
+    rulesVersion: r.rulesVersion,
   }));
   const oldest = new Date(Math.min(...waiting.map((r) => r.lastLook.getTime())));
   const siteIds = [...new Set(rows.map((r) => r.siteId).filter((x): x is string => !!x))];
@@ -1112,6 +1182,7 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
           },
         })
       : [],
+    // Visits have no updatedAt: only new ones count as a change.
     siteIds.length
       ? prisma.patrolVisit.findMany({
           where: { ...atSites, createdAt: { gt: oldest } },
@@ -1150,14 +1221,19 @@ async function dueReports(now: Date, sinceDays: number, all: boolean): Promise<s
     if (!v.siteId) continue;
     changes.push({ siteId: v.siteId, changedAt: v.createdAt, from: v.scheduledAt, to: v.scheduledAt });
   }
-  const sitesOrRules =
-    site && site.updatedAt.getTime() > RULES_CHANGED_AT.getTime() ? site.updatedAt : RULES_CHANGED_AT;
-  return dueForRecheck(waiting, changes, sitesOrRules, now, all);
+  return dueForRecheck(waiting, changes, site?.updatedAt ?? null, now, all);
 }
 
 /** Try one waiting report again: attach it if it now matches, else note why
- *  not and when it was tried. False when it no longer needs trying. */
-async function recheckOne(ctx: Ctx, id: string, summary: ImportSummary): Promise<boolean> {
+ *  not and when it was tried. False when it no longer needs trying. `at` is
+ *  taken before anything is read, so a change made while it's being judged
+ *  is newer than its stamp and brings it up again. */
+async function recheckOne(
+  ctx: Ctx,
+  id: string,
+  summary: ImportSummary,
+  at: Date = new Date(),
+): Promise<boolean> {
   const row = await prisma.fastFieldReport.findUnique({
     where: { id },
     select: {
@@ -1172,7 +1248,9 @@ async function recheckOne(ctx: Ctx, id: string, summary: ImportSummary): Promise
     },
   });
   if (!row || row.status !== "UNMATCHED" || row.form.mode !== "ON") return false;
-  // Taken off a shift by hand: the robot never links it again.
+  // Taken off its activity: never matched again here. One a person took off
+  // waits for a person; one the robot took off is only ever put back on a
+  // shift it fits (putBackTakenOff).
   if (row.unlinkedAt) return false;
   const facts = extractFacts({
     submittedAt: row.submittedAt,
@@ -1182,14 +1260,21 @@ async function recheckOne(ctx: Ctx, id: string, summary: ImportSummary): Promise
   });
   const decision = await decide(ctx, facts, row.form, false);
   if (decision.action === "unmatched") {
-    await prisma.fastFieldReport.update({
-      where: { id: row.id },
-      data: { siteId: decision.site?.id ?? null, note: decision.note, checkedAt: new Date() },
+    // Only while it still waits as it was read: a report a person attached
+    // or set aside meanwhile keeps what it says.
+    await prisma.fastFieldReport.updateMany({
+      where: { id: row.id, status: "UNMATCHED", unlinkedAt: null },
+      data: {
+        siteId: decision.site?.id ?? null,
+        note: decision.note,
+        checkedAt: at,
+        rulesVersion: FASTFIELD_RULES_VERSION,
+      },
     });
     tally(summary, decision, row.form.formId);
     return true;
   }
-  await applyAndTally(ctx, row.id, decision, row.form.formId, summary);
+  await applyAndTally(ctx, row.id, decision, row.form.formId, summary, at);
   return true;
 }
 
@@ -1203,15 +1288,39 @@ export type RetrySummary = ImportSummary & {
   busy?: boolean;
 };
 
+/** Only one copy of the matcher works at a time: the retry of waiting
+ *  reports and the shift check (with its put-back) share this lock, whoever
+ *  starts them — the 5-minute cron, the sync robot's retry, or the admin's
+ *  "Try matching again". */
+const MATCHER_LOCK = "fastfield-matcher";
+/** A run's lease on the lock outlasts its time budget by this much: enough
+ *  for the report it is on when the budget runs out (and the function's own
+ *  time limit), short enough that a crashed run soon lets the next one in. */
+const LOCK_MARGIN_MS = 60_000;
+
 /**
  * Try waiting reports again — work may have been recorded since (a shift
  * logged the next morning), or a site added or fixed. Without ids it takes
  * the reports most likely to match now first (`dueForRecheck`), one at a
- * time, until the time budget is spent; each report tried is stamped, so the
- * next run carries on from there rather than retrying the same ones.
+ * time, until the time budget is spent; each report tried is stamped (one
+ * that fails too), so the next run carries on from there rather than
+ * retrying the same ones. When another copy of the matcher is running, it
+ * does nothing and says `busy`.
  */
 export async function retryUnmatched(
   opts: { ids?: string[]; sinceDays?: number; all?: boolean; budgetMs?: number } = {},
+): Promise<RetrySummary> {
+  const budget = opts.budgetMs ?? 40_000;
+  const held = await withRunLock(MATCHER_LOCK, budget + LOCK_MARGIN_MS, () =>
+    retryUnmatchedNow(opts, budget),
+  );
+  if (held.ok) return held.value;
+  return { ...emptySummary(0), checked: 0, notReached: 0, busy: true };
+}
+
+async function retryUnmatchedNow(
+  opts: { ids?: string[]; sinceDays?: number; all?: boolean },
+  budget: number,
 ): Promise<RetrySummary> {
   const started = Date.now();
   const ids =
@@ -1220,12 +1329,15 @@ export async function retryUnmatched(
   const ctx = newCtx();
   let i = 0;
   // Always at least one, so even a short budget makes progress.
-  for (; i < ids.length && (i === 0 || Date.now() - started < (opts.budgetMs ?? 40_000)); i++) {
+  for (; i < ids.length && (i === 0 || Date.now() - started < budget); i++) {
+    const at = new Date();
     try {
-      if (await recheckOne(ctx, ids[i], summary)) summary.checked++;
+      if (await recheckOne(ctx, ids[i], summary, at)) summary.checked++;
     } catch (e) {
       console.error("FastField retry failed for one report:", errCode(e));
       summary.failed++;
+      // Stamped, so it doesn't stay first in line every run.
+      await noteFailedAttempt(ids[i], at);
     }
   }
   summary.received = summary.checked;
@@ -2511,58 +2623,92 @@ export async function reportsOutsideTheirShift(
 export type ShiftCheckSummary = {
   /** Reports on a shift looked at this time. */
   checked: number;
-  /** …that fit their shift (stamped, not looked at again until the shift changes). */
+  /** …that fit their shift (stamped, not looked at again until the shift
+   *  changes or the rules version goes up). */
   fit: number;
   /** …moved to another shift at the site that they do fit. */
   moved: number;
   /** …taken off their shift, waiting in Needs linking. */
   takenOff: number;
-  /** …that don't fit but were sent to the client in a report, so stay. */
+  /** …that don't fit but have already gone to the client (a client report or
+   *  the daily client email), so stay where they are for a person to sort out. */
   kept: number;
   /** Reports the robot had taken off, put back on a shift they now fit. */
   putBack: number;
-  /** Whether more were waiting to be checked when the time ran out. */
+  /** Reports still attached to an activity that was deleted, taken off it
+   *  (put back on a shift they fit, else they wait in Needs linking). */
+  released: number;
+  /** Whether more were waiting when the time ran out. */
   more: boolean;
+  /** True when another copy of the matcher was already running, so this one
+   *  did nothing (see RunLock). */
+  busy?: boolean;
 };
+
+function emptyShiftCheck(): ShiftCheckSummary {
+  return { checked: 0, fit: 0, moved: 0, takenOff: 0, kept: 0, putBack: 0, released: 0, more: false };
+}
 
 /** Reports checked per database round. */
 const SHIFT_CHECK_BATCH = 300;
 
+/** Raw SQL: leave out the reports (`r`) already looked at in this run, so a
+ *  batch of reports that all failed doesn't stop the run from reaching older
+ *  ones. */
+const notTried = (tried: string[]) =>
+  tried.length ? Prisma.sql`AND NOT (r.id = ANY(${tried}::uuid[]))` : Prisma.empty;
+
 /**
- * The robot's shift check: every report on a shift must fit inside it — not
- * start before the shift starts or finish after it ends. It looks at each
- * report on a shift that it hasn't checked yet, or whose shift has changed
- * since (`shiftCheckedAt`), so its first pass covers every report ever put on
- * a shift, then only new links, edited shifts, and every report again after
- * the shift-fit rule changes (SHIFT_RULES_CHANGED_AT). Reports a person linked
- * by hand are left where they were put. A report that doesn't fit
- * moves to another shift at the site it does fit, else comes off its shift
- * and waits in Needs linking (`unlinkedAt`: the robot won't link it again,
- * and never makes or bills a job for it). Each change goes on the shift's
- * history. Runs from the 5-minute recheck until its time budget is spent.
+ * The robot's shift check: a report the robot put on a shift must fit it —
+ * not start more than the allowance (SHIFT_GRACE_MIN) before the shift starts
+ * nor finish more than that after it ends. Reports a person linked by hand
+ * are left where they were put. It looks at each report the robot put on a
+ * shift that it hasn't checked yet, whose shift has changed since
+ * (`shiftCheckedAt`), or that was last judged under older rules
+ * (`rulesVersion` below FASTFIELD_RULES_VERSION) — so after a rules change
+ * every such report is judged once more. One that doesn't fit:
+ *  - stays put, for a person, if it has already gone to the client
+ *    (`sentToClient`: a client report or the daily client email);
+ *  - else moves to another shift at the site that it fits;
+ *  - else comes off its shift (taken off by the robot) and waits in Needs
+ *    linking — the robot never makes or bills a job for it.
+ * Each change goes on the shifts' history.
+ *
+ * First it takes off reports still attached to an activity that was deleted,
+ * then puts back reports it took off on a shift they now fit
+ * (putBackTakenOff). Runs from the 5-minute recheck until its time budget is
+ * spent. When another copy of the matcher is running it does nothing and says
+ * `busy`.
  */
 export async function checkShiftLinks(
   opts: { budgetMs?: number; now?: Date } = {},
 ): Promise<ShiftCheckSummary> {
-  const started = Date.now();
   const budget = opts.budgetMs ?? 15_000;
-  const summary: ShiftCheckSummary = {
-    checked: 0,
-    fit: 0,
-    moved: 0,
-    takenOff: 0,
-    kept: 0,
-    putBack: 0,
-    more: false,
-  };
+  const held = await withRunLock(MATCHER_LOCK, budget + LOCK_MARGIN_MS, () =>
+    checkShiftLinksNow(budget, opts.now),
+  );
+  return held.ok ? held.value : { ...emptyShiftCheck(), busy: true };
+}
+
+/** `fixedNow`: stamp what was checked with this time instead of the clock. */
+async function checkShiftLinksNow(budget: number, fixedNow?: Date): Promise<ShiftCheckSummary> {
+  const started = Date.now();
+  const summary = emptyShiftCheck();
   const ctx = newCtx();
-  const tried = new Set<string>();
 
-  // First, reports the robot took off that may fit a shift now — up to half
+  // Reports left on an activity that no longer exists come off it first, so
+  // put-back can try them straight away.
+  await releaseStranded(summary);
+
+  // Then reports the robot took off that may fit a shift now — up to half
   // the time, so the check itself always gets a turn.
-  await putBackTakenOff(ctx, started + budget / 2, summary);
+  await putBackTakenOff(ctx, started + budget / 2, summary, fixedNow);
 
+  const tried: string[] = [];
   while (Date.now() - started < budget) {
+    // Taken before the batch is read: a shift edited while it's being
+    // checked is newer than the stamp, so its reports come up again.
+    const batchAt = fixedNow ?? new Date();
     const due = await prisma.$queryRaw<{ id: string }[]>`
       SELECT r.id FROM "FastFieldReport" r
       JOIN "Shift" s ON s.id = r."shiftId"
@@ -2570,13 +2716,15 @@ export async function checkShiftLinks(
         AND r."linkedByHand" = false
         AND (r."shiftCheckedAt" IS NULL
           OR s."updatedAt" > r."shiftCheckedAt"
-          OR r."shiftCheckedAt" < ${SHIFT_RULES_CHANGED_AT})
-      ORDER BY r."submittedAt" DESC
+          OR r."rulesVersion" < ${FASTFIELD_RULES_VERSION})
+        ${notTried(tried)}
+      ORDER BY r."submittedAt" DESC, r.id
       LIMIT ${SHIFT_CHECK_BATCH}`;
-    const ids = due.map((d) => d.id).filter((id) => !tried.has(id));
-    if (ids.length === 0) return summary;
+    if (due.length === 0) return summary;
+    tried.push(...due.map((d) => d.id));
     const rows = await prisma.fastFieldReport.findMany({
-      where: { id: { in: ids }, status: "LINKED" },
+      where: { id: { in: due.map((d) => d.id) }, status: "LINKED", linkedByHand: false },
+      orderBy: [{ submittedAt: "desc" }, { id: "asc" }],
       select: {
         id: true,
         submittedAt: true,
@@ -2585,22 +2733,20 @@ export async function checkShiftLinks(
         answers: true,
         formSubmissionId: true,
         shift: { select: { ...SHIFT_TIMES_SELECT, siteId: true } },
-        formSubmission: {
-          select: { review: { select: { id: true, _count: { select: { clientReports: true } } } } },
-        },
+        formSubmission: { select: { review: { select: { id: true } } } },
       },
     });
     const fitting: string[] = [];
+    let outOfTime = false;
     for (const r of rows) {
-      tried.add(r.id);
       if (!r.shift) continue;
       if (Date.now() - started >= budget) {
-        summary.more = true;
+        outOfTime = true;
         break;
       }
       summary.checked++;
       try {
-        const outcome = await checkOneShiftLink(ctx, r, r.shift);
+        const outcome = await checkOneShiftLink(ctx, r, r.shift, batchAt);
         if (outcome === "fit") fitting.push(r.id);
         else summary[outcome]++;
       } catch (e) {
@@ -2609,89 +2755,133 @@ export async function checkShiftLinks(
     }
     if (fitting.length) {
       await prisma.fastFieldReport.updateMany({
-        where: { id: { in: fitting } },
-        data: { shiftCheckedAt: opts.now ?? new Date() },
+        where: { id: { in: fitting }, status: "LINKED", linkedByHand: false },
+        data: { shiftCheckedAt: batchAt, rulesVersion: FASTFIELD_RULES_VERSION },
       });
       summary.fit += fitting.length;
     }
-    if (summary.more) return summary;
+    if (outOfTime) {
+      summary.more = true;
+      return summary;
+    }
     if (due.length < SHIFT_CHECK_BATCH) return summary;
   }
   summary.more = true;
   return summary;
 }
 
-/** When the shift-fit rule last changed (24 Nov: the 30-minute allowance,
- *  then only times typed on the form): every report on a shift is checked
- *  again, and those the robot took off are tried again, under the new rule. */
-export const SHIFT_RULES_CHANGED_AT = new Date("2026-11-24T09:25:00Z");
+/** How long before its send time a report's typed times can be (the form's
+ *  times are read up to 72 hours before it was sent: lib/fastfield.ts). */
+const TYPED_BEFORE_SEND_MS = 72 * 3_600_000;
+/** Shifts that start up to this long after a report's send time can be
+ *  "near" it (typed times run a little past the send time, plus an hour). */
+const NEAR_AFTER_SEND_MS = 2 * 3_600_000;
+/** A shift changing near them brings up robot take-offs filed in the last
+ *  this-many days (the retry also looks back 30 days). */
+const PUT_BACK_DAYS = 30;
 
 /**
- * Reports the robot took off a shift go back on one they now fit — after the
- * shift-fit rule changes (SHIFT_RULES_CHANGED_AT), or once a shift at their
- * site is added or changed since the robot last looked. Shifts only: never a
- * job, never a new job. Reports someone unlinked by hand stay off.
+ * Reports the robot took off (a shift they didn't fit, or an activity that
+ * was deleted: `unlinkedBy` ROBOT) go back on a shift at their site that they
+ * now fit — shifts only: never a job or visit, never a new job. Each is
+ * looked at once after it came off, again after the rules version goes up,
+ * and — for reports filed in the last 30 days — once a shift near its time
+ * at its site is added or changed since it was last looked at (`checkedAt`).
+ * "Near" is judged from the send time, as a report's typed times are in its
+ * answers: shifts that started from 36 hours before its earliest possible
+ * typed time to an hour after its latest. Reports a person took off stay off.
  */
-async function putBackTakenOff(ctx: Ctx, until: number, summary: ShiftCheckSummary): Promise<void> {
-  const due = await prisma.$queryRaw<{ id: string }[]>`
-    SELECT r.id FROM "FastFieldReport" r
-    WHERE r.status = 'UNMATCHED'
-      AND r."unlinkedAt" IS NOT NULL
-      AND r."siteId" IS NOT NULL
-      AND r.note LIKE '%by the robot:%'
-      AND (r."checkedAt" IS NULL
-        OR r."checkedAt" < ${SHIFT_RULES_CHANGED_AT}
-        OR EXISTS (
-          SELECT 1 FROM "Shift" s WHERE s."siteId" = r."siteId" AND s."updatedAt" > r."checkedAt"
-        ))
-    ORDER BY r."submittedAt" DESC
-    LIMIT ${SHIFT_CHECK_BATCH}`;
-  for (const { id } of due) {
-    if (Date.now() >= until) {
-      summary.more = true;
-      return;
-    }
-    try {
-      const r = await prisma.fastFieldReport.findUnique({
-        where: { id },
-        select: {
-          id: true,
-          status: true,
-          siteId: true,
-          submittedAt: true,
-          startedAt: true,
-          finishedAt: true,
-          answers: true,
-        },
-      });
-      if (!r || r.status !== "UNMATCHED" || !r.siteId) continue;
-      const facts = extractFacts({
-        submittedAt: r.submittedAt,
-        startedAt: r.startedAt,
-        finishedAt: r.finishedAt,
-        answers: r.answers as FastFieldAnswer[],
-      });
-      const span = reportSpan(facts);
-      const ps = pickShift(span, await shiftsNear(r.siteId, span.from), await officerFor(ctx, facts));
-      if (ps.pick) {
-        const res = await linkReportToShift(r.id, ps.pick.id, {
-          ctx,
-          note: `Put back on the shift ${shiftHoursText(ps.pick)} by the robot: it fits with the ${SHIFT_GRACE_MIN}-minute allowance.`,
-        });
-        if (res.ok) {
-          summary.putBack++;
-          await logShiftChange(ps.pick.id, "fastfield_put_back", { fastfieldReportId: r.id });
-          continue;
-        }
+async function putBackTakenOff(
+  ctx: Ctx,
+  until: number,
+  summary: ShiftCheckSummary,
+  fixedNow?: Date,
+): Promise<void> {
+  const before = Prisma.sql`${Math.round((SHIFT_REACH_MS + TYPED_BEFORE_SEND_MS) / 1000)} * interval '1 second'`;
+  const after = Prisma.sql`${Math.round(NEAR_AFTER_SEND_MS / 1000)} * interval '1 second'`;
+  const since = asStored(new Date((fixedNow ?? new Date()).getTime() - PUT_BACK_DAYS * 86_400_000));
+  const tried: string[] = [];
+  for (;;) {
+    const due = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT r.id FROM "FastFieldReport" r
+      WHERE r.status = 'UNMATCHED'
+        AND r."unlinkedAt" IS NOT NULL
+        AND r."unlinkedBy" = 'ROBOT'
+        AND r."siteId" IS NOT NULL
+        AND (r."checkedAt" IS NULL
+          OR r."rulesVersion" < ${FASTFIELD_RULES_VERSION}
+          OR (r."submittedAt" >= ${since}
+            AND EXISTS (
+              SELECT 1 FROM "Shift" s
+              WHERE s."siteId" = r."siteId"
+                AND s."updatedAt" > r."checkedAt"
+                AND (s."scheduledStartsAt" BETWEEN r."submittedAt" - ${before} AND r."submittedAt" + ${after}
+                  OR s."actualStartedAt" BETWEEN r."submittedAt" - ${before} AND r."submittedAt" + ${after}))))
+        ${notTried(tried)}
+      ORDER BY r."submittedAt" DESC, r.id
+      LIMIT ${SHIFT_CHECK_BATCH}`;
+    for (const { id } of due) {
+      if (Date.now() >= until) {
+        summary.more = true;
+        return;
       }
-      // Still fits no shift: don't look again until a shift there changes.
-      await prisma.fastFieldReport.update({ where: { id: r.id }, data: { checkedAt: new Date() } });
-    } catch (e) {
-      console.error("FastField put-back failed for one report:", errCode(e));
+      tried.push(id);
+      await putBackOne(ctx, id, summary, fixedNow);
     }
+    if (due.length < SHIFT_CHECK_BATCH) return;
   }
 }
 
+async function putBackOne(ctx: Ctx, id: string, summary: ShiftCheckSummary, fixedNow?: Date): Promise<void> {
+  // Taken before the report and the shifts are read (see checkShiftLinksNow).
+  const at = fixedNow ?? new Date();
+  try {
+    const r = await prisma.fastFieldReport.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        siteId: true,
+        unlinkedBy: true,
+        submittedAt: true,
+        startedAt: true,
+        finishedAt: true,
+        answers: true,
+      },
+    });
+    if (!r || r.status !== "UNMATCHED" || !r.siteId || r.unlinkedBy !== "ROBOT") return;
+    const facts = extractFacts({
+      submittedAt: r.submittedAt,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+      answers: r.answers as FastFieldAnswer[],
+    });
+    const span = reportSpan(facts);
+    const ps = pickShift(span, await shiftsNear(r.siteId, span.from), await officerFor(ctx, facts));
+    if (ps.pick) {
+      const res = await linkReportToShift(r.id, ps.pick.id, {
+        ctx,
+        note: `Put back on the shift ${shiftHoursText(ps.pick)} by the robot: it fits with the ${SHIFT_GRACE_MIN}-minute allowance.`,
+      });
+      if (res.ok) {
+        summary.putBack++;
+        await logShiftChange(ps.pick.id, "fastfield_put_back", { fastfieldReportId: r.id });
+        return;
+      }
+    }
+    // Fits no shift (or couldn't go on it): not looked at again until a shift
+    // near it changes, or the rules do.
+    await prisma.fastFieldReport.updateMany({
+      where: { id: r.id, status: "UNMATCHED", unlinkedBy: "ROBOT" },
+      data: { checkedAt: at, rulesVersion: FASTFIELD_RULES_VERSION },
+    });
+  } catch (e) {
+    console.error("FastField put-back failed for one report:", errCode(e));
+  }
+}
+
+/** What the shift check does with one report the robot put on a shift.
+ *  `now`: when the data it judges by was read (the batch's start). */
 async function checkOneShiftLink(
   ctx: Ctx,
   r: {
@@ -2701,9 +2891,10 @@ async function checkOneShiftLink(
     finishedAt: Date | null;
     answers: unknown;
     formSubmissionId: string | null;
-    formSubmission: { review: { id: string; _count: { clientReports: number } } | null } | null;
+    formSubmission: { review: { id: string } | null } | null;
   },
   shift: ShiftTimes & { siteId: string },
+  now: Date,
 ): Promise<"fit" | "moved" | "takenOff" | "kept"> {
   const facts = extractFacts({
     submittedAt: r.submittedAt,
@@ -2715,20 +2906,33 @@ async function checkOneShiftLink(
   const current = toShiftCandidate(shift);
   if (shiftFit(span, current).fits) return "fit";
 
+  // Already gone to the client from this shift: neither moved nor taken off.
+  // It stays for a person (in "On a shift, outside its time"), not looked at
+  // again until the shift changes or the rules do.
+  if ((await sentToClient(r)).sent) {
+    await prisma.fastFieldReport.updateMany({
+      where: { id: r.id, status: "LINKED", shiftId: shift.id, linkedByHand: false },
+      data: { shiftCheckedAt: now, rulesVersion: FASTFIELD_RULES_VERSION },
+    });
+    return "kept";
+  }
+
   const others = await shiftsNear(shift.siteId, span.from);
   const action = shiftLinkAction(span, current, others, await officerFor(ctx, facts));
   if (action.kind === "fit") return "fit";
-  const now = new Date();
   const why = `the report (${spanText(span)}) ${outsideShiftText(action.why)}`;
 
   if (action.kind === "move") {
     const to = action.to;
     await prisma.$transaction(async (tx) => {
+      // Only while it's still the robot's link to this shift (P2025 rolls
+      // back otherwise). A move keeps when it was linked (`linkedAt`).
       await tx.fastFieldReport.update({
-        where: { id: r.id },
+        where: { id: r.id, status: "LINKED", shiftId: shift.id, linkedByHand: false },
         data: {
           shiftId: to.id,
           shiftCheckedAt: now,
+          rulesVersion: FASTFIELD_RULES_VERSION,
           note: `Moved by the robot from the shift ${shiftHoursText(current)} to the shift ${shiftHoursText(to)}, which it fits inside: ${why}.`,
         },
       });
@@ -2742,12 +2946,6 @@ async function checkOneShiftLink(
   }
 
   const review = r.formSubmission?.review ?? null;
-  if (review && review._count.clientReports > 0) {
-    // Gone to the client in a report: leave it, but don't look again until
-    // the shift changes.
-    await prisma.fastFieldReport.update({ where: { id: r.id }, data: { shiftCheckedAt: now } });
-    return "kept";
-  }
   await takeOffShift(
     { id: r.id, formSubmissionId: r.formSubmissionId, reviewId: review?.id ?? null, shiftId: shift.id },
     `Taken off the shift ${shiftHoursText(current)} by the robot: ${why} — more than the ${SHIFT_GRACE_MIN} minutes allowed — and it doesn't fit any other shift there. Link it to the right activity or set it aside.`,
@@ -2762,6 +2960,207 @@ async function logShiftChange(shiftId: string, action: string, diff: Prisma.Inpu
   await prisma.activityLog
     .create({ data: { entity: "Shift", entityId: shiftId, action, diff } })
     .catch((e) => console.error("FastField shift check: history line not written:", errCode(e)));
+}
+
+// ── Reports whose activity is deleted ─────────────────────────────────────
+
+/** Why reports came off a deleted activity (the `fastfield_released` history). */
+export type ReleaseReason =
+  | "shift_deleted"
+  | "shift_cancelled_by_partner"
+  | "data_reset"
+  | "activity_deleted";
+
+type ReleaseRow = {
+  id: string;
+  formSubmissionId: string | null;
+  shiftId: string | null;
+  siteId: string | null;
+};
+
+const RELEASED_REFIT =
+  " If it fits another shift there, the robot puts it on that one; if not, link it to the right activity or set it aside.";
+const RELEASED_WAITS = " Link it to the right activity or set it aside.";
+
+/**
+ * Take the FastField reports off shifts that are about to be deleted (by
+ * staff, or by the partner who recorded them), so none is left attached to
+ * nothing. Each report's patrol round (its submission and approved review)
+ * goes — unless it has client reports, kept as the record of what was sent —
+ * and the report waits again (UNMATCHED), taken off by the robot: the
+ * put-back may put it on another shift there that it fits; otherwise it
+ * waits for a person — the robot never makes a job for it. A hand link comes
+ * off too. Pass the caller's transaction as `tx` to do it together with the
+ * delete. Returns how many came off.
+ */
+export async function releaseShiftReports(
+  shiftIds: string[],
+  reason: Extract<ReleaseReason, "shift_deleted" | "shift_cancelled_by_partner">,
+  opts: { byUserId?: string | null; byName?: string | null; tx?: Prisma.TransactionClient } = {},
+): Promise<number> {
+  if (shiftIds.length === 0) return 0;
+  const run = async (tx: Prisma.TransactionClient) => {
+    const rows = await lockReports(
+      tx,
+      Prisma.sql`r."shiftId" = ANY(${shiftIds}::uuid[]) AND r.status = 'LINKED'`,
+    );
+    if (rows.length === 0) return 0;
+    const shifts = await tx.shift.findMany({ where: { id: { in: shiftIds } }, select: SHIFT_TIMES_SELECT });
+    const hours = new Map(shifts.map((s) => [s.id, shiftHoursText(toShiftCandidate(s))]));
+    const what = reason === "shift_deleted" ? `was deleted${opts.byName ? ` by ${opts.byName}` : ""}` : "was cancelled by the partner who recorded it";
+    return releaseRows(
+      tx,
+      rows,
+      (row) => {
+        const h = row.shiftId ? hours.get(row.shiftId) : undefined;
+        return `Its shift${h ? ` (${h})` : ""} ${what}, so it came off it.${row.siteId ? RELEASED_REFIT : RELEASED_WAITS}`;
+      },
+      reason,
+      opts.byUserId ?? null,
+    );
+  };
+  return opts.tx ? run(opts.tx) : prisma.$transaction(run);
+}
+
+/**
+ * Take every attached FastField report off its activity, ahead of a reset
+ * that deletes every site and everything on them (Admin → Imports → Nexus →
+ * reset sites). Their rounds go with them; the reports wait in Needs linking
+ * for a person, as their sites go too. Pass the reset's transaction as `tx`.
+ */
+export async function releaseAllAttachedReports(
+  opts: { byUserId?: string | null; tx?: Prisma.TransactionClient } = {},
+): Promise<number> {
+  const run = async (tx: Prisma.TransactionClient) => {
+    const rows = await lockReports(tx, Prisma.sql`r.status IN ('LINKED', 'CREATED')`);
+    return releaseRows(
+      tx,
+      rows,
+      () => `Its activity was deleted when the site data was reset, so it came off it.${RELEASED_WAITS}`,
+      "data_reset",
+      opts.byUserId ?? null,
+    );
+  };
+  return opts.tx ? run(opts.tx) : prisma.$transaction(run, { timeout: 60_000 });
+}
+
+/** Reports still attached to an activity that was deleted under them —
+ *  LINKED or CREATED with no shift, job or visit (deleted by something that
+ *  didn't take them off first) — taken off it, as releaseShiftReports does. */
+async function releaseStranded(summary: ShiftCheckSummary): Promise<void> {
+  try {
+    const any = await prisma.fastFieldReport.findFirst({
+      where: { status: { in: ["LINKED", "CREATED"] }, shiftId: null, jobId: null, patrolVisitId: null },
+      select: { id: true },
+    });
+    if (!any) return;
+    summary.released += await prisma.$transaction(async (tx) => {
+      const rows = await lockReports(
+        tx,
+        Prisma.sql`r.status IN ('LINKED', 'CREATED') AND r."shiftId" IS NULL AND r."jobId" IS NULL AND r."patrolVisitId" IS NULL`,
+        SHIFT_CHECK_BATCH,
+      );
+      if (rows.length === SHIFT_CHECK_BATCH) summary.more = true;
+      return releaseRows(
+        tx,
+        rows,
+        (row) => `Its activity was deleted, so it came off it.${row.siteId ? RELEASED_REFIT : RELEASED_WAITS}`,
+        "activity_deleted",
+        null,
+      );
+    });
+  } catch (e) {
+    console.error("FastField: reports on deleted activities not taken off:", errCode(e));
+  }
+}
+
+/** The reports (`r`) matching `where`, newest first, locked until the
+ *  transaction ends so nothing changes them meanwhile. */
+async function lockReports(
+  tx: Prisma.TransactionClient,
+  where: Prisma.Sql,
+  limit?: number,
+): Promise<ReleaseRow[]> {
+  return tx.$queryRaw<ReleaseRow[]>`
+    SELECT r.id, r."formSubmissionId", r."shiftId", r."siteId"
+    FROM "FastFieldReport" r
+    WHERE ${where}
+    ORDER BY r."submittedAt" DESC, r.id
+    ${limit ? Prisma.sql`LIMIT ${limit}` : Prisma.empty}
+    FOR UPDATE`;
+}
+
+/** In slices, so a reset of thousands of reports stays within the database's
+ *  limit on query parameters. */
+function inSlices<T>(xs: T[], size = 1000): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(xs.slice(i, i + size));
+  return out;
+}
+
+/** Take locked reports off their activity (see releaseShiftReports). */
+async function releaseRows(
+  tx: Prisma.TransactionClient,
+  rows: ReleaseRow[],
+  noteFor: (row: ReleaseRow) => string,
+  reason: ReleaseReason,
+  byUserId: string | null,
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const now = new Date();
+  const byNote = new Map<string, string[]>();
+  for (const row of rows) {
+    const note = noteFor(row);
+    byNote.set(note, [...(byNote.get(note) ?? []), row.id]);
+  }
+  let released = 0;
+  for (const [note, ids] of Array.from(byNote.entries())) {
+    for (const slice of inSlices(ids)) {
+      const res = await tx.fastFieldReport.updateMany({
+        where: { id: { in: slice }, status: { in: ["LINKED", "CREATED"] } },
+        data: {
+          status: "UNMATCHED",
+          shiftId: null,
+          jobId: null,
+          patrolVisitId: null,
+          formSubmissionId: null,
+          jobCreated: false,
+          linkedAt: null,
+          linkedByHand: false,
+          unlinkedAt: now,
+          unlinkedBy: "ROBOT",
+          // Due for the put-back straight away.
+          checkedAt: null,
+          rulesVersion: FASTFIELD_RULES_VERSION,
+          note,
+        },
+      });
+      released += res.count;
+    }
+  }
+  // Their rounds go; each approved review goes with its submission (cascade)
+  // — except one with client reports, kept as the record of what was sent.
+  const submissionIds = rows.map((r) => r.formSubmissionId).filter((x): x is string => !!x);
+  for (const slice of inSlices(submissionIds)) {
+    await tx.formSubmission.deleteMany({
+      where: {
+        id: { in: slice },
+        OR: [{ review: { is: null } }, { review: { clientReports: { none: {} } } }],
+      },
+    });
+  }
+  for (const slice of inSlices(rows)) {
+    await tx.activityLog.createMany({
+      data: slice.map((row) => ({
+        entity: "FastFieldReport",
+        entityId: row.id,
+        action: "fastfield_released",
+        userId: byUserId,
+        diff: { reason, ...(row.shiftId ? { shiftId: row.shiftId } : {}) },
+      })),
+    });
+  }
+  return released;
 }
 
 // ── Skipped places ────────────────────────────────────────────────────────

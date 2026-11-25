@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/authz";
 import { prisma } from "@/lib/db";
+import { releaseAllAttachedReports } from "@/lib/fastfieldImport";
 import {
   previewNexusImport,
   runNexusImport,
@@ -170,7 +171,7 @@ export async function resetData(
   scope: ResetScope,
   confirmation: string,
 ): Promise<ResetResult> {
-  await requireAdmin();
+  const me = await requireAdmin();
   if (confirmation !== "RESET") {
     return { ok: false, error: "Confirmation phrase must be RESET" };
   }
@@ -196,6 +197,9 @@ export async function resetData(
     async (tx) => {
       // ─── Site & site-tied data ─────────────────────────────────────
       if (effective.sites) {
+        // FastField reports come off the activities about to go (they'd be
+        // left attached to nothing) and wait in Needs linking.
+        await releaseAllAttachedReports({ tx, byUserId: me.id });
         await tx.clientReport.deleteMany({});
         await tx.reportReview.deleteMany({});
         await tx.formSubmission.deleteMany({});

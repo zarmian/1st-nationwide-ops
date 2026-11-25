@@ -6,6 +6,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requirePartner } from "@/lib/authz";
 import { parseUkDateTimeLocal } from "@/lib/dates";
+import { releaseShiftReports } from "@/lib/fastfieldImport";
 
 /**
  * Partner-recorded activity CRUD.
@@ -483,13 +484,19 @@ export async function cancelPartnerActivity(
 
   if (isShift) {
     // We don't have a CANCELLED on ShiftStatus today; delete the row
-    // instead. Safe — only the partner's own partner-recorded rows.
-    const r = await prisma.shift.deleteMany({
-      where: {
-        id: rawId,
-        handledByPartnerId: me.partnerId,
-        recordedByPartner: true,
-      },
+    // instead. Safe — only the partner's own partner-recorded rows. Any
+    // FastField report on it comes off it first (it'd be left attached to
+    // nothing) and waits for our office to link it again.
+    const mine = {
+      id: rawId,
+      handledByPartnerId: me.partnerId,
+      recordedByPartner: true,
+    };
+    const r = await prisma.$transaction(async (tx) => {
+      const own = await tx.shift.findFirst({ where: mine, select: { id: true } });
+      if (!own) return { count: 0 };
+      await releaseShiftReports([own.id], "shift_cancelled_by_partner", { tx, byUserId: me.id });
+      return tx.shift.deleteMany({ where: mine });
     });
     if (r.count === 0) return { ok: false, error: "Not found." };
   } else {
