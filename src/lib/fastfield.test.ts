@@ -5,6 +5,8 @@ import {
   extractFacts,
   extractPostcode,
   groupByPlace,
+  matchOfficer,
+  matchOfficerName,
   parseFastFieldTime,
   pickActivity,
   pickActivityWide,
@@ -91,6 +93,19 @@ describe("answerKind", () => {
     expect(answerKind("MultiLineEntry")).toBe("text");
     expect(answerKind("ListPicker")).toBe("text");
     expect(answerKind("Timer")).toBe("other");
+  });
+
+  it("takes only Yes / No / N/A fields as three-state, not any type with \"tri\" in it", () => {
+    expect(answerKind("TriState")).toBe("tri");
+    expect(answerKind("StringEntry")).toBe("text");
+    expect(answerKind("Matrix")).toBe("other");
+  });
+
+  it("reads radio buttons, check boxes and drop-downs as text (the option picked)", () => {
+    for (const t of ["RadioButtons", "RadioButtonList", "CheckBox", "CheckboxList", "DropDown", "MultiSelect"]) {
+      expect(answerKind(t)).toBe("text");
+    }
+    expect(answerKind("Switch")).toBe("other");
   });
 });
 
@@ -289,6 +304,22 @@ describe("pickSite", () => {
     expect(!p.site && p.reason).toMatch(/not recognised/);
   });
 
+  it("settles a name that fits several sites by GPS among those with it in their name only", () => {
+    const woolwich = [
+      site("w1", "Woolwich North", 51.49, 0.07),
+      site("w2", "Woolwich South", 51.48, 0.07),
+      site("gr", "Greenwich", 51.4801, 0.0101, "Woolwich Road"),
+    ];
+    // The phone at Greenwich, which is only on Woolwich Road: not picked.
+    const p = pickSite(at("Woolwich", 51.4801, 0.0101), woolwich);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["w1", "w2"]);
+    // The phone at Woolwich South: that one.
+    const q = pickSite(at("Woolwich", 51.4802, 0.0702), woolwich);
+    expect(q.site?.id).toBe("w2");
+    expect(q.site && q.how).toBe("name+gps");
+  });
+
   it("doesn't take a site because both places end in 'End'", () => {
     const withEnd = [...sites, site("fern", "Shurgard Fern End", 50.9, -1.3, "Fern End")];
     const p = pickSite(at("Ashby End"), withEnd);
@@ -334,7 +365,23 @@ describe("pickSite with the client named in the site", () => {
   it("doesn't let \"self storage\" pull in every storage site", () => {
     const p = pickSite(at("self storage woolwich"), sites, customers);
     expect(p.site).toBeNull();
-    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["acw", "greenwich", "woolwich"]);
+    // The two with Woolwich in their name; not Greenwich, on Woolwich Road.
+    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["acw", "woolwich"]);
+    expect(!p.site && p.reason).toMatch(/fits 2 sites/);
+  });
+
+  it("keeps the GPS fallback to the named client's sites (a wait, never another client's site)", () => {
+    const withGps = [
+      own(site("riverside", "Riverside (SH-1)", 51.5, 0.0, "Riverside Road"), SG),
+      own(site("hilltop", "Access Self Storage Hilltop (AS-2)", 51.6, 0.1, "Hilltop"), AC),
+    ];
+    // The text names Access, but no Access site called Lowfield: the phone
+    // next to the Shurgard site doesn't pick it.
+    const p = pickSite(at("Access Self Storage Lowfield", 51.50005, 0.00005), withGps, customers);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.reason).toMatch(/not recognised/);
+    // Without a client named, GPS alone finds it.
+    expect(pickSite(at("Lowfield", 51.50005, 0.00005), withGps, customers).site?.id).toBe("riverside");
   });
 
   it("narrows only when exactly one client is named", () => {
@@ -395,6 +442,177 @@ describe("pickSite by postcode", () => {
     expect(f.postcode).toBe("W36UU");
     expect(pickSite(f, sites).site?.id).toBe("acton");
   });
+
+  const withAnswer = (label: string, value: string, name = "Shurgard Neasden") =>
+    extractFacts({
+      submittedAt: SUBMITTED,
+      answers: [
+        { key: "a", label: "Site Name", type: "SingleLineEntry", value: name },
+        { key: "b", label, type: "SingleLineEntry", value },
+      ],
+    });
+
+  it.each([
+    ["Site Postcode", "w3 6uu"],
+    ["Post Code", "W3 6UU"],
+    ["Site address", "12 High St, Acton W3 6UU"],
+    ["Address of premises", "12 High St, Acton W3 6UU"],
+    ["Client site postcode", "W3 6UU"],
+  ])("reads the site's postcode from “%s”", (label, value) => {
+    expect(withAnswer(label, value, "Shurgard").postcode).toBe("W36UU");
+  });
+
+  it.each([
+    ["Customer address (if stuck on site)", "12 High St, Acton W3 6UU"],
+    ["Customer postcode", "W3 6UU"],
+    ["Patrol location notes", "Checked the bins behind W3 6UU"],
+    ["Site notes", "Spare keys with the shop at W3 6UU"],
+    ["Site attended", "W3 6UU"],
+    ["Location", "W3 6UU"],
+  ])("doesn't take a postcode from “%s”, so the typed site name stands", (label, value) => {
+    const f = withAnswer(label, value);
+    expect(f.postcode).toBeNull();
+    expect(pickSite(f, sites).site?.id).toBe("neasden");
+  });
+
+  describe("when the site name and the postcode point to different sites", () => {
+    // "Neasden" names Shurgard Neasden; W3 6UU is Shurgard Acton's.
+    const facts = (lat: number | null = null, lng: number | null = null) => ({
+      siteText: "Neasden",
+      postcode: "W36UU",
+      lat,
+      lng,
+    });
+
+    it("picks neither, and leaves nothing for the work on at the time to settle", () => {
+      const p = pickSite(facts(), sites);
+      expect(p.site).toBeNull();
+      expect(!p.site && p.reason).toMatch(/^The site name and the postcode point to different sites/);
+      expect(!p.site && p.candidates).toEqual([]);
+      // From the form itself, too.
+      expect(pickSite(withAnswer("Site Postcode", "W3 6UU"), sites).site).toBeNull();
+    });
+
+    it("lets a GPS fix that clearly favours one settle it", () => {
+      const atActon = pickSite(facts(51.5151, -0.2702), sites);
+      expect(atActon.site?.id).toBe("acton");
+      expect(atActon.site && atActon.how).toBe("postcode+gps");
+      const atNeasden = pickSite(facts(51.5532, -0.2502), sites);
+      expect(atNeasden.site?.id).toBe("neasden");
+      expect(atNeasden.site && atNeasden.how).toBe("name+gps");
+    });
+
+    it("doesn't let a fix that's about as near to both settle it", () => {
+      // 1.8 km from Acton, 2.8 km from Neasden.
+      expect(pickSite(facts(51.531, -0.27), sites).site).toBeNull();
+      // Over 2 km from both.
+      expect(pickSite(facts(51.534, -0.26), sites).site).toBeNull();
+    });
+
+    it("isn't a disagreement when they agree, or the name only fits an address or several sites", () => {
+      expect(pickSite({ ...facts(), siteText: "Acton" }, sites)).toMatchObject({ site: { id: "acton" }, how: "postcode" });
+      // "Lane" is only in Neasden's address (Neasden Lane): the postcode stands.
+      expect(pickSite(at("Lane W3 6UU"), sites).site?.id).toBe("acton");
+      // "Shurgard" fits two sites: the postcode stands.
+      expect(pickSite(at("Shurgard W3 6UU"), sites).site?.id).toBe("acton");
+    });
+  });
+
+  it("doesn't read a floor number as a postcode", () => {
+    expect(extractPostcode("Unit B2 3rd floor")).toBeNull();
+    expect(extractPostcode("Block B2 3rd Floor, Neasden NW10 7UD")).toBe("NW107UD");
+    // A real postcode that ends like an ordinal still counts.
+    expect(extractPostcode("Riverside SE1 9TH")).toBe("SE19TH");
+    const f = extractFacts({
+      submittedAt: SUBMITTED,
+      answers: [{ key: "a", label: "Site Name", type: "SingleLineEntry", value: "Neasden, Unit B2 3rd floor" }],
+    });
+    expect(f.postcode).toBeNull();
+    expect(pickSite(f, sites).site?.id).toBe("neasden");
+  });
+});
+
+describe("extractFacts: which answer is the site, and which the officer", () => {
+  const facts = (...answers: [label: string, value: unknown, type?: string][]) =>
+    extractFacts({
+      submittedAt: SUBMITTED,
+      answers: answers.map(([label, value, type], i) => ({
+        key: `k${i}`,
+        label,
+        type: type ?? "SingleLineEntry",
+        value,
+      })),
+    });
+
+  it.each([
+    ["Site Attended"],
+    ["Patrol Location"],
+    ["Location attended"],
+    ["Customer site"],
+    ["Client's premises"],
+    ["Name of site attended"],
+  ])("takes “%s” as the site, not the officer", (label) => {
+    const f = facts([label, "Riverside Storage"], ["Officer Name", "Ana Test"]);
+    expect(f.siteText).toBe("Riverside Storage");
+    expect(f.officerText).toBe("Ana Test");
+  });
+
+  it.each([
+    ["Staff on site?", "2"],
+    ["Vehicles on site", "One van"],
+    ["Site notes", "Rear gate sticks"],
+    ["Patrol location notes", "Checked the yard"],
+    ["Building secure?", "Secure"],
+    ["Damage to property", "Broken fence panel"],
+    ["Alarm location", "Zone 3 rear door"],
+    ["Customer address (if stuck on site)", "12 High St"],
+    ["GPS location", "51.55, -0.25"],
+    ["Site attended by", "Ana Test"],
+  ])("doesn't take “%s” as the site", (label, value) => {
+    expect(facts([label, value], ["Site Name", "Riverside Storage"]).siteText).toBe("Riverside Storage");
+  });
+
+  it.each([
+    ["Officer Name/SIA Number"],
+    ["Attended by"],
+    ["Patrolled by"],
+    ["Staff name"],
+    ["Staff"],
+    ["Guard"],
+    ["Your Name"],
+  ])("takes “%s” as the officer", (label) => {
+    expect(facts(["Site Name", "Riverside Storage"], [label, "Ana Test"]).officerText).toBe("Ana Test");
+  });
+
+  it.each([
+    ["Patrol Notes", "All quiet, gates locked"],
+    ["Patrol type", "Mobile"],
+    ["Staff on site?", "Yes"],
+    ["Officer comments", "All secure"],
+    ["SIA licence checked?", "Yes"],
+    ["Guard dog used?", "No"],
+  ])("doesn't take “%s” as the officer, even before the officer's name", (label, value) => {
+    const f = facts(["Site Name", "Riverside Storage"], [label, value], ["Officer Name", "Ana Test"]);
+    expect(f.officerText).toBe("Ana Test");
+  });
+
+  it("never takes a long answer as the officer", () => {
+    const note =
+      "Officer arrived on time, walked the whole perimeter, found the rear shutter open and secured it before leaving.";
+    expect(facts(["Patrol officer", note]).officerText).toBeNull();
+  });
+
+  it("reads a site picked from radio buttons, but never a ticked box or a yes / no", () => {
+    expect(facts(["Site", "Riverside Storage", "RadioButtons"]).siteText).toBe("Riverside Storage");
+    const f = facts(
+      ["Site", true, "CheckBox"],
+      ["Premises", 1, "CheckBox"],
+      ["Location", "Yes", "RadioButtons"],
+      ["Site Name", "Riverside Storage"],
+    );
+    expect(f.siteText).toBe("Riverside Storage");
+    expect(facts(["Officer", true, "CheckBox"], ["Officer Name", "Ana Test"]).officerText).toBe("Ana Test");
+  });
 });
 
 describe("visitTypeOf", () => {
@@ -415,6 +633,19 @@ describe("visitTypeOf", () => {
       visitTypeOf([ans("Call-out reason", "Gate was left unlocked by a customer and the alarm went off at 22:00")]),
     ).toBeNull();
     expect(visitTypeOf([ans("Site Name", "Lock-up Storage Ltd")])).toBeNull();
+  });
+  it("doesn't read a property's type, a reference or a finding as the kind of visit", () => {
+    expect(visitTypeOf([ans("Property type", "Lock-up unit")])).toBeNull();
+    expect(visitTypeOf([ans("Job number", "LOCK-221")])).toBeNull();
+    expect(visitTypeOf([ans("Job type", "LOCK-221")])).toBeNull();
+    expect(visitTypeOf([ans("Reason for visit", "Gate found unlocked")])).toBeNull();
+  });
+  it("reads whole words, also from radio buttons", () => {
+    expect(visitTypeOf([ans("Visit type", "Lock-up")])).toBe("LOCK");
+    expect(visitTypeOf([ans("Visit type", "Lockup 2")])).toBe("LOCK");
+    expect(visitTypeOf([ans("Visit type", "Unlocking")])).toBe("UNLOCK");
+    expect(visitTypeOf([ans("Job type", "Key collection")])).toBe("KEY_COLLECTION");
+    expect(visitTypeOf([{ key: "r", label: "Visit type", type: "RadioButtons", value: "Lock up" }])).toBe("LOCK");
   });
 });
 
@@ -477,6 +708,57 @@ describe("pickShift", () => {
     const same = [shift("b", "19:00", "07:00"), shift("a", "19:00", "07:00")];
     expect(pickShift(when, same, null).pick?.id).toBe("a");
   });
+
+  // With the rota's own times, as the import passes them.
+  const rota = (id: string, start: string, end: string, actual?: { start?: string; end?: string }): ShiftCandidate => {
+    const s = new Date(start);
+    const e = new Date(end);
+    const as = actual?.start ? new Date(actual.start) : s;
+    const ae = actual?.end ? new Date(actual.end) : e;
+    return {
+      id,
+      officerId: null,
+      start: as < s ? as : s,
+      end: ae > e ? ae : e,
+      scheduled: { start: s, end: e },
+    };
+  };
+  const moment = (iso: string) => ({ from: new Date(iso), to: new Date(iso) });
+
+  it("prefers the shift the rota has the report in over one stretched by a stale clock-out", () => {
+    // The night shift's officer never clocked out, so its window runs to the
+    // next morning and holds the day shift's noon round too.
+    const night = rota("night", "2026-11-24T19:00:00Z", "2026-11-25T07:00:00Z", { end: "2026-11-26T10:00:00Z" });
+    const day = rota("day", "2026-11-25T07:00:00Z", "2026-11-25T19:00:00Z");
+    expect(pickShift(moment("2026-11-25T12:00:00Z"), [night, day], null).pick?.id).toBe("day");
+    // A round in the night still goes on the night shift.
+    expect(pickShift(moment("2026-11-25T02:00:00Z"), [night, day], null).pick?.id).toBe("night");
+  });
+
+  it("puts a round at the handover moment on the shift that's starting", () => {
+    const day = rota("day", "2026-11-24T07:00:00Z", "2026-11-24T19:00:00Z");
+    const night = rota("night", "2026-11-24T19:00:00Z", "2026-11-25T07:00:00Z");
+    expect(pickShift(moment("2026-11-24T19:00:00Z"), [day, night], null).pick?.id).toBe("night");
+    // One that ends at the handover was the day shift's.
+    expect(
+      pickShift({ from: new Date("2026-11-24T18:50:00Z"), to: new Date("2026-11-24T19:00:00Z") }, [day, night], null).pick?.id,
+    ).toBe("day");
+  });
+
+  it("breaks a last tie by the scheduled start, not an early clock-in", () => {
+    // Both on the rota at 10:00; "a" is scheduled later but was clocked in at 05:00.
+    const a = rota("a", "2026-11-24T08:00:00Z", "2026-11-24T20:00:00Z", { start: "2026-11-24T05:00:00Z" });
+    const b = rota("b", "2026-11-24T07:00:00Z", "2026-11-24T19:00:00Z");
+    expect(pickShift(moment("2026-11-24T10:00:00Z"), [a, b], null).pick?.id).toBe("b");
+  });
+
+  it("counts both ends when a report runs past a short shift", () => {
+    const span = { from: new Date("2026-10-17T18:50:00.000Z"), to: new Date("2026-10-17T19:50:00.000Z") };
+    // "a": 10 min before + 20 min after = 30; "b": 15 min after.
+    const a = shift("a", "19:00", "19:30");
+    const b = shift("b", "18:40", "19:35");
+    expect(pickShift(span, [a, b], null).pick?.id).toBe("b");
+  });
 });
 
 describe("shiftLinkAction", () => {
@@ -496,6 +778,12 @@ describe("shiftLinkAction", () => {
 
   it("leaves a report within the 30-minute allowance", () => {
     expect(shiftLinkAction(at("2026-11-24T06:55:00Z", "2026-11-24T07:10:00Z"), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
+  it("leaves a report that fits its shift even when another shift has it strictly inside", () => {
+    // 07:10–07:20 is inside the day shift, and within the allowance of the
+    // night one it's on: it stays, so reports don't hop between shifts.
+    expect(shiftLinkAction(at("2026-11-24T07:10:00Z", "2026-11-24T07:20:00Z"), night, [night, day], null)).toEqual({ kind: "fit" });
   });
 
   it("moves a report to the shift at the site it does fit", () => {
@@ -611,6 +899,17 @@ describe("shiftFit", () => {
     const fit = shiftFit(span("2026-11-18T07:00:20Z"), shift, 0);
     expect(fit).toEqual({ fits: false, side: "after", minutes: 1 });
   });
+
+  it("rounds the minutes up when it doesn't fit, so they're always more than the allowance", () => {
+    // 30 min 20 s early: doesn't fit, and says 31 — never "30 min, more than the 30 allowed".
+    const early = shiftFit(span("2026-11-17T18:29:40Z"), shift);
+    expect(early).toEqual({ fits: false, side: "before", minutes: 31 });
+    if (!early.fits) expect(outsideShiftText(early)).toBe("started 31 min before the shift");
+    expect(shiftFit(span("2026-11-18T07:30:20Z"), shift)).toEqual({ fits: false, side: "after", minutes: 31 });
+    // Exactly 30 minutes either side still fits.
+    expect(shiftFit(span("2026-11-17T18:30:00Z"), shift).fits).toBe(true);
+    expect(shiftFit(span("2026-11-18T07:30:00Z"), shift).fits).toBe(true);
+  });
 });
 
 describe("spanText / shiftHoursText", () => {
@@ -625,10 +924,14 @@ describe("spanText / shiftHoursText", () => {
     const one = new Date("2026-11-17T23:10:00Z");
     expect(spanText({ from: one, to: one })).not.toContain("–");
   });
-  it("shows a shift's hours", () => {
-    expect(
-      shiftHoursText({ start: new Date("2026-11-17T19:00:00Z"), end: new Date("2026-11-18T07:00:00Z") }),
-    ).toMatch(/^17 Nov.*19:00–07:00$/);
+  it("shows a shift's hours, with the end date when it ends on another day", () => {
+    const hours = (start: string, end: string) => shiftHoursText({ start: new Date(start), end: new Date(end) });
+    expect(hours("2026-11-17T07:00:00Z", "2026-11-17T19:00:00Z")).toMatch(/^17 Nov.*07:00–19:00$/);
+    expect(hours("2026-11-17T19:00:00Z", "2026-11-18T07:00:00Z")).toMatch(/^17 Nov.*19:00–18 Nov.*07:00$/);
+    // A 24-hour shift isn't "07:00–07:00".
+    expect(hours("2026-11-24T07:00:00Z", "2026-11-25T07:00:00Z")).toMatch(/^24 Nov.*07:00–25 Nov.*07:00$/);
+    // UK days: 22:00–23:30 UTC on 17 July is 23:00–00:30 BST, ending on the 18th.
+    expect(hours("2026-07-17T22:00:00Z", "2026-07-17T23:30:00Z")).toMatch(/^17 Jul.*23:00–18 Jul.*00:30$/);
   });
 });
 
@@ -671,6 +974,51 @@ describe("pickOfficer", () => {
   });
   it("won't guess between two people", () => {
     expect(pickOfficer(facts("Ahmed"), people)).toBeNull();
+  });
+
+  const staff = (...names: string[]) => names.map((name, i) => ({ id: `p${i}`, name, siaNumber: null }));
+
+  it("matches whole words, never part of a longer name", () => {
+    const others = staff("Natalie Brown", "Brian Cole", "Jordan Lee", "Akash Patel");
+    for (const typed of ["Ali", "Ian", "Dan", "Ash"]) expect(pickOfficer(facts(typed), others)).toBeNull();
+    expect(pickOfficer(facts("Ali"), [...others, { id: "ali", name: "Ali Khan", siaNumber: null }])).toBe("ali");
+    expect(pickOfficer(facts("Ali"), [...others, { id: "mo", name: "Mo Ali", siaNumber: null }])).toBe("mo");
+  });
+
+  it("needs every typed word to be one of the person's names", () => {
+    const two = staff("Sam Jones", "Ian Taylor");
+    expect(pickOfficer(facts("Sam Taylor"), two)).toBeNull();
+    expect(pickOfficer(facts("Taylor Ian"), two)).toBe("p1");
+  });
+
+  it("takes an initial when only one person fits it, but not initials alone", () => {
+    const khans = staff("Ahmed Khan", "Sam Taylor");
+    expect(pickOfficer(facts("A. Khan"), khans)).toBe("p0");
+    expect(pickOfficer(facts("Ahmed K"), khans)).toBe("p0");
+    expect(pickOfficer(facts("A Khan"), [...khans, { id: "ali", name: "Ali Khan", siaNumber: null }])).toBeNull();
+    expect(pickOfficer(facts("S Khan"), khans)).toBeNull();
+    expect(pickOfficer(facts("A. K."), khans)).toBeNull();
+  });
+
+  it("ignores titles, the job, accents, apostrophes and stray numbers", () => {
+    const one = staff("José O’Brien", "Sam Taylor");
+    expect(pickOfficer(facts("Officer Jose O'Brien"), one)).toBe("p0");
+    expect(pickOfficer(facts("Mr Sam Taylor 1234"), one)).toBe("p1");
+  });
+
+  it("takes the exact full name over someone whose name has it in", () => {
+    expect(pickOfficer(facts("Ahmed Khan"), staff("Ahmed Khan", "Ahmed Khan Mirza"))).toBe("p0");
+    expect(pickOfficer(facts("Khan"), staff("Ahmed Khan", "Ahmed Khan Mirza"))).toBeNull();
+  });
+
+  it("says when several people fit, so the import doesn't go on to look among staff who've left", () => {
+    const m = matchOfficer(facts("Ahmed"), people);
+    expect(m.kind).toBe("many");
+    expect(m.kind === "many" && m.people.map((p) => p.id).sort()).toEqual(["u1", "u2"]);
+    expect(matchOfficer(facts("Nobody Known"), people).kind).toBe("none");
+    expect(matchOfficerName("Sam", people)).toMatchObject({ kind: "one", person: { id: "u3" } });
+    // An SIA number held by exactly one person settles it.
+    expect(matchOfficer(facts("Ahmed 1234567890123456"), people)).toMatchObject({ kind: "one", person: { id: "u1" } });
   });
 });
 
@@ -725,6 +1073,45 @@ describe("pickActivity", () => {
     expect(!p.pick && p.reason).toBe("taken");
   });
 
+  it("waits when the best match already has a report, rather than taking another activity", () => {
+    // The callout at 21:00 has its report; a second report says 21:15. The
+    // unlock at 22:30 is free, but mustn't be marked done and billed for it.
+    const p = pickActivity(when, "ALARM_RESPONSE", [
+      job("callout", "ALARM_RESPONSE", "21:00", true),
+      job("unlock", "UNLOCK", "22:30"),
+    ]);
+    expect(p.pick).toBeNull();
+    expect(p.pick === null && p.reason === "taken" && [p.taken.id, p.at.toISOString(), p.minutesApart]).toEqual([
+      "callout",
+      at("21:00").toISOString(),
+      15,
+    ]);
+  });
+
+  it("still takes a free activity that's the better match", () => {
+    const p = pickActivity(when, "ALARM_RESPONSE", [
+      job("old", "LOCK", "19:30", true), // 1 h 45 min away
+      job("callout", "ALARM_RESPONSE", "21:25"), // 10 min away
+    ]);
+    expect(p.pick?.id).toBe("callout");
+  });
+
+  it("settles a close call between a taken and a free activity the same way", () => {
+    // Taken callout 5 min away, free one 15 min away: about as close; the nearer wins → wait.
+    const taken = pickActivity(when, "ALARM_RESPONSE", [
+      job("done", "ALARM_RESPONSE", "21:10", true),
+      job("free", "ALARM_RESPONSE", "21:30"),
+    ]);
+    expect(!taken.pick && taken.reason).toBe("taken");
+    // Free callout 3 min away, taken one 10 min away: the free one wins, as a close call.
+    const free = pickActivity(when, "ALARM_RESPONSE", [
+      job("free", "ALARM_RESPONSE", "21:12"),
+      job("done", "ALARM_RESPONSE", "21:25", true),
+    ]);
+    expect(free.pick?.id).toBe("free");
+    expect(free.pick && free.closeCall).toBe(true);
+  });
+
   it("ignores activities more than 3 hours away", () => {
     const p = pickActivity(when, "ALARM_RESPONSE", [job("far", "ALARM_RESPONSE", "17:00")]);
     expect(!p.pick && p.reason).toBe("none");
@@ -774,9 +1161,27 @@ describe("pickActivityWide", () => {
     expect(pickActivityWide(when, "LOCK", [job("unlock", "UNLOCK", "18T07:00")], now).pick).toBeNull();
   });
 
-  it("skips activities that already have a report", () => {
-    const p = pickActivityWide(when, "ALARM_RESPONSE", [job("done", "ALARM_RESPONSE", "17T20:00", true)], now);
-    expect(!p.pick && p.reason).toBe("none");
+  it("waits when the best similar one already has a report, rather than taking another", () => {
+    const p = pickActivityWide(
+      when,
+      "ALARM_RESPONSE",
+      [job("done", "ALARM_RESPONSE", "17T20:00", true), job("later", "ALARM_RESPONSE", "18T08:30")],
+      now,
+    );
+    expect(p.pick === null && p.reason === "taken" && p.taken.id).toBe("done");
+    // A free one that's nearer still wins.
+    const q = pickActivityWide(
+      when,
+      "ALARM_RESPONSE",
+      [job("done", "ALARM_RESPONSE", "17T17:00", true), job("free", "ALARM_RESPONSE", "17T22:00")],
+      now,
+    );
+    expect(q.pick?.id).toBe("free");
+    // A taken one of another kind, or not due yet, doesn't count.
+    expect(
+      pickActivityWide(when, "ALARM_RESPONSE", [job("lock", "LOCK", "17T21:00", true), job("free", "ALARM_RESPONSE", "17T17:00")], now).pick?.id,
+    ).toBe("free");
+    expect(pickActivityWide(when, "PATROL", [job("tonight", "PATROL", "18T19:00", true)], now)).toMatchObject({ reason: "none" });
   });
 
   it("skips activities that aren't due yet", () => {
@@ -887,5 +1292,18 @@ describe("shiftApartMin", () => {
   it("counts how far it runs past the start or the end", () => {
     expect(shiftApartMin(at("2026-11-17T09:00:00Z"), shift)).toBe(600); // 10 h before it starts
     expect(shiftApartMin(at("2026-11-18T19:30:00Z"), shift)).toBe(750); // 12 h 30 min after it ends
+  });
+
+  it("adds up both ends when a report runs past both", () => {
+    const short = { id: "s2", officerId: null, start: new Date("2026-11-17T19:00:00Z"), end: new Date("2026-11-17T19:30:00Z") };
+    // 5 min before it starts + 10 min after it ends.
+    expect(
+      shiftApartMin({ from: new Date("2026-11-17T18:55:00Z"), to: new Date("2026-11-17T19:40:00Z") }, short),
+    ).toBe(15);
+  });
+
+  it("rounds up, so it's 0 only when the report is strictly inside", () => {
+    expect(shiftApartMin(at("2026-11-18T07:00:20Z"), shift)).toBe(1);
+    expect(shiftApartMin(at("2026-11-18T07:00:00Z"), shift)).toBe(0);
   });
 });
