@@ -63,6 +63,7 @@ export default async function ReviewDetailPage({
               id: true,
               answers: true,
               photoUrls: true,
+              submittedAt: true,
               form: { select: { name: true } },
             },
           },
@@ -242,6 +243,7 @@ export default async function ReviewDetailPage({
           <FastFieldAnswers
             answers={sub.fastfieldReport.answers}
             photoUrls={sub.fastfieldReport.photoUrls}
+            sentAt={sub.fastfieldReport.submittedAt}
           />
         </div>
       ) : (

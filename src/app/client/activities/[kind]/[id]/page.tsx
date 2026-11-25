@@ -143,7 +143,11 @@ function ReportPanel({ report: r }: { report: ClientReport }) {
   return (
     <Panel title={r.title} hint={hint || undefined} icon={ShieldCheck} accent="emerald">
       {r.fastfield ? (
-        <FastFieldAnswers answers={r.fastfield.answers} photoUrls={r.fastfield.photoUrls} />
+        <FastFieldAnswers
+          answers={r.fastfield.answers}
+          photoUrls={r.fastfield.photoUrls}
+          sentAt={r.fastfield.submittedAt}
+        />
       ) : (
         <div className="space-y-4">
           {r.fields.length > 0 && (

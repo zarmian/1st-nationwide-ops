@@ -17,9 +17,13 @@ import { safeLinkUrl } from "@/lib/fastfieldIntake";
 export function FastFieldAnswers({
   answers,
   photoUrls,
+  sentAt,
 }: {
   answers: unknown;
   photoUrls: string[];
+  /** When FastField received the report: settles a typed date that reads
+   *  both ways ("11/02/2026"); without it such a date is shown as typed. */
+  sentAt?: Date | null;
 }) {
   const list = (Array.isArray(answers) ? answers : []) as FastFieldAnswer[];
   const shown = new Set<string>();
@@ -37,7 +41,7 @@ export function FastFieldAnswers({
   return (
     <dl className="grid sm:grid-cols-[220px_1fr] gap-y-2 gap-x-4 text-sm">
       {list.map((a, i) => (
-        <Answer key={`${a.key}-${i}`} answer={a} />
+        <Answer key={`${a.key}-${i}`} answer={a} sentAt={sentAt ?? null} />
       ))}
       {extraPhotos.length > 0 && (
         <>
@@ -65,7 +69,7 @@ function photosOf(value: unknown): Photo[] {
 
 const TRI: Record<number, string> = { 0: "No", 1: "Yes", 2: "N/A" };
 
-function Answer({ answer: a }: { answer: FastFieldAnswer }) {
+function Answer({ answer: a, sentAt }: { answer: FastFieldAnswer; sentAt: Date | null }) {
   const label = <dt className="text-slate-500 break-words">{a.label}</dt>;
   const kind = answerKind(a.type);
   const empty = (
@@ -142,7 +146,7 @@ function Answer({ answer: a }: { answer: FastFieldAnswer }) {
   }
 
   if (kind === "date") {
-    const t = parseFastFieldTime(a.value);
+    const t = parseFastFieldTime(a.value, sentAt);
     const text = t ? formatDateTime(t) : answerText(a.value);
     if (!text) return empty;
     return (

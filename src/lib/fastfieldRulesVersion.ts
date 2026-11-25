@@ -18,5 +18,9 @@
  *   2 — 25 Nov 2026: no other time ever stands in for a typed one — not the
  *       phone's opened / finished times, not the send time. A report with no
  *       usable typed time waits for a person.
+ *   3 — 25 Nov 2026: typed dates and times are read in every format FastField
+ *       may send (US month-first dates, month names, timestamps, a date and a
+ *       time kept apart), a date that reads both ways settled by when it was
+ *       sent.
  */
-export const FASTFIELD_RULES_VERSION = 2;
+export const FASTFIELD_RULES_VERSION = 3;
