@@ -6,7 +6,7 @@ import {
   retryUnmatched,
 } from "@/lib/fastfieldImport";
 import type { FastFieldIncoming } from "@/lib/fastfield";
-import { blobStoreHost, errorCode, keepOurMedia } from "@/lib/fastfieldIntake";
+import { errorCode, keepOurMedia } from "@/lib/fastfieldIntake";
 import { recordRefusedReports, REFUSED_REASONS } from "@/lib/fastfieldRefused";
 
 /**
@@ -164,12 +164,14 @@ export async function POST(req: Request) {
           { status: 413 },
         );
       }
-      // Photos and signatures must point at our own Blob store (the photo
-      // route's addresses); anything else is left out.
-      const host = blobStoreHost(process.env.BLOB_READ_WRITE_TOKEN);
+      // Photos and signatures must be https addresses on Vercel Blob's public
+      // storage, under uploads/fastfield/ (where the photo route puts them);
+      // anything else is left out. Deliberately not pinned to our own store's
+      // host: if working that out from the token were ever wrong, every new
+      // photo would be dropped. The photo route warns if the two disagree.
       let photosDropped = 0;
       const reports = body.reports.map((r) => {
-        const { dropped, ...media } = keepOurMedia(r, host);
+        const { dropped, ...media } = keepOurMedia(r, null);
         photosDropped += dropped;
         return { ...r, ...media };
       });

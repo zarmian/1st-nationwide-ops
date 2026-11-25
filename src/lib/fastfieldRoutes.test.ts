@@ -130,7 +130,7 @@ describe("POST /api/imports/fastfield", () => {
     expect(await res.json()).toEqual({ error: "A report is too large", code: "report_too_big" });
   });
 
-  it("keeps only photo and signature addresses on our own storage", async () => {
+  it("keeps only photo and signature addresses on Vercel Blob storage, under uploads/fastfield/", async () => {
     const res = await post({
       action: "import",
       reports: [
@@ -139,7 +139,15 @@ describe("POST /api/imports/fastfield", () => {
             { key: "p", label: "Photos", type: "MultiPhotoPicker", value: [{ url: ours("photo-1") }, { url: "javascript:alert(1)" }] },
             { key: "s", label: "Signature", type: "SignaturePad", value: "https://evil.example/sig.png" },
           ],
-          photoUrls: [ours("photo-1"), "javascript:alert(1)", "https://otherstore.public.blob.vercel-storage.com/uploads/fastfield/x.jpg"],
+          photoUrls: [
+            ours("photo-1"),
+            "javascript:alert(1)",
+            // Any Vercel Blob store is accepted (not pinned to ours, so a wrong
+            // store name can never drop every photo)…
+            "https://otherstore.public.blob.vercel-storage.com/uploads/fastfield/x.jpg",
+            // …but only under uploads/fastfield/.
+            "https://otherstore.public.blob.vercel-storage.com/elsewhere/x.jpg",
+          ],
           signatureUrl: "https://evil.example/sig.png",
         }),
       ],
@@ -148,7 +156,10 @@ describe("POST /api/imports/fastfield", () => {
     expect((await res.json()).photosDropped).toBe(3);
     const [sent, preview] = engine.importFastField.mock.calls[0];
     expect(preview).toBe(false);
-    expect(sent[0].photoUrls).toEqual([ours("photo-1")]);
+    expect(sent[0].photoUrls).toEqual([
+      ours("photo-1"),
+      "https://otherstore.public.blob.vercel-storage.com/uploads/fastfield/x.jpg",
+    ]);
     expect(sent[0].signatureUrl).toBeNull();
     expect(sent[0].answers[0].value).toEqual([{ url: ours("photo-1") }]);
     expect(sent[0].answers[1].value).toBeNull();
