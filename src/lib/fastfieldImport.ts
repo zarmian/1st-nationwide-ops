@@ -492,13 +492,16 @@ const SHIFT_REACH_MS = 36 * 3_600_000;
  *  it — shifts can be long — or within the allowance after it, with their
  *  full window. The 50 that started latest — the nearest — if there are more.
  *
- *  Missed / abandoned and partner-handled shifts are deliberately kept: a
- *  shift is marked missed when nobody started it on the duty link, though an
- *  officer may still have worked it — the rounds are the evidence — and if
- *  such a shift were left out, a round that fits it would see "no shift on"
- *  and could complete a nearby visit or, on a make-the-job form, create and
- *  bill a callout instead. A shift link bills nothing, and the partner
- *  portal doesn't show rounds. */
+ *  Never a partner's shift: their officers report in their own app, as with
+ *  partners' jobs and visits, so a round of ours that fits only a partner's
+ *  shift belongs to our own work there (a visit, a callout).
+ *
+ *  Missed / abandoned shifts are deliberately kept: a shift is marked missed
+ *  when nobody started it on the duty link, though an officer may still have
+ *  worked it — the rounds are the evidence — and if such a shift were left
+ *  out, a round that fits it would see "no shift on" and could complete a
+ *  nearby visit or, on a make-the-job form, create and bill a callout
+ *  instead. A shift link bills nothing. */
 async function shiftsNearSites(siteIds: string[], from: Date) {
   const range = {
     gte: new Date(from.getTime() - SHIFT_REACH_MS),
@@ -507,6 +510,7 @@ async function shiftsNearSites(siteIds: string[], from: Date) {
   return prisma.shift.findMany({
     where: {
       siteId: { in: siteIds },
+      handledByPartnerId: null,
       OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }],
     },
     select: {
