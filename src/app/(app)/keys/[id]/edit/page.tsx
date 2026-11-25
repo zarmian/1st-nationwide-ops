@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { updateKey } from "../../_actions";
 import { KeyEditForm } from "./_components/KeyEditForm";
@@ -11,6 +12,7 @@ export default async function KeyEditPage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const key = await prisma.key.findUnique({
     where: { id: params.id },
     select: {

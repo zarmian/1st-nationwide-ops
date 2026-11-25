@@ -8,7 +8,7 @@ import { SitesTable, type SiteRow } from "./_components/SitesTable";
 import { SitesMap, type OwnerLegend } from "./_components/SitesMap";
 import { siteOwner } from "@/lib/entityColor";
 import type { SitePin } from "@/components/map/MapInner";
-import { getSessionUser } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { loadHiddenScope, siteHiddenAnd } from "@/lib/hiddenAccounts";
 import { buildSiteWhereAnd, siteOrderBy } from "@/lib/siteFilters";
 import { findDuplicateSites } from "@/lib/siteDuplicates";
@@ -40,6 +40,7 @@ export default async function SitesPage({
     page?: string;
   };
 }) {
+  const me = await requireStaffPage();
   const q = searchParams.q ?? "";
   const region = searchParams.region ?? "";
   const service = searchParams.service ?? "";
@@ -53,7 +54,6 @@ export default async function SitesPage({
 
   // Admin-only declutter: hide sites of hidden customers/partners. Non-admins
   // (dispatchers) get an inert scope and still see every site.
-  const me = await getSessionUser();
   const hidden = await loadHiddenScope(me?.role === "ADMIN");
 
   // Suspected duplicates: computed across ALL active sites (not the filtered

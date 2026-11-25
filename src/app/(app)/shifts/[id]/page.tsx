@@ -5,7 +5,7 @@ import { DeleteShiftButton } from "../_components/DeleteShiftButton";
 import { ShiftLinkCard } from "../_components/ShiftLinkCard";
 import { PageHeader } from "@/components/PageHeader";
 import { dutyUrl } from "@/lib/dutyLink";
-import { getSessionUser } from "@/lib/authz";
+import { getSessionUser, requireStaffPage } from "@/lib/authz";
 import { SHIFT_GRACE_MIN, spanText } from "@/lib/fastfield";
 import { checkReportOnShift } from "@/lib/fastfieldImport";
 import { UnlinkButton } from "../../admin/fastfield/_components/ReportActions";
@@ -116,6 +116,7 @@ export default async function ShiftDetailPage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const [shift, history] = await Promise.all([
     prisma.shift.findUnique({
       where: { id: params.id },

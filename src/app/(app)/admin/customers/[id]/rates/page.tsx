@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { RateCardForm } from "@/components/RateCardForm";
 import { DeleteRateButton } from "@/components/DeleteRateButton";
@@ -14,7 +14,7 @@ export default async function CustomerRatesPage({
 }: {
   params: { id: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   const customer = await prisma.customer.findUnique({
     where: { id: params.id },
     include: {

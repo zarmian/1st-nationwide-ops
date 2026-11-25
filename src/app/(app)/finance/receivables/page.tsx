@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { loadHiddenScope } from "@/lib/hiddenAccounts";
 import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import { PageHeader } from "@/components/PageHeader";
@@ -24,7 +24,7 @@ const BUCKET_CHIP: Record<AgedBucket, string> = {
 };
 
 export default async function ReceivablesPage() {
-  await requireAdmin();
+  await requireAdminPage();
   const hidden = await loadHiddenScope(true);
   const data = await loadReceivables(new Date(), hidden);
 

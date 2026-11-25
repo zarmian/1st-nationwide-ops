@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { ActivityHistory } from "@/components/ActivityHistory";
 import { loadActivityHistory } from "@/lib/activityHistory";
 import { reassignJob } from "../../patrols/_actions";
@@ -59,7 +59,7 @@ export default async function JobDetailPage({
 }: {
   params: { id: string };
 }) {
-  const me = await requireStaff();
+  const me = await requireStaffPage();
 
   const job = await prisma.job.findUnique({
     where: { id: params.id },

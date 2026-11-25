@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { isSmsConfigured } from "@/lib/sms";
 import { PageHeader } from "@/components/PageHeader";
 import { TestSmsForm } from "./_components/TestSmsForm";
@@ -6,7 +6,7 @@ import { TestSmsForm } from "./_components/TestSmsForm";
 export const dynamic = "force-dynamic";
 
 export default async function SmsTestPage() {
-  await requireAdmin();
+  await requireAdminPage();
 
   const configured = isSmsConfigured();
   const fromNumber = process.env.HTTPSMS_FROM ?? null;

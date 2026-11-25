@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import {
   JOB_SOURCE_CODES,
   JOB_TYPE_CODES,
@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/PageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function OptionsAdminPage() {
-  await requireAdmin();
+  await requireAdminPage();
   // Seed the lookup tables on first visit so a fresh DB doesn't show an
   // empty admin page. ensureOptionsSeeded is idempotent — no-ops once the
   // defaults are in place. Existing custom labels / sort orders are

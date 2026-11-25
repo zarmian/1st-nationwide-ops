@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ComponentType } from "react";
 import { Home, UserRound, Building2, AlertTriangle, Archive } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { FilterPanel } from "@/components/FilterPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { KeysTable, type KeyTableRow } from "./_components/KeysTable";
@@ -38,6 +39,7 @@ export default async function KeysPage({
     page?: string;
   };
 }) {
+  await requireStaffPage();
   const q = searchParams.q?.trim() ?? "";
   const page = Math.max(1, Number(searchParams.page) || 1);
   const statusFilter = searchParams.status ?? "";

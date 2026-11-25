@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { createCreditNoteAction } from "../_actions";
@@ -10,7 +10,7 @@ export default async function NewCreditNotePage({
 }: {
   searchParams: { customerId?: string; invoiceId?: string; error?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
 
   const invoiceId = searchParams.invoiceId?.trim() || null;
   const invoice = invoiceId

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
 import { ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ function fmtUk(d: Date): string {
 }
 
 export default async function AdminReportsPage() {
+  await requireStaffPage();
   const queue = await prisma.reportReview.findMany({
     where: { status: { in: ["PENDING", "REJECTED"] } },
     include: {

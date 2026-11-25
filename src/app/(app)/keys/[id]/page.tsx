@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { handoverKey } from "../_actions";
 import { HandoverForm } from "./_components/HandoverForm";
 import { PageHeader } from "@/components/PageHeader";
@@ -37,6 +38,7 @@ export default async function KeyDetailPage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const [key, recipients] = await Promise.all([
     prisma.key.findUnique({
       where: { id: params.id },

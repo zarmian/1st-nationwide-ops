@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { MapPin, Target, MapPinOff, HelpCircle } from "lucide-react";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
@@ -27,7 +27,7 @@ export default async function PresencePage({
 }: {
   searchParams: { days?: string; officerId?: string };
 }) {
-  const me = await requireStaff();
+  const me = await requireStaffPage();
 
   const days = WINDOWS.find((w) => String(w) === searchParams.days) ?? 30;
   const officerId = searchParams.officerId?.trim() || null;

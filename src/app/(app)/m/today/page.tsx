@@ -1,5 +1,4 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireOfficerPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { ukWallClockToUtc, ukDayPlus } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
@@ -42,8 +41,7 @@ function formatScheduled(date: Date | null | undefined): {
 }
 
 export default async function OfficerTodayPage() {
-  const session = await getServerSession(authOptions);
-  const userId = session!.user.id;
+  const { id: userId } = await requireOfficerPage();
   const me = await prisma.user.findUnique({
     where: { id: userId },
     select: { onDuty: true },

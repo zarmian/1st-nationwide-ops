@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { loadHiddenScope } from "@/lib/hiddenAccounts";
 import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,7 +20,7 @@ export default async function CashflowPage({
 }: {
   searchParams: { opening?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
 
   const openingRaw = Number(searchParams.opening);
   const opening = Number.isFinite(openingRaw) ? openingRaw : 0;

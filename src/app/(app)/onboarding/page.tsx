@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { StartOnboardingForm } from "./_components/StartOnboardingForm";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -33,6 +34,7 @@ export default async function OnboardingPage({
 }: {
   searchParams: { show?: string };
 }) {
+  await requireStaffPage();
   const showAll = searchParams.show === "all";
 
   const [pipelines, eligibleSites] = await Promise.all([

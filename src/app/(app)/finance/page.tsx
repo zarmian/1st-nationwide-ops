@@ -9,7 +9,7 @@ import {
   PiggyBank,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { recalculateBilling } from "./_actions";
 import { RecalcButton } from "./_components/RecalcButton";
 import { Sparkline } from "@/components/Sparkline";
@@ -120,7 +120,7 @@ export default async function FinancePage({
   // Admin-only. Middleware enforces the redirect; this is the backstop
   // in case middleware is bypassed (server actions imported directly,
   // etc.) so the page won't render the totals to a non-admin session.
-  await requireAdmin();
+  await requireAdminPage();
 
   // Hidden accounts drop out of every finance figure here — finance is
   // admin-only, so this always applies. (A hidden account can't silently

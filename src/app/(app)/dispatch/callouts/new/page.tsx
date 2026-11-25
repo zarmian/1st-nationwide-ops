@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { recordDispatcherCallout } from "../_actions";
 import { CalloutForm } from "../_components/CalloutForm";
 import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
@@ -30,6 +31,7 @@ export default async function NewCalloutPage({
 }: {
   searchParams: { siteId?: string };
 }) {
+  await requireStaffPage();
   const [sites, officers, partners, customerOnlyPartnerCount, allJobTypes, allJobSources] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
@@ -21,7 +21,7 @@ const PLACES_SHOWN = 12;
 const OUTSIDE_SHOWN = 25;
 
 export default async function FastFieldPage() {
-  await requireAdmin();
+  await requireAdminPage();
 
   const [forms, customers, byStatus, unmatched, recent, waitingAll, skips, outside, offShifts] = await Promise.all([
     prisma.fastFieldForm.findMany({

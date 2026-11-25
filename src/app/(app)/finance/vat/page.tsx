@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { loadHiddenScope } from "@/lib/hiddenAccounts";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate, toIsoDate, parseIsoDate } from "@/lib/dates";
@@ -26,7 +26,7 @@ export default async function VatReturnPage({
 }: {
   searchParams: { from?: string; to?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
 
   const now = new Date();
   const thisQuarter = currentQuarter(now);

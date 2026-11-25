@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export default async function PartnersAdminPage() {
+  await requireAdminPage();
   const partners = await prisma.partner.findMany({
     orderBy: { name: "asc" },
     include: {

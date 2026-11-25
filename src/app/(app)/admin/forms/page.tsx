@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { SUBMISSION_FORM_LABEL } from "@/lib/formTemplates";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -20,6 +21,7 @@ const SCOPE_TONE: Record<string, string> = {
 };
 
 export default async function FormsAdminPage() {
+  await requireAdminPage();
   const templates = await prisma.formTemplate.findMany({
     orderBy: [{ active: "desc" }, { jobType: "asc" }, { scope: "asc" }, { name: "asc" }],
     include: {

@@ -7,8 +7,7 @@ import {
   Timer,
   Users,
 } from "lucide-react";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireStaffPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { BarList } from "@/components/BarList";
@@ -254,8 +253,8 @@ export default async function DispatchPage({
 }: {
   searchParams: { bucket?: string; layers?: string };
 }) {
-  const session = await getServerSession(authOptions);
-  const isAdmin = session?.user?.role === "ADMIN";
+  const me = await requireStaffPage();
+  const isAdmin = me.role === "ADMIN";
 
   const now = new Date();
   const bucket: Bucket | null =

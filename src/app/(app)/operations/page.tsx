@@ -18,13 +18,14 @@ import { prisma } from "@/lib/db";
 import { jobScheduledRange } from "@/lib/activityWhen";
 import { ukWallClockToUtc, ukDayPlus } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
-import { getSessionUser } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { loadComplianceRegister } from "@/lib/compliance";
 import { HubGrid, type HubCard } from "@/components/HubGrid";
 
 export const dynamic = "force-dynamic";
 
 export default async function OperationsHubPage() {
+  const viewer = await requireStaffPage();
   // Rota coverage window: assignments dated from the start of today through
   // the next 7 days — "who's booked on this week".
   const rotaWeekStart = new Date();
@@ -117,7 +118,6 @@ export default async function OperationsHubPage() {
 
   // Whether the person viewing this hub has linked their own Telegram —
   // the card reflects their personal connection state, not a global one.
-  const viewer = await getSessionUser();
   const telegramLinked = viewer
     ? Boolean(
         (

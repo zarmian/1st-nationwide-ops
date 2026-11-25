@@ -1,10 +1,12 @@
 import { BlueprintForm } from "../_components/BlueprintForm";
 import { createBlueprint } from "../_actions";
 import { PageHeader } from "@/components/PageHeader";
+import { requireAdminPage } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
-export default function NewBlueprintPage() {
+export default async function NewBlueprintPage() {
+  await requireAdminPage();
   return (
     <div className="space-y-4">
       <PageHeader

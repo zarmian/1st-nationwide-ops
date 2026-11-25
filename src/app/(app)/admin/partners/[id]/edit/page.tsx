@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { PartnerForm } from "../../_components/PartnerForm";
 import { updatePartner } from "../../_actions";
 import { PageHeader } from "@/components/PageHeader";
@@ -12,6 +13,7 @@ export default async function EditPartnerPage({
 }: {
   params: { id: string };
 }) {
+  await requireAdminPage();
   const partner = await prisma.partner.findUnique({
     where: { id: params.id },
     include: { contacts: { orderBy: { name: "asc" } } },

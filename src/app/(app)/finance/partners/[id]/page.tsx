@@ -3,7 +3,7 @@ import { ClickableRow } from "@/components/ClickableRow";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -93,7 +93,7 @@ export default async function PartnerFinancePage({
     regionId?: string;
   };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

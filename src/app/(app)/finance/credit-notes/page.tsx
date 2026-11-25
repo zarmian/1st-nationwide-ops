@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
@@ -13,7 +13,7 @@ const STATUS_CHIP: Record<string, string> = {
 };
 
 export default async function CreditNotesPage() {
-  await requireAdmin();
+  await requireAdminPage();
   const notes = await prisma.creditNote.findMany({
     where: { customer: { hidden: false } },
     orderBy: { createdAt: "desc" },

@@ -1,10 +1,12 @@
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { RegionsManager } from "./_components/RegionsManager";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
 export default async function RegionsAdminPage() {
+  await requireAdminPage();
   const regions = await prisma.region.findMany({
     orderBy: { name: "asc" },
     include: {

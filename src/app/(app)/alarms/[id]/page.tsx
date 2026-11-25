@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { formatUkDateTimeLocal } from "@/lib/dates";
 import { computeAlarmSla, SLA_CHIP, slaTimingLabel } from "@/lib/alarmSla";
@@ -43,7 +43,7 @@ export default async function AlarmEventDetailPage({
 }: {
   params: { id: string };
 }) {
-  await requireStaff();
+  await requireStaffPage();
 
   const alarm = await prisma.alarmEvent.findUnique({
     where: { id: params.id },

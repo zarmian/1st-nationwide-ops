@@ -1,10 +1,12 @@
 import { CustomerForm } from "../_components/CustomerForm";
 import { createCustomer } from "../_actions";
 import { PageHeader } from "@/components/PageHeader";
+import { requireAdminPage } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
-export default function NewCustomerPage() {
+export default async function NewCustomerPage() {
+  await requireAdminPage();
   return (
     <div className="space-y-4">
       <PageHeader

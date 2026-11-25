@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { createJob } from "../_actions";
 import { recordDispatcherCallout } from "../callouts/_actions";
 import { createShift, recordCompletedShift } from "../../shifts/_actions";
@@ -70,6 +71,7 @@ export default async function NewJobPage({
 }: {
   searchParams: { tab?: string; mode?: string; siteId?: string };
 }) {
+  await requireStaffPage();
   const tab: TabKey = (
     TABS.some((t) => t.key === searchParams.tab) ? searchParams.tab : "callout"
   ) as TabKey;

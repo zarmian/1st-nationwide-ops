@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { loadHiddenScope } from "@/lib/hiddenAccounts";
 import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
@@ -10,7 +10,7 @@ import { loadReceivables } from "@/lib/receivables";
 export const dynamic = "force-dynamic";
 
 export default async function StatementsPage() {
-  await requireAdmin();
+  await requireAdminPage();
   const hidden = await loadHiddenScope(true);
 
   const [customers, receivables] = await Promise.all([

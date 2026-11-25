@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
@@ -36,7 +36,7 @@ function describeArgs(args: unknown): string {
 }
 
 export default async function ClaudeConnectorPage() {
-  await requireAdmin();
+  await requireAdminPage();
 
   const [settings, connections, calls] = await Promise.all([
     getConnectorSettings(prisma),

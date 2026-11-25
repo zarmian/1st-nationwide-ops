@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime } from "@/lib/dates";
@@ -25,7 +25,7 @@ export default async function DailyCheckPage({
 }: {
   searchParams: { id?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   const wanted = searchParams.id && /^[0-9a-f-]{36}$/i.test(searchParams.id) ? searchParams.id : null;
 
   const [settings, history] = await Promise.all([

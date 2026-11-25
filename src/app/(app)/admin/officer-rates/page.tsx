@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { upsertOfficerRate, deleteOfficerRate } from "./_actions";
 import { RateForm } from "./_components/RateForm";
 import { DeleteRateButton } from "./_components/DeleteButton";
@@ -34,6 +35,7 @@ function fmtMoney(amount: unknown, currency: string): string {
 }
 
 export default async function OfficerRatesPage() {
+  await requireAdminPage();
   const [defaults, perOfficer, officers] = await Promise.all([
     prisma.officerRate.findMany({
       where: { officerId: null },

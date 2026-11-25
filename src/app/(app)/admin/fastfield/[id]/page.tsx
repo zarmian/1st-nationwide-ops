@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { FastFieldAnswers } from "@/components/FastFieldAnswers";
@@ -27,7 +27,7 @@ export default async function FastFieldReportPage({
   params: { id: string };
   searchParams: { site?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) notFound();
 
   const report = await prisma.fastFieldReport.findUnique({

@@ -5,7 +5,7 @@ import {
   visitScheduledRange,
   shiftScheduledRange,
 } from "@/lib/activityWhen";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { ActivitiesFilters } from "./_components/ActivitiesFilters";
 import { FilterPanel } from "@/components/FilterPanel";
@@ -165,7 +165,7 @@ export default async function ActivitiesPage({
     page?: string;
   };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   const isAdmin = true;
 
   // ── 1. Resolve params ───────────────────────────────────────────────────

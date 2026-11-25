@@ -10,6 +10,7 @@ import {
   Ban,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
 import { STAT_TONE, type StatTone } from "@/components/StatCard";
@@ -60,6 +61,7 @@ export default async function ShiftsPage({
 }: {
   searchParams: { status?: string };
 }) {
+  await requireStaffPage();
   const statusFilter = searchParams.status ?? "";
   const where: any = {};
   if (statusFilter) where.status = statusFilter;

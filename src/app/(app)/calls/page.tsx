@@ -2,7 +2,7 @@ import Link from "next/link";
 import { parseIsoDate } from "@/lib/dates";
 import { Phone, PhoneMissed } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { getSessionUser } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { Pagination } from "@/components/Pagination";
@@ -68,6 +68,7 @@ export default async function CallsPage({
     page?: string;
   };
 }) {
+  const me = await requireStaffPage();
   const page = Math.max(1, Number(searchParams.page) || 1);
   const now = new Date();
   const weekAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
@@ -108,7 +109,6 @@ export default async function CallsPage({
     }),
   ]);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const me = await getSessionUser();
 
   return (
     <div className="space-y-4">

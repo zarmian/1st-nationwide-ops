@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ShieldAlert, CalendarClock, FileQuestion, ShieldCheck } from "lucide-react";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { formatDate } from "@/lib/dates";
@@ -39,7 +39,7 @@ function DateCell({ item }: { item: ComplianceItem | undefined }) {
 }
 
 export default async function CompliancePage() {
-  await requireAdmin();
+  await requireAdminPage();
   const data = await loadComplianceRegister();
 
   return (

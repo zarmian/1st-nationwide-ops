@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { updateShift } from "../../_actions";
 import { NewShiftForm } from "../../_components/NewShiftForm";
@@ -27,6 +28,7 @@ export default async function EditShiftPage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const [shift, sites, officers] = await Promise.all([
     prisma.shift.findUnique({
       where: { id: params.id },

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Users, UserCheck, Radio, UserX } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { DataTable } from "@/components/DataTable";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
@@ -17,6 +18,7 @@ export default async function OfficersPage({
 }: {
   searchParams: { region?: string; status?: string; q?: string };
 }) {
+  await requireStaffPage();
   const regionFilter = searchParams.region
     ? Number(searchParams.region)
     : null;

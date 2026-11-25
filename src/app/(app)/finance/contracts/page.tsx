@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { loadHiddenScope } from "@/lib/hiddenAccounts";
 import { HiddenAccountsNotice } from "@/components/HiddenAccountsNotice";
@@ -12,7 +12,7 @@ import { ContractsEditor } from "./_components/ContractsEditor";
 export const dynamic = "force-dynamic";
 
 export default async function ContractsPage() {
-  await requireAdmin();
+  await requireAdminPage();
   const hidden = await loadHiddenScope(true);
   const [customers, data] = await Promise.all([
     prisma.customer.findMany({

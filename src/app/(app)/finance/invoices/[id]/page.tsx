@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
@@ -23,7 +23,7 @@ export default async function InvoiceDetailPage({
 }: {
   params: { id: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   const inv = await prisma.invoice.findUnique({
     where: { id: params.id },
     include: {

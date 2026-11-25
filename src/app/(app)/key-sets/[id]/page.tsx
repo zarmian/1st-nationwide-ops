@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { handoverKeySet, updateKeySet } from "../../keys/_actions";
 import { KeySetForm } from "./_components/KeySetForm";
 import { KeySetHandoverForm } from "./_components/KeySetHandoverForm";
@@ -29,6 +30,7 @@ export default async function KeySetPage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const [set, recipients] = await Promise.all([
     prisma.keySet.findUnique({
       where: { id: params.id },

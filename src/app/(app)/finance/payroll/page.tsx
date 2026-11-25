@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { parseIsoDate } from "@/lib/dates";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { buildPayrollReport } from "@/lib/payroll";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -32,7 +32,7 @@ export default async function PayrollPage({
 }: {
   searchParams: { from?: string; to?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);

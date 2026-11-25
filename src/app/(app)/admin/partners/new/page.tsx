@@ -1,10 +1,12 @@
 import { PartnerForm } from "../_components/PartnerForm";
 import { createPartner } from "../_actions";
 import { PageHeader } from "@/components/PageHeader";
+import { requireAdminPage } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
-export default function NewPartnerPage() {
+export default async function NewPartnerPage() {
+  await requireAdminPage();
   return (
     <div className="space-y-4">
       <PageHeader

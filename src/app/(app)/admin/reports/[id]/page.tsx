@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { approveReview, rejectReview } from "../_actions";
 import { ApproveForm, RejectForm } from "./_components/ReviewActions";
 import { formatDateTime, formatUkDateTimeLocal } from "@/lib/dates";
@@ -24,6 +25,7 @@ export default async function ReviewDetailPage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const review = await prisma.reportReview.findUnique({
     where: { id: params.id },
     include: {

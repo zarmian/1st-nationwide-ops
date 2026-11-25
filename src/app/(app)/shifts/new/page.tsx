@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { createShift } from "../_actions";
 import { NewShiftForm } from "../_components/NewShiftForm";
 import { PageHeader } from "@/components/PageHeader";
@@ -6,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function NewShiftPage() {
+  await requireStaffPage();
   const [sites, officers, partners] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },

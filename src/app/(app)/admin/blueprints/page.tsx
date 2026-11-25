@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { SUBMISSION_FORM_LABEL, parseFields } from "@/lib/formTemplates";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
 export default async function BlueprintsAdminPage() {
+  await requireAdminPage();
   const blueprints = await prisma.formBlueprint.findMany({
     orderBy: [{ active: "desc" }, { builtin: "desc" }, { name: "asc" }],
     include: {
