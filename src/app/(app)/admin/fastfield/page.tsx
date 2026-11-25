@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
 import { SHIFT_GRACE_MIN, groupByPlace, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
 import { OUTSIDE_CHECK_DAYS, reportsOutsideTheirShift } from "@/lib/fastfieldImport";
+import { FirstCheckReview } from "./_components/FirstCheckReview";
 import { FormSettingsRow } from "./_components/FormSettingsRow";
 import { RetryButton } from "./_components/RetryButton";
 import { UnlinkButton } from "./_components/ReportActions";
@@ -126,6 +127,7 @@ export default async function FastFieldPage() {
         subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift it fits, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift. A report only ever goes on a shift it fits, give or take 30 minutes: it can't start more than 30 minutes before the shift starts or finish more than 30 minutes after it ends. Every 5 minutes the robot also checks the reports already on shifts and takes off (or moves to a shift it fits) any that don't."
       />
 
+      <FirstCheckReview />
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100">
           <h2 className="font-semibold text-brand-navy">Forms</h2>

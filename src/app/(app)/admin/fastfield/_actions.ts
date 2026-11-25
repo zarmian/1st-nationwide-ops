@@ -16,7 +16,7 @@ import {
   setReportIgnored,
   skipPlace,
   stopSkipping,
-  unlinkReportFromShift,
+  unlinkReportFromActivity,
 } from "@/lib/fastfieldImport";
 
 /** What a FastField form can report — and the job made when nothing matches. */
@@ -82,24 +82,36 @@ export async function saveFastFieldForm(input: {
   return okVoid();
 }
 
-/** Attach a report to a job, patrol visit or shift picked by hand. */
+const Id = z.string().uuid();
+const LinkInput = z.object({ reportId: Id, kind: z.enum(["job", "visit", "shift"]), activityId: Id });
+
+/** The page an activity opens on. */
+function activityPath(kind: "job" | "visit" | "shift", id: string): string {
+  return kind === "job" ? `/dispatch/${id}` : kind === "visit" ? `/patrols/visits/${id}` : `/shifts/${id}`;
+}
+
+/** Attach a report to a job, patrol visit or shift picked by hand. Any
+ *  report can go on any of them: the robot leaves a hand link where it was
+ *  put. The link function writes the activity's history. */
 export async function linkFastFieldReport(
   reportId: string,
   kind: "job" | "visit" | "shift",
   activityId: string,
 ): Promise<ActionResult> {
   const me = await requireAdmin();
-  const note = `Linked by ${me.name || "the office"}.`;
-  // By hand, any report can go on any activity, shifts included: the robot's
-  // shift check leaves it there.
+  const parsed = LinkInput.safeParse({ reportId, kind, activityId });
+  if (!parsed.success) return fail("That link doesn't look right. Reload the page and try again.");
+  const d = parsed.data;
+  const opts = { note: `Linked by ${me.name || "the office"}.`, byHand: true, byUserId: me.id };
   const res =
-    kind === "job"
-      ? await linkReportToJob(reportId, activityId, { note, byHand: true })
-      : kind === "visit"
-        ? await linkReportToVisit(reportId, activityId, { note, byHand: true })
-        : await linkReportToShift(reportId, activityId, { note, byHand: true });
+    d.kind === "job"
+      ? await linkReportToJob(d.reportId, d.activityId, opts)
+      : d.kind === "visit"
+        ? await linkReportToVisit(d.reportId, d.activityId, opts)
+        : await linkReportToShift(d.reportId, d.activityId, opts);
   if (!res.ok) return fail(res.error);
-  refresh(reportId);
+  revalidatePath(activityPath(d.kind, d.activityId));
+  refresh(d.reportId);
   return okVoid();
 }
 
@@ -110,6 +122,8 @@ export async function createFastFieldJob(
   type: string,
 ): Promise<ActionResult> {
   const me = await requireAdmin();
+  if (!Id.safeParse(reportId).success) return fail("That report doesn't look right.");
+  if (!Id.safeParse(siteId).success) return fail("Pick the site first.");
   const t = z.enum(REPORT_TYPES).safeParse(type);
   if (!t.success) return fail("Pick the kind of job to create.");
   const site = await prisma.site.findUnique({ where: { id: siteId }, select: { name: true } });
@@ -118,40 +132,67 @@ export async function createFastFieldJob(
     siteId,
     type: t.data as JobType,
     note: `Job at ${site.name} created by ${me.name || "the office"}.`,
+    byUserId: me.id,
   });
   if (!res.ok) return fail(res.error);
   refresh(reportId);
   return okVoid();
 }
 
-/** Set a report aside (a test, a duplicate) or bring it back. */
+/** Set a report aside (a test, a duplicate) or bring it back. Logged on the
+ *  report's history. */
 export async function ignoreFastFieldReport(
   reportId: string,
   ignored: boolean,
 ): Promise<ActionResult> {
   const me = await requireAdmin();
+  if (!Id.safeParse(reportId).success || typeof ignored !== "boolean") {
+    return fail("That report doesn't look right.");
+  }
+  const by = me.name || "the office";
   const res = await setReportIgnored(
     reportId,
     ignored,
-    ignored ? `Set aside by ${me.name || "the office"}.` : undefined,
+    // Brought back, the "Set aside by …" note would no longer be true.
+    ignored ? `Set aside by ${by}.` : `Brought back by ${by}.`,
   );
   if (!res.ok) return fail(res.error);
+  await logActivity({
+    entity: "FastFieldReport",
+    entityId: reportId,
+    action: ignored ? "fastfield_set_aside" : "fastfield_brought_back",
+    userId: me.id,
+  }).catch(() => {});
   refresh(reportId);
   return okVoid();
 }
 
-/** Take a report off its shift: it goes back to Needs linking, and the robot
- *  never puts it back. Logged on the shift's history. */
-export async function unlinkFastFieldReport(reportId: string): Promise<ActionResult> {
+/** `unlinkReportFromActivity` with the person's id for the activity's
+ *  history (its optional third argument). */
+const unlinkByPerson: (
+  reportId: string,
+  by: string,
+  opts?: { byUserId?: string },
+) => ReturnType<typeof unlinkReportFromActivity> = unlinkReportFromActivity;
+
+/** Take a report off what it's attached to — a shift, job or patrol visit,
+ *  or the job made from it. It goes back to Needs linking, and the robot
+ *  never links it again. What the link changed on a job or visit is undone
+ *  where that's safe; `check` lists what the person should look at. */
+export async function unlinkFastFieldReport(
+  reportId: string,
+): Promise<ActionResult<{ check: string[] }>> {
   const me = await requireAdmin();
-  if (!z.string().uuid().safeParse(reportId).success) return fail("That report doesn't look right.");
+  if (!Id.safeParse(reportId).success) return fail("That report doesn't look right.");
   const before = await prisma.fastFieldReport.findUnique({
     where: { id: reportId },
-    select: { shiftId: true },
+    select: { status: true, shiftId: true, jobId: true, patrolVisitId: true },
   });
-  const res = await unlinkReportFromShift(reportId, me.name || "the office");
+  const res = await unlinkByPerson(reportId, me.name || "the office", { byUserId: me.id });
   if (!res.ok) return fail(res.error);
-  if (before?.shiftId) {
+  if (before?.status === "LINKED" && before.shiftId) {
+    // Shift links come off through unlinkReportFromShift, which leaves the
+    // shift's history to us.
     await logActivity({
       entity: "Shift",
       entityId: before.shiftId,
@@ -161,8 +202,10 @@ export async function unlinkFastFieldReport(reportId: string): Promise<ActionRes
     }).catch(() => {});
     revalidatePath(`/shifts/${before.shiftId}`);
   }
+  if (before?.jobId) revalidatePath(`/dispatch/${before.jobId}`);
+  if (before?.patrolVisitId) revalidatePath(`/patrols/visits/${before.patrolVisitId}`);
   refresh(reportId);
-  return okVoid();
+  return ok({ check: res.check ?? [] });
 }
 
 /** Skip a place: set aside its waiting reports, and new ones typed the same

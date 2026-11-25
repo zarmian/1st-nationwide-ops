@@ -503,28 +503,55 @@ async function shiftsNear(siteId: string, from: Date): Promise<ShiftCandidate[]>
   return (await shiftsNearSites([siteId], from)).map(toShiftCandidate);
 }
 
-/** Shifts at a site that come within MANUAL_LINK_WINDOW_MIN of a time, for
- *  linking by hand. */
-async function shiftsForLinking(siteId: string, when: Date): Promise<ShiftCandidate[]> {
+/** Most shifts, jobs and visits (each) listed for linking a report by hand. */
+const HAND_LINK_TAKE = 200;
+
+/**
+ * Shifts at a site whose window — the earliest of the scheduled / actual
+ * start to the latest of the ends — overlaps [from, to], earliest first. The
+ * hand-link list passes its own [from, to] (days either side of the report,
+ * or one day); by default it's MANUAL_LINK_WINDOW_MIN either side of `when`
+ * (the connector's review of waiting reports). Any shift there counts — a
+ * partner's, a missed or an abandoned one too: a person may link a report to
+ * any shift. The robot's own search is `shiftsNearSites`.
+ */
+async function shiftsForLinking(
+  siteId: string,
+  when: Date,
+  window?: { from: Date; to: Date },
+  take: number = HAND_LINK_TAKE,
+): Promise<(ShiftCandidate & { type: string; status: string; partner: boolean })[]> {
   const reach = MANUAL_LINK_WINDOW_MIN * 60000;
-  const t = when.getTime();
-  // A shift that ends within reach started at most a day before that.
-  const range = { gte: new Date(t - reach - 24 * 3_600_000), lte: new Date(t + reach) };
+  const from = window?.from ?? new Date(when.getTime() - reach);
+  const to = window?.to ?? new Date(when.getTime() + reach);
   const rows = await prisma.shift.findMany({
-    where: { siteId, OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }] },
+    where: {
+      siteId,
+      AND: [
+        { OR: [{ scheduledStartsAt: { lte: to } }, { actualStartedAt: { lte: to } }] },
+        { OR: [{ scheduledEndsAt: { gte: from } }, { actualEndedAt: { gte: from } }] },
+      ],
+    },
+    orderBy: [{ scheduledStartsAt: "asc" }, { id: "asc" }],
+    take,
     select: {
       id: true,
       officerId: true,
+      type: true,
+      status: true,
+      handledByPartnerId: true,
       scheduledStartsAt: true,
       scheduledEndsAt: true,
       actualStartedAt: true,
       actualEndedAt: true,
     },
-    take: 100,
   });
-  return rows
-    .map(toShiftCandidate)
-    .filter((s) => s.end.getTime() >= t - reach && s.start.getTime() <= t + reach);
+  return rows.map((s) => ({
+    ...toShiftCandidate(s),
+    type: s.type,
+    status: s.status,
+    partner: s.handledByPartnerId != null,
+  }));
 }
 
 /**
@@ -2350,69 +2377,193 @@ export async function stopSkipping(
 export type NearbyActivity = {
   kind: "job" | "visit" | "shift";
   id: string;
-  /** JobType, "PATROL" for a visit, "SHIFT" for a shift. */
+  /** The JobType for a job; "PATROL" or "VPI" (its schedule's kind) for a
+   *  visit; the ShiftType for a shift. */
   type: string;
+  /** Its own status (JobStatus / VisitStatus / ShiftStatus). */
+  status: string;
+  /** Shifts: the start of the window; jobs and visits: their time nearest
+   *  the report's own time. */
   at: Date;
-  /** Shifts: when it ends. */
+  /** Shifts: the end of the window. */
   until?: Date;
-  /** 0 for a shift the report fits inside. */
+  /** Shifts: how far the report runs past it (0 strictly inside); jobs and
+   *  visits: minutes from the report's own time (0 within it). */
   minutesApart: number;
-  taken: boolean;
-  /** Shifts only: why the report can't go on it ("started 25 min before the
-   *  shift"), or null when it fits inside. */
+  /** Jobs and visits: which side of the report's own time `at` is. */
+  side?: "before" | "during" | "after";
+  /** Shifts: why the report doesn't fit it ("started 45 min before the
+   *  shift"), or null when it fits. Either way a person can link it. */
   outside?: string | null;
+  /** Jobs and visits: already has a report (a FastField one or the officer's
+   *  own). A shift takes any number. */
+  taken: boolean;
+  /** Handled by a partner. */
+  partner: boolean;
+  /** Jobs: the job a patrol visit stands on (the robot links the visit). */
+  forVisit?: boolean;
+  /** Linking it marks it done: a job or visit that isn't finished yet. */
+  marksDone: boolean;
 };
 
-/** Activities at a site for linking a report by hand: anything there from a
- *  day before the report's time to a day after (MANUAL_LINK_WINDOW_MIN; the
- *  robot only looks within 3 hours, or 18). The shifts the report fits inside
- *  come first, then the rest, nearest first. A shift it doesn't fit is listed
- *  with the reason, and can't be linked. */
+export type HandLinkActivities = {
+  rows: NearbyActivity[];
+  /** A kind had more than HAND_LINK_TAKE in the window: not all are listed. */
+  more: boolean;
+};
+
+/** Of an activity's times, the one nearest a report's own time: how far it
+ *  is (0 within the report's span) and on which side. */
+export function nearestToSpan(
+  times: Date[],
+  span: ReportSpan,
+): { at: Date; minutes: number; side: "before" | "during" | "after" } {
+  let best: { at: Date; minutes: number; side: "before" | "during" | "after" } | null = null;
+  for (const t of times) {
+    const ms = t.getTime();
+    const side = ms < span.from.getTime() ? "before" : ms > span.to.getTime() ? "after" : "during";
+    const minutes =
+      side === "before"
+        ? (span.from.getTime() - ms) / 60000
+        : side === "after"
+          ? (ms - span.to.getTime()) / 60000
+          : 0;
+    if (!best || minutes < best.minutes) best = { at: t, minutes, side };
+  }
+  if (!best) return { at: span.from, minutes: 0, side: "during" };
+  return { ...best, minutes: Math.round(best.minutes) };
+}
+
+/** The hand-link list's order: the shifts the report fits first, then the
+ *  rest, nearest first (then earliest). */
+export function sortForLinking(rows: NearbyActivity[]): NearbyActivity[] {
+  const fits = (r: NearbyActivity) => r.kind === "shift" && !r.outside;
+  return [...rows].sort(
+    (a, b) =>
+      Number(fits(b)) - Number(fits(a)) ||
+      a.minutesApart - b.minutesApart ||
+      a.at.getTime() - b.at.getTime() ||
+      a.id.localeCompare(b.id),
+  );
+}
+
+/**
+ * Everything at a site within [window.from, window.to], for linking a report
+ * by hand (lib/fastfieldHandLink.ts picks the window: days either side of the
+ * report, or one day). A person can link a report to any activity, so nothing
+ * is left out — cancelled, a partner's, already reported, a shift's job, a
+ * shift the report doesn't fit: the page marks what the robot would skip
+ * (handLinkMarkers). Not the robot's search (`candidatesNear`,
+ * `shiftsNearSites`), which keeps to 3 hours (or 18) and skips all that.
+ */
 export async function activitiesNearReport(
   reportId: string,
   siteId: string,
-): Promise<NearbyActivity[]> {
+  window: { from: Date; to: Date },
+): Promise<HandLinkActivities> {
   const report = await prisma.fastFieldReport.findUnique({
     where: { id: reportId },
     select: REPORT_SELECT,
   });
-  if (!report) return [];
+  if (!report) return { rows: [], more: false };
   const facts = factsOf(report);
-  const t = facts.when.getTime();
   const span = reportSpan(facts);
-  const [candidates, shifts] = await Promise.all([
-    candidatesNear(siteId, facts.when, MANUAL_LINK_WINDOW_MIN),
-    shiftsForLinking(siteId, facts.when),
+  const range = { gte: window.from, lte: window.to };
+  const [jobs, visits, shifts] = await Promise.all([
+    prisma.job.findMany({
+      where: {
+        siteId,
+        OR: [
+          { scheduledFor: range },
+          { startedAt: range },
+          { completedAt: range },
+          { scheduledFor: null, startedAt: null, completedAt: null, createdAt: range },
+        ],
+      },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      take: HAND_LINK_TAKE + 1,
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        scheduledFor: true,
+        startedAt: true,
+        completedAt: true,
+        createdAt: true,
+        handledByPartnerId: true,
+        patrolVisitId: true,
+        _count: { select: { fastfieldReports: true, formSubmissions: true } },
+      },
+    }),
+    prisma.patrolVisit.findMany({
+      where: { siteId, OR: [{ scheduledAt: range }, { arrivedAt: range }, { departedAt: range }] },
+      orderBy: [{ scheduledAt: "asc" }, { id: "asc" }],
+      take: HAND_LINK_TAKE + 1,
+      select: {
+        id: true,
+        status: true,
+        scheduledAt: true,
+        arrivedAt: true,
+        departedAt: true,
+        handledByPartnerId: true,
+        patrolSchedule: { select: { kind: true } },
+        _count: { select: { fastfieldReports: true, formSubmissions: true } },
+      },
+    }),
+    shiftsForLinking(siteId, facts.when, window, HAND_LINK_TAKE + 1),
   ]);
-  const shiftRows: NearbyActivity[] = shifts.map((s) => {
+  const present = (ds: (Date | null)[]) => ds.filter((d): d is Date => d != null);
+  const shiftRows: NearbyActivity[] = shifts.slice(0, HAND_LINK_TAKE).map((s) => {
     const fit = shiftFit(span, s);
     return {
       kind: "shift",
       id: s.id,
-      type: "SHIFT",
+      type: s.type,
+      status: s.status,
       at: s.start,
       until: s.end,
       minutesApart: shiftApartMin(span, s),
-      taken: false,
       outside: fit.fits ? null : outsideShiftText(fit),
+      taken: false,
+      partner: s.partner,
+      marksDone: false,
     };
   });
-  const jobRows: NearbyActivity[] = candidates.map((c) => {
-    const at = c.times.reduce((best, x) =>
-      Math.abs(x.getTime() - t) < Math.abs(best.getTime() - t) ? x : best,
-    );
+  const jobRows: NearbyActivity[] = jobs.slice(0, HAND_LINK_TAKE).map((j) => {
+    const times = present([j.scheduledFor, j.startedAt, j.completedAt]);
+    const near = nearestToSpan(times.length ? times : [j.createdAt], span);
     return {
-      kind: c.kind,
-      id: c.id,
-      type: c.type,
-      at,
-      minutesApart: Math.round(Math.abs(at.getTime() - t) / 60000),
-      taken: c.taken,
+      kind: "job",
+      id: j.id,
+      type: j.type,
+      status: j.status,
+      at: near.at,
+      minutesApart: near.minutes,
+      side: near.side,
+      taken: j._count.fastfieldReports + j._count.formSubmissions > 0,
+      partner: j.handledByPartnerId != null,
+      forVisit: j.patrolVisitId != null,
+      marksDone: UNFINISHED.includes(j.status),
     };
   });
-  const fitting = shiftRows.filter((r) => !r.outside);
-  const rest = [...shiftRows.filter((r) => r.outside), ...jobRows].sort(
-    (a, b) => a.minutesApart - b.minutesApart,
-  );
-  return [...fitting, ...rest];
+  const visitRows: NearbyActivity[] = visits.slice(0, HAND_LINK_TAKE).map((v) => {
+    const near = nearestToSpan(present([v.scheduledAt, v.arrivedAt, v.departedAt]), span);
+    return {
+      kind: "visit",
+      id: v.id,
+      type: v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL",
+      status: v.status,
+      at: near.at,
+      minutesApart: near.minutes,
+      side: near.side,
+      taken: v._count.fastfieldReports + v._count.formSubmissions > 0,
+      partner: v.handledByPartnerId != null,
+      marksDone: VISIT_UNFINISHED.includes(v.status),
+    };
+  });
+  return {
+    rows: sortForLinking([...shiftRows, ...jobRows, ...visitRows]),
+    more:
+      shifts.length > HAND_LINK_TAKE || jobs.length > HAND_LINK_TAKE || visits.length > HAND_LINK_TAKE,
+  };
 }
