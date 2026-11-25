@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { dueForRecheck, RULES_CHANGED_AT, type WaitingReport, type WorkChange } from "./fastfieldImport";
+import { dueForRecheck, type WaitingReport, type WorkChange } from "./fastfieldImport";
+import { FASTFIELD_RULES_VERSION } from "./fastfieldRulesVersion";
 
 const NOW = new Date("2026-10-23T13:00:00Z");
 const h = (hours: number) => new Date(NOW.getTime() + hours * 3_600_000);
@@ -9,12 +10,14 @@ const report = (
   siteId: string | null,
   atHours: number,
   lastLookHours: number,
+  rulesVersion: number = FASTFIELD_RULES_VERSION,
 ): WaitingReport => ({
   id,
   siteId,
   at: h(atHours),
   submittedAt: h(atHours + 0.1),
   lastLook: h(lastLookHours),
+  rulesVersion,
 });
 
 const change = (siteId: string, changedHours: number, fromHours: number, toHours: number): WorkChange => ({
@@ -61,7 +64,31 @@ describe("dueForRecheck", () => {
     expect(ids).toEqual(["due", "fresh"]);
   });
 
-  it("has the rules' change date in the past, so a pass after it settles", () => {
-    expect(RULES_CHANGED_AT.getTime()).toBeLessThan(Date.now());
+  it("tries again, newest first, every report judged under older rules — however recently", () => {
+    const old = FASTFIELD_RULES_VERSION - 1;
+    const rows = [
+      report("old-rules-1h", "s1", -40, -1, old), // tried an hour ago, by the old rules
+      report("old-rules-new", "s1", -2, -0.5, old),
+      report("current", "s1", -30, -1), // current rules, tried recently: not due
+    ];
+    expect(dueForRecheck(rows, [], null, NOW)).toEqual(["old-rules-new", "old-rules-1h"]);
+  });
+
+  it("puts work near a report ahead of the rules bucket, and the rules bucket ahead of stale ones", () => {
+    const old = FASTFIELD_RULES_VERSION - 1;
+    const rows = [
+      report("stale", "s1", -60, -30), // not tried for 30 h
+      report("old-rules", "s2", -50, -2, old),
+      report("work", "s3", -10, -9),
+    ];
+    const ids = dueForRecheck(rows, [change("s3", -1, -11, -8)], null, NOW);
+    expect(ids).toEqual(["work", "old-rules", "stale"]);
+  });
+
+  it("stops picking a report once it is judged under the current rules", () => {
+    const old = FASTFIELD_RULES_VERSION - 1;
+    expect(dueForRecheck([report("r", "s1", -5, -1, old)], [], null, NOW)).toEqual(["r"]);
+    // The same report after the retry stamped it (checkedAt now, current version).
+    expect(dueForRecheck([report("r", "s1", -5, 0)], [], null, NOW)).toEqual([]);
   });
 });
