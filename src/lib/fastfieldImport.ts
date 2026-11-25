@@ -45,6 +45,7 @@ import {
 import {
   apartText,
   extractFacts,
+  withTimesNote,
   MANUAL_LINK_WINDOW_MIN,
   MATCH_WINDOW_MIN,
   WIDE_MATCH_WINDOW_MIN,
@@ -661,10 +662,11 @@ async function decide(
       reportSpan(facts),
     );
     const byWork = pickSiteByActivity(facts, sp.candidates, active);
-    if (!byWork) return { action: "unmatched", site: null, reason: "site", note: sp.reason };
+    if (!byWork) return { action: "unmatched", site: null, reason: "site", note: withTimesNote(sp.reason, facts) };
     site = byWork;
     how = siteHow("activity", null);
   }
+  how = withTimesNote(how, facts); // typed times it couldn't use: every note says so
   const kind = (facts.visitType as JobType | null) ?? form.jobType;
   const at = formatDateTime(facts.when);
   // A report only goes on a shift it fits inside: it doesn't start before
@@ -862,6 +864,9 @@ async function recordPreview(run: string, byForm: Record<string, Counts>) {
 }
 
 function incomingTimes(r: FastFieldIncoming) {
+  // FastField's own timestamps (sent, form opened / finished), not typed
+  // answers. Whether they carry a zone is unverified (a discovery run would
+  // show); one without a zone is read as the server does, i.e. as UTC.
   const d = (s: string | null | undefined) => {
     if (!s) return null;
     const t = new Date(s);

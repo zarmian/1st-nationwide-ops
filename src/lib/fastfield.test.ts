@@ -30,6 +30,7 @@ import {
   type ShiftCandidate,
   type SiteRow,
 } from "./fastfield";
+import { answerTime, timeRole, typedValue, withTimesNote, type TimeRole } from "./fastfield";
 
 // The Shurgard form as FastField sends it (answers in form order).
 function shurgardAnswers(over: Partial<Record<string, unknown>> = {}): FastFieldAnswer[] {
@@ -129,6 +130,552 @@ describe("parseFastFieldTime", () => {
     expect(parseFastFieldTime("")).toBeNull();
     expect(parseFastFieldTime(42)).toBeNull();
   });
+  it.each([
+    // A space before the time, with an offset (review L10).
+    ["2026-10-17 22:15:00+01:00", "2026-10-17T21:15:00.000Z"],
+    ["2026-10-17T22:15:00.123+01:00", "2026-10-17T21:15:00.123Z"],
+    ["2026-10-17T22:15+0100", "2026-10-17T21:15:00.000Z"],
+    ["2026-10-17T22:15:00Z", "2026-10-17T22:15:00.000Z"],
+    // No zone: UK time, 12-hour clock too, and UK day-first dates.
+    ["2026-10-17 10:15 pm", "2026-10-17T21:15:00.000Z"],
+    ["17/10/2026 22:15", "2026-10-17T21:15:00.000Z"],
+    ["01/12/2026 08:00", "2026-12-01T08:00:00.000Z"],
+    // The nights the clocks change: 01:30 on 29 Mar 2026 doesn't exist (read
+    // with the summer offset); on 25 Oct 2026 it happens twice (the GMT one).
+    ["2026-03-29T01:30", "2026-03-29T00:30:00.000Z"],
+    ["2026-10-25T01:30", "2026-10-25T01:30:00.000Z"],
+  ])("reads %s", (value, iso) => {
+    expect(parseFastFieldTime(value)?.toISOString()).toBe(iso);
+  });
+  it("needs a real date and time", () => {
+    expect(parseFastFieldTime("2026-02-30T10:00")).toBeNull();
+    expect(parseFastFieldTime("2026-10-17T25:00")).toBeNull();
+    expect(parseFastFieldTime("06:20")).toBeNull();
+    expect(parseFastFieldTime("17/10/2026")).toBeNull();
+  });
+});
+
+describe("typedValue", () => {
+  const v = (label: string, value: unknown) => typedValue({ label, value });
+  const moment = (iso: string) => ({ kind: "moment", at: new Date(iso) });
+  const time = (h: number, mi: number, s = 0) => ({ kind: "time", h, mi, s, ms: 0 });
+  const date = (year: number, month: number, day: number) => ({ kind: "date", day: { year, month, day } });
+
+  it.each([
+    ["Arrive Date/Time", "2026-10-17T22:15:00.000+01:00", moment("2026-10-17T21:15:00.000Z")],
+    ["Arrive Date/Time", "2026-11-24T06:20", moment("2026-11-24T06:20:00.000Z")],
+    // A time picker: a time of day, whatever form it comes in.
+    ["Arrival time", "06:20", time(6, 20)],
+    ["Arrival time", "06:20:45", time(6, 20, 45)],
+    ["Arrival time", "6:20 PM", time(18, 20)],
+    ["Arrival time", "12:05 am", time(0, 5)],
+    ["Arrival time", "1900-01-01T06:20:00", time(6, 20)],
+    ["Arrival time", "1970-01-01T06:20:00.000Z", time(6, 20)],
+    // A date picker: a day.
+    ["Date", "2026-11-24", date(2026, 11, 24)],
+    ["Patrol date", "24/11/2026", date(2026, 11, 24)],
+    // …also when it keeps the day as midnight, under a label asking for a date.
+    ["Date of patrol", "2026-11-24T00:00:00.000Z", date(2026, 11, 24)],
+    ["Date of patrol", "2026-06-23T23:00:00.000Z", date(2026, 6, 24)], // UK midnight (BST)
+    // Midnight under a label asking for a time is a time.
+    ["Date/Time", "2026-11-24T00:00:00.000Z", moment("2026-11-24T00:00:00.000Z")],
+  ])("%s = %s", (label, value, want) => {
+    expect(v(label, value)).toEqual(want);
+  });
+
+  it("is null for anything else", () => {
+    expect(v("Arrival time", "25:00")).toBeNull();
+    expect(v("Arrival time", "13:00 pm")).toBeNull();
+    expect(v("Arrival time", "soon")).toBeNull();
+    expect(v("Arrival time", 42)).toBeNull();
+    expect(v("Arrival time", { value: "06:20" })).toBeNull();
+    expect(v("Arrival time", null)).toBeNull();
+  });
+});
+
+describe("answerTime", () => {
+  const ans = (value: unknown, at: string | null = "2026-11-24T07:45:10.000Z"): FastFieldAnswer => ({
+    key: "t",
+    label: "Arrival Time",
+    type: "TimePicker",
+    value,
+    at,
+  });
+  const sent = new Date("2026-11-24T07:50:00.000Z");
+
+  it("never uses when the field was tapped on the phone (review H2)", () => {
+    expect(answerTime(ans("06:20"), { submittedAt: sent })?.toISOString()).toBe("2026-11-24T06:20:00.000Z");
+    expect(answerTime(ans("2026-11-24"), { submittedAt: sent })).toBeNull();
+    expect(answerTime(ans("not a time"), { submittedAt: sent })).toBeNull();
+    expect(answerTime(ans(null), { submittedAt: sent })).toBeNull();
+  });
+
+  it("puts a time typed on its own on the date typed in the form", () => {
+    const day = { year: 2026, month: 11, day: 22 };
+    expect(answerTime(ans("23:10"), { submittedAt: sent, day })?.toISOString()).toBe("2026-11-22T23:10:00.000Z");
+  });
+
+  it("else on the day it was sent — the day before if that's more than 15 minutes after it was sent", () => {
+    const at = (value: string, submitted: string) =>
+      answerTime(ans(value), { submittedAt: new Date(submitted) })?.toISOString();
+    expect(at("23:50", "2026-11-25T00:15:00.000Z")).toBe("2026-11-24T23:50:00.000Z");
+    expect(at("00:25", "2026-11-25T00:15:00.000Z")).toBe("2026-11-25T00:25:00.000Z"); // 10 min after: kept
+    expect(at("00:40", "2026-11-25T00:15:00.000Z")).toBe("2026-11-24T00:40:00.000Z"); // 25 min after
+    // UK days and UK time in summer: sent 07:00 BST.
+    expect(at("06:20", "2026-06-24T06:00:00.000Z")).toBe("2026-06-24T05:20:00.000Z");
+    expect(at("23:30", "2026-06-24T23:10:00.000Z")).toBe("2026-06-24T22:30:00.000Z"); // 00:10 BST on the 25th
+  });
+
+  it("can't place a time on its own without a day to put it on", () => {
+    expect(answerTime(ans("06:20"))).toBeNull();
+    expect(answerTime(ans("2026-11-24T06:20:00.000Z"))?.toISOString()).toBe("2026-11-24T06:20:00.000Z");
+  });
+});
+
+describe("timeRole", () => {
+  const cases: [TimeRole, string[]][] = [
+    [
+      "arrive",
+      [
+        "Arrive Date/Time",
+        "Arrival time",
+        "Time on site",
+        "Onsite",
+        "Time attended",
+        "Reached site",
+        "Signed on",
+        "Signed On Date/Time",
+        "Booked on",
+        "Clocked in",
+        "Clock in",
+        "Clock on",
+        "Logged in",
+        "Check in",
+        "Time on",
+        "Time in",
+        "On duty",
+        "Start of patrol",
+        "Patrol start time",
+        // The officer's own times at an alarm, an incident or a callout (review M1).
+        "Arrived at alarm",
+        "Arrived at fire alarm",
+        "Fire alarm callout — time on site",
+        "Callout arrival time",
+        "Callout start time",
+        "Emergency callout arrival",
+        "Time attended (alarm response)",
+        "Call attended",
+        "Alarm response start time",
+        "Time attended incident",
+        "Arrived at incident",
+        // A client's or customer's place is where the officer was.
+        "Arrival at customer site",
+        "Time arrived at client premises",
+        "Customer's site — time on site",
+        "Customer’s site — time on site",
+        "Customers' site — time on site",
+      ],
+    ],
+    [
+      "leave",
+      [
+        "Departure time",
+        "Time left site",
+        "Left site",
+        "Time Left",
+        "Signed Off Date/Time",
+        "Signed off",
+        "Booked off",
+        "Clocked out",
+        "Clock out",
+        "Logged out",
+        "Check out",
+        "Time off",
+        "Time out",
+        "Off duty",
+        "End of patrol",
+        "Patrol finish time",
+        "Completed",
+        "Time left alarm site",
+        "Callout finish time",
+        "Alarm callout finish time",
+        "Left customer premises",
+      ],
+    ],
+    [
+      "plain",
+      [
+        "Date/Time",
+        "Date/Time of patrol",
+        "Time 1",
+        "Lock up time",
+        "Response time",
+        "Alarm response time",
+        // Both words: it doesn't say which.
+        "Start/Finish",
+        "Time on/off site",
+      ],
+    ],
+    [
+      "not",
+      [
+        // Someone else's time, even with an arrival or leaving word.
+        "Time police attended",
+        "Police arrived",
+        "Police arrival time",
+        "Fire brigade left",
+        "Fire brigade attended",
+        "Fire service arrived",
+        "Fire crew on site",
+        "Firefighters arrived",
+        "Fire and rescue left",
+        "Emergency services arrived",
+        "Ambulance arrived",
+        "Keyholder arrived",
+        "Key holder on site",
+        "Engineer on site",
+        "Engineer finished",
+        "Customer arrived",
+        "Customers left",
+        "Customer arrival time",
+        "Time customer called",
+        "Client left",
+        "Client contacted at",
+        "Manager attended",
+        "Contractor finished",
+        // An event's time.
+        "Incident start time",
+        "Time of incident",
+        "Incident time",
+        "Alarm activation time",
+        "Time alarm activated",
+        "Time triggered",
+        "Alert received",
+        "Time reported",
+        "Call received",
+        "Time of call",
+        "Time of callout",
+        "Time of call out",
+        "Time called",
+        "Called out at",
+        "Call time",
+        "Time alarm turned off",
+        "Alarm time",
+        "Alarm end time",
+        "Call out time",
+      ],
+    ],
+  ];
+  for (const [role, labels] of cases) {
+    it.each(labels)(`"%s" is ${role}`, (label) => {
+      expect(timeRole(label)).toBe(role);
+    });
+  }
+});
+
+describe("extractFacts: the report's typed times", () => {
+  // 24 Nov 2026 is GMT, so UK times read the same as UTC.
+  const t = (label: string, value: unknown, extra: Partial<FastFieldAnswer> = {}): FastFieldAnswer => ({
+    key: label,
+    label,
+    type: "DatePicker",
+    value,
+    ...extra,
+  });
+  const iso = (d: Date | null | undefined) => d?.toISOString() ?? null;
+  const span = (f: ReturnType<typeof extractFacts>) => {
+    const s = reportSpan(f);
+    return [s.from.toISOString(), s.to.toISOString()];
+  };
+  const night: ShiftCandidate = {
+    id: "night",
+    start: new Date("2026-11-23T19:00:00Z"),
+    end: new Date("2026-11-24T07:00:00Z"),
+    officerId: null,
+  };
+  const day: ShiftCandidate = {
+    id: "day",
+    start: new Date("2026-11-24T07:00:00Z"),
+    end: new Date("2026-11-24T19:00:00Z"),
+    officerId: null,
+  };
+
+  it("takes one plain typed time as the report's moment (review H1)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T07:50:00Z",
+      startedAt: "2026-11-24T06:30:00Z",
+      answers: [t("Date/Time of patrol", "2026-11-24T06:35:00.000Z")],
+    });
+    expect(iso(f.arrivedAt)).toBe("2026-11-24T06:35:00.000Z");
+    expect(f.departedAt).toBeNull();
+    expect(span(f)).toEqual(["2026-11-24T06:35:00.000Z", "2026-11-24T06:35:00.000Z"]);
+    // It's the night shift's round: the robot neither puts it on the day
+    // shift nor moves it there, as it did when 07:50 (sent) was its time.
+    expect(pickShift(reportSpan(f), [night, day], null).pick?.id).toBe("night");
+    expect(shiftLinkAction(reportSpan(f), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
+  it("fills a missing side from the plain times, earliest first and latest last (H1, L6)", () => {
+    const sent = "2026-11-24T07:50:00Z";
+    const leftOnly = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time Left", "2026-11-24T06:40:00Z"), t("Date/Time", "2026-11-24T06:20:00Z")],
+    });
+    expect(span(leftOnly)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:40:00.000Z"]);
+    // Out of order on the form: still the earliest to the latest.
+    const unordered = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time 1", "2026-11-24T06:40:00Z"), t("Time 2", "2026-11-24T06:20:00Z"), t("Time 3", "2026-11-24T06:30:00Z")],
+    });
+    expect(span(unordered)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:40:00.000Z"]);
+    // A labelled arrival, and a plain time after it: that's the departure.
+    const arrivalOnly = extractFacts({
+      submittedAt: sent,
+      answers: [t("Arrival time", "2026-11-24T06:00:00Z"), t("Time", "2026-11-24T06:45:00Z")],
+    });
+    expect(span(arrivalOnly)).toEqual(["2026-11-24T06:00:00.000Z", "2026-11-24T06:45:00.000Z"]);
+  });
+
+  it("lets labelled times win for their side, and only fills a side a plain time fits", () => {
+    const sent = "2026-11-24T07:50:00Z";
+    // A plain time before the labelled arrival is neither arrival nor departure.
+    const f = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time", "2026-11-24T06:05:00Z"), t("Arrival time", "2026-11-24T06:15:00Z")],
+    });
+    expect(iso(f.arrivedAt)).toBe("2026-11-24T06:15:00.000Z");
+    expect(f.departedAt).toBeNull();
+    // A plain time after the labelled departure doesn't become the arrival.
+    const g = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time left site", "2026-11-24T06:30:00Z"), t("Time", "2026-11-24T06:50:00Z")],
+    });
+    expect(g.arrivedAt).toBeNull();
+    expect(span(g)).toEqual(["2026-11-24T06:30:00.000Z", "2026-11-24T06:30:00.000Z"]);
+    // Two labelled arrivals: the earliest. Two departures: the latest.
+    const h = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Signed on", "2026-11-24T06:10:00Z"),
+        t("Arrival time", "2026-11-24T06:05:00Z"),
+        t("Time left site", "2026-11-24T06:40:00Z"),
+        t("Signed off", "2026-11-24T06:45:00Z"),
+      ],
+    });
+    expect(span(h)).toEqual(["2026-11-24T06:05:00.000Z", "2026-11-24T06:45:00.000Z"]);
+  });
+
+  it("reads time pickers as typed, not when the field was tapped (review H2)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T07:50:00Z",
+      startedAt: "2026-11-24T07:40:00Z",
+      answers: [
+        t("Arrival Time", "06:20", { type: "TimePicker", at: "2026-11-24T07:45:10.000Z" }),
+        t("Departure Time", "06:40", { type: "TimePicker", at: "2026-11-24T07:45:30.000Z" }),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:40:00.000Z"]);
+    expect(shiftLinkAction(reportSpan(f), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
+  it("puts typed times on the date typed in the form — one labelled as a date first", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T08:00:00Z",
+      answers: [
+        t("Next service due", "2026-12-01"),
+        t("Patrol date", "2026-11-23"),
+        t("Arrival time", "23:50", { type: "TimePicker" }),
+        // Before the arrival, as a time only: the next day.
+        t("Departure time", "00:10", { type: "TimePicker" }),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-23T23:50:00.000Z", "2026-11-24T00:10:00.000Z"]);
+    // Someone else's or an event's date isn't the form's date.
+    const g = extractFacts({
+      submittedAt: "2026-11-24T07:50:00Z",
+      answers: [t("Incident date", "2026-11-20"), t("Arrival time", "07:30", { type: "TimePicker" })],
+    });
+    expect(iso(g.arrivedAt)).toBe("2026-11-24T07:30:00.000Z");
+  });
+
+  it("without a typed date, uses the day it was sent — over midnight too", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-25T00:15:00Z",
+      answers: [
+        t("Arrival time", "23:50", { type: "TimePicker" }),
+        t("Departure time", "00:10", { type: "TimePicker" }),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T23:50:00.000Z", "2026-11-25T00:10:00.000Z"]);
+  });
+
+  it("drops a time-only departure that the next day would put after the report was sent", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T07:00:00Z",
+      answers: [
+        t("Arrival time", "06:00", { type: "TimePicker" }),
+        t("Departure time", "05:00", { type: "TimePicker" }),
+      ],
+    });
+    expect(iso(f.arrivedAt)).toBe("2026-11-24T06:00:00.000Z");
+    expect(f.departedAt).toBeNull();
+    expect(f.timesNote).toBeNull();
+  });
+
+  it("never takes someone else's time or an event's as the visit's (review M1)", () => {
+    const sent = "2026-11-24T08:00:00Z";
+    const alarmOff = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Time on site", "2026-11-24T06:10:00Z"),
+        t("Time alarm turned off", "2026-11-24T06:22:00Z"),
+        t("Time Left Site", "2026-11-24T07:40:00Z"),
+      ],
+    });
+    expect(span(alarmOff)).toEqual(["2026-11-24T06:10:00.000Z", "2026-11-24T07:40:00.000Z"]);
+    // …so a round that ran 40 min past a 07:00 end isn't put on the shift.
+    expect(pickShift(reportSpan(alarmOff), [night], null).pick).toBeNull();
+    const incident = extractFacts({
+      submittedAt: sent,
+      answers: [t("Incident start time", "2026-11-23T23:00:00Z"), t("Time on site", "2026-11-24T06:20:00Z")],
+    });
+    expect(iso(incident.when)).toBe("2026-11-24T06:20:00.000Z");
+    const police = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time Police Attended", "2026-11-24T06:05:00Z"), t("Arrival time", "2026-11-24T06:20:00Z")],
+    });
+    expect(iso(police.arrivedAt)).toBe("2026-11-24T06:20:00.000Z");
+    // Only someone else's and the events' times: nothing typed counts.
+    const none = extractFacts({
+      submittedAt: sent,
+      answers: [t("Keyholder arrived", "2026-11-24T06:05:00Z"), t("Time of call", "2026-11-24T05:50:00Z")],
+    });
+    expect(none.arrivedAt).toBeNull();
+    expect(iso(none.when)).toBe("2026-11-24T08:00:00.000Z");
+  });
+
+  it("keeps the officer's own times at an alarm or callout (M1)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T03:00:00Z",
+      answers: [
+        t("Alarm activation time", "2026-11-24T01:50:00Z"),
+        t("Callout arrival time", "2026-11-24T02:10:00Z"),
+        t("Time left alarm site", "2026-11-24T02:40:00Z"),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T02:10:00.000Z", "2026-11-24T02:40:00.000Z"]);
+  });
+
+  it("counts the officer's times at a client's place, never the client's or customer's own", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T08:00:00Z",
+      answers: [
+        t("Customer arrived", "2026-11-24T06:05:00Z"),
+        t("Arrival at customer site", "2026-11-24T06:20:00Z"),
+        t("Client contacted at", "2026-11-24T06:30:00Z"),
+        t("Left customer premises", "2026-11-24T06:50:00Z"),
+        t("Time customer called", "2026-11-24T07:10:00Z"),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:50:00.000Z"]);
+  });
+
+  it("counts the officer's times at a fire alarm, an incident or a callout, never the fire brigade's or the event's", () => {
+    const sent = "2026-11-24T03:30:00Z";
+    const fire = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Arrived at fire alarm", "2026-11-24T02:10:00Z"),
+        t("Fire brigade attended", "2026-11-24T02:20:00Z"),
+        t("Emergency services arrived", "2026-11-24T02:25:00Z"),
+        t("Alarm end time", "2026-11-24T03:00:00Z"),
+        t("Time left site", "2026-11-24T02:50:00Z"),
+      ],
+    });
+    expect(span(fire)).toEqual(["2026-11-24T02:10:00.000Z", "2026-11-24T02:50:00.000Z"]);
+    const incident = extractFacts({
+      submittedAt: sent,
+      answers: [t("Incident start time", "2026-11-24T01:30:00Z"), t("Time attended incident", "2026-11-24T02:05:00Z")],
+    });
+    expect(span(incident)).toEqual(["2026-11-24T02:05:00.000Z", "2026-11-24T02:05:00.000Z"]);
+    const callout = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Time of callout", "2026-11-24T01:40:00Z"),
+        t("Callout start time", "2026-11-24T02:00:00Z"),
+        t("Callout finish time", "2026-11-24T02:45:00Z"),
+      ],
+    });
+    expect(span(callout)).toEqual(["2026-11-24T02:00:00.000Z", "2026-11-24T02:45:00.000Z"]);
+  });
+
+  it("reads signed on / booked off and the like (review M2)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T19:30:00Z",
+      answers: [t("Signed On", "2026-11-24T18:20:00Z"), t("Signed Off", "2026-11-24T19:05:00Z")],
+    });
+    expect(span(f)).toEqual(["2026-11-24T18:20:00.000Z", "2026-11-24T19:05:00.000Z"]);
+    // It started 40 min before a 19:00 shift, so it doesn't fit it.
+    const shift = { id: "n", start: new Date("2026-11-24T19:00:00Z"), end: new Date("2026-11-25T07:00:00Z"), officerId: null };
+    expect(pickShift(reportSpan(f), [shift], null).pick).toBeNull();
+  });
+
+  it("takes typed times up to 72 hours before it was sent, and no more than 15 minutes after (review M7)", () => {
+    const sent = "2026-11-24T07:50:00Z";
+    const arrival = (value: string) =>
+      iso(extractFacts({ submittedAt: sent, answers: [t("Arrival time", value)] }).arrivedAt);
+    expect(arrival("2026-11-21T08:50:00Z")).toBe("2026-11-21T08:50:00.000Z"); // 71 h before: sent late
+    expect(arrival("2026-11-21T06:50:00Z")).toBeNull(); // 73 h before
+    expect(arrival("2026-11-24T08:05:00Z")).toBe("2026-11-24T08:05:00.000Z"); // 15 min after
+    expect(arrival("2026-11-24T08:10:00Z")).toBeNull(); // 20 min after: the wrong day
+  });
+
+  it("uses the send time, and says why, when the typed times are more than a day apart", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-25T00:15:00Z",
+      answers: [t("Arrival time", "2026-11-23T23:50:00Z"), t("Departure time", "2026-11-25T00:10:00Z")],
+    });
+    expect(f.arrivedAt).toBeNull();
+    expect(f.departedAt).toBeNull();
+    expect(iso(f.when)).toBe("2026-11-25T00:15:00.000Z");
+    expect(span(f)).toEqual(["2026-11-25T00:15:00.000Z", "2026-11-25T00:15:00.000Z"]);
+    expect(f.timesNote).toBe("Its typed times are more than a day apart, so the send time was used.");
+    // Exactly a day is still a span.
+    const g = extractFacts({
+      submittedAt: "2026-11-25T00:15:00Z",
+      answers: [t("Arrival time", "2026-11-24T00:10:00Z"), t("Departure time", "2026-11-25T00:10:00Z")],
+    });
+    expect(g.timesNote).toBeNull();
+    expect(span(g)).toEqual(["2026-11-24T00:10:00.000Z", "2026-11-25T00:10:00.000Z"]);
+    // The robot's note says so (decide adds it to every note).
+    expect(withTimesNote("Site “Mill Yard” not recognised.", f)).toBe(
+      "Site “Mill Yard” not recognised. Its typed times are more than a day apart, so the send time was used.",
+    );
+    expect(withTimesNote(" Site found by GPS (40 m away).", g)).toBe(" Site found by GPS (40 m away).");
+  });
+
+  it("decides by the typed times everywhere: `when` is where the report's span starts (review M6)", () => {
+    const sent = "2026-11-24T07:45:00Z";
+    const opened = "2026-11-24T06:40:00Z";
+    const cases: FastFieldAnswer[][] = [
+      [],
+      [t("Time left site", "2026-11-24T06:55:00Z")],
+      [t("Arrival time", "2026-11-24T06:42:00Z"), t("Time left site", "2026-11-24T06:55:00Z")],
+      [t("Date/Time", "2026-11-24T06:50:00Z")],
+    ];
+    const whens = cases.map((answers) => {
+      const f = extractFacts({ submittedAt: sent, startedAt: opened, finishedAt: sent, answers });
+      expect(f.when.getTime()).toBe(reportSpan(f).from.getTime());
+      return iso(f.when);
+    });
+    // Nothing typed: when it was sent — not when the form was opened (06:40).
+    expect(whens).toEqual([
+      "2026-11-24T07:45:00.000Z",
+      "2026-11-24T06:55:00.000Z",
+      "2026-11-24T06:42:00.000Z",
+      "2026-11-24T06:50:00.000Z",
+    ]);
+  });
 });
 
 describe("splitSiaNumber", () => {
@@ -176,22 +723,27 @@ describe("extractFacts", () => {
     expect(f.lng).toBe(-0.3);
   });
 
-  it("ignores a typed time far from the submission", () => {
+  it("ignores a typed time far from the submission — and never falls back to when the form was opened", () => {
     const f = extractFacts({
       submittedAt: SUBMITTED,
       startedAt: "2026-10-17T22:10:00.000+01:00",
       answers: shurgardAnswers({ arrive: "2025-01-01T09:00:00.000+00:00" }),
     });
     expect(f.arrivedAt).toBeNull();
-    expect(f.when.toISOString()).toBe("2026-10-17T21:10:00.000Z"); // form opened
+    // The typed departure (22:50) decides, not the phone's opened time (22:10).
+    expect(f.when.toISOString()).toBe("2026-10-17T21:50:00.000Z");
+    expect(f.openedAt?.toISOString()).toBe("2026-10-17T21:10:00.000Z");
   });
 
-  it("drops a departure before the arrival", () => {
+  it("uses the send time, and says why, when a dated departure is before the arrival", () => {
     const f = extractFacts({
       submittedAt: SUBMITTED,
       answers: shurgardAnswers({ leave: "2026-10-17T21:00:00.000+01:00" }),
     });
+    expect(f.arrivedAt).toBeNull();
     expect(f.departedAt).toBeNull();
+    expect(f.when.toISOString()).toBe("2026-10-17T21:55:00.000Z");
+    expect(f.timesNote).toBe("Its typed departure is before its arrival, so the send time was used.");
   });
 
   it("falls back to the submission time", () => {
