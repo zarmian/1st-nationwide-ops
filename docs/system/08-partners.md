@@ -74,7 +74,7 @@ Source: `prisma/schema.prisma`. Money is `Decimal(10,2)`.
 **Admin-side & shared**
 - `src/app/(app)/admin/partners/**` — partner CRUD + contacts (`_actions.ts`, `PartnerForm.tsx`); `[id]/_actions.ts` = `upsertPartnerLogin`/`deactivatePartnerLogin`.
 - `src/lib/authz.ts` — `requirePartner()` / `requirePartnerOfficer()`; both return a guaranteed non-null `partnerId` from the **session** to scope every query.
-- `middleware.ts` — hard-locks `PARTNER` to `/partner/*` (not `/partner/m/*`) and `PARTNER_OFFICER` to `/partner/m/*`.
+- `src/middleware.ts` — hard-locks `PARTNER` to `/partner/*` (not `/partner/m/*`) and `PARTNER_OFFICER` to `/partner/m/*`. Behind it, the partner pages and actions call the throwing `requirePartner()` / `requirePartnerOfficer()`, so the wrong role gets an error page even without the redirect.
 - `src/lib/nexusImport.ts` — Nexus CSV parse + upsert; `src/app/(app)/admin/imports/nexus/**` (`_actions.ts`, `ImportPanel`, `ResetPanel`).
 - `src/lib/telegramNotify.ts` — `alertPartnerUpdateDueTelegram` (mode-3 chase broadcast).
 - `src/app/api/cron/shift-checks/route.ts` — §3 partner hand-off sweep.

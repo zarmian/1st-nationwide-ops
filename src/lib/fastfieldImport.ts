@@ -7,11 +7,15 @@
  * Forms are shared between clients (the Site Patrol and Alarm Response forms
  * are used for Shurgard and others), so the site in the report decides the
  * client: a postcode typed in the site name, else the name, else GPS
- * (lib/fastfield.ts). The report then goes to:
- *   - the static / dog-handler shift it fits inside, for patrol forms — a
- *     shift takes any number of reports, one per patrol round, and a report
- *     never goes on a shift it starts before or finishes after;
- *   - otherwise the nearest job or patrol visit there within 3 hours.
+ * (lib/fastfield.ts). Where it goes is judged only by the times typed in it
+ * (else when it was sent). The report then goes to:
+ *   - a static / dog-handler shift it fits — starting no more than 30
+ *     minutes before the shift and finishing no more than 30 minutes after
+ *     it (shiftFit) — a patrol round first, any report with nothing else to
+ *     attach it to; a shift takes any number of reports, one per round;
+ *   - otherwise the nearest job or patrol visit there within 3 hours (or the
+ *     same kind of work within 18) — unless that one already has a report:
+ *     then the report waits for a person.
  * It is attached the way an officer's own report is: a FormSubmission with an
  * approved review, and (for a job or visit) the activity marked done with the
  * officer's times, billed and paid. FastField reports were already sent to
@@ -21,7 +25,9 @@
  * When nothing matches, the job is created only at the client the form names
  * for that (Shurgard); everything else waits on /admin/fastfield to be linked
  * by hand (linkReportToJob / linkReportToVisit / linkReportToShift /
- * createJobForReport).
+ * createJobForReport), where a person can link any report to any activity.
+ * Every 5 minutes the robot also checks its own shift links
+ * (checkShiftLinks) and tries waiting reports again (retryUnmatched).
  */
 import { Prisma, type FastFieldFormMode, type FastFieldUnlinkBy, type JobType } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -484,7 +490,7 @@ async function candidatesNear(
   ];
 }
 
-/** How far back a shift a report fits inside can have started. */
+/** How far back a shift a report fits can have started. */
 const SHIFT_REACH_MS = 36 * 3_600_000;
 
 /** Static / dog-handler shifts at the sites that a report starting at `from`
@@ -605,8 +611,9 @@ async function shiftsForLinking(
 
 /**
  * Which of these sites had work on at the report's time: a static shift the
- * report fits inside, or a job or visit within 3 hours. Used when the form's
- * site fits several sites, or none but the phone was near some.
+ * report fits (with the allowance), or a job or visit within 3 hours. Used
+ * when the form's site fits several sites, or none but the phone was near
+ * some.
  */
 async function sitesWithWorkOn(
   siteIds: string[],
@@ -700,8 +707,9 @@ async function decide(
   how = withTimesNote(how, facts); // typed times it couldn't use: every note says so
   const kind = (facts.visitType as JobType | null) ?? form.jobType;
   const at = formatDateTime(facts.when);
-  // A report only goes on a shift it fits inside: it doesn't start before
-  // the shift starts or finish after it ends.
+  // The robot only puts a report on a shift it fits: it starts no more than
+  // SHIFT_GRACE_MIN before the shift starts and finishes no more than that
+  // after it ends (shiftFit).
   const span = reportSpan(facts);
   const shifts = await shiftsNear(site.id, span.from);
   const shiftsNow = shiftsOn(span, shifts);
@@ -1420,7 +1428,7 @@ export type FastFieldReview = {
   setAside: number;
   waiting: number;
   /** Waiting reports the robot still tries by itself — on a form set to On
-   *  and not taken off a shift. Only these are dry-run. */
+   *  and not taken off their activity. Only these are dry-run. */
   robotTries: number;
   /** Waiting reports dry-run through the current rules. */
   checked: number;
@@ -1445,8 +1453,8 @@ export async function reviewFastField(opts: {
   const started = Date.now();
   const filed = { submittedAt: { gte: opts.from, lte: opts.to } };
   // What the robot's retry tries (dueReports): forms set to On, and never a
-  // report taken off a shift — by a person it waits for a person; by the
-  // robot only put-back may return it, and only onto a shift it fits.
+  // report taken off its activity — one a person took off waits for a
+  // person; one the robot took off only put-back may return, onto a shift.
   const robotTries = { ...filed, status: "UNMATCHED" as const, unlinkedAt: null, form: { mode: "ON" as const } };
   const [byStatus, linkedByHand, created, robotTriesCount, waitingRows] = await Promise.all([
     prisma.fastFieldReport.groupBy({ by: ["status"], where: filed, _count: { _all: true } }),
@@ -2209,7 +2217,6 @@ export async function createJobForReport(
   return res.ok ? { ok: true } : res;
 }
 
-/** What a brought-back report waits for, by who took it off its activity. */
 /** The default note for Bring back on one report, by who took it off (the
  *  skipped-place version, with the person's name, is in fastfieldAdminList). */
 function bringBackNoteFor(unlinkedBy: FastFieldUnlinkBy | null): string {
@@ -2638,8 +2645,8 @@ export type ShiftReportCheck = {
   outside: string | null;
 };
 
-/** Whether a report on a shift fits inside it (it may have gone on before
- *  the rule, or the shift's times may have been changed since). */
+/** Whether a report on a shift fits it, with the allowance (it may have gone
+ *  on before the rule, by hand, or the shift's times may have changed since). */
 export function checkReportOnShift(
   report: { submittedAt: Date; startedAt: Date | null; finishedAt: Date | null; answers: unknown },
   shift: ShiftTimes,

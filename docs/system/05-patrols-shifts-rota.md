@@ -143,7 +143,7 @@ Pages / actions:
 - `src/app/(app)/patrols/schedules/[id]/page.tsx`, `.../lockup-schedules/[id]/page.tsx`, `.../visits/[id]/page.tsx`, `.../visits/[id]/edit/page.tsx` — detail/edit (editing is deferred to `/sites/[id]/edit#…` anchors for schedules).
 - `src/app/(app)/patrols/_components/QuickReassign.tsx` — inline officer `<select>` for schedule/visit/lock-unlock/job + `ToggleActive`.
 - `src/app/(app)/patrols/_components/EditVisitForm.tsx` — admin visit editor; single `<select>` with `o:`/`p:` prefixes enforces officer-XOR-partner, exposes `partnerFillsOwnApp`.
-- `src/app/(app)/shifts/page.tsx`, `.../new/page.tsx`, `.../[id]/page.tsx`, `.../[id]/edit/page.tsx`, `.../completed/new/page.tsx` — shift list, create, detail (report/link/check-ins/history), edit, record-after-the-fact.
+- `src/app/(app)/shifts/page.tsx`, `.../new/page.tsx`, `.../[id]/page.tsx`, `.../[id]/edit/page.tsx`, `.../completed/new/page.tsx` — shift list, create, detail (report/link/check-ins/FastField patrol rounds/history), edit, record-after-the-fact.
 - `src/app/(app)/shifts/_actions.ts` — `createShift`, `updateShift`, `deleteShift`, `sendShiftLinkSms`, `startShift`, `endShift`, `recordCompletedShift`.
 - `src/app/(app)/shifts/_components/*` — `NewShiftForm`, `CompletedShiftForm`, `ShiftLinkCard` (copy + send SMS), `DeleteShiftButton`.
 - `src/app/duty/[token]/page.tsx` + `DutyRunner.tsx` + `CameraCapture.tsx` + `_actions.ts` — the public, token-gated officer runner (`startDuty`, `checkInDuty`, `endDuty`).
@@ -254,7 +254,7 @@ Other API routes:
 
 Server actions:
 - Patrols (`patrols/_actions.ts`): `reassignSchedule`, `toggleScheduleActive`, `reassignVisit`, `reassignLockUnlockSchedule`, `reassignJob`, `updatePatrolVisit`, `closePatrolVisit`, `cancelPatrolVisit`, `restorePatrolVisit`.
-- Shifts (`shifts/_actions.ts`): `createShift`, `updateShift`, `deleteShift` (cancels live linked jobs first), `sendShiftLinkSms`, `startShift`/`endShift` (from `/m/today`), `recordCompletedShift`.
+- Shifts (`shifts/_actions.ts`): `createShift`, `updateShift`, `deleteShift` (cancels live linked jobs first, then takes the shift's FastField reports off it in the same transaction as the delete), `sendShiftLinkSms`, `startShift`/`endShift` (from `/m/today`), `recordCompletedShift`.
 - Duty (`duty/[token]/_actions.ts`): `startDuty`, `checkInDuty`, `endDuty` — token-gated, no session.
 - Rota (`rota/_actions.ts`): `setMyAvailability`, `assignToRota`, `unassignFromRota`.
 - Dispatch (`dispatch/_actions.ts`): `syncSchedulesNow`.
@@ -264,6 +264,7 @@ Server actions:
 - **`LockUnlockSchedule` → `Job` has no FK.** Materialised jobs are matched back by `siteId` + `type`, so the schedule detail page can show unrelated ad-hoc lock/unlock jobs and can't cleanly "un-materialise". A rebuild should add a nullable `Job.lockUnlockScheduleId`.
 - **`visit-statuses` marks MISSED purely on `scheduledAt + 24h`**, ignoring `reportedViaPartnerApp`/partner-handled visits — a partner-app visit the partner actually did in their own app will still flip to MISSED here. Exclude partner-app visits, or reconcile against the partner report reference.
 - **Shifts have no recurrence engine.** They are created one-by-one (or recorded after the fact); there is no `ShiftSchedule` equivalent to `PatrolSchedule`. Recurring guarding therefore lives entirely in the manual create flow.
+- **FastField patrol rounds on a shift** ([`18-fastfield.md`](./18-fastfield.md)). The robot attaches an officer's FastField round to a static / dog-handler shift it fits (within 30 minutes of the shift's start and end), as a `PATROL` `FormSubmission` with `shiftId`; the shift itself (check-ins, times, pay, bill) is never changed by it. A person can link a report to any shift. Every 5 minutes the robot checks its own links still fit — editing a shift's times brings its rounds up again — and moves one that no longer fits to another shift at the site, or takes it off. **Deleting a shift** (`deleteShift`), or a partner cancelling one they recorded, first takes its FastField reports off it (`releaseShiftReports`, in the delete's transaction): their rounds go, and the robot puts each report on another shift there that it fits, else it waits in Admin → FastField. A report is never left attached to a shift that no longer exists.
 - **`Shift` ↔ `Job` link is latent.** `Job.shiftId` (SetNull) exists and `deleteShift` cancels live linked jobs, but `createShift` does **not** create a Job — the `STATIC_GUARDING_SHIFT`/`DOG_HANDLER_SHIFT` `JobType` values and the `dayActivities` aggregation synthesise shift rows into the activity feed separately. Don't assume a shift appears on the dispatch board.
 - **Duty tokens never expire.** `publicToken` is unguessable but permanent; the "invalid or expired" copy is aspirational — there is no expiry/rotation mechanism. Anyone with the link can act on that one shift.
 - **`payableMinutes` is only set by `endDuty`.** `recordCompletedShift`, admin edits, and cron paths leave it null even though `actualStartedAt/EndedAt` imply a value — the shift detail page recomputes "worked" on the fly but the stored `payableMinutes` can be stale/absent.

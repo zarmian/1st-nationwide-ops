@@ -168,7 +168,8 @@ export default async function ShiftDetailPage({
   if (!shift) notFound();
   const viewer = await getSessionUser();
   const isAdmin = viewer?.role === "ADMIN";
-  // Each FastField report's own time, and whether it fits inside the shift.
+  // Each FastField report's own time, and whether it fits the shift (with
+  // the allowance).
   const ffReports = shift.fastfieldReports.map((r) => ({ ...r, check: checkReportOnShift(r, shift) }));
   const ffOutside = ffReports.filter((r) => r.check.outside).length;
 

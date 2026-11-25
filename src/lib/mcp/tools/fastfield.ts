@@ -3,9 +3,9 @@
  * reports the robot linked or created against those done by hand (hand links
  * by the report's `linkedByHand`; jobs made by hand by their history), and for
  * each one still waiting that the robot tries by itself (forms set to On, not
- * taken off a shift), what the robot would do with it now (a dry run of the
- * import's own decision — nothing is written) and what work is recorded at its
- * site. No report answers are returned.
+ * taken off its activity), what the robot would do with it now (a dry run of
+ * the import's own decision — nothing is written) and what work is recorded
+ * at its site. No report answers are returned.
  */
 import { reviewFastField } from "@/lib/fastfieldImport";
 import { resolveDayRange, ukDayOffset, ukIso, ukToday, type ToolContext } from "./common";
@@ -33,8 +33,8 @@ export async function reviewFastFieldReports(
     setAside: r.setAside,
     waiting: r.waiting,
     // The rest aren't retried: their form isn't set to On, or they were taken
-    // off a shift (only the robot's own take-offs may go back, and only onto
-    // a shift they fit).
+    // off their activity (a person's take-off waits for a person; only the
+    // robot's own take-offs may go back, and only onto a shift they fit).
     waitingRobotTries: r.robotTries,
     waitingCheckedNow: r.checked,
     ...(r.checked < Math.min(r.robotTries, input.limit)

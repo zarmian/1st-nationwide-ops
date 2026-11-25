@@ -361,7 +361,7 @@ export async function buildMcpServer(principal: McpPrincipal): Promise<McpServer
     {
       title: "Review FastField matching",
       description:
-        "FastField reports filed in a UK date window (default the last 30 days): how many the robot linked or created, how many were linked or created by hand, set aside, and still waiting. For each waiting report (newest first): what the robot would do with it now under the current rules (a dry run — nothing changes), the site the officer typed and the site matched, and the work recorded at that site within 24 hours (or, with no site, the nearest site to the phone's GPS). No report answers.",
+        "FastField reports filed in a UK date window (default the last 30 days): how many the robot linked or created, how many were linked or created by hand, set aside, and still waiting. For each waiting report the robot still tries by itself (form set to On, not taken off its activity; newest first): what the robot would do with it now under the current rules (a dry run — nothing changes), the site the officer typed and the site matched, and the work recorded at that site within 24 hours (or, with no site, the nearest site to the phone's GPS). No report answers.",
       adminOnly: true,
       input: {
         from: dateArg.optional(),

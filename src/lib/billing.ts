@@ -4,9 +4,13 @@
  * and (when relevant) actual duration.
  *
  * Design rules:
- *   1. Pure function. Takes a SiteRate[] (already loaded) and an activity
- *      descriptor. Returns a structured outcome. No Prisma access here so
- *      it's trivial to unit-test.
+ *   1. The calculators (calculateBilling, calculatePay, mergeRates,
+ *      durationMinutes, …) are pure: they take the rates (already loaded)
+ *      and an activity descriptor and return a structured outcome, so
+ *      they're trivial to unit-test. The helpers further down
+ *      (billForSite, payForOfficer, applyBillingTo* / applyPayTo*,
+ *      fillJobFinance / fillVisitFinance) load the rates and write the
+ *      snapshot — those with a `db` argument on a transaction's client too.
  *   2. Snapshot model: the amount is written once onto the activity row
  *      (PatrolVisit.billedAmount / Job.billedAmount). Future rate changes
  *      don't retroactively alter past invoices.

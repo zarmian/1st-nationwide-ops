@@ -1155,8 +1155,9 @@ export function reportSpan(
   return { from, to: to.getTime() < from.getTime() ? from : to };
 }
 
-/** "17 Nov, 23:50–00:10" — a report's time for people (the date once, and
- *  just the one time when the form gives only one). */
+/** "17 Nov, 23:10–23:25", or "17 Nov, 23:50–18 Nov, 00:10" when it ends on
+ *  another day — a report's time for people (just the one time when the
+ *  form gives only one). */
 export function spanText(span: ReportSpan): string {
   if (span.to.getTime() === span.from.getTime()) return formatDateTime(span.from);
   const sameDay = ukDayString(span.from) === ukDayString(span.to);
