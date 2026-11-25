@@ -10,8 +10,18 @@
 
 export const MCP_PATH = "/api/mcp";
 
-/** The only resource scope. Read-only by design — there is no write scope. */
+/** The read scope: everything the connector shows. Every connection has it. */
 export const MCP_SCOPE = "ops:read";
+
+/**
+ * The one write scope: change which shift a FastField report is on (put it on
+ * a shift, move it to another, take it off one) — nothing else. Only for an
+ * admin, and only when they tick it on the consent screen; every change is a
+ * hand link recorded in the shift's history with their name. Any other write
+ * action would be a new, deliberate product decision (a new scope and its own
+ * consent wording), never a quiet extra tool.
+ */
+export const MCP_FASTFIELD_LINK_SCOPE = "fastfield:link";
 
 export const ACCESS_TOKEN_TTL_SECONDS = 60 * 60; // 1 hour
 export const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
@@ -102,7 +112,7 @@ export function authorizationServerMetadata() {
     authorization_response_iss_parameter_supported: true,
     // offline_access only signals "please send a refresh token" — one is
     // always issued anyway.
-    scopes_supported: [MCP_SCOPE, "offline_access"],
+    scopes_supported: [MCP_SCOPE, MCP_FASTFIELD_LINK_SCOPE, "offline_access"],
   };
 }
 
@@ -111,7 +121,7 @@ export function protectedResourceMetadata() {
   return {
     resource: mcpResourceUrl(),
     authorization_servers: [issuerUrl()],
-    scopes_supported: [MCP_SCOPE],
+    scopes_supported: [MCP_SCOPE, MCP_FASTFIELD_LINK_SCOPE],
     bearer_methods_supported: ["header"],
     resource_name: CONNECTOR_NAME,
   };

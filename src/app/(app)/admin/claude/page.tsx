@@ -24,6 +24,9 @@ const TOOL_LABEL: Record<string, string> = {
   get_finance_summary: "Finance summary",
   list_invoices: "Invoices",
   review_fastfield: "FastField review",
+  review_shift_rounds: "FastField on shifts",
+  link_fastfield_report_to_shift: "Linked a FastField report to a shift",
+  unlink_fastfield_report_from_shift: "Took a FastField report off a shift",
 };
 
 /** Compact "filter: value" summary of what Claude looked up. */

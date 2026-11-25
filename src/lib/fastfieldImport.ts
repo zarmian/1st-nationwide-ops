@@ -3698,3 +3698,209 @@ export async function activitiesNearReport(
       shifts.length > HAND_LINK_TAKE || jobs.length > HAND_LINK_TAKE || visits.length > HAND_LINK_TAKE,
   };
 }
+
+// ── Review: every shift's FastField rounds (the Claude connector) ─────────
+
+export type ShiftRoundCheck = {
+  reportId: string;
+  /** The report's typed time; null when none was typed. */
+  typed: ReportSpan | null;
+  /** Why it doesn't fit the shift (outsideShiftText, or NO_TYPED_TIME);
+   *  null when it fits. */
+  outside: string | null;
+  byHand: boolean;
+  /** The officer named on the report, as typed. */
+  officerTyped: string | null;
+  /** Whether that's the shift's own officer (null when either is unknown). */
+  officerIsShiftOfficer: boolean | null;
+  /** The report's own site is the shift's site. */
+  siteMatches: boolean;
+  /** What the robot's rules say: keep it, move it to another shift at the
+   *  site that it fits, or take it off. (The robot itself never touches a
+   *  hand link; this is advice for a person.) */
+  rule: { kind: "keep" } | { kind: "move"; toShiftId: string; to: { start: Date; end: Date } } | { kind: "off" } | { kind: "can't check" };
+};
+
+export type ShiftRoundsRow = {
+  shift: {
+    id: string;
+    siteId: string;
+    siteName: string;
+    type: string;
+    status: string;
+    scheduled: { start: Date; end: Date };
+    window: { start: Date; end: Date };
+    officer: string | null;
+    partner: boolean;
+  };
+  rounds: ShiftRoundCheck[];
+  /** Waiting reports (not on anything) at the shift's site whose typed time
+   *  fits this shift. */
+  waitingThatFit: { reportId: string; typed: ReportSpan; unlinkedBy: string | null }[];
+  problems: string[];
+};
+
+/**
+ * Every static / dog-handler shift that started in [from, to] (optionally at
+ * some sites), with each FastField report on it checked against the owner's
+ * rules: its typed time fits the shift (with the allowance), it's at the
+ * shift's site, whose officer it names, and what the robot's rules would do
+ * with it — plus waiting reports that fit the shift. Read-only.
+ */
+export async function reviewShiftRounds(opts: {
+  from: Date;
+  to: Date;
+  siteIds?: string[];
+  onlyProblems: boolean;
+  limit: number;
+}): Promise<{ shifts: number; rounds: number; withProblems: number; rows: ShiftRoundsRow[]; more: boolean }> {
+  const shifts = await prisma.shift.findMany({
+    where: {
+      scheduledStartsAt: { gte: opts.from, lte: opts.to },
+      ...(opts.siteIds ? { siteId: { in: opts.siteIds } } : {}),
+    },
+    orderBy: [{ scheduledStartsAt: "asc" }, { id: "asc" }],
+    take: 3000,
+    select: {
+      id: true,
+      siteId: true,
+      type: true,
+      status: true,
+      officerId: true,
+      handledByPartnerId: true,
+      scheduledStartsAt: true,
+      scheduledEndsAt: true,
+      actualStartedAt: true,
+      actualEndedAt: true,
+      site: { select: { name: true } },
+      officer: { select: { name: true } },
+      fastfieldReports: {
+        where: { status: "LINKED" },
+        select: { id: true, submittedAt: true, answers: true, linkedByHand: true, siteId: true, officerText: true },
+      },
+    },
+  });
+  const siteIds = [...new Set(shifts.map((s) => s.siteId))];
+  const reach = 2 * 86_400_000;
+  const [nearby, waiting] = siteIds.length
+    ? await Promise.all([
+        // Other shifts at those sites the robot could move a round to.
+        prisma.shift.findMany({
+          where: {
+            siteId: { in: siteIds },
+            handledByPartnerId: null,
+            scheduledStartsAt: { gte: new Date(opts.from.getTime() - reach), lte: new Date(opts.to.getTime() + reach) },
+          },
+          select: {
+            id: true,
+            siteId: true,
+            officerId: true,
+            scheduledStartsAt: true,
+            scheduledEndsAt: true,
+            actualStartedAt: true,
+            actualEndedAt: true,
+          },
+        }),
+        prisma.fastFieldReport.findMany({
+          where: {
+            status: "UNMATCHED",
+            siteId: { in: siteIds },
+            submittedAt: { gte: new Date(opts.from.getTime() - reach), lte: new Date(opts.to.getTime() + 2 * reach) },
+          },
+          select: { id: true, siteId: true, submittedAt: true, answers: true, unlinkedBy: true },
+        }),
+      ])
+    : [[], []];
+  const bySite = new Map<string, ShiftCandidate[]>();
+  for (const s of nearby) {
+    const list = bySite.get(s.siteId) ?? [];
+    list.push(toShiftCandidate(s));
+    bySite.set(s.siteId, list);
+  }
+  const waitingSpans = waiting.flatMap((w) => {
+    const span = reportSpan(extractFacts({ submittedAt: w.submittedAt, answers: w.answers as unknown as FastFieldAnswer[] }));
+    return span ? [{ ...w, span }] : [];
+  });
+
+  const ctx = newCtx();
+  const rows: ShiftRoundsRow[] = [];
+  let roundCount = 0;
+  for (const s of shifts) {
+    const window = toShiftCandidate(s);
+    const others = (bySite.get(s.siteId) ?? []).filter((o) => o.id !== s.id);
+    const rounds: ShiftRoundCheck[] = [];
+    for (const r of s.fastfieldReports) {
+      roundCount++;
+      const facts = extractFacts({ submittedAt: r.submittedAt, answers: r.answers as unknown as FastFieldAnswer[] });
+      const span = reportSpan(facts);
+      const officerId = await officerFor(ctx, facts);
+      let outside: string | null = NO_TYPED_TIME;
+      let rule: ShiftRoundCheck["rule"] = { kind: "can't check" };
+      if (span) {
+        const fit = shiftFit(span, window);
+        outside = fit.fits ? null : outsideShiftText(fit);
+        const action = shiftLinkAction(span, window, others, officerId);
+        rule =
+          action.kind === "fit"
+            ? { kind: "keep" }
+            : action.kind === "move"
+              ? { kind: "move", toShiftId: action.to.id, to: { start: action.to.start, end: action.to.end } }
+              : { kind: "off" };
+      }
+      rounds.push({
+        reportId: r.id,
+        typed: span,
+        outside,
+        byHand: r.linkedByHand,
+        officerTyped: facts.officerName ?? facts.officerText ?? r.officerText ?? null,
+        officerIsShiftOfficer: officerId && s.officerId ? officerId === s.officerId : null,
+        siteMatches: r.siteId === s.siteId,
+        rule,
+      });
+    }
+    const onShift = new Set(s.fastfieldReports.map((r) => r.id));
+    const waitingThatFit = waitingSpans
+      .filter((w) => w.siteId === s.siteId && !onShift.has(w.id) && shiftFit(w.span, window).fits)
+      .map((w) => ({ reportId: w.id, typed: w.span, unlinkedBy: w.unlinkedBy ?? null }));
+    const problems: string[] = [];
+    const n = (k: number, one: string, many: string) => (k === 1 ? one : many.replace("#", String(k)));
+    const outsideN = rounds.filter((x) => x.outside && x.typed).length;
+    const untimedN = rounds.filter((x) => !x.typed).length;
+    const otherSiteN = rounds.filter((x) => !x.siteMatches).length;
+    const moveN = rounds.filter((x) => x.rule.kind === "move").length;
+    const otherOfficerN = rounds.filter((x) => x.officerIsShiftOfficer === false).length;
+    if (outsideN) problems.push(n(outsideN, "1 round outside the shift's time", "# rounds outside the shift's time"));
+    if (untimedN) problems.push(n(untimedN, "1 round with no typed time", "# rounds with no typed time"));
+    if (otherSiteN) problems.push(n(otherSiteN, "1 round from another site", "# rounds from another site"));
+    if (moveN) problems.push(n(moveN, "1 round that fits another shift better", "# rounds that fit another shift better"));
+    if (otherOfficerN) problems.push(n(otherOfficerN, "1 round naming another officer", "# rounds naming another officer"));
+    if (waitingThatFit.length) {
+      problems.push(n(waitingThatFit.length, "1 waiting report fits this shift", "# waiting reports fit this shift"));
+    }
+    rows.push({
+      shift: {
+        id: s.id,
+        siteId: s.siteId,
+        siteName: s.site.name,
+        type: s.type,
+        status: s.status,
+        scheduled: { start: s.scheduledStartsAt, end: s.scheduledEndsAt },
+        window: { start: window.start, end: window.end },
+        officer: s.officer?.name ?? null,
+        partner: s.handledByPartnerId != null,
+      },
+      rounds,
+      waitingThatFit,
+      problems,
+    });
+  }
+  const withProblems = rows.filter((r) => r.problems.length).length;
+  const shown = opts.onlyProblems ? rows.filter((r) => r.problems.length) : rows;
+  return {
+    shifts: shifts.length,
+    rounds: roundCount,
+    withProblems,
+    rows: shown.slice(0, opts.limit),
+    more: shown.length > opts.limit,
+  };
+}

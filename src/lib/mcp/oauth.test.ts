@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
-import {
+import { grantedScope,
   buildClientRedirect,
   checkAuthorizeRequest,
   isValidCodeChallenge,
@@ -108,5 +108,13 @@ describe("checkAuthorizeRequest", () => {
     if (!token.ok && !token.fatal) {
       expect(new URL(token.redirectTo).searchParams.get("error")).toBe("unsupported_response_type");
     } else throw new Error("expected unsupported_response_type");
+  });
+});
+
+describe("grantedScope: the one write scope is opt-in", () => {
+  it("grants only the read scope unless an admin ticked FastField shift links", () => {
+    expect(grantedScope()).toBe("ops:read");
+    expect(grantedScope({ fastfieldLink: false })).toBe("ops:read");
+    expect(grantedScope({ fastfieldLink: true })).toBe("ops:read fastfield:link");
   });
 });
