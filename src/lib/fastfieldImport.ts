@@ -23,8 +23,9 @@
  * by hand (linkReportToJob / linkReportToVisit / linkReportToShift /
  * createJobForReport).
  */
-import { Prisma, type FastFieldFormMode, type JobType } from "@prisma/client";
+import { Prisma, type FastFieldFormMode, type FastFieldUnlinkBy, type JobType } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { FASTFIELD_RULES_VERSION } from "@/lib/fastfieldRulesVersion";
 import { formatDateTime, formatTime } from "@/lib/dates";
 import { haversineMeters } from "@/lib/geo";
 import {
@@ -1193,6 +1194,9 @@ export type RetrySummary = ImportSummary & {
   checked: number;
   /** Reports due a try that the time ran out for — the next run carries on. */
   notReached: number;
+  /** True when another copy of the matcher was already running, so this
+   *  one did nothing (see RunLock). */
+  busy?: boolean;
 };
 
 /**
@@ -1514,7 +1518,7 @@ async function createSubmission(
 export async function linkReportToJob(
   reportId: string,
   jobId: string,
-  opts: { note?: string; ctx?: Ctx; byHand?: boolean } = {},
+  opts: { note?: string; ctx?: Ctx; byHand?: boolean; byUserId?: string } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error };
@@ -1591,7 +1595,7 @@ export async function linkReportToJob(
 export async function linkReportToVisit(
   reportId: string,
   visitId: string,
-  opts: { note?: string; ctx?: Ctx; byHand?: boolean } = {},
+  opts: { note?: string; ctx?: Ctx; byHand?: boolean; byUserId?: string } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error };
@@ -1688,7 +1692,7 @@ export async function linkReportToVisit(
 export async function linkReportToShift(
   reportId: string,
   shiftId: string,
-  opts: { note?: string; ctx?: Ctx; byHand?: boolean } = {},
+  opts: { note?: string; ctx?: Ctx; byHand?: boolean; byUserId?: string } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error };
@@ -1751,7 +1755,7 @@ export async function linkReportToShift(
  *  and attach the report to it. */
 export async function createJobForReport(
   reportId: string,
-  opts: { siteId: string; type?: JobType; note?: string; ctx?: Ctx },
+  opts: { siteId: string; type?: JobType; note?: string; ctx?: Ctx; byUserId?: string },
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error };
@@ -1871,8 +1875,9 @@ export async function unlinkReportFromShift(reportId: string, by: string): Promi
   }
   const which = report.shift ? ` that started ${formatDateTime(report.shift.scheduledStartsAt)},` : "";
   await takeOffShift(
-    { id: report.id, formSubmissionId: report.formSubmissionId, reviewId: review?.id ?? null },
+    { id: report.id, formSubmissionId: report.formSubmissionId, reviewId: review?.id ?? null, shiftId: report.shiftId },
     `Taken off the shift${which} by ${by}. The robot won't link it again: link it to the right activity or set it aside.`,
+    { by: "PERSON" },
   );
   return { ok: true };
 }
@@ -1893,8 +1898,9 @@ export async function unlinkReportFromActivity(
 /** Take a report off its shift: its patrol round (submission + review) goes,
  *  and it waits in Needs linking, never linked again by the robot. */
 async function takeOffShift(
-  report: { id: string; formSubmissionId: string | null; reviewId: string | null },
+  report: { id: string; formSubmissionId: string | null; reviewId: string | null; shiftId?: string | null },
   note: string,
+  opts: { by: FastFieldUnlinkBy },
 ): Promise<void> {
   const now = new Date();
   await prisma.$transaction(async (tx) => {
@@ -1905,7 +1911,9 @@ async function takeOffShift(
         shiftId: null,
         formSubmissionId: null,
         unlinkedAt: now,
+        unlinkedBy: opts.by,
         checkedAt: now,
+        rulesVersion: FASTFIELD_RULES_VERSION,
         linkedByHand: false,
         note,
       },
@@ -2263,8 +2271,9 @@ async function checkOneShiftLink(
     return "kept";
   }
   await takeOffShift(
-    { id: r.id, formSubmissionId: r.formSubmissionId, reviewId: review?.id ?? null },
+    { id: r.id, formSubmissionId: r.formSubmissionId, reviewId: review?.id ?? null, shiftId: shift.id },
     `Taken off the shift ${shiftHoursText(current)} by the robot: ${why} — more than the ${SHIFT_GRACE_MIN} minutes allowed — and it doesn't fit any other shift there. Link it to the right activity or set it aside.`,
+    { by: "ROBOT" },
   );
   await logShiftChange(shift.id, "fastfield_unlinked", { fastfieldReportId: r.id, by: "robot" });
   return "takenOff";
