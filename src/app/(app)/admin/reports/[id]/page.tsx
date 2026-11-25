@@ -6,6 +6,7 @@ import { ApproveForm, RejectForm } from "./_components/ReviewActions";
 import { formatDateTime, formatUkDateTimeLocal } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
 import { FastFieldAnswers } from "@/components/FastFieldAnswers";
+import { getSessionUser } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +98,9 @@ export default async function ReviewDetailPage({
     sub.payload && typeof sub.payload === "object" && !Array.isArray(sub.payload)
       ? (sub.payload as Record<string, unknown>)
       : null;
+
+  // Admin → FastField is for admins only: dispatchers don't get the link.
+  const canSeeMatching = sub.fastfieldReport ? (await getSessionUser())?.role === "ADMIN" : false;
 
   return (
     <div className="space-y-4 max-w-4xl">
@@ -225,12 +229,14 @@ export default async function ReviewDetailPage({
             <h2 className="font-semibold text-brand-navy">
               FastField report — {sub.fastfieldReport.form.name}
             </h2>
-            <Link
-              href={`/admin/fastfield/${sub.fastfieldReport.id}`}
-              className="text-sm text-brand-blue-dark hover:underline"
-            >
-              How it was matched →
-            </Link>
+            {canSeeMatching && (
+              <Link
+                href={`/admin/fastfield/${sub.fastfieldReport.id}`}
+                className="text-sm text-brand-blue-dark hover:underline"
+              >
+                How it was matched →
+              </Link>
+            )}
           </div>
           <FastFieldAnswers
             answers={sub.fastfieldReport.answers}

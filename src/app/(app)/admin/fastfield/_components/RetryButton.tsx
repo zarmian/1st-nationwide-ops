@@ -18,23 +18,25 @@ export function RetryButton() {
       disabled={pending}
       onClick={() =>
         start(async () => {
-          const res = await retryFastFieldMatching();
-          if (!res.ok) {
-            toast.show({ tone: "error", message: res.error });
-            return;
+          try {
+            const res = await retryFastFieldMatching();
+            if (!res.ok) {
+              toast.show({ tone: "error", message: res.error });
+              return;
+            }
+            toast.show({ tone: res.data.tone, message: res.data.message });
+            // The robot was matching, so this press changed nothing.
+            if (res.data.busy) return;
+          } catch {
+            // Timed out or failed on the way back: what it attached before
+            // that is kept, and the refresh below shows it.
+            toast.show({
+              tone: "error",
+              message: "Matching didn't finish properly. Anything it attached is kept — try again in a minute.",
+            });
           }
-          const { attached, checked, notReached } = res.data;
-          const more =
-            notReached > 0
-              ? ` Checked ${checked} — press again to check the other ${notReached}.`
-              : "";
-          toast.show({
-            tone: attached > 0 ? "success" : "info",
-            message:
-              attached > 0
-                ? `Attached ${attached} report${attached === 1 ? "" : "s"}.${more}`
-                : `Nothing new matched.${more}`,
-          });
+          // The action doesn't re-render this page itself (see
+          // retryFastFieldMatching): fetch it fresh, as its own request.
           router.refresh();
         })
       }

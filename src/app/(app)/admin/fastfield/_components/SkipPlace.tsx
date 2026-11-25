@@ -1,16 +1,17 @@
 "use client";
 
 import { useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import { skipFastFieldPlace, stopSkippingFastFieldPlace } from "../_actions";
 
 const reports = (n: number) => `${n} report${n === 1 ? "" : "s"}`;
 
+// The actions revalidate the page, so Next sends it back re-rendered with
+// their result: no router.refresh() (that would render the page twice).
+
 /** Set aside every waiting report typed as this place, and new ones typed the
  *  same way as they arrive. */
 export function SkipPlaceButton({ placeKey, label, count }: { placeKey: string; label: string; count: number }) {
-  const router = useRouter();
   const toast = useToast();
   const [pending, start] = useTransition();
   return (
@@ -29,16 +30,22 @@ export function SkipPlaceButton({ placeKey, label, count }: { placeKey: string; 
           return;
         }
         start(async () => {
-          const res = await skipFastFieldPlace(placeKey);
-          if (!res.ok) {
-            toast.show({ tone: "error", message: res.error });
-            return;
+          try {
+            const res = await skipFastFieldPlace(placeKey);
+            if (!res.ok) {
+              toast.show({ tone: "error", message: res.error });
+              return;
+            }
+            toast.show({
+              tone: "success",
+              message: `“${res.data.label}” skipped: ${reports(res.data.setAside)} set aside.`,
+            });
+          } catch {
+            toast.show({
+              tone: "error",
+              message: `Couldn't skip “${label}”. Refresh the page and try again.`,
+            });
           }
-          toast.show({
-            tone: "success",
-            message: `“${res.data.label}” skipped: ${reports(res.data.setAside)} set aside.`,
-          });
-          router.refresh();
         });
       }}
     >
@@ -49,7 +56,6 @@ export function SkipPlaceButton({ placeKey, label, count }: { placeKey: string; 
 
 /** Stop skipping a place: the reports it set aside go back to Needs linking. */
 export function StopSkippingButton({ skipId, label, count }: { skipId: string; label: string; count: number }) {
-  const router = useRouter();
   const toast = useToast();
   const [pending, start] = useTransition();
   return (
@@ -68,16 +74,27 @@ export function StopSkippingButton({ skipId, label, count }: { skipId: string; l
           return;
         }
         start(async () => {
-          const res = await stopSkippingFastFieldPlace(skipId);
-          if (!res.ok) {
-            toast.show({ tone: "error", message: res.error });
-            return;
+          try {
+            const res = await stopSkippingFastFieldPlace(skipId);
+            if (!res.ok) {
+              toast.show({ tone: "error", message: res.error });
+              return;
+            }
+            const { broughtBack, waitForYou } = res.data;
+            toast.show({
+              tone: "success",
+              message:
+                `“${res.data.label}” is no longer skipped: ${reports(broughtBack)} back in Needs linking.` +
+                (waitForYou > 0
+                  ? ` ${waitForYou} of them ${waitForYou === 1 ? "was" : "were"} taken off a shift by a person, so the robot leaves ${waitForYou === 1 ? "it" : "them"} for you.`
+                  : ""),
+            });
+          } catch {
+            toast.show({
+              tone: "error",
+              message: `Couldn't stop skipping “${label}”. Refresh the page and try again.`,
+            });
           }
-          toast.show({
-            tone: "success",
-            message: `“${res.data.label}” is no longer skipped: ${reports(res.data.broughtBack)} back in Needs linking.`,
-          });
-          router.refresh();
         });
       }}
     >

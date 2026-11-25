@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/authz";
 import { fail, ok, okVoid, type ActionResult } from "@/lib/actionResult";
 import { logActivity } from "@/lib/audit";
+import { retryMessage } from "@/lib/fastfieldAdminList";
 import {
   createJobForReport,
   linkReportToJob,
@@ -32,11 +33,23 @@ const FormSettings = z.object({
 
 const MODE_WORD = { OFF: "import off", PREVIEW: "preview only", ON: "import on" } as const;
 
+/**
+ * After a change: the FastField pages, and every page a report shows on —
+ * the lists, and the job, visit, shift and review pages it can be attached to
+ * (by route, as which ones changed isn't always known here). They're all
+ * rendered fresh on each request today, so this mostly makes Next send the
+ * calling page back re-rendered with the action's result and drop its cached
+ * pages; it also keeps them right if one is ever cached.
+ */
 function refresh(reportId?: string) {
   revalidatePath("/admin/fastfield");
   if (reportId) revalidatePath(`/admin/fastfield/${reportId}`);
   revalidatePath("/dispatch");
   revalidatePath("/activities");
+  revalidatePath("/dispatch/[id]", "page");
+  revalidatePath("/patrols/visits/[id]", "page");
+  revalidatePath("/shifts/[id]", "page");
+  revalidatePath("/admin/reports/[id]", "page");
 }
 
 /** How a FastField form is imported: off / preview only / on, what it
@@ -166,51 +179,65 @@ export async function unlinkFastFieldReport(reportId: string): Promise<ActionRes
 }
 
 /** Skip a place: set aside its waiting reports, and new ones typed the same
- *  way as they arrive (unless they match an activity). */
+ *  way as they arrive (unless they match an activity). skipPlace writes the
+ *  history line (`fastfield_skip_place`, with who). */
 export async function skipFastFieldPlace(
   key: string,
 ): Promise<ActionResult<{ label: string; setAside: number }>> {
   const me = await requireAdmin();
   const parsed = z.string().min(1).max(300).regex(/^[a-z0-9]+$/).safeParse(key);
   if (!parsed.success) return fail("That place doesn't look right.");
-  const res = await skipPlace(parsed.data, me.name || "the office");
+  const res = await skipPlace(parsed.data, me.name || "the office", { byUserId: me.id });
   if (!res.ok) return fail(res.error);
-  await logActivity({
-    entity: "FastFieldSkip",
-    entityId: parsed.data,
-    action: `skipped (${res.setAside} set aside)`,
-    userId: me.id,
-  }).catch(() => {});
   refresh();
   return ok({ label: res.label, setAside: res.setAside });
 }
 
-/** Stop skipping a place: its set-aside reports wait again. */
+/** Stop skipping a place: its set-aside reports wait again (stopSkipping
+ *  says per report what happens next, and writes `fastfield_stop_skipping`). */
 export async function stopSkippingFastFieldPlace(
   skipId: string,
-): Promise<ActionResult<{ label: string; broughtBack: number }>> {
+): Promise<ActionResult<{ label: string; broughtBack: number; waitForYou: number }>> {
   const me = await requireAdmin();
   if (!z.string().uuid().safeParse(skipId).success) return fail("That place doesn't look right.");
-  const res = await stopSkipping(skipId, me.name || "the office");
+  const res = await stopSkipping(skipId, me.name || "the office", { byUserId: me.id });
   if (!res.ok) return fail(res.error);
-  await logActivity({
-    entity: "FastFieldSkip",
-    entityId: skipId,
-    action: `stopped skipping (${res.broughtBack} brought back)`,
-    userId: me.id,
-  }).catch(() => {});
   refresh();
-  return ok({ label: res.label, broughtBack: res.broughtBack });
+  return ok({ label: res.label, broughtBack: res.broughtBack, waitForYou: res.waitForYou });
 }
 
-/** Re-run matching on the waiting reports from the last 60 days — the ones
- *  most likely to match first, then the rest, as many as fit in 50 seconds.
- *  Pressing again carries on with those not reached. */
+/** How long one press of "Try matching again" matches for. The page's
+ *  function may run 60 seconds; this leaves room for the rest of the request. */
+const RETRY_BUDGET_MS = 35_000;
+
+/**
+ * Re-run matching on the waiting reports from the last 60 days — the ones
+ * most likely to match first, then the rest, as many as fit in 35 seconds.
+ * Pressing again carries on with those not reached. When the robot is already
+ * matching (it holds the run lock), nothing is done and the button says so.
+ *
+ * Deliberately no refresh() here: revalidating would make Next re-render this
+ * heavy page inside the same request, after up to 35 seconds of matching. The
+ * button asks for the page again itself (router.refresh(), which also clears
+ * the browser's cached pages), as a separate request with its own time limit.
+ */
 export async function retryFastFieldMatching(): Promise<
-  ActionResult<{ attached: number; checked: number; notReached: number }>
+  ActionResult<{
+    attached: number;
+    checked: number;
+    notReached: number;
+    busy: boolean;
+    tone: "info" | "success";
+    message: string;
+  }>
 > {
   await requireAdmin();
-  const s = await retryUnmatched({ sinceDays: 60, all: true, budgetMs: 50_000 });
-  refresh();
-  return ok({ attached: s.linked + s.created, checked: s.checked, notReached: s.notReached });
+  const s = await retryUnmatched({ sinceDays: 60, all: true, budgetMs: RETRY_BUDGET_MS });
+  const counts = {
+    attached: s.linked + s.created,
+    checked: s.checked,
+    notReached: s.notReached,
+    busy: !!s.busy,
+  };
+  return ok({ ...counts, ...retryMessage(counts) });
 }

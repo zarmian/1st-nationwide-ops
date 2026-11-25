@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
 import { saveFastFieldForm } from "../_actions";
 
@@ -47,7 +46,6 @@ export function FormSettingsRow({
   unmatched: number;
   customers: { id: string; name: string }[];
 }) {
-  const router = useRouter();
   const toast = useToast();
   const [pending, start] = useTransition();
   const [mode, setMode] = useState(form.mode);
@@ -65,18 +63,23 @@ export function FormSettingsRow({
 
   function save() {
     start(async () => {
-      const res = await saveFastFieldForm({
-        formId: form.formId,
-        mode,
-        jobType,
-        customerId,
-        createCustomerId,
-      });
-      if (res.ok) {
-        toast.show({ tone: "success", message: `Saved “${form.name.trim()}”.` });
-        router.refresh();
-      } else {
-        toast.show({ tone: "error", message: res.error });
+      try {
+        // The action revalidates the page, so it comes back re-rendered with
+        // the result: no router.refresh() (that would render it twice).
+        const res = await saveFastFieldForm({
+          formId: form.formId,
+          mode,
+          jobType,
+          customerId,
+          createCustomerId,
+        });
+        if (res.ok) {
+          toast.show({ tone: "success", message: `Saved “${form.name.trim()}”.` });
+        } else {
+          toast.show({ tone: "error", message: res.error });
+        }
+      } catch {
+        toast.show({ tone: "error", message: `Couldn't save “${form.name.trim()}”. Refresh the page and try again.` });
       }
     });
   }
