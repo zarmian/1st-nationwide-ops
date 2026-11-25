@@ -28,15 +28,19 @@ import { prisma } from "@/lib/db";
 import { FASTFIELD_RULES_VERSION } from "@/lib/fastfieldRulesVersion";
 import { formatDateTime, formatTime } from "@/lib/dates";
 import { haversineMeters } from "@/lib/geo";
+import { fillJobFinance, fillVisitFinance, type FinanceFilled } from "@/lib/billing";
+import { logActivity } from "@/lib/audit";
+import { sentToClient } from "@/lib/fastfieldSentToClient";
 import {
-  applyBillingToVisit,
-  applyPayToVisit,
-  billForSite,
-  durationMinutes,
-  jobTypeToRateService,
-  payForOfficer,
-  snapshotJobFinanceIfNeeded,
-} from "@/lib/billing";
+  planCreatedJobUndo,
+  planJobLink,
+  planUnlinkUndo,
+  planVisitLink,
+  readLinkPrev,
+  visitKind,
+  type LinkPrev,
+  type ReportFill,
+} from "@/lib/fastfieldAttach";
 import {
   apartText,
   extractFacts,
@@ -1402,7 +1406,16 @@ export async function reviewFastField(opts: {
 
 // ── Attaching (automatic and by hand) ─────────────────────────────────────
 
-export type ActionResult = { ok: true } | { ok: false; error: string };
+export type ActionResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: string;
+      /** Why an attach or unlink was refused, for the robot's runs (e.g.
+       *  "FF_ATTACHED", "FF_SET_ASIDE", "FF_TAKEN_OFF": the report isn't
+       *  the robot's to change — leave its note alone). */
+      code?: string;
+    };
 
 const REPORT_SELECT = {
   id: true,
@@ -1421,14 +1434,17 @@ const REPORT_SELECT = {
 
 type StoredReport = Prisma.FastFieldReportGetPayload<{ select: typeof REPORT_SELECT }>;
 
-async function loadOpenReport(reportId: string): Promise<StoredReport | { error: string }> {
+/** A report not yet on anything, read for its answers. Only a first look:
+ *  what makes sure it's still free is the attach's claim (claimReport),
+ *  inside its transaction. */
+async function loadOpenReport(reportId: string): Promise<StoredReport | { error: string; code: string }> {
   const report = await prisma.fastFieldReport.findUnique({
     where: { id: reportId },
     select: REPORT_SELECT,
   });
-  if (!report) return { error: "FastField report not found." };
+  if (!report) return { error: "FastField report not found.", code: "FF_NOT_FOUND" };
   if (report.formSubmissionId || report.status === "LINKED" || report.status === "CREATED") {
-    return { error: "This FastField report is already attached to an activity." };
+    return { error: "This FastField report is already attached to an activity.", code: "FF_ATTACHED" };
   }
   return report;
 }
@@ -1514,37 +1530,244 @@ async function createSubmission(
   return sub.id;
 }
 
-/** Attach a report to a job and mark the job done with the officer's times. */
+/** A refusal inside an attach or unlink: its whole transaction rolls back,
+ *  and `message` goes to the person (or into the robot's note). Only `code`
+ *  is ever logged. */
+class AttachRefused extends Error {
+  readonly code: string;
+  constructor(message: string, code = "FF_REFUSED") {
+    super(message);
+    this.name = "AttachRefused";
+    this.code = code;
+  }
+}
+
+const ALREADY_ATTACHED = "This FastField report is already attached to an activity.";
+const CHANGED_MEANWHILE =
+  "This report changed while you were looking at it — refresh the page and try again.";
+
+/** How long one attach or unlink may keep its rows locked. */
+const ATTACH_TX_MS = 15_000;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Run one attach or unlink as a single transaction: all of it, or — on a
+ *  refusal or any error — none of it. `now` is taken before anything is read. */
+async function inAttachTx<T>(
+  fn: (tx: Prisma.TransactionClient, now: Date) => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; error: string; code: string }> {
+  const now = new Date();
+  try {
+    const value = await prisma.$transaction((tx) => fn(tx, now), { timeout: ATTACH_TX_MS });
+    return { ok: true, value };
+  } catch (e) {
+    if (e instanceof AttachRefused) return { ok: false, error: e.message, code: e.code };
+    throw e;
+  }
+}
+
+/**
+ * The first step of every attach: take the report, inside the attach's
+ * transaction. Only a waiting report with no round on anything can be taken.
+ * A person can take one that's waiting or set aside, whatever happened to it
+ * before. The robot only takes a waiting one, and never one a person took
+ * off an activity; one the robot took off itself it only puts back on a
+ * shift (`onto` "shift"), never a job or visit. The update locks the
+ * report's row, so a second attach of the same report waits here, then finds
+ * it taken and rolls back: one report, one activity, one round.
+ */
+async function claimReport(
+  tx: Prisma.TransactionClient,
+  reportId: string,
+  status: "LINKED" | "CREATED",
+  byHand: boolean,
+  onto: "shift" | "activity",
+): Promise<void> {
+  const claimed = await tx.fastFieldReport.updateMany({
+    where: {
+      id: reportId,
+      formSubmissionId: null,
+      ...(byHand
+        ? { status: { in: ["UNMATCHED", "IGNORED"] } }
+        : {
+            status: "UNMATCHED",
+            ...(onto === "shift" ? { OR: [{ unlinkedAt: null }, { unlinkedBy: "ROBOT" }] } : { unlinkedAt: null }),
+          }),
+    },
+    data: { status },
+  });
+  if (claimed.count === 1) return;
+  const now = await tx.fastFieldReport.findUnique({
+    where: { id: reportId },
+    select: { status: true, unlinkedBy: true },
+  });
+  if (!now) throw new AttachRefused("FastField report not found.");
+  if (now.status === "IGNORED") {
+    throw new AttachRefused("This report was set aside, so the robot leaves it.", "FF_SET_ASIDE");
+  }
+  if (now.status === "UNMATCHED" && now.unlinkedBy === "PERSON") {
+    throw new AttachRefused("A person took this report off its activity, so the robot leaves it.", "FF_TAKEN_OFF");
+  }
+  if (now.status === "UNMATCHED" && now.unlinkedBy === "ROBOT") {
+    throw new AttachRefused(
+      "The robot took this report off a shift, so it only puts it back on a shift it fits.",
+      "FF_TAKEN_OFF",
+    );
+  }
+  throw new AttachRefused(ALREADY_ATTACHED, "FF_ATTACHED");
+}
+
+/** Lock a job or visit row (FOR UPDATE), or a shift row (FOR SHARE), until
+ *  the transaction ends: what's read next is current, and nobody changes it
+ *  meanwhile. False when it doesn't exist. */
+async function lockRow(
+  tx: Prisma.TransactionClient,
+  table: "Job" | "PatrolVisit" | "Shift",
+  id: string,
+): Promise<boolean> {
+  const mode = table === "Shift" ? "SHARE" : "UPDATE";
+  const rows = await tx.$queryRaw<{ id: string }[]>(
+    Prisma.sql`SELECT id FROM ${Prisma.raw(`"${table}"`)} WHERE id = ${id}::uuid FOR ${Prisma.raw(mode)}`,
+  );
+  return rows.length > 0;
+}
+
+/**
+ * The robot puts one report on a job or visit: refuse when it already has
+ * another FastField report (what candidatesNear calls "taken") or a FastField
+ * round with no report behind it. Read under the row lock, so two reports
+ * linked to it at the same moment can't both get on. A person may add a
+ * second report by hand.
+ */
+async function refuseIfTaken(
+  tx: Prisma.TransactionClient,
+  on: { jobId: string } | { patrolVisitId: string },
+  reportId: string,
+  what: string,
+): Promise<void> {
+  const reports = await tx.fastFieldReport.count({ where: { ...on, id: { not: reportId } } });
+  const rounds = reports
+    ? 0
+    : await tx.formSubmission.count({
+        where: { ...on, payload: { path: ["source"], equals: "fastfield" } },
+      });
+  if (reports + rounds > 0) {
+    throw new AttachRefused(
+      `That ${what} already has a FastField report — link this one by hand if it's a second report for it.`,
+      "FF_TAKEN",
+    );
+  }
+}
+
+/** Set by every link and create: when, whether a person did it, under which
+ *  rules — and it's no longer "taken off". */
+const linkStamps = (byHand: boolean, now: Date) => ({
+  linkedAt: now,
+  linkedByHand: byHand,
+  unlinkedAt: null,
+  unlinkedBy: null,
+  rulesVersion: FASTFIELD_RULES_VERSION,
+});
+
+/** The report's note after a link: the caller's note, plus `extra`. */
+function linkNote(note: string | undefined, extra: string | null): { note?: string } {
+  const text = [note, extra].filter(Boolean).join(" ");
+  return text ? { note: text } : {};
+}
+
+const leftCancelled = (what: string) =>
+  `The ${what} is cancelled, so it was left as it is: not marked done, billed or paid.`;
+
+function reportFill(report: StoredReport, facts: FastFieldFacts, officerId: string | null): ReportFill {
+  const { arrived, done } = visitTimes(facts, report);
+  return {
+    arrived,
+    done,
+    lat: facts.lat,
+    lng: facts.lng,
+    locatedAt: arrived ?? report.submittedAt,
+    officerId,
+    photoUrls: report.photoUrls,
+  };
+}
+
+function addFinance(prev: LinkPrev, f: FinanceFilled) {
+  if (f.billed) prev.filled.bill = true;
+  if (f.paid) prev.filled.pay = true;
+}
+
+/** The attach's line on the activity's history (`fastfield_linked` /
+ *  `fastfield_created`): who (no user = the robot), and exactly what it
+ *  changed (`prev`), which Unlink reads to undo it. Ids, times and flags
+ *  only. */
+async function logAttach(
+  tx: Prisma.TransactionClient,
+  action: "fastfield_linked" | "fastfield_created",
+  entity: "Job" | "PatrolVisit" | "Shift",
+  entityId: string,
+  reportId: string,
+  byHand: boolean,
+  prev: LinkPrev | Record<string, never>,
+  userId: string | undefined,
+): Promise<void> {
+  await logActivity({
+    client: tx,
+    entity,
+    entityId,
+    action,
+    userId: userId ?? null,
+    diff: { fastfieldReportId: reportId, byHand, prev },
+  });
+}
+
+/**
+ * Attach a report to a job and mark the job done with the officer's times,
+ * billed and paid — one transaction, so it all happens or none of it does.
+ * The robot never puts a report on a cancelled job, or on one that already
+ * has a report; a person can (a cancelled job then stays exactly as it is).
+ */
 export async function linkReportToJob(
   reportId: string,
   jobId: string,
   opts: { note?: string; ctx?: Ctx; byHand?: boolean; byUserId?: string } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
-  if ("error" in report) return { ok: false, error: report.error };
-  const job = await prisma.job.findUnique({
-    where: { id: jobId },
-    select: {
-      id: true,
-      type: true,
-      status: true,
-      siteId: true,
-      startedAt: true,
-      completedAt: true,
-      lat: true,
-      assignedToUserId: true,
-      handledByPartnerId: true,
-      responderType: true,
-    },
-  });
-  if (!job) return { ok: false, error: "Activity not found." };
-  if (job.status === "CANCELLED") return { ok: false, error: "That activity was cancelled." };
-
+  if ("error" in report) return { ok: false, error: report.error, code: report.code };
+  if (!UUID_RE.test(jobId)) return { ok: false, error: "Activity not found." };
+  const byHand = !!opts.byHand;
   const facts = factsOf(report);
   const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
-  const { arrived, done } = visitTimes(facts, report);
+  const fill = reportFill(report, facts, officerId);
 
-  await prisma.$transaction(async (tx) => {
+  const res = await inAttachTx(async (tx, now) => {
+    await claimReport(tx, report.id, "LINKED", byHand, "activity");
+    if (!(await lockRow(tx, "Job", jobId))) throw new AttachRefused("Activity not found.");
+    const job = await tx.job.findUniqueOrThrow({
+      where: { id: jobId },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        siteId: true,
+        startedAt: true,
+        completedAt: true,
+        lat: true,
+        assignedToUserId: true,
+        handledByPartnerId: true,
+        responderType: true,
+      },
+    });
+    const what = noun(job.type);
+    if (!byHand) {
+      if (job.status === "CANCELLED") throw new AttachRefused("That activity was cancelled.", "FF_CANCELLED");
+      await refuseIfTaken(tx, { jobId: job.id }, report.id, what);
+    }
+    const { data, prev } = planJobLink(job, fill, UNFINISHED.includes(job.status));
+    if (Object.keys(data).length > 0) {
+      const changed = await tx.job.updateMany({ where: { id: job.id, status: job.status }, data });
+      if (changed.count !== 1) throw new AttachRefused("That activity changed meanwhile — try again.", "FF_CHANGED");
+    }
+    if (!prev.cancelled) addFinance(prev, await fillJobFinance(job.id, tx));
     const submissionId = await createSubmission(
       tx,
       report,
@@ -1552,180 +1775,141 @@ export async function linkReportToJob(
       { form: SUBMISSION_FORM[job.type] ?? "ADHOC", siteId: job.siteId, jobId: job.id },
       officerId,
     );
-    const fillOfficer =
-      !job.assignedToUserId && !job.handledByPartnerId && officerId != null;
-    await tx.job.update({
-      where: { id: job.id },
-      data: {
-        ...(UNFINISHED.includes(job.status) ? { status: "APPROVED" as const } : {}),
-        ...(!job.startedAt && arrived ? { startedAt: arrived } : {}),
-        ...(!job.completedAt ? { completedAt: done } : {}),
-        ...(job.lat == null && facts.lat != null
-          ? { lat: facts.lat, lng: facts.lng, locatedAt: arrived ?? report.submittedAt }
-          : {}),
-        ...(fillOfficer
-          ? {
-              assignedToUserId: officerId,
-              responderType: job.responderType ?? ("INTERNAL_OFFICER" as const),
-            }
-          : {}),
-      },
-    });
     await tx.fastFieldReport.update({
       where: { id: report.id },
       data: {
-        status: "LINKED",
         jobId: job.id,
         siteId: job.siteId,
         formSubmissionId: submissionId,
-        linkedByHand: !!opts.byHand,
-        ...(opts.note ? { note: opts.note } : {}),
+        ...linkStamps(byHand, now),
+        ...linkNote(opts.note, prev.cancelled ? leftCancelled(what) : null),
       },
     });
+    await logAttach(tx, "fastfield_linked", "Job", job.id, report.id, byHand, prev, opts.byUserId);
   });
-
-  await snapshotJobFinanceIfNeeded(job.id).catch((e) =>
-    console.error("snapshotJobFinanceIfNeeded failed", e),
-  );
-  return { ok: true };
+  return res.ok ? { ok: true } : res;
 }
 
-/** Attach a report to a patrol visit and complete the visit (billed + paid
- *  like an officer's own report). */
+/**
+ * Attach a report to a patrol visit and complete it, billed and paid like an
+ * officer's own report — one transaction. A VPI schedule's visit is filed and
+ * priced as a VPI, any other as a patrol (as snapshotVisitFinanceIfNeeded
+ * does). The robot never puts a report on a cancelled visit, or on one that
+ * already has a report; a person can (a cancelled visit stays as it is).
+ */
 export async function linkReportToVisit(
   reportId: string,
   visitId: string,
   opts: { note?: string; ctx?: Ctx; byHand?: boolean; byUserId?: string } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
-  if ("error" in report) return { ok: false, error: report.error };
-  const visit = await prisma.patrolVisit.findUnique({
-    where: { id: visitId },
-    select: {
-      id: true,
-      siteId: true,
-      status: true,
-      officerId: true,
-      scheduledAt: true,
-      scheduleDate: true,
-      arrivedAt: true,
-      departedAt: true,
-      lat: true,
-      photoUrls: true,
-      billedAmount: true,
-      paidAmount: true,
-      handledByPartnerId: true,
-    },
-  });
-  if (!visit) return { ok: false, error: "Patrol visit not found." };
-  if (visit.status === "CANCELLED") return { ok: false, error: "That visit was cancelled." };
-
+  if ("error" in report) return { ok: false, error: report.error, code: report.code };
+  if (!UUID_RE.test(visitId)) return { ok: false, error: "Patrol visit not found." };
+  const byHand = !!opts.byHand;
   const facts = factsOf(report);
   const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
-  const { arrived, done } = visitTimes(facts, report);
-  const arrivedAt = visit.arrivedAt ?? arrived ?? done;
-  const departedAt = visit.departedAt ?? done;
-  const attendingOfficer = visit.handledByPartnerId ? null : visit.officerId ?? officerId;
+  const fill = reportFill(report, facts, officerId);
 
-  await prisma.$transaction(async (tx) => {
+  const res = await inAttachTx(async (tx, now) => {
+    await claimReport(tx, report.id, "LINKED", byHand, "activity");
+    if (!(await lockRow(tx, "PatrolVisit", visitId))) throw new AttachRefused("Patrol visit not found.");
+    const visit = await tx.patrolVisit.findUniqueOrThrow({
+      where: { id: visitId },
+      select: {
+        id: true,
+        siteId: true,
+        status: true,
+        officerId: true,
+        arrivedAt: true,
+        departedAt: true,
+        lat: true,
+        photoUrls: true,
+        handledByPartnerId: true,
+        patrolSchedule: { select: { kind: true } },
+      },
+    });
+    const kind = visitKind(visit.patrolSchedule?.kind);
+    const what = noun(kind);
+    if (!byHand) {
+      if (visit.status === "CANCELLED") throw new AttachRefused("That visit was cancelled.", "FF_CANCELLED");
+      await refuseIfTaken(tx, { patrolVisitId: visit.id }, report.id, what);
+    }
+    const { data, prev } = planVisitLink(visit, fill, VISIT_UNFINISHED.includes(visit.status));
+    if (Object.keys(data).length > 0) {
+      const changed = await tx.patrolVisit.updateMany({ where: { id: visit.id, status: visit.status }, data });
+      if (changed.count !== 1) throw new AttachRefused("That visit changed meanwhile — try again.", "FF_CHANGED");
+    }
+    // Billing + pay where the visit has none yet, at its accounting date.
+    if (!prev.cancelled) addFinance(prev, await fillVisitFinance(visit.id, tx));
     const submissionId = await createSubmission(
       tx,
       report,
       facts,
-      { form: "PATROL", siteId: visit.siteId, patrolVisitId: visit.id },
+      { form: kind, siteId: visit.siteId, patrolVisitId: visit.id },
       officerId,
     );
-    await tx.patrolVisit.update({
-      where: { id: visit.id },
-      data: {
-        ...(VISIT_UNFINISHED.includes(visit.status) ? { status: "COMPLETED" as const } : {}),
-        arrivedAt,
-        departedAt,
-        ...(visit.lat == null && facts.lat != null
-          ? { lat: facts.lat, lng: facts.lng, locatedAt: arrivedAt }
-          : {}),
-        ...(visit.photoUrls.length === 0 && report.photoUrls.length
-          ? { photoUrls: report.photoUrls }
-          : {}),
-        ...(!visit.officerId && !visit.handledByPartnerId && officerId
-          ? { officerId }
-          : {}),
-      },
-    });
     await tx.fastFieldReport.update({
       where: { id: report.id },
       data: {
-        status: "LINKED",
         patrolVisitId: visit.id,
         siteId: visit.siteId,
         formSubmissionId: submissionId,
-        linkedByHand: !!opts.byHand,
-        ...(opts.note ? { note: opts.note } : {}),
+        ...linkStamps(byHand, now),
+        ...linkNote(opts.note, prev.cancelled ? leftCancelled(what) : null),
       },
     });
+    await logAttach(tx, "fastfield_linked", "PatrolVisit", visit.id, report.id, byHand, prev, opts.byUserId);
   });
-
-  // Billing + pay snapshot, only where the visit has none yet. Accounting
-  // date = the scheduled night, as for an officer's own report.
-  try {
-    const service = jobTypeToRateService("PATROL");
-    const at = visit.scheduleDate ?? visit.scheduledAt;
-    const duration = durationMinutes(arrivedAt, departedAt);
-    if (service && visit.billedAmount == null) {
-      const bill = await billForSite(visit.siteId, service, duration);
-      if (bill.ok) await applyBillingToVisit(visit.id, bill, at);
-    }
-    if (service && visit.paidAmount == null && attendingOfficer) {
-      const pay = await payForOfficer(attendingOfficer, service, duration);
-      if (pay.ok) await applyPayToVisit(visit.id, pay, at);
-    }
-  } catch (e) {
-    console.error("FastField visit finance failed:", errCode(e));
-  }
-  return { ok: true };
+  return res.ok ? { ok: true } : res;
 }
 
-/** Attach a patrol report to the static / dog-handler shift it was filed
- *  during. The shift itself is left as it is — its own check-ins, times and
- *  pay stand; the report is extra evidence (and its photos appear in the
- *  client's static-guarding report). */
+/** Attach a patrol report to a static / dog-handler shift. The shift itself is
+ *  left as it is — its own check-ins, times and pay stand; the report is extra
+ *  evidence (and its photos appear in the client's static-guarding report).
+ *  The robot only uses a shift the report fits; a person can pick any shift.
+ *  A shift takes any number of reports. */
 export async function linkReportToShift(
   reportId: string,
   shiftId: string,
   opts: { note?: string; ctx?: Ctx; byHand?: boolean; byUserId?: string } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
-  if ("error" in report) return { ok: false, error: report.error };
-  const shift = await prisma.shift.findUnique({
-    where: { id: shiftId },
-    select: {
-      id: true,
-      siteId: true,
-      officerId: true,
-      scheduledStartsAt: true,
-      scheduledEndsAt: true,
-      actualStartedAt: true,
-      actualEndedAt: true,
-    },
-  });
-  if (!shift) return { ok: false, error: "Shift not found." };
-
+  if ("error" in report) return { ok: false, error: report.error, code: report.code };
+  if (!UUID_RE.test(shiftId)) return { ok: false, error: "Shift not found." };
+  const byHand = !!opts.byHand;
   const facts = factsOf(report);
-  // The robot only puts a report on a shift it fits (within the shift, give
-  // or take the allowance). A person linking by hand can pick any shift.
-  const window = toShiftCandidate(shift);
   const span = reportSpan(facts);
-  const fit = shiftFit(span, window);
-  if (!opts.byHand && !fit.fits) {
-    return {
-      ok: false,
-      error: `This report (${spanText(span)}) ${outsideShiftText(fit)} (${shiftHoursText(
-        window,
-      )}), more than the ${SHIFT_GRACE_MIN} minutes allowed. A report can only go on a shift it fits.`,
-    };
-  }
   const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
-  await prisma.$transaction(async (tx) => {
+
+  // `now` is taken before the shift is read, so a shift edited after that
+  // read is newer than the stamp and the shift check looks again.
+  const res = await inAttachTx(async (tx, now) => {
+    await claimReport(tx, report.id, "LINKED", byHand, "shift");
+    if (!(await lockRow(tx, "Shift", shiftId))) throw new AttachRefused("Shift not found.");
+    const shift = await tx.shift.findUniqueOrThrow({
+      where: { id: shiftId },
+      select: {
+        id: true,
+        siteId: true,
+        officerId: true,
+        scheduledStartsAt: true,
+        scheduledEndsAt: true,
+        actualStartedAt: true,
+        actualEndedAt: true,
+      },
+    });
+    // The robot only puts a report on a shift it fits (within the shift,
+    // give or take the allowance).
+    const window = toShiftCandidate(shift);
+    const fit = shiftFit(span, window);
+    if (!byHand && !fit.fits) {
+      throw new AttachRefused(
+        `This report (${spanText(span)}) ${outsideShiftText(fit)} (${shiftHoursText(
+          window,
+        )}), more than the ${SHIFT_GRACE_MIN} minutes allowed. A report can only go on a shift it fits.`,
+        "FF_NO_FIT",
+      );
+    }
     const submissionId = await createSubmission(
       tx,
       report,
@@ -1736,29 +1920,31 @@ export async function linkReportToShift(
     await tx.fastFieldReport.update({
       where: { id: report.id },
       data: {
-        status: "LINKED",
         shiftId: shift.id,
         siteId: shift.siteId,
         // It fits (checked above), or a person chose it: the check skips it.
-        shiftCheckedAt: new Date(),
-        unlinkedAt: null,
-        linkedByHand: !!opts.byHand,
+        shiftCheckedAt: now,
         formSubmissionId: submissionId,
-        ...(opts.note ? { note: opts.note } : {}),
+        ...linkStamps(byHand, now),
+        ...linkNote(opts.note, null),
       },
     });
+    await logAttach(tx, "fastfield_linked", "Shift", shift.id, report.id, byHand, {}, opts.byUserId);
   });
-  return { ok: true };
+  return res.ok ? { ok: true } : res;
 }
 
 /** Create the completed job a report describes (a callout nobody logged)
- *  and attach the report to it. */
+ *  and attach the report to it — one transaction: the job is only made once
+ *  the report is taken for it, so the same report never makes two jobs.
+ *  `byHand` defaults to whether a person (`byUserId`) asked for it. */
 export async function createJobForReport(
   reportId: string,
-  opts: { siteId: string; type?: JobType; note?: string; ctx?: Ctx; byUserId?: string },
+  opts: { siteId: string; type?: JobType; note?: string; ctx?: Ctx; byUserId?: string; byHand?: boolean },
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
-  if ("error" in report) return { ok: false, error: report.error };
+  if ("error" in report) return { ok: false, error: report.error, code: report.code };
+  if (!UUID_RE.test(opts.siteId)) return { ok: false, error: "Site not found." };
   const site = await prisma.site.findUnique({
     where: { id: opts.siteId },
     select: { id: true, name: true, customerId: true, partnerId: true, active: true },
@@ -1766,12 +1952,14 @@ export async function createJobForReport(
   if (!site) return { ok: false, error: "Site not found." };
   if (!site.active) return { ok: false, error: "That site is inactive." };
 
+  const byHand = opts.byHand ?? opts.byUserId != null;
   const facts = factsOf(report);
   const type = opts.type ?? (facts.visitType as JobType | null) ?? report.form.jobType;
   const officerId = await officerFor(opts.ctx ?? newCtx(), facts);
   const { arrived, done } = visitTimes(facts, report);
 
-  const jobId = await prisma.$transaction(async (tx) => {
+  const res = await inAttachTx(async (tx, now) => {
+    await claimReport(tx, report.id, "CREATED", byHand, "activity");
     const job = await tx.job.create({
       data: {
         type,
@@ -1792,6 +1980,8 @@ export async function createJobForReport(
       },
       select: { id: true },
     });
+    const prev: LinkPrev = { statusAfter: "APPROVED", filled: {} };
+    addFinance(prev, await fillJobFinance(job.id, tx));
     const submissionId = await createSubmission(
       tx,
       report,
@@ -1802,24 +1992,35 @@ export async function createJobForReport(
     await tx.fastFieldReport.update({
       where: { id: report.id },
       data: {
-        status: "CREATED",
         jobCreated: true,
         jobId: job.id,
         siteId: site.id,
         formSubmissionId: submissionId,
+        ...linkStamps(byHand, now),
         note: opts.note ?? `The ${noun(type)} at ${site.name} was created from this report.`,
       },
     });
-    return job.id;
+    await logAttach(tx, "fastfield_created", "Job", job.id, report.id, byHand, prev, opts.byUserId);
   });
-
-  await snapshotJobFinanceIfNeeded(jobId).catch((e) =>
-    console.error("snapshotJobFinanceIfNeeded failed", e),
-  );
-  return { ok: true };
+  return res.ok ? { ok: true } : res;
 }
 
-/** Set a report aside (a test, a duplicate) or bring it back. */
+/** What a brought-back report waits for, by who took it off its activity. */
+function broughtBackNote(unlinkedBy: FastFieldUnlinkBy | null): string {
+  if (unlinkedBy === "PERSON") {
+    return "Brought back. A person took it off its activity, so it waits for you: link it to the right activity or set it aside.";
+  }
+  if (unlinkedBy === "ROBOT") {
+    return "Brought back. The robot puts it back on a shift it fits; otherwise it waits for you to link it.";
+  }
+  return "Brought back. The robot tries matching it again.";
+}
+
+/** Set a report aside (a test, a duplicate) or bring it back. Only a report
+ *  that isn't on anything: the update is conditional, so a report attached
+ *  at the same moment is never set aside. Bringing one back takes it out of
+ *  its skipped place and clears `checkedAt`, so the robot looks at it again
+ *  soon (as far as the rules let it — see the note). */
 export async function setReportIgnored(
   reportId: string,
   ignored: boolean,
@@ -1827,28 +2028,46 @@ export async function setReportIgnored(
 ): Promise<ActionResult> {
   const report = await prisma.fastFieldReport.findUnique({
     where: { id: reportId },
-    select: { status: true },
+    select: { status: true, unlinkedBy: true },
   });
   if (!report) return { ok: false, error: "FastField report not found." };
   if (report.status === "LINKED" || report.status === "CREATED") {
     return { ok: false, error: "This report is already attached to an activity." };
   }
-  await prisma.fastFieldReport.update({
-    where: { id: reportId },
-    // Brought back on its own, it no longer belongs to a skipped place.
-    data: { status: ignored ? "IGNORED" : "UNMATCHED", ...(note ? { note } : {}), ...(ignored ? {} : { skipId: null }) },
+  const done = await prisma.fastFieldReport.updateMany({
+    where: { id: reportId, status: { in: ["UNMATCHED", "IGNORED"] }, formSubmissionId: null },
+    data: ignored
+      ? { status: "IGNORED", ...(note ? { note } : {}) }
+      : {
+          status: "UNMATCHED",
+          // Brought back on its own, it no longer belongs to a skipped place.
+          skipId: null,
+          checkedAt: null,
+          note: note ?? broughtBackNote(report.unlinkedBy),
+        },
   });
+  if (done.count !== 1) return { ok: false, error: "This report is already attached to an activity." };
   return { ok: true };
 }
+
+/** Tell the person when a report they took off had already gone to the
+ *  client: taking it off doesn't take it back. */
+const sentLine = (how: string | undefined) =>
+  `This report had already gone to the client${how ? ` ${how}` : ""} — taking it off doesn't take it back, so let them know if it was wrong.`;
 
 /**
  * Take a report off its shift by hand. The patrol round it added to the shift
  * goes (its FormSubmission and approved review), and the report goes back to
- * Needs linking, stamped `unlinkedAt` so the robot never puts it back: a
- * person links it elsewhere or sets it aside. Linking a report to a shift
- * changes no billing, so there's nothing to undo there.
+ * Needs linking, stamped `unlinkedAt` / `unlinkedBy` = PERSON so the robot
+ * never puts it back: a person links it elsewhere or sets it aside. Linking a
+ * report to a shift changes no billing, so there's nothing to undo there. A
+ * report that already went to the client can still come off; `check` says so.
+ * The shift's history line is the caller's (Admin → FastField → Unlink).
  */
-export async function unlinkReportFromShift(reportId: string, by: string): Promise<ActionResult> {
+export async function unlinkReportFromShift(
+  reportId: string,
+  by: string,
+): Promise<ActionResult & { check?: string[] }> {
   const report = await prisma.fastFieldReport.findUnique({
     where: { id: reportId },
     select: {
@@ -1857,72 +2076,331 @@ export async function unlinkReportFromShift(reportId: string, by: string): Promi
       shiftId: true,
       formSubmissionId: true,
       shift: { select: { scheduledStartsAt: true } },
-      formSubmission: {
-        select: { review: { select: { id: true, _count: { select: { clientReports: true } } } } },
-      },
     },
   });
   if (!report) return { ok: false, error: "FastField report not found." };
   if (report.status !== "LINKED" || !report.shiftId) {
     return { ok: false, error: "This report isn't on a shift." };
   }
-  const review = report.formSubmission?.review ?? null;
-  if (review && review._count.clientReports > 0) {
-    return {
-      ok: false,
-      error: "This report has been sent to the client in a report, so it can't be taken off the shift.",
-    };
-  }
+  const sent = await sentToClient(report);
   const which = report.shift ? ` that started ${formatDateTime(report.shift.scheduledStartsAt)},` : "";
-  await takeOffShift(
-    { id: report.id, formSubmissionId: report.formSubmissionId, reviewId: review?.id ?? null, shiftId: report.shiftId },
-    `Taken off the shift${which} by ${by}. The robot won't link it again: link it to the right activity or set it aside.`,
-    { by: "PERSON" },
-  );
-  return { ok: true };
+  try {
+    await takeOffShift(
+      { id: report.id, formSubmissionId: report.formSubmissionId, reviewId: null, shiftId: report.shiftId },
+      `Taken off the shift${which} by ${by}. The robot won't link it again: link it to the right activity or set it aside.`,
+      { by: "PERSON" },
+    );
+  } catch (e) {
+    if (e instanceof AttachRefused) return { ok: false, error: e.message, code: e.code };
+    throw e;
+  }
+  return { ok: true, check: sent.sent ? [sentLine(sent.how)] : [] };
 }
 
+const UNLINK_SELECT = {
+  id: true,
+  status: true,
+  shiftId: true,
+  jobId: true,
+  patrolVisitId: true,
+  formSubmissionId: true,
+  photoUrls: true,
+  job: { select: { id: true, type: true, scheduledFor: true, completedAt: true, createdAt: true } },
+  patrolVisit: { select: { id: true, scheduledAt: true, patrolSchedule: { select: { kind: true } } } },
+} as const;
+
+type UnlinkReport = Prisma.FastFieldReportGetPayload<{ select: typeof UNLINK_SELECT }>;
+
 /**
- * Take a report off whatever it is attached to, by a person: a shift, a job
- * or a patrol visit. For a shift this is `unlinkReportFromShift`. `check`
- * lists anything the person should look at afterwards (for example a job the
- * link marked done or billed, which couldn't safely be put back).
+ * Take a report off whatever it is attached to, by a person (`by` = their
+ * name for the note, `opts.byUserId` for the history): a shift, a job, a
+ * patrol visit, or the job it made.
+ *  - A shift: `unlinkReportFromShift` (the caller writes the shift's history
+ *    line, as before).
+ *  - A job or visit: its round goes, and what the link changed is put back
+ *    from the link's history (`fastfield_linked` → prev) where that's safe —
+ *    see planUnlinkUndo (fastfieldAttach.ts). Links made before linking kept
+ *    a record change nothing on the activity.
+ *  - The job it made: cancelled with its bill and pay cleared, as Cancel
+ *    does, unless that isn't safe — see planCreatedJobUndo.
+ * The report waits in Needs linking (`unlinkedBy` = PERSON: never re-linked
+ * by the robot), and the job / visit gets a `fastfield_unlinked` history
+ * line. `check` lists what the person should look at afterwards.
  */
 export async function unlinkReportFromActivity(
   reportId: string,
   by: string,
+  opts: { byUserId?: string } = {},
 ): Promise<ActionResult & { check?: string[] }> {
-  return unlinkReportFromShift(reportId, by);
+  const report = await prisma.fastFieldReport.findUnique({
+    where: { id: reportId },
+    select: UNLINK_SELECT,
+  });
+  if (!report) return { ok: false, error: "FastField report not found." };
+  const userId = opts.byUserId ?? null;
+  if (report.status === "LINKED" && report.shiftId) return unlinkReportFromShift(reportId, by);
+  if ((report.status === "LINKED" || report.status === "CREATED") && report.job) {
+    return unlinkFromJob(report, report.job, by, userId);
+  }
+  if (report.status === "LINKED" && report.patrolVisit) {
+    return unlinkFromVisit(report, report.patrolVisit, by, userId);
+  }
+  return { ok: false, error: "This report isn't attached to an activity." };
 }
 
-/** Take a report off its shift: its patrol round (submission + review) goes,
- *  and it waits in Needs linking, never linked again by the robot. */
+/** The latest `fastfield_linked` history of this report on this activity. */
+async function linkHistory(entity: "Job" | "PatrolVisit", entityId: string, reportId: string): Promise<unknown> {
+  const row = await prisma.activityLog.findFirst({
+    where: { entity, entityId, action: "fastfield_linked", diff: { path: ["fastfieldReportId"], equals: reportId } },
+    orderBy: { createdAt: "desc" },
+    select: { diff: true },
+  });
+  return row?.diff ?? null;
+}
+
+/** The first step of an unlink, in its transaction: take the report off —
+ *  only if it's still on this activity with this round (else roll back). */
+async function claimForUnlink(
+  tx: Prisma.TransactionClient,
+  report: UnlinkReport,
+  on: { jobId: string } | { patrolVisitId: string },
+): Promise<void> {
+  const taken = await tx.fastFieldReport.updateMany({
+    where: { id: report.id, status: report.status, formSubmissionId: report.formSubmissionId, ...on },
+    data: { status: "UNMATCHED" },
+  });
+  if (taken.count !== 1) throw new AttachRefused(CHANGED_MEANWHILE, "FF_CHANGED");
+}
+
+/** The last steps of an unlink: the report waits for a person, and its
+ *  round (submission + review) goes. */
+async function finishUnlink(
+  tx: Prisma.TransactionClient,
+  report: UnlinkReport,
+  now: Date,
+  note: string,
+): Promise<void> {
+  await tx.fastFieldReport.update({
+    where: { id: report.id },
+    data: {
+      jobId: null,
+      patrolVisitId: null,
+      shiftId: null,
+      formSubmissionId: null,
+      jobCreated: false,
+      linkedAt: null,
+      linkedByHand: false,
+      unlinkedAt: now,
+      unlinkedBy: "PERSON",
+      checkedAt: now,
+      rulesVersion: FASTFIELD_RULES_VERSION,
+      note,
+    },
+  });
+  await removeRound(tx, report.formSubmissionId);
+}
+
+/** Delete a report's round: its FormSubmission and review. */
+async function removeRound(tx: Prisma.TransactionClient, submissionId: string | null): Promise<void> {
+  if (!submissionId) return;
+  await tx.reportReview.deleteMany({ where: { submissionId } });
+  await tx.formSubmission.deleteMany({ where: { id: submissionId } });
+}
+
+/** Other reports on a job or visit besides the one coming off: FastField
+ *  reports, and any other submission (an officer's own report included). */
+async function otherReportsOn(
+  tx: Prisma.TransactionClient,
+  on: { jobId: string } | { patrolVisitId: string },
+  report: UnlinkReport,
+): Promise<number> {
+  const reports = await tx.fastFieldReport.count({ where: { ...on, id: { not: report.id } } });
+  const rounds = await tx.formSubmission.count({
+    where: { ...on, ...(report.formSubmissionId ? { id: { not: report.formSubmissionId } } : {}) },
+  });
+  return reports + rounds;
+}
+
+const NOT_AGAIN = "The robot won't link it again: link it to the right activity or set it aside.";
+
+async function unlinkFromJob(
+  report: UnlinkReport,
+  job: NonNullable<UnlinkReport["job"]>,
+  by: string,
+  userId: string | null,
+): Promise<ActionResult & { check?: string[] }> {
+  const created = report.status === "CREATED";
+  const what = noun(job.type);
+  const when = formatDateTime(job.scheduledFor ?? job.completedAt ?? job.createdAt);
+  const [sent, linked] = await Promise.all([
+    sentToClient(report),
+    created ? Promise.resolve(null) : linkHistory("Job", job.id, report.id),
+  ]);
+  const prev = readLinkPrev(linked);
+
+  const res = await inAttachTx(async (tx, now) => {
+    await claimForUnlink(tx, report, { jobId: job.id });
+    await lockRow(tx, "Job", job.id);
+    const j = await tx.job.findUniqueOrThrow({
+      where: { id: job.id },
+      select: {
+        status: true,
+        startedAt: true,
+        completedAt: true,
+        locatedAt: true,
+        assignedToUserId: true,
+        responderType: true,
+        billedAmount: true,
+        paidAmount: true,
+        invoice: { select: { number: true } },
+      },
+    });
+    const otherReports = await otherReportsOn(tx, { jobId: job.id }, report);
+    const money = {
+      billed: j.billedAmount != null,
+      paid: j.paidAmount != null,
+      invoiceNumber: j.invoice?.number ?? null,
+      otherReports,
+    };
+    const plan = created
+      ? planCreatedJobUndo(`the ${what} made from this report`, { status: j.status, ...money }, { userId, at: now })
+      : planUnlinkUndo("job", `the ${what}`, prev, {
+          status: j.status,
+          times: { startedAt: j.startedAt, completedAt: j.completedAt },
+          locatedAt: j.locatedAt,
+          officerId: j.assignedToUserId,
+          responderType: j.responderType,
+          ...money,
+        });
+    if (Object.keys(plan.data).length > 0) {
+      const changed = await tx.job.updateMany({ where: { id: job.id, status: j.status }, data: plan.data });
+      if (changed.count !== 1) throw new AttachRefused(CHANGED_MEANWHILE, "FF_CHANGED");
+    }
+    const cancelled = plan.undone.includes("cancelled") ? `, and that ${what} was cancelled` : "";
+    await finishUnlink(
+      tx,
+      report,
+      now,
+      created
+        ? `Taken off the ${what} made from it (${when}) by ${by}${cancelled}. ${NOT_AGAIN}`
+        : `Taken off the ${what} (${when}) by ${by}. ${NOT_AGAIN}`,
+    );
+    await logActivity({
+      client: tx,
+      entity: "Job",
+      entityId: job.id,
+      action: "fastfield_unlinked",
+      userId,
+      diff: { fastfieldReportId: report.id, by: "person", undone: plan.undone, ...(sent.sent ? { sentToClient: true } : {}) },
+    });
+    return plan.check;
+  });
+  if (!res.ok) return res;
+  return { ok: true, check: [...(sent.sent ? [sentLine(sent.how)] : []), ...res.value] };
+}
+
+async function unlinkFromVisit(
+  report: UnlinkReport,
+  visit: NonNullable<UnlinkReport["patrolVisit"]>,
+  by: string,
+  userId: string | null,
+): Promise<ActionResult & { check?: string[] }> {
+  const what = noun(visitKind(visit.patrolSchedule?.kind));
+  const [sent, linked] = await Promise.all([
+    sentToClient(report),
+    linkHistory("PatrolVisit", visit.id, report.id),
+  ]);
+  const prev = readLinkPrev(linked);
+
+  const res = await inAttachTx(async (tx, now) => {
+    await claimForUnlink(tx, report, { patrolVisitId: visit.id });
+    await lockRow(tx, "PatrolVisit", visit.id);
+    const v = await tx.patrolVisit.findUniqueOrThrow({
+      where: { id: visit.id },
+      select: {
+        status: true,
+        arrivedAt: true,
+        departedAt: true,
+        locatedAt: true,
+        officerId: true,
+        photoUrls: true,
+        billedAmount: true,
+        paidAmount: true,
+        invoice: { select: { number: true } },
+      },
+    });
+    const plan = planUnlinkUndo("visit", `the ${what}`, prev, {
+      status: v.status,
+      times: { arrivedAt: v.arrivedAt, departedAt: v.departedAt },
+      locatedAt: v.locatedAt,
+      officerId: v.officerId,
+      photosAreReports:
+        v.photoUrls.length === report.photoUrls.length && v.photoUrls.every((u, i) => u === report.photoUrls[i]),
+      billed: v.billedAmount != null,
+      paid: v.paidAmount != null,
+      invoiceNumber: v.invoice?.number ?? null,
+      otherReports: await otherReportsOn(tx, { patrolVisitId: visit.id }, report),
+    });
+    if (Object.keys(plan.data).length > 0) {
+      const changed = await tx.patrolVisit.updateMany({ where: { id: visit.id, status: v.status }, data: plan.data });
+      if (changed.count !== 1) throw new AttachRefused(CHANGED_MEANWHILE, "FF_CHANGED");
+    }
+    await finishUnlink(tx, report, now, `Taken off the ${what} (${formatDateTime(visit.scheduledAt)}) by ${by}. ${NOT_AGAIN}`);
+    await logActivity({
+      client: tx,
+      entity: "PatrolVisit",
+      entityId: visit.id,
+      action: "fastfield_unlinked",
+      userId,
+      diff: { fastfieldReportId: report.id, by: "person", undone: plan.undone, ...(sent.sent ? { sentToClient: true } : {}) },
+    });
+    return plan.check;
+  });
+  if (!res.ok) return res;
+  return { ok: true, check: [...(sent.sent ? [sentLine(sent.how)] : []), ...res.value] };
+}
+
+/**
+ * Take a report off its shift: its patrol round (submission + review) goes,
+ * it waits in Needs linking, and `unlinkedBy` says who took it off — the
+ * robot never links again a report a person took off; one it took off itself
+ * it may put back on a shift it fits (never a job). Only while it's still on
+ * that shift (`report.shiftId`, when given) with that round: if it changed
+ * meanwhile, nothing changes and this throws AttachRefused (code FF_CHANGED).
+ */
 async function takeOffShift(
   report: { id: string; formSubmissionId: string | null; reviewId: string | null; shiftId?: string | null },
   note: string,
   opts: { by: FastFieldUnlinkBy },
 ): Promise<void> {
   const now = new Date();
-  await prisma.$transaction(async (tx) => {
-    await tx.fastFieldReport.update({
-      where: { id: report.id },
-      data: {
-        status: "UNMATCHED",
-        shiftId: null,
-        formSubmissionId: null,
-        unlinkedAt: now,
-        unlinkedBy: opts.by,
-        checkedAt: now,
-        rulesVersion: FASTFIELD_RULES_VERSION,
-        linkedByHand: false,
-        note,
-      },
-    });
-    if (report.formSubmissionId) {
-      if (report.reviewId) await tx.reportReview.delete({ where: { id: report.reviewId } });
-      await tx.formSubmission.delete({ where: { id: report.formSubmissionId } });
-    }
-  });
+  await prisma.$transaction(
+    async (tx) => {
+      const off = await tx.fastFieldReport.updateMany({
+        where: {
+          id: report.id,
+          status: "LINKED",
+          formSubmissionId: report.formSubmissionId,
+          ...(report.shiftId !== undefined ? { shiftId: report.shiftId } : {}),
+        },
+        data: {
+          status: "UNMATCHED",
+          shiftId: null,
+          formSubmissionId: null,
+          linkedAt: null,
+          unlinkedAt: now,
+          unlinkedBy: opts.by,
+          checkedAt: now,
+          rulesVersion: FASTFIELD_RULES_VERSION,
+          linkedByHand: false,
+          note,
+        },
+      });
+      if (off.count !== 1) throw new AttachRefused(CHANGED_MEANWHILE, "FF_CHANGED");
+      await removeRound(tx, report.formSubmissionId);
+    },
+    { timeout: ATTACH_TX_MS },
+  );
 }
 
 // ── Reports on a shift they don't fit ─────────────────────────────────────
