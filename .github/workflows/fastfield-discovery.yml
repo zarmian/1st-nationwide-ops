@@ -18,6 +18,9 @@ on:
         options: [global, uk]
         default: global
 
+permissions:
+  contents: read # check out the script (the capture upload needs no token scope)
+
 concurrency:
   group: fastfield-discovery
   cancel-in-progress: false

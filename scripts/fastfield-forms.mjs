@@ -7,6 +7,13 @@
  * 1600 px) and sends it to /api/imports/fastfield, which attaches it to the
  * activity it's about (lib/fastfieldImport.ts).
  *
+ * A report the app refuses for what it holds (too big, or something in it the
+ * app can't read) is handed back at the end of the run as "refused" — its id,
+ * form, send time and a reason, no answers — and the app keeps it set aside
+ * with a note, so the office sees it and later runs don't copy its photos
+ * again. Only in a run where the app took other reports: if it took none, the
+ * fault may be on the app's side, and the next run tries them again.
+ *
  * Serves both the 4-hourly run (last 3 days, in partner-syncs.yml) and the
  * one-off backfill (fastfield-forms.yml with a From date). Re-running is safe:
  * reports already imported are skipped, and a run that hits its time limit
@@ -17,7 +24,8 @@
  * what would happen, per form, and Admin → FastField shows it too.
  *
  * The repo's Actions logs are visible to anyone with access, so this prints
- * counts only — never sites, names or answers — and saves no capture files.
+ * counts only — never sites, names or answers, and of the app's error answers
+ * only its short codes — and saves no capture files.
  *
  * Env: FASTFIELD_USERNAME, FASTFIELD_PASSWORD (the FastField login),
  *      NEXUS_IMPORT_SECRET (the app's import secret),
@@ -302,11 +310,14 @@ function buildReport(submissionId, detail) {
     report: {
       submissionId,
       formId,
-      formName: String(sub.formName ?? detail.form?.formName ?? ""),
+      formName: String(sub.formName ?? detail.form?.formName ?? "").slice(0, 300), // the import's limits
+      // FastField's last-updated time: the send time, unless the submission
+      // was edited in the portal afterwards. The portal data read here shows
+      // no separate "sent" time; if a discovery run finds one, prefer it.
       submittedAt: sub.updatedAt ?? meta.endFormTimeStamp ?? new Date().toISOString(),
       startedAt: meta.startFormTimeStamp ?? null,
       finishedAt: meta.endFormTimeStamp ?? null,
-      submittedBy: typeof sub.userName === "string" ? sub.userName : null,
+      submittedBy: typeof sub.userName === "string" ? sub.userName.slice(0, 200) : null,
       answers,
       photoUrls: [],
       signatureUrl: null,
@@ -420,7 +431,32 @@ async function readReport(page, context, imgPage, submissionId) {
 
 // ── The app ───────────────────────────────────────────────────────────────
 
-class Refused extends Error {}
+/** The app said no (4xx): with its HTTP status and short error code. */
+class Refused extends Error {
+  constructor(message, status, code) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/** The app's error code, when it is one (letters, digits, _): the log prints
+ *  codes, never the text of the app's answer. */
+const appCode = (c) => (typeof c === "string" && /^[a-z0-9_]{1,40}$/i.test(c) ? c : "");
+
+/** Where the app found a problem ("reports.0.answers.3.at"), when that's made
+ *  only of the import's own field names and numbers — so never any data. */
+const FIELD_WORDS = new Set([
+  "reports", "submissionId", "formId", "formName", "submittedAt", "startedAt", "finishedAt",
+  "submittedBy", "answers", "photoUrls", "signatureUrl", "key", "label", "type", "value", "at",
+  "lat", "lng",
+]);
+const appField = (f) =>
+  typeof f === "string" &&
+  f.length <= 80 &&
+  f.split(".").every((p) => /^\d{1,4}$/.test(p) || FIELD_WORDS.has(p))
+    ? f
+    : "";
 
 async function postApp(body) {
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -430,28 +466,94 @@ async function postApp(body) {
       body: JSON.stringify(body),
     }).catch(() => null);
     const json = res ? await res.json().catch(() => ({})) : {};
-    if (res?.ok && json.ok !== false) return json;
+    if (res?.ok) {
+      if (json.ok === true) return json;
+      // Not the import's answer (a sign-in page, say): stop, rather than carry
+      // on as if there were nothing new.
+      throw new Error(`The app's answer to the ${body.action} wasn't the import's (HTTP ${res.status}) — check FASTFIELD_IMPORT_URL.`);
+    }
     if (res && res.status < 500) {
-      throw new Refused(`The app refused the ${body.action} (HTTP ${res.status}${json.error ? `: ${String(json.error).slice(0, 120)}` : ""}).`);
+      const code = appCode(json.code);
+      const field = code ? appField(Array.isArray(json.fields) ? json.fields[0] : null) : "";
+      throw new Refused(
+        `The app refused the ${body.action} (HTTP ${res.status}${code ? `, ${code}` : ""}${field ? ` at ${field}` : ""}).`,
+        res.status,
+        code,
+      );
     }
     await new Promise((r) => setTimeout(r, 3000 * attempt));
   }
   throw new Error(`The app didn't answer the ${body.action} request.`);
 }
 
+/** Reports the app refused for what they hold, to hand back at the end of the
+ *  run (recordRefusals); and how many import calls the app took this run. */
+const refusals = [];
+let importsTaken = 0;
+
 /** Send reports; if the app refuses a batch, send them one by one so a single
  *  odd report doesn't stop the rest. */
 async function importReports(reports, total) {
   try {
-    addSummary(total, await postApp({ action: "import", run: RUN, reports }));
+    const s = await postApp({ action: "import", run: RUN, reports });
+    importsTaken++;
+    addSummary(total, s);
+    total.photosDropped = (total.photosDropped ?? 0) + (Number(s.photosDropped) || 0);
   } catch (e) {
     if (!(e instanceof Refused)) throw e;
     if (reports.length === 1) {
       console.warn(String(e.message));
       total.failed = (total.failed ?? 0) + 1;
+      const reason = refusalReason(e);
+      if (reason) refusals.push(refusedRecord(reports[0], reason));
       return;
     }
     for (const r of reports) await importReports([r], total);
+  }
+}
+
+/** Why the app refused one report, when that's about the report itself: too
+ *  big (413 — the app's limit or Vercel's), or something in it the app can't
+ *  read (400, invalid_report). Null for anything else (a wrong secret…). */
+function refusalReason(e) {
+  if (e.status === 413) return "too_big";
+  if (e.status === 400 && e.code === "invalid_report") return "invalid";
+  return null;
+}
+
+/** All the app keeps of a refused report: no answers. */
+function refusedRecord(report, reason) {
+  const sent = report.submittedAt;
+  return {
+    submissionId: report.submissionId,
+    formId: report.formId,
+    submittedAt: typeof sent === "string" && sent.length <= 40 ? sent : null,
+    submittedBy: typeof report.submittedBy === "string" ? report.submittedBy.slice(0, 200) : null,
+    reason,
+  };
+}
+
+/** Hand this run's refused reports back, so the app keeps them set aside with
+ *  the reason (the office sees them, and plan stops returning them) — only if
+ *  the app took other reports this run: if it took none, the fault may be on
+ *  its side, and the next run tries them all again. */
+async function recordRefusals(total) {
+  if (preview || refusals.length === 0) return;
+  if (!importsTaken) {
+    const one = refusals.length === 1;
+    console.log(
+      `The app refused ${refusals.length} report${one ? "" : "s"} and took none this run, so ` +
+        `${one ? "it isn't" : "they aren't"} set aside: the next run tries again.`,
+    );
+    return;
+  }
+  for (let i = 0; i < refusals.length; i += 25) {
+    const res = await postApp({ action: "refused", reports: refusals.slice(i, i + 25) }).catch(() => null);
+    if (!res) {
+      console.warn("Couldn't hand the refused reports back to the app — the next run tries them again.");
+      return;
+    }
+    total.refused = (total.refused ?? 0) + (Number(res.recorded) || 0);
   }
 }
 
@@ -582,6 +684,7 @@ async function run() {
       console.log(`Stopped after ${done} of ${ids.length} at the ${MAX_MINUTES}-minute limit — the next run carries on.`);
     }
     if (unreadable) console.log(`Couldn't read ${unreadable} submissions from FastField (deleted or no access).`);
+    await recordRefusals(total);
 
     if (preview) {
       console.log(`Preview OK — would have ${describe(total)}.`);
@@ -590,14 +693,23 @@ async function run() {
       console.log(
         `FastField OK — ${describe(total)}; photos copied ${photoCounts.copied}` +
           (photoCounts.failed ? `, ${photoCounts.failed} couldn't be copied` : "") +
+          (total.photosDropped ? `, ${total.photosDropped} left out (not on our storage)` : "") +
           ".",
       );
       describeForms(total);
+      if (total.refused) {
+        console.log(
+          `Couldn't import ${total.refused} report${total.refused === 1 ? "" : "s"} (too big, or unreadable): ` +
+            "kept set aside on Admin → FastField with the reason, to read in FastField.",
+        );
+      }
       const retry = await postApp({ action: "retry" }).catch((e) => {
         console.warn(`Re-checking earlier unmatched reports didn't finish: ${String(e?.message ?? e).slice(0, 120)}`);
         return {};
       });
-      if ((retry.linked ?? 0) + (retry.created ?? 0) > 0) {
+      if (retry.busy) {
+        console.log("Earlier unmatched reports weren't re-checked: the app was already doing it.");
+      } else if ((retry.linked ?? 0) + (retry.created ?? 0) > 0) {
         console.log(`Earlier unmatched reports now attached: linked ${retry.linked ?? 0}, created ${retry.created ?? 0}.`);
       }
     }
