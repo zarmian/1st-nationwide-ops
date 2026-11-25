@@ -10,7 +10,7 @@ Everything driven by the clock rather than a user. Covers the `crons` array in `
 
 - **All Vercel cron schedules are UTC.** Daily times below are UTC, so their UK wall-clock drifts one hour with BST (e.g. `telegram-brief` at `0 7 * * *` = 07:00 UTC ≈ 07:00–08:00 UK). Business logic that needs UK days/times uses `src/lib/dates.ts` and the UK-day helpers, **not** server-local time (see [`14-conventions-and-ui.md`](./14-conventions-and-ui.md)).
 - **Auth: `isAuthorisedCron(req)`** (`src/lib/cronAuth.ts`). Vercel sends `Authorization: Bearer <CRON_SECRET>`; the guard returns `true` only on an exact match. If `CRON_SECRET` is unset it returns `true` **only when `NODE_ENV !== "production"`** — so you can `curl` endpoints by hand in dev, but production without the secret rejects everything. Every route returns `401 { error: "Unauthorised" }` when the guard fails.
-- All cron routes are **`GET`** handlers and are excluded from the auth middleware matcher path-gating (they carry their own secret). Several accept query overrides (`?date=`, `?force=`) that remain `CRON_SECRET`-gated, so they are not externally callable.
+- All cron routes are **`GET`** handlers. Like every `/api/*` route they are outside the sign-in middleware (its matcher excludes all of `api/`), so a cron is never sent to `/login`; each one checks `CRON_SECRET` itself. Several accept query overrides (`?date=`, `?force=`) that remain `CRON_SECRET`-gated, so they are not externally callable.
 
 ## The schedule
 

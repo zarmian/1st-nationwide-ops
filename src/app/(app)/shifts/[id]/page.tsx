@@ -479,12 +479,15 @@ export default async function ShiftDetailPage({
                     </span>
                   )}
                   <span className="ml-auto flex items-center gap-3">
-                    <Link
-                      href={reviewId ? `/admin/reports/${reviewId}` : `/admin/fastfield/${r.id}`}
-                      className="text-xs text-brand-blue-dark hover:underline"
-                    >
-                      Open report →
-                    </Link>
+                    {/* Without a review there's only Admin → FastField, which is admin-only. */}
+                    {(reviewId || isAdmin) && (
+                      <Link
+                        href={reviewId ? `/admin/reports/${reviewId}` : `/admin/fastfield/${r.id}`}
+                        className="text-xs text-brand-blue-dark hover:underline"
+                      >
+                        Open report →
+                      </Link>
+                    )}
                     {isAdmin && r.status === "LINKED" && (
                       <UnlinkButton reportId={r.id} className="btn btn-ghost text-xs" />
                     )}

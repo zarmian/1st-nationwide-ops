@@ -3,14 +3,21 @@ import { NextResponse } from "next/server";
 import { CLIENT_PREVIEW_COOKIE } from "@/lib/clientPreview";
 
 /**
- * Three-layer auth model:
+ * The sign-in guard for pages. It must live in `src/`, the folder that holds
+ * `app/`: Next ignores a `middleware.ts` anywhere else, silently (until Nov
+ * 2026 it sat at the repo root and never ran). src/middleware.test.ts checks
+ * where it is and what the matcher covers.
  *
- *  1. Sign-in: every page except /login, /submit, /jobs, and Next assets
- *     requires a session — that's the `withAuth` baseline.
+ *  1. Sign-in: every page except the public ones (see `config` below) needs
+ *     a session — that's the `withAuth` baseline.
  *  2. Role: officers are hard-locked to `/m/*` and `/submit`; non-admins are
- *     bounced from `/admin/*` (except the review queue, which dispatcher uses).
- *  3. Server actions still call requireAdmin/requireStaff as a backstop — if
- *     someone slips past middleware, the action throws.
+ *     bounced from `/admin/*` (except the review queue, which dispatchers
+ *     use) and `/finance`; partner and client seats stay in their portals.
+ *  3. Backstops: the (app) layout re-checks the role using `x-pathname`, and
+ *     pages and server actions call requireAdmin/requireStaff — if someone
+ *     slips past middleware, those still hold.
+ *
+ * API routes (`/api/*`) are not covered: each one checks its own caller.
  *
  * `/submit`, `/jobs` and `/duty` are intentionally excluded so any outside
  * officer can browse the public job board, claim a job, or run a single
@@ -197,21 +204,24 @@ export default withAuth(
 );
 
 export const config = {
-  // Catch-all: anything that isn't a Next.js asset, the login page, /submit,
-  // /jobs (public job board), /offline, the next-auth callbacks, or a file
-  // with an extension (favicons, images, manifest.json, sw.js, etc.).
-  // Everything else hits this middleware.
+  // Pages only. Each name below is a prefix (`login` also covers
+  // /login/client); everything else hits this middleware.
+  //
+  // - `api/`: every API route checks its own caller (session + role, a shared
+  //   secret, the cron secret or a token) and must answer callers that have
+  //   no session — Vercel crons, the portal robots' imports, webhooks,
+  //   Telegram, the Claude connector (MCP/OAuth), blob upload tokens for
+  //   /submit and /duty, the /submit form's POST. A sign-in redirect would
+  //   break them (Vercel crons don't follow redirects).
+  // - Public pages: login, submit, duty, jobs (public job board), offline,
+  //   and the `oauth` consent page (it checks the session itself).
+  // - `monitoring`: Sentry's tunnel route, when Sentry is switched on.
+  // - Next's assets (`_next/static`, `_next/image`), robots/sitemap, and any
+  //   path with a dot: static files (icons, manifest.webmanifest, sw.js) and
+  //   `/.well-known/*`.
+  //
+  // Next reads this at build time, so it must stay a plain string.
   matcher: [
-    // `api/blob` is excluded so anonymous officers on /submit and /duty can
-    // get a scoped upload token (the route does its own siteId + size +
-    // rate-limit validation; it never relied on a session). `api/webhooks`
-    // is excluded so external providers (bOnline calls) can POST in — those
-    // routes verify their own shared secret. The Claude connector routes
-    // (`api/mcp`, `api/oauth`, the `oauth` consent page) authenticate on their
-    // own: bearer tokens for MCP/token calls, and the consent page checks the
-    // session itself. `api/imports` is the portal robots' ingest (Nexus,
-    // Keyholding, FastField) — bearer-secret checked in each route.
-    // `/.well-known/*` is already excluded by the dot rule.
-    "/((?!api/auth|api/blob|api/webhooks|api/telegram|api/mcp|api/oauth|api/imports|oauth|_next/static|_next/image|login|submit|duty|jobs|offline|robots|sitemap|.*\\..*).*)",
+    "/((?!api/|oauth|_next/static|_next/image|login|submit|duty|jobs|offline|monitoring|robots|sitemap|.*\\..*).*)",
   ],
 };
