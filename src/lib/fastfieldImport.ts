@@ -50,7 +50,6 @@ import {
   MANUAL_LINK_WINDOW_MIN,
   MATCH_WINDOW_MIN,
   WIDE_MATCH_WINDOW_MIN,
-  groupByPlace,
   matchOfficer,
   pickActivity,
   pickActivityWide,
