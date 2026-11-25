@@ -241,12 +241,24 @@ describe("timeRole", () => {
         "On duty",
         "Start of patrol",
         "Patrol start time",
-        // The officer's own times at an alarm or a callout (review M1).
+        // The officer's own times at an alarm, an incident or a callout (review M1).
         "Arrived at alarm",
+        "Arrived at fire alarm",
+        "Fire alarm callout — time on site",
         "Callout arrival time",
+        "Callout start time",
+        "Emergency callout arrival",
         "Time attended (alarm response)",
         "Call attended",
         "Alarm response start time",
+        "Time attended incident",
+        "Arrived at incident",
+        // A client's or customer's place is where the officer was.
+        "Arrival at customer site",
+        "Time arrived at client premises",
+        "Customer's site — time on site",
+        "Customer’s site — time on site",
+        "Customers' site — time on site",
       ],
     ],
     [
@@ -270,6 +282,9 @@ describe("timeRole", () => {
         "Patrol finish time",
         "Completed",
         "Time left alarm site",
+        "Callout finish time",
+        "Alarm callout finish time",
+        "Left customer premises",
       ],
     ],
     [
@@ -291,20 +306,32 @@ describe("timeRole", () => {
       [
         // Someone else's time, even with an arrival or leaving word.
         "Time police attended",
+        "Police arrived",
         "Police arrival time",
         "Fire brigade left",
+        "Fire brigade attended",
+        "Fire service arrived",
+        "Fire crew on site",
+        "Firefighters arrived",
+        "Fire and rescue left",
+        "Emergency services arrived",
         "Ambulance arrived",
         "Keyholder arrived",
         "Key holder on site",
         "Engineer on site",
         "Engineer finished",
+        "Customer arrived",
+        "Customers left",
         "Customer arrival time",
+        "Time customer called",
         "Client left",
+        "Client contacted at",
         "Manager attended",
         "Contractor finished",
         // An event's time.
         "Incident start time",
         "Time of incident",
+        "Incident time",
         "Alarm activation time",
         "Time alarm activated",
         "Time triggered",
@@ -312,6 +339,11 @@ describe("timeRole", () => {
         "Time reported",
         "Call received",
         "Time of call",
+        "Time of callout",
+        "Time of call out",
+        "Time called",
+        "Called out at",
+        "Call time",
         "Time alarm turned off",
         "Alarm time",
         "Alarm end time",
@@ -517,6 +549,49 @@ describe("extractFacts: the report's typed times", () => {
       ],
     });
     expect(span(f)).toEqual(["2026-11-24T02:10:00.000Z", "2026-11-24T02:40:00.000Z"]);
+  });
+
+  it("counts the officer's times at a client's place, never the client's or customer's own", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T08:00:00Z",
+      answers: [
+        t("Customer arrived", "2026-11-24T06:05:00Z"),
+        t("Arrival at customer site", "2026-11-24T06:20:00Z"),
+        t("Client contacted at", "2026-11-24T06:30:00Z"),
+        t("Left customer premises", "2026-11-24T06:50:00Z"),
+        t("Time customer called", "2026-11-24T07:10:00Z"),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:50:00.000Z"]);
+  });
+
+  it("counts the officer's times at a fire alarm, an incident or a callout, never the fire brigade's or the event's", () => {
+    const sent = "2026-11-24T03:30:00Z";
+    const fire = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Arrived at fire alarm", "2026-11-24T02:10:00Z"),
+        t("Fire brigade attended", "2026-11-24T02:20:00Z"),
+        t("Emergency services arrived", "2026-11-24T02:25:00Z"),
+        t("Alarm end time", "2026-11-24T03:00:00Z"),
+        t("Time left site", "2026-11-24T02:50:00Z"),
+      ],
+    });
+    expect(span(fire)).toEqual(["2026-11-24T02:10:00.000Z", "2026-11-24T02:50:00.000Z"]);
+    const incident = extractFacts({
+      submittedAt: sent,
+      answers: [t("Incident start time", "2026-11-24T01:30:00Z"), t("Time attended incident", "2026-11-24T02:05:00Z")],
+    });
+    expect(span(incident)).toEqual(["2026-11-24T02:05:00.000Z", "2026-11-24T02:05:00.000Z"]);
+    const callout = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Time of callout", "2026-11-24T01:40:00Z"),
+        t("Callout start time", "2026-11-24T02:00:00Z"),
+        t("Callout finish time", "2026-11-24T02:45:00Z"),
+      ],
+    });
+    expect(span(callout)).toEqual(["2026-11-24T02:00:00.000Z", "2026-11-24T02:45:00.000Z"]);
   });
 
   it("reads signed on / booked off and the like (review M2)", () => {

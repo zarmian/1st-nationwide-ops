@@ -295,9 +295,12 @@ const ARRIVE_LABEL =
 const LEAVE_LABEL =
   /depart|leav|\bleft\b|\boff\b|finish|\bend(?:ed|s)?\b|complet|conclu|time[\s-]*out\b|check(?:ed|ing)?[\s-]?out\b|(?:sign(?:ed|ing)?|book(?:ed|ing)?|clock(?:ed|ing)?|log(?:ged|ging)?)[\s-]?(?:off|out)\b|\bexit/i;
 /** Someone else's time, or an event's — never the officer's visit, whatever
- *  else the label says ("Time police arrived", "Incident start time"). */
+ *  else the label says ("Time police arrived", "Customer arrived", "Alarm
+ *  activation time", "Time of callout"). A client or customer is someone
+ *  else only when the time is about them, not where it was ("Arrival at
+ *  customer site" is the officer's). */
 const NOT_VISIT_TIME =
-  /\b(?:police|fire|ambulance|paramedics?|emergency|key[\s-]?holders?|engineers?|technicians?|contractors?|clients?|customers?|managers?)\b|incident|activat|trigger|\balert|\breported\b|receiv|time\s+of\s+(?:the\s+)?call\b/i;
+  /\b(?:police|ambulance|paramedics?|key[\s-]?holders?|engineers?|technicians?|contractors?|managers?)\b|\bfire[\s-]*(?:brigade|services?|crews?|engines?|officers?|department|fighters?|m[ae]n)\b|\bfire\s*(?:&|and)\s*rescue\b|\bemergency\s+services?\b|\b(?:client|customer)s?\b(?!(?:['’]s|['’])?\s*(?:site|premises|property|address|location|building|store|unit|gate)s?\b)|activat|trigger|\balert|\breported\b|receiv|time\s+of\s+(?:the\s+)?call(?:[\s-]?out)?\b|\bcall[\s-]?out\s+time\b/i;
 const SUMMARY_LABEL =
   /note|observ|incident|issue|comment|detail|descri|report|summary|remark|reason|action/i;
 const POSTCODE_LABEL = /post\s*code|address|site|premises|property|location/i;
@@ -415,17 +418,20 @@ const OPENED_AFTER_SUBMIT_MS = 60 * 60 * 1000;
 
 /** The arrival / departure words that can only mean the officer was there
  *  (a subset of ARRIVE_LABEL / LEAVE_LABEL) — not "start", "end" or "off",
- *  which an alarm does too ("Time alarm turned off"). */
+ *  which an alarm or an incident does too ("Time alarm turned off"). */
 const PRESENCE_ARRIVE =
   /arriv|attend|on[\s-]?site|reached|check(?:ed|ing)?[\s-]?in\b|(?:sign(?:ed|ing)?|book(?:ed|ing)?|clock(?:ed|ing)?|log(?:ged|ging)?)[\s-]?(?:on|in)\b|on[\s-]?duty/i;
 const PRESENCE_LEAVE =
   /depart|leav|\bleft\b|off[\s-]?site|off[\s-]?duty|check(?:ed|ing)?[\s-]?out\b|(?:sign(?:ed|ing)?|book(?:ed|ing)?|clock(?:ed|ing)?|log(?:ged|ging)?)[\s-]?(?:off|out)\b/i;
-/** An alarm or a call: a time under it is the event's ("Alarm time", "Time
- *  alarm turned off") unless the label says the officer arrived or left
- *  ("Arrived at alarm", "Callout arrival time") or is about their response
- *  ("Time attended (alarm response)"). */
-const ALARM_OR_CALL = /alarm|\bcall(?:ed|s|ing)?\b|call[\s-]?out/i;
-const OFFICER_RESPONSE = /\brespon(?:se|ded|ding)\b|\battendance\b/i;
+/** An alarm, an incident or a phone call: a time under it is the event's
+ *  ("Alarm time", "Time alarm turned off", "Incident start time", "Time
+ *  called") unless the label says the officer arrived or left ("Arrived at
+ *  alarm", "Time attended incident"), or is about the officer's own job — a
+ *  callout, their response or attendance ("Alarm callout finish time",
+ *  "Time attended (alarm response)"). A callout itself is the officer's job,
+ *  not an event ("Callout start time"). */
+const EVENT_LABEL = /alarm|incident|\bcalled\b|\bcall(?:s|ing)?\b(?![\s-]*out\b)/i;
+const OFFICER_JOB = /\brespon(?:se|ded|ding)\b|\battendance\b|\bcall[\s-]?out/i;
 
 /** What a typed time is: the officer's arrival ("Arrive Date/Time", "Signed
  *  on"), their departure ("Time left site", "Booked off"), a plain visit time
@@ -436,13 +442,13 @@ export type TimeRole = "arrive" | "leave" | "plain" | "not";
 /**
  * A typed time's role, by its label. Someone else's time or an event's is
  * never the officer's visit, even with an arrival word ("Time police
- * arrived", "Incident start time"). Under an alarm or a call only words that
- * mean the officer was there count ("Arrived at alarm" does, "Time alarm
- * turned off" doesn't).
+ * arrived", "Customer arrived"). Under an alarm, an incident or a call only
+ * words that mean the officer was there count ("Arrived at alarm" does,
+ * "Time alarm turned off" and "Incident start time" don't).
  */
 export function timeRole(label: string): TimeRole {
   if (NOT_VISIT_TIME.test(label)) return "not";
-  const eventish = ALARM_OR_CALL.test(label) && !OFFICER_RESPONSE.test(label);
+  const eventish = EVENT_LABEL.test(label) && !OFFICER_JOB.test(label);
   const arrive = (eventish ? PRESENCE_ARRIVE : ARRIVE_LABEL).test(label);
   const leave = (eventish ? PRESENCE_LEAVE : LEAVE_LABEL).test(label);
   if (arrive !== leave) return arrive ? "arrive" : "leave";
@@ -558,8 +564,9 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
   // Arrival and departure: only the times typed in the form — never when a
   // field was tapped, or the form was open, on the phone. A time typed
   // without a date goes on a date typed in the form (the first labelled as a
-  // date, else the first), else on the day it was sent (placeTime). A typed
-  // time far from when the report was sent is on the wrong day: left out.
+  // date, else the first; never someone else's or an event's), else on the
+  // day it was sent (placeTime). A typed time far from when the report was
+  // sent is on the wrong day: left out.
   const sent = submittedAt.getTime();
   const nearSent = (d: Date | null, beforeMs: number, afterMs: number) =>
     d && d.getTime() >= sent - beforeMs && d.getTime() <= sent + afterMs ? d : null;
@@ -568,7 +575,7 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
     .filter((a) => answerKind(a.type) === "date")
     .map((a) => ({ label: a.label, v: typedValue(a) }));
   const days = read.flatMap((x) =>
-    x.v?.kind === "date" && !NOT_VISIT_TIME.test(x.label) ? [{ label: x.label, day: x.v.day }] : [],
+    x.v?.kind === "date" && timeRole(x.label) !== "not" ? [{ label: x.label, day: x.v.day }] : [],
   );
   const formDay = (days.find((x) => /\bdate\b/i.test(x.label)) ?? days[0])?.day ?? null;
   const visitTimes = read

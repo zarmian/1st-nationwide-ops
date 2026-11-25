@@ -40,7 +40,6 @@ import {
 import {
   apartText,
   extractFacts,
-  parseFastFieldTime,
   withTimesNote,
   MANUAL_LINK_WINDOW_MIN,
   MATCH_WINDOW_MIN,
@@ -820,10 +819,12 @@ async function recordPreview(run: string, byForm: Record<string, Counts>) {
 }
 
 function incomingTimes(r: FastFieldIncoming) {
-  // A time without a zone is UK wall-clock time, as extractFacts reads it.
+  // FastField's own timestamps (sent, form opened / finished), not typed
+  // answers. Whether they carry a zone is unverified (a discovery run would
+  // show); one without a zone is read as the server does, i.e. as UTC.
   const d = (s: string | null | undefined) => {
     if (!s) return null;
-    const t = parseFastFieldTime(s) ?? new Date(s);
+    const t = new Date(s);
     return Number.isFinite(t.getTime()) ? t : null;
   };
   return {
