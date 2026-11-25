@@ -71,7 +71,7 @@ export default async function NewJobPage({
 }: {
   searchParams: { tab?: string; mode?: string; siteId?: string };
 }) {
-  await requireStaffPage();
+  const me = await requireStaffPage();
   const tab: TabKey = (
     TABS.some((t) => t.key === searchParams.tab) ? searchParams.tab : "callout"
   ) as TabKey;
@@ -152,6 +152,7 @@ export default async function NewJobPage({
           jobTypes={jobTypes}
           jobSources={jobSources}
           defaultSiteId={searchParams.siteId}
+          isAdmin={me.role === "ADMIN"}
         />
       );
     }

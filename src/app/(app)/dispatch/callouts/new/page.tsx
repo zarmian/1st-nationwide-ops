@@ -31,7 +31,7 @@ export default async function NewCalloutPage({
 }: {
   searchParams: { siteId?: string };
 }) {
-  await requireStaffPage();
+  const me = await requireStaffPage();
   const [sites, officers, partners, customerOnlyPartnerCount, allJobTypes, allJobSources] = await Promise.all([
     prisma.site.findMany({
       where: { active: true },
@@ -97,6 +97,7 @@ export default async function NewCalloutPage({
         jobTypes={jobTypes}
         jobSources={jobSources}
         defaultSiteId={searchParams.siteId}
+        isAdmin={me.role === "ADMIN"}
       />
     </div>
   );

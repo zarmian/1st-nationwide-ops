@@ -30,6 +30,7 @@ export function CalloutForm({
   jobTypes,
   jobSources,
   defaultSiteId,
+  isAdmin = false,
 }: {
   action: (state: CalloutState, fd: FormData) => Promise<CalloutState>;
   sites: SiteOption[];
@@ -39,6 +40,8 @@ export function CalloutForm({
   jobTypes: PickerOption[];
   jobSources: PickerOption[];
   defaultSiteId?: string;
+  /** Partner set-up lives under Admin, which only admins can open. */
+  isAdmin?: boolean;
 }) {
   const [state, formAction] = useFormState(action, {});
   const fe = state.fieldErrors ?? {};
@@ -243,27 +246,31 @@ export function CalloutForm({
                       to add: Nexus Security, Keyholding Co.
                     </p>
                   )}
-                  <p>
-                    <a
-                      href="/admin/partners"
-                      target="_blank"
-                      rel="noopener"
-                      className="underline font-medium hover:text-amber-900"
-                    >
-                      Open Admin → Partners ↗
-                    </a>
-                    {" "}
-                    {customerOnlyPartnerCount === 0 && (
+                  {isAdmin ? (
+                    <p>
                       <a
-                        href="/admin/partners/new"
+                        href="/admin/partners"
                         target="_blank"
                         rel="noopener"
-                        className="underline font-medium hover:text-amber-900 ml-3"
+                        className="underline font-medium hover:text-amber-900"
                       >
-                        + Add a partner ↗
+                        Open Admin → Partners ↗
                       </a>
-                    )}
-                  </p>
+                      {" "}
+                      {customerOnlyPartnerCount === 0 && (
+                        <a
+                          href="/admin/partners/new"
+                          target="_blank"
+                          rel="noopener"
+                          className="underline font-medium hover:text-amber-900 ml-3"
+                        >
+                          + Add a partner ↗
+                        </a>
+                      )}
+                    </p>
+                  ) : (
+                    <p>Ask an admin to set this up under Admin → Partners.</p>
+                  )}
                 </div>
               ) : (
                 <select
