@@ -14,6 +14,7 @@ import type { PrismaClient } from "@prisma/client";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   AUTH_CODE_TTL_SECONDS,
+  MCP_FASTFIELD_LINK_SCOPE,
   MCP_SCOPE,
   REFRESH_TOKEN_TTL_SECONDS,
   isOurResource,
@@ -173,9 +174,11 @@ export function buildClientRedirect(
   return u.toString();
 }
 
-/** The scope we grant: always exactly the read scope (offline_access is implied). */
-export function grantedScope(): string {
-  return MCP_SCOPE;
+/** The scope we grant: always the read scope (offline_access is implied),
+ *  plus FastField shift linking when an admin ticked it on the consent
+ *  screen. What the client asked for doesn't change it. */
+export function grantedScope(opts: { fastfieldLink?: boolean } = {}): string {
+  return opts.fastfieldLink ? `${MCP_SCOPE} ${MCP_FASTFIELD_LINK_SCOPE}` : MCP_SCOPE;
 }
 
 export async function checkAuthorizeRequest(
@@ -252,15 +255,18 @@ export async function approveAuthorization(
   prisma: PrismaClient,
   userId: string,
   request: AuthorizeRequest,
+  /** An admin ticked "Also let Claude change FastField shift links". */
+  opts: { fastfieldLink?: boolean } = {},
 ): Promise<string> {
   const code = newSecret("code");
+  const scope = opts.fastfieldLink ? grantedScope({ fastfieldLink: true }) : request.scope;
   await prisma.mcpGrant.create({
     data: {
       userId,
       clientId: request.client.clientId,
       clientName: request.client.clientName,
       redirectHost: new URL(request.redirectUri).hostname,
-      scope: request.scope,
+      scope,
       resource: request.resource,
       codes: {
         create: {

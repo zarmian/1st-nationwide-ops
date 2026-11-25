@@ -95,6 +95,9 @@ export async function POST(req: Request) {
     return NextResponse.redirect(denyAuthorization(request), 303);
   }
 
-  const to = await approveAuthorization(prisma, access.user.id, request);
+  // The one write scope, only for an admin who ticked it on the consent
+  // screen (FastField shift links; see MCP_FASTFIELD_LINK_SCOPE).
+  const fastfieldLink = access.user.role === "ADMIN" && form.get("fastfield_link") === "1";
+  const to = await approveAuthorization(prisma, access.user.id, request, { fastfieldLink });
   return NextResponse.redirect(to, 303);
 }

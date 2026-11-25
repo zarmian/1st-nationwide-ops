@@ -2,7 +2,10 @@
  * The Claude connector's MCP server: read-only tools over the ops data, built
  * per request for the signed-in principal. Admin-only tools (finance,
  * compliance, customer/partner directory) aren't even listed for office
- * staff. Every call is written to McpToolCall (who, which tool, which
+ * staff. The one exception to read-only: an admin who ticked "Also let
+ * Claude change FastField shift links" when connecting (scope
+ * `fastfield:link`) also gets the two FastField shift-link tools — nothing
+ * else writes. Every call is written to McpToolCall (who, which tool, which
  * filters, ok/error, time) for the admin audit view.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -10,7 +13,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { loadHiddenScope } from "@/lib/hiddenAccounts";
-import { CONNECTOR_NAME } from "./config";
+import { CONNECTOR_NAME, MCP_FASTFIELD_LINK_SCOPE } from "./config";
 import type { McpPrincipal } from "./oauth";
 import {
   ACTIVITY_KINDS,
@@ -19,6 +22,7 @@ import {
 } from "./tools/activities";
 import { listAlarms } from "./tools/alarms";
 import { reviewFastFieldReports } from "./tools/fastfield";
+import { linkReportToShiftTool, reviewShiftRoundsTool, unlinkReportFromShiftTool } from "./tools/fastfieldShifts";
 import { listAccounts } from "./tools/accounts";
 import { getFinanceSummary, listInvoices } from "./tools/finance";
 import { KEY_STATUSES, findKeys } from "./tools/keys";
@@ -41,7 +45,7 @@ import {
 
 const VERSION = "1.0.0";
 
-function instructions(isAdmin: boolean): string {
+function instructions(isAdmin: boolean, canLink: boolean): string {
   return [
     "Read-only access to the operations system of 1st Nationwide Security Services (UK): sites, scheduled patrols and VPIs, lock/unlocks, alarm responses, callouts, static guarding shifts, keys and officers" +
       (isAdmin ? ", plus officer compliance, customers/partners and finance." : "."),
@@ -49,11 +53,25 @@ function instructions(isAdmin: boolean): string {
     "Activity date filters always mean the date the work was SCHEDULED for, not when it was done.",
     "Records: 'job' = callout, alarm response, lock/unlock or other one-off work; 'patrol_visit' = a visit generated from a site's patrol/VPI schedule; 'shift' = a static guarding or dog handling shift.",
     "Name filters match part of a name; results say which names were matched. Alarm, padlock and lockbox codes, entry steps, passwords and duty links are never available here.",
+    ...(canLink
+      ? [
+          "This connection may also change which shift a FastField report is on (link_fastfield_report_to_shift, unlink_fastfield_report_from_shift) — nothing else. Only do it when the user asks; check with review_shift_rounds first and say what you'll change. Each change is a hand link the robot leaves alone, recorded in the shift's history with the user's name and your reason.",
+        ]
+      : []),
   ].join("\n");
 }
 
 const READ_ONLY = {
   readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+
+/** The FastField shift-link tools: they change data (reversibly — a link can
+ *  be moved or taken off again), only in this app. */
+const CHANGES_SHIFT_LINKS = {
+  readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: false,
@@ -74,6 +92,8 @@ const dateArg = z
 
 export async function buildMcpServer(principal: McpPrincipal): Promise<McpServer> {
   const isAdmin = principal.role === "ADMIN";
+  // The one write scope (FastField shift links), for admins who ticked it.
+  const canLink = isAdmin && principal.scopes.includes(MCP_FASTFIELD_LINK_SCOPE);
   const ctx: ToolContext = {
     principal,
     isAdmin,
@@ -83,23 +103,26 @@ export async function buildMcpServer(principal: McpPrincipal): Promise<McpServer
 
   const server = new McpServer(
     { name: CONNECTOR_NAME, version: VERSION },
-    { instructions: instructions(isAdmin) },
+    { instructions: instructions(isAdmin, canLink) },
   );
 
-  /** Register a read-only tool with audit logging and friendly errors. */
+  /** Register a read-only tool with audit logging and friendly errors
+   *  (`writes`: one of the FastField shift-link tools — only registered for
+   *  an admin whose connection has the `fastfield:link` scope). */
   function tool<Shape extends z.ZodRawShape>(
     name: string,
-    meta: { title: string; description: string; input: Shape; adminOnly?: boolean },
+    meta: { title: string; description: string; input: Shape; adminOnly?: boolean; writes?: boolean },
     run: (args: z.objectOutputType<Shape, z.ZodTypeAny>) => Promise<unknown>,
   ) {
     if (meta.adminOnly && !isAdmin) return;
+    if (meta.writes && !canLink) return;
     server.registerTool(
       name,
       {
         title: meta.title,
         description: meta.description,
         inputSchema: meta.input,
-        annotations: { title: meta.title, ...READ_ONLY },
+        annotations: { title: meta.title, ...(meta.writes ? CHANGES_SHIFT_LINKS : READ_ONLY) },
       },
       (async (args: z.objectOutputType<Shape, z.ZodTypeAny>) => {
         const started = Date.now();
@@ -370,6 +393,57 @@ export async function buildMcpServer(principal: McpPrincipal): Promise<McpServer
       },
     },
     (a) => reviewFastFieldReports(ctx, { ...a, limit: clampLimit(a.limit, 60, 150) }),
+  );
+
+  tool(
+    "review_shift_rounds",
+    {
+      title: "Review FastField reports on shifts",
+      description:
+        "Static / dog-handler shifts that started in a UK date window (default the last 7 days; up to 31), each with the FastField reports linked to it, checked against the rules: does the report's TYPED time fit the shift (with the 30-minute allowance either side), is it at the shift's site, does it name the shift's officer, and what would the robot's rules do with it (keep / move to another shift there it fits / take off; the robot itself never touches a hand link). Also lists waiting reports at the site whose typed time fits the shift. By default only shifts with something to look at; onlyProblems=false lists all. Ids are full, for the link tools. No report answers.",
+      adminOnly: true,
+      input: {
+        from: dateArg.optional().describe("First UK day the shifts start on (YYYY-MM-DD). Default 6 days ago."),
+        to: dateArg.optional().describe("Last UK day (YYYY-MM-DD). Default today."),
+        site: z.string().max(120).optional().describe("Part of a site's name, its code or postcode."),
+        onlyProblems: z.boolean().optional().describe("Only shifts with something to look at (default true)."),
+        limit: z.number().int().min(1).max(200).optional().describe("Shifts to list (default 60)"),
+      },
+    },
+    (a) => reviewShiftRoundsTool(ctx, { ...a, limit: clampLimit(a.limit, 60, 200) }),
+  );
+
+  tool(
+    "link_fastfield_report_to_shift",
+    {
+      title: "Put a FastField report on a shift",
+      description:
+        "Put a FastField report on a static / dog-handler shift — moving it off the shift it's on, if any. It's a hand link: the robot leaves it there, even outside the shift's time. Recorded in the shift's history with the user's name and the reason. Not for a report on a job or patrol visit (change those in the app). Only when the user asks; check with review_shift_rounds first.",
+      adminOnly: true,
+      writes: true,
+      input: {
+        reportId: z.string().describe("The report's full id (review_shift_rounds reportId)."),
+        shiftId: z.string().describe("The shift's full id (review_shift_rounds shiftId)."),
+        reason: z.string().min(3).max(300).describe("Why, in a few words — kept in the shift's history."),
+      },
+    },
+    (a) => linkReportToShiftTool(ctx, a),
+  );
+
+  tool(
+    "unlink_fastfield_report_from_shift",
+    {
+      title: "Take a FastField report off its shift",
+      description:
+        "Take a FastField report off the shift it's on. Its patrol round on the shift goes, and the report waits in Needs linking (Admin → FastField); the robot won't link it again — a person (or link_fastfield_report_to_shift) does. Recorded in the shift's history with the user's name and the reason. Only when the user asks.",
+      adminOnly: true,
+      writes: true,
+      input: {
+        reportId: z.string().describe("The report's full id (review_shift_rounds reportId)."),
+        reason: z.string().min(3).max(300).describe("Why, in a few words — kept in the shift's history."),
+      },
+    },
+    (a) => unlinkReportFromShiftTool(ctx, a),
   );
 
   // ── Finance (admin) ──────────────────────────────────────────────────────

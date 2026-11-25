@@ -43,3 +43,11 @@ describe("connector config", async () => {
     expect(h).not.toContain('"token""');
   });
 });
+
+describe("discovery lists the opt-in FastField shift-link scope", () => {
+  it("advertises it next to the read scope", async () => {
+    const { protectedResourceMetadata, MCP_FASTFIELD_LINK_SCOPE } = await import("./config");
+    expect(MCP_FASTFIELD_LINK_SCOPE).toBe("fastfield:link");
+    expect(protectedResourceMetadata().scopes_supported).toEqual(["ops:read", "fastfield:link"]);
+  });
+});

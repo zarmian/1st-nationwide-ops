@@ -175,7 +175,10 @@ export default async function AuthorizePage({
           </ul>
           <p className="font-medium text-slate-900 mt-3 mb-2">It can&rsquo;t:</p>
           <ul className="list-disc pl-5 space-y-1">
-            <li>Create, change or delete anything</li>
+            <li>
+              Create, change or delete anything
+              {isAdmin ? " — unless you tick the box below, and then only which shift a FastField report is on" : ""}
+            </li>
             <li>See alarm, padlock or lockbox codes, or anyone&rsquo;s password</li>
             <li>See anything your own account can&rsquo;t</li>
           </ul>
@@ -193,6 +196,21 @@ export default async function AuthorizePage({
             input[f] !== undefined ? (
               <input key={f} type="hidden" name={f} value={input[f]} />
             ) : null,
+          )}
+          {isAdmin && (
+            <label className="mb-4 flex items-start gap-3 rounded-xl border border-slate-200 p-3 text-sm text-slate-700">
+              <input type="checkbox" name="fastfield_link" value="1" className="mt-1 h-4 w-4 shrink-0" />
+              <span>
+                <span className="font-medium text-slate-900">
+                  Also let Claude change FastField shift links
+                </span>
+                <br />
+                When you ask it to, Claude can put a FastField report on a shift, move it to another
+                shift, or take it off one. Each change counts as linked by hand (the robot leaves it
+                alone) and is recorded in the shift&rsquo;s history with your name. It can&rsquo;t
+                change anything else.
+              </span>
+            </label>
           )}
           <div className="flex flex-wrap gap-3">
             <button type="submit" name="decision" value="allow" className="btn-primary">
