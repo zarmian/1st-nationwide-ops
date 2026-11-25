@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireStaffPage } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { OfficerForm } from "../_components/OfficerForm";
 import { createOfficer } from "../_actions";
 import { PageHeader } from "@/components/PageHeader";
@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function NewOfficerPage() {
-  await requireStaffPage();
+  await requireAdminPage();
   const regions = await prisma.region.findMany({ orderBy: { name: "asc" } });
 
   return (

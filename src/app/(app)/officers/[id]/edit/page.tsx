@@ -3,7 +3,7 @@ import { ClickableRow } from "@/components/ClickableRow";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireStaffPage } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { toIsoDate } from "@/lib/dates";
 import { OfficerForm } from "../../_components/OfficerForm";
 import { updateOfficer } from "../../_actions";
@@ -26,7 +26,7 @@ export default async function EditOfficerPage({
 }: {
   params: { id: string };
 }) {
-  await requireStaffPage();
+  await requireAdminPage();
   const [officer, regions, recentVisits, keysHeld, recentSubs] =
     await Promise.all([
       prisma.user.findUnique({
