@@ -44,6 +44,7 @@ import {
   MATCH_WINDOW_MIN,
   WIDE_MATCH_WINDOW_MIN,
   groupByPlace,
+  matchOfficer,
   pickActivity,
   pickActivityWide,
   pickOfficer,
@@ -374,7 +375,11 @@ async function officerFor(ctx: Ctx, facts: FastFieldFacts): Promise<string | nul
       inactive: staff.filter((u) => !u.active),
     };
   }
-  return pickOfficer(facts, ctx.people.active) ?? pickOfficer(facts, ctx.people.inactive);
+  // Active staff first. A name several of them fit names nobody: it isn't
+  // passed on to staff who have left, who'd then be guessed.
+  const m = matchOfficer(facts, ctx.people.active);
+  if (m.kind !== "none") return m.kind === "one" ? m.person.id : null;
+  return pickOfficer(facts, ctx.people.inactive);
 }
 
 /** Jobs and patrol visits at a site within the matching window (3 hours, or
@@ -496,6 +501,7 @@ function toShiftCandidate(s: {
     end: new Date(
       Math.max(s.scheduledEndsAt.getTime(), (s.actualEndedAt ?? s.scheduledEndsAt).getTime()),
     ),
+    scheduled: { start: s.scheduledStartsAt, end: s.scheduledEndsAt },
   };
 }
 
@@ -663,13 +669,13 @@ async function decide(
   let ap = pickActivity(facts.when, kind, candidates);
   // Nothing within 3 hours and no static shift on: a report filed late, or a
   // job logged at the wrong time — look for the same kind of work up to 18
-  // hours either side.
+  // hours either side (whose best match may already have a report).
   let wide = false;
   if (!ap.pick && ap.reason === "none" && !shiftsNow.length) {
     let far = await candidatesNear(site.id, facts.when, WIDE_MATCH_WINDOW_MIN);
     if (preview) far = far.map((c) => (ctx.claimed.has(c.id) ? { ...c, taken: true } : c));
     const wp = pickActivityWide(facts.when, kind, far, new Date());
-    if (wp.pick) {
+    if (wp.pick || wp.reason === "taken") {
       ap = wp;
       wide = true;
     }
@@ -696,8 +702,9 @@ async function decide(
 
   // No job or visit to attach it to, but a static shift was on: the guard on
   // duty dealt with it, so it goes to the shift (no job is made, nothing is
-  // billed twice).
-  if (shiftsNow.length) {
+  // billed twice). Not when the best match already has a report: then it's
+  // most likely a second report for that, and it waits for a person (below).
+  if (shiftsNow.length && ap.reason !== "taken") {
     const ps = pickShift(span, shiftsNow, officerId);
     if (ps.pick) {
       return toShift(
@@ -718,7 +725,7 @@ async function decide(
   const note =
     ap.reason === "none"
       ? `No activity at ${site.name} within 3 hours of ${at}, nor a similar one within 18 hours to match it to.`
-      : `The activity at ${site.name} near ${at} already has a FastField report.`;
+      : `It looks like the ${noun(ap.taken.type)} at ${wide ? formatDateTime(ap.at) : formatTime(ap.at)} at ${site.name}, which already has a report — link it by hand if it's a second report for it.`;
   return { action: "unmatched", site, reason: ap.reason, note: note + how };
 }
 
