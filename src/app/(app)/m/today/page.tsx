@@ -44,6 +44,9 @@ function formatScheduled(date: Date | null | undefined): {
 export default async function OfficerTodayPage() {
   const session = await getServerSession(authOptions);
   const userId = session!.user.id;
+  // Site pages are staff-only (middleware); staff who work shifts keep the link.
+  const canOpenSites =
+    session!.user.role === "ADMIN" || session!.user.role === "DISPATCHER";
   const me = await prisma.user.findUnique({
     where: { id: userId },
     select: { onDuty: true },
@@ -157,6 +160,7 @@ export default async function OfficerTodayPage() {
               key={s.id}
               startShift={startShift}
               endShift={endShift}
+              siteHref={canOpenSites ? `/sites/${s.site.id}` : null}
               shift={{
                 id: s.id,
                 type: s.type,

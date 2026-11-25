@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isAllowedForRole } from "@/lib/navAccess";
 
 type SiteHit = {
   id: string;
@@ -68,25 +69,6 @@ const QUICK_ACTIONS: Action[] = [
 ];
 
 const STATIC_ACTIONS = [...QUICK_ACTIONS, ...QUICK_NAV];
-
-// Hrefs that only ADMIN can reach. DISPATCHER also sees /admin/reports
-// because they're the reviewers; everything else under /admin redirects them.
-// OFFICER can only reach /m/* and /submit (see middleware.ts).
-function isAllowedForRole(href: string, role?: string): boolean {
-  if (role === "OFFICER") {
-    return (
-      href === "/m" ||
-      href.startsWith("/m/") ||
-      href === "/submit" ||
-      href.startsWith("/submit/")
-    );
-  }
-  if (href.startsWith("/admin")) {
-    if (role === "ADMIN") return true;
-    return href === "/admin/reports" || href.startsWith("/admin/reports/");
-  }
-  return true;
-}
 
 export function CommandPalette({ role }: { role?: string } = {}) {
   const router = useRouter();
@@ -291,10 +273,10 @@ function buildItems(
   const q = query.trim().toLowerCase();
   const items: Action[] = [];
 
-  // Include searchable static actions, filtered by label AND by role —
-  // surfacing /admin/customers to a dispatcher would just bounce them.
+  // Include searchable static actions, filtered by label. Everything is
+  // filtered by role at the end — surfacing /finance to a dispatcher, or a
+  // site page to an officer, would just bounce them.
   for (const a of STATIC_ACTIONS) {
-    if (!isAllowedForRole(a.href, role)) continue;
     if (!q || a.label.toLowerCase().includes(q) || (a.hint ?? "").toLowerCase().includes(q)) {
       items.push(a);
     }
@@ -347,5 +329,5 @@ function buildItems(
     }
   }
 
-  return items;
+  return items.filter((a) => isAllowedForRole(a.href, role));
 }

@@ -34,8 +34,8 @@ export default async function TelegramPage() {
     <div className="section">
       <PageHeader
         title="Connect Telegram"
-        backHref="/admin"
-        backLabel="Admin"
+        backHref={isAdmin ? "/admin" : "/operations"}
+        backLabel={isAdmin ? "Admin" : "Operations"}
         subtitle="Link your Telegram to get ops alerts here — and, soon, create callouts by messaging the bot."
       />
 
