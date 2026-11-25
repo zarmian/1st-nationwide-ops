@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/numbers";
 import { formatDate, parseIsoDate, toIsoDate } from "@/lib/dates";
@@ -60,7 +60,7 @@ export default async function PartnerStatementPage({
   params: { id: string };
   searchParams: { from?: string; to?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
 
   const now = new Date();
   const from =

@@ -4,9 +4,13 @@
  * and (when relevant) actual duration.
  *
  * Design rules:
- *   1. Pure function. Takes a SiteRate[] (already loaded) and an activity
- *      descriptor. Returns a structured outcome. No Prisma access here so
- *      it's trivial to unit-test.
+ *   1. The calculators (calculateBilling, calculatePay, mergeRates,
+ *      durationMinutes, …) are pure: they take the rates (already loaded)
+ *      and an activity descriptor and return a structured outcome, so
+ *      they're trivial to unit-test. The helpers further down
+ *      (billForSite, payForOfficer, applyBillingTo* / applyPayTo*,
+ *      fillJobFinance / fillVisitFinance) load the rates and write the
+ *      snapshot — those with a `db` argument on a transaction's client too.
  *   2. Snapshot model: the amount is written once onto the activity row
  *      (PatrolVisit.billedAmount / Job.billedAmount). Future rate changes
  *      don't retroactively alter past invoices.
@@ -16,6 +20,10 @@
 import { Prisma } from "@prisma/client";
 import type { RateService, RateUnit, SiteRate } from "@prisma/client";
 import { prisma } from "@/lib/db";
+
+/** The database to read and write: the app's client, or a transaction's —
+ *  so a snapshot can be part of the change that completes the activity. */
+type Db = Prisma.TransactionClient;
 
 export type BillingCalc = {
   amount: number;
@@ -190,6 +198,7 @@ export async function billForSite(
   siteId: string,
   service: RateService,
   durationMinutes: number | null = null,
+  db: Db = prisma,
 ): Promise<BillingResult> {
   const rateSelect = {
     id: true,
@@ -201,14 +210,14 @@ export async function billForSite(
     excessRatePerMin: true,
   } as const;
 
-  const site = await prisma.site.findUnique({
+  const site = await db.site.findUnique({
     where: { id: siteId },
     select: { customerId: true, rates: { select: rateSelect } },
   });
   if (!site) return { ok: false, reason: "no_rate", service };
 
   const customerRates = site.customerId
-    ? await prisma.customerRate.findMany({
+    ? await db.customerRate.findMany({
         where: { customerId: site.customerId },
         select: rateSelect,
       })
@@ -253,9 +262,10 @@ export async function applyBillingToVisit(
   visitId: string,
   result: BillingResult,
   at: Date | null,
+  db: Db = prisma,
 ): Promise<void> {
   if (!result.ok) {
-    await prisma.patrolVisit.update({
+    await db.patrolVisit.update({
       where: { id: visitId },
       data: {
         billedAmount: null,
@@ -266,7 +276,7 @@ export async function applyBillingToVisit(
     });
     return;
   }
-  await prisma.patrolVisit.update({
+  await db.patrolVisit.update({
     where: { id: visitId },
     data: {
       billedAmount: new Prisma.Decimal(result.amount),
@@ -400,8 +410,9 @@ export async function payForOfficer(
   officerId: string,
   service: RateService,
   durationMinutes: number | null = null,
+  db: Db = prisma,
 ): Promise<BillingResult> {
-  const rates = await prisma.officerRate.findMany({
+  const rates = await db.officerRate.findMany({
     where: {
       service,
       OR: [{ officerId }, { officerId: null }],
@@ -424,15 +435,16 @@ export async function applyPayToVisit(
   visitId: string,
   result: BillingResult,
   at: Date | null,
+  db: Db = prisma,
 ): Promise<void> {
   if (!result.ok) {
-    await prisma.patrolVisit.update({
+    await db.patrolVisit.update({
       where: { id: visitId },
       data: { paidAmount: null, paidCurrency: null, paidAt: null },
     });
     return;
   }
-  await prisma.patrolVisit.update({
+  await db.patrolVisit.update({
     where: { id: visitId },
     data: {
       paidAmount: new Prisma.Decimal(result.amount),
@@ -478,7 +490,21 @@ export async function applyPayToJob(
  * jobs kept paidAmount = null and silently dropped out of payroll.
  */
 export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
-  const job = await prisma.job.findUnique({
+  await fillJobFinance(jobId);
+}
+
+/** What a finance snapshot filled in: the bill, the officer's pay, both or
+ *  neither (they were already set, or no rate applies). */
+export type FinanceFilled = { billed: boolean; paid: boolean };
+
+/**
+ * snapshotJobFinanceIfNeeded on a given database client — e.g. inside the
+ * transaction that completes the job, so the job is never left done but
+ * unbilled — saying what it filled in.
+ */
+export async function fillJobFinance(jobId: string, db: Db = prisma): Promise<FinanceFilled> {
+  const filled: FinanceFilled = { billed: false, paid: false };
+  const job = await db.job.findUnique({
     where: { id: jobId },
     select: {
       id: true,
@@ -493,16 +519,16 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
       paidAmount: true,
     },
   });
-  if (!job || !job.siteId || !job.completedAt) return;
+  if (!job || !job.siteId || !job.completedAt) return filled;
   const rateService = jobTypeToRateService(job.type);
-  if (!rateService) return;
+  if (!rateService) return filled;
   const duration = durationMinutes(job.startedAt, job.completedAt);
   const at = jobAccountingDate(job) ?? new Date();
 
   if (job.billedAmount == null) {
-    const bill = await billForSite(job.siteId, rateService, duration);
+    const bill = await billForSite(job.siteId, rateService, duration, db);
     if (bill.ok) {
-      await prisma.job.update({
+      await db.job.update({
         where: { id: jobId },
         data: {
           billedAmount: new Prisma.Decimal(bill.amount),
@@ -511,6 +537,7 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
           payRateUnit: bill.unit,
         },
       });
+      filled.billed = true;
     }
   }
 
@@ -519,9 +546,9 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
     !job.handledByPartnerId &&
     job.paidAmount == null
   ) {
-    const pay = await payForOfficer(job.assignedToUserId, rateService, duration);
+    const pay = await payForOfficer(job.assignedToUserId, rateService, duration, db);
     if (pay.ok) {
-      await prisma.job.update({
+      await db.job.update({
         where: { id: jobId },
         data: {
           paidAmount: new Prisma.Decimal(pay.amount),
@@ -529,8 +556,10 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
           paidAt: at,
         },
       });
+      filled.paid = true;
     }
   }
+  return filled;
 }
 
 /**
@@ -542,7 +571,14 @@ export async function snapshotJobFinanceIfNeeded(jobId: string): Promise<void> {
  * for our own officers (not a partner-handled visit).
  */
 export async function snapshotVisitFinanceIfNeeded(visitId: string): Promise<void> {
-  const v = await prisma.patrolVisit.findUnique({
+  await fillVisitFinance(visitId);
+}
+
+/** snapshotVisitFinanceIfNeeded on a given database client (e.g. inside the
+ *  transaction that completes the visit), saying what it filled in. */
+export async function fillVisitFinance(visitId: string, db: Db = prisma): Promise<FinanceFilled> {
+  const filled: FinanceFilled = { billed: false, paid: false };
+  const v = await db.patrolVisit.findUnique({
     where: { id: visitId },
     select: {
       id: true,
@@ -559,19 +595,26 @@ export async function snapshotVisitFinanceIfNeeded(visitId: string): Promise<voi
       patrolSchedule: { select: { kind: true } },
     },
   });
-  if (!v || v.status !== "COMPLETED") return;
+  if (!v || v.status !== "COMPLETED") return filled;
   const service = jobTypeToRateService(v.patrolSchedule?.kind === "VPI" ? "VPI" : "PATROL");
-  if (!service) return;
+  if (!service) return filled;
   const duration = durationMinutes(v.arrivedAt, v.departedAt);
   const at = visitAccountingDate(v);
   if (v.billedAmount == null) {
-    const bill = await billForSite(v.siteId, service, duration);
-    if (bill.ok) await applyBillingToVisit(v.id, bill, at);
+    const bill = await billForSite(v.siteId, service, duration, db);
+    if (bill.ok) {
+      await applyBillingToVisit(v.id, bill, at, db);
+      filled.billed = true;
+    }
   }
   if (v.officerId && !v.handledByPartnerId && v.paidAmount == null) {
-    const pay = await payForOfficer(v.officerId, service, duration);
-    if (pay.ok) await applyPayToVisit(v.id, pay, at);
+    const pay = await payForOfficer(v.officerId, service, duration, db);
+    if (pay.ok) {
+      await applyPayToVisit(v.id, pay, at, db);
+      filled.paid = true;
+    }
   }
+  return filled;
 }
 
 /** Mirrors applyPayToJob — writes the officer-pay snapshot onto a Shift. */

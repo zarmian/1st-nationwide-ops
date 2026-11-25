@@ -88,7 +88,7 @@ Source: `prisma/schema.prisma`. Money is `Decimal(10,2)`; all ids are `uuid` unl
 ## Core flows
 
 ### A. Officer submits a report
-1. **Open** `GET /submit` (public — whitelisted in `middleware.ts`). `SubmitPage` (`submit/page.tsx`) loads all active sites and all active templates, plus any prefill from `?jobId/?visitId/?shiftId`. Officer name pre-fills from session if logged in, else `?officerName`.
+1. **Open** `GET /submit` (public — left out of the sign-in guard's matcher in `src/middleware.ts`). `SubmitPage` (`submit/page.tsx`) loads all active sites and all active templates, plus any prefill from `?jobId/?visitId/?shiftId`. Officer name pre-fills from session if logged in, else `?officerName`.
 2. **Pick** site + job type in `SubmitForm`. `resolveTemplate(siteId, formType, sites, templates)` (client, `SubmitForm.tsx:709`) selects the winning template purely client-side from the preloaded set (see resolution rules below).
 3. **Render** each field via `FieldInput` by `type`. `tri` renders 3 buttons; `location` calls `navigator.geolocation`; `signature`/`multiphoto` mount the blob uploaders.
 4. **Upload media** (if any): `PhotoGrid`/`SignaturePad` call `upload()` → `POST /api/blob/upload-token`, which validates `siteId` + content-type + 15 MB cap and returns a scoped token; the file lands under `uploads/…` and its public URL is stored in the field value.

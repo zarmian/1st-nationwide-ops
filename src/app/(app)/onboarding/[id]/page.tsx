@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { StageAdvancer } from "./_components/StageAdvancer";
 import { SetupJobs } from "./_components/SetupJobs";
 import { PageHeader } from "@/components/PageHeader";
@@ -28,6 +29,7 @@ export default async function OnboardingDetailPage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const [pipeline, officers] = await Promise.all([
     prisma.onboardingPipeline.findUnique({
       where: { id: params.id },

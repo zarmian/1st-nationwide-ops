@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { activityHref } from "@/lib/activityLinks";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate, parseIsoDate, toIsoDate } from "@/lib/dates";
 import { loadBillingExceptions } from "@/lib/financeExceptions";
@@ -18,7 +18,7 @@ export default async function FinanceExceptionsPage({
 }: {
   searchParams: { from?: string; to?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
 
   const now = new Date();
   const from =

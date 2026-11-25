@@ -1,4 +1,4 @@
-import { getSessionUser } from "@/lib/authz";
+import { requireOfficerPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { isTelegramConfigured, botUsername } from "@/lib/telegram";
@@ -16,13 +16,11 @@ export const dynamic = "force-dynamic";
  * the officer hard-lock.
  */
 export default async function OfficerTelegramPage() {
-  const me = await getSessionUser();
-  const user = me
-    ? await prisma.user.findUnique({
-        where: { id: me.id },
-        select: { telegramChatId: true },
-      })
-    : null;
+  const me = await requireOfficerPage();
+  const user = await prisma.user.findUnique({
+    where: { id: me.id },
+    select: { telegramChatId: true },
+  });
   const configured = isTelegramConfigured() && Boolean(botUsername());
 
   return (

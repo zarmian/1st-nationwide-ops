@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { UnhideButton } from "./_components/UnhideButton";
@@ -13,7 +13,7 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export default async function HiddenAccountsPage() {
-  await requireAdmin();
+  await requireAdminPage();
 
   const [customers, partners] = await Promise.all([
     prisma.customer.findMany({

@@ -4,6 +4,10 @@
  * Throws on unauthorised access — server actions auto-translate thrown
  * errors into a generic 500. For richer error reporting prefer returning
  * an ActionResult.fail() value instead.
+ *
+ * Pages use the redirecting page guards instead (requireAdminPage,
+ * requireStaffPage, requireOfficerPage): someone who can't use a page is
+ * sent to sign in, or to their own home, rather than shown an error page.
  */
 import { getServerSession } from "next-auth";
 import { cookies } from "next/headers";
@@ -58,6 +62,75 @@ export async function requireStaff(): Promise<SessionUser> {
     throw new Error("Not authorised");
   }
   return u;
+}
+
+// ── Page guards ──────────────────────────────────────────────────────
+// Every staff-app page checks its own visitor first, so it holds even when
+// the middleware doesn't run, and on moves between pages (a layout doesn't
+// re-run then). Who may open what follows middleware.ts.
+
+/** Each role's own home: where it lands when it opens a page it can't use. */
+const HOME_FOR_ROLE: Record<UserRole, string> = {
+  ADMIN: "/dispatch",
+  DISPATCHER: "/dispatch",
+  OFFICER: "/m/today",
+  PARTNER: "/partner",
+  PARTNER_OFFICER: "/partner/m/today",
+  CUSTOMER: "/client",
+};
+
+export function homeForRole(role: UserRole): string {
+  // A role this code doesn't know (a session older than a role change)
+  // signs in again.
+  return HOME_FOR_ROLE[role] ?? "/login";
+}
+
+/** The kinds of page in the staff app, by who may open them. */
+export type PageAccess = "admin" | "staff" | "officer";
+
+const PAGE_ROLES: Record<PageAccess, readonly UserRole[]> = {
+  /** /admin/* except the review queue, /finance/*, and /compliance. */
+  admin: ["ADMIN"],
+  /** Every other staff page, the review queue /admin/reports/* included. */
+  staff: ["ADMIN", "DISPATCHER"],
+  /** The officer's own pages, /m/*. Staff open them too, to see what an
+   *  officer sees. */
+  officer: ["OFFICER", "ADMIN", "DISPATCHER"],
+};
+
+/**
+ * Where a signed-in person goes when they open a page of this kind: null
+ * when their role may open it, else their own home.
+ */
+export function pageRedirect(
+  role: UserRole,
+  access: PageAccess,
+): string | null {
+  return PAGE_ROLES[access].includes(role) ? null : homeForRole(role);
+}
+
+async function requirePage(access: PageAccess): Promise<SessionUser> {
+  const u = await getSessionUser();
+  if (!u) redirect("/login");
+  const to = pageRedirect(u.role, access);
+  if (to) redirect(to);
+  return u;
+}
+
+/** Page guard: admins only (/admin/* except the review queue, /finance/*,
+ *  /compliance). */
+export async function requireAdminPage(): Promise<SessionUser> {
+  return requirePage("admin");
+}
+
+/** Page guard: staff, i.e. admins and dispatchers. */
+export async function requireStaffPage(): Promise<SessionUser> {
+  return requirePage("staff");
+}
+
+/** Page guard for the officer's own pages (/m/*): officers, and staff. */
+export async function requireOfficerPage(): Promise<SessionUser> {
+  return requirePage("officer");
 }
 
 export type ClientScope = SessionUser & {

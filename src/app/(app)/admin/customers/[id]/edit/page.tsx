@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { CustomerForm } from "../../_components/CustomerForm";
 import { updateCustomer } from "../../_actions";
 import { PageHeader } from "@/components/PageHeader";
@@ -13,6 +14,7 @@ export default async function EditCustomerPage({
 }: {
   params: { id: string };
 }) {
+  await requireAdminPage();
   const customer = await prisma.customer.findUnique({
     where: { id: params.id },
     include: { contacts: { orderBy: { name: "asc" } } },

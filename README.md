@@ -93,8 +93,8 @@ app/
 │   │   └── submit/         # PUBLIC officer report form
 │   ├── components/         # shared React components
 │   ├── lib/                # auth, prisma client
-│   └── types/              # type augmentations
-├── middleware.ts           # protects (app)/* routes
+│   ├── types/              # type augmentations
+│   └── middleware.ts       # sign-in guard for pages (Next only runs it from src/)
 └── tailwind.config.ts      # brand tokens (mint #2FCB80, navy #0F1929)
 ```
 

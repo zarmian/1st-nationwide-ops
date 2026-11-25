@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Siren, Timer, Gauge, AlertTriangle } from "lucide-react";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
@@ -40,7 +40,7 @@ export default async function AlarmsPage({
 }: {
   searchParams: { days?: string };
 }) {
-  const me = await requireStaff();
+  const me = await requireStaffPage();
 
   const days =
     WINDOWS.find((w) => String(w) === searchParams.days) ?? 30;

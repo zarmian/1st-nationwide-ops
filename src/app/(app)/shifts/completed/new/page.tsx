@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { CompletedShiftForm } from "../../_components/CompletedShiftForm";
 import { recordCompletedShift } from "../../_actions";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * officer or a partner can be the handler.
  */
 export default async function RecordCompletedShiftPage() {
-  await requireStaff();
+  await requireStaffPage();
 
   const [sites, officers, partners] = await Promise.all([
     prisma.site.findMany({

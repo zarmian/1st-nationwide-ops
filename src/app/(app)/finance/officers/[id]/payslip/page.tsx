@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate, toIsoDate, parseIsoDate } from "@/lib/dates";
 import { formatMoney } from "@/lib/numbers";
@@ -17,7 +17,7 @@ export default async function PayslipPage({
   params: { id: string };
   searchParams: { from?: string; to?: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
 
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);

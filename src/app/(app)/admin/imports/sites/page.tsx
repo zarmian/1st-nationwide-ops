@@ -9,10 +9,12 @@ import {
 import { SitesImportPanel } from "./_components/SitesImportPanel";
 import { GeocodePanel } from "./_components/GeocodePanel";
 import { PageHeader } from "@/components/PageHeader";
+import { requireAdminPage } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function SitesImportPage() {
+  await requireAdminPage();
   const [missingCoords, totalWithPostcode] = await Promise.all([
     countSitesMissingCoords(),
     countSitesWithPostcode(),

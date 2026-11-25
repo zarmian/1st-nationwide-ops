@@ -1,5 +1,4 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireOfficerPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { ukDayString } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
@@ -44,8 +43,7 @@ function longDay(day: string): string {
 }
 
 export default async function MyRotaPage() {
-  const session = await getServerSession(authOptions);
-  const userId = session!.user.id;
+  const { id: userId } = await requireOfficerPage();
 
   const today = ukDayString(new Date());
   const lastDay = addDays(today, DAYS_AHEAD);

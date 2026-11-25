@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
 export default async function CustomersAdminPage() {
+  await requireAdminPage();
   const customers = await prisma.customer.findMany({
     orderBy: { name: "asc" },
     include: {

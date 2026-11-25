@@ -27,9 +27,15 @@ export async function GET(req: Request) {
   }
 
   const isStaff = me.role === "ADMIN" || me.role === "DISPATCHER";
+  // Staff only. Officers can't open site, job or shift pages (the command
+  // palette shows them navigation only), and partner and client seats must
+  // never see other accounts' sites — they'd get every site's name, postcode
+  // and client here.
+  if (!isStaff) {
+    return NextResponse.json({ sites: [], officers: [], jobs: [], shifts: [] });
+  }
 
-  // Sites — most useful single hit. Officers get the same list (their
-  // assigned visits / jobs link to sites already).
+  // Sites — most useful single hit.
   const sites = await prisma.site.findMany({
     where: {
       active: true,

@@ -3,7 +3,7 @@ import { ClickableRow } from "@/components/ClickableRow";
 import { ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +62,7 @@ export default async function PatrolScheduleDetailPage({
 }: {
   params: { id: string };
 }) {
-  await requireStaff();
+  await requireStaffPage();
 
   const schedule = await prisma.patrolSchedule.findUnique({
     where: { id: params.id },

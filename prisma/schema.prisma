@@ -2000,6 +2000,13 @@ enum FastFieldReportStatus {
   IGNORED
 }
 
+/// Who took a FastField report off its activity: the robot (it didn't fit
+/// the shift's time, or its activity was deleted) or a person (Unlink).
+enum FastFieldUnlinkBy {
+  ROBOT
+  PERSON
+}
+
 /// OFF = ignored; PREVIEW = only in preview runs (nothing written);
 /// ON = imported by every run.
 enum FastFieldFormMode {
@@ -2090,6 +2097,16 @@ model FastFieldReport {
   /// robot's shift check leaves such a report where it was put, even outside
   /// the shift's time.
   linkedByHand     Boolean               @default(false)
+  /// When it was last attached (linked, or its job created). Null = not
+  /// attached. A move by the robot keeps the original time.
+  linkedAt         DateTime?
+  /// Who took it off its activity (set with unlinkedAt): the robot only ever
+  /// re-fits reports it took off itself; one a person unlinked waits for a person.
+  unlinkedBy       FastFieldUnlinkBy?
+  /// The FASTFIELD_RULES_VERSION (src/lib/fastfieldRulesVersion.ts) this
+  /// report was last judged under. Lower than the current version = the
+  /// robot judges it again (shift check, put-back, retry).
+  rulesVersion     Int                   @default(0)
   /// The skipped place that set it aside (Admin → FastField → Skip).
   skipId           String?               @db.Uuid
   skip             FastFieldSkip?        @relation(fields: [skipId], references: [id], onDelete: SetNull)
@@ -2156,4 +2173,15 @@ model DailyCheckSettings {
   /// Comma-separated email addresses. Empty = the ADMIN_EMAIL address.
   recipients String?
   updatedAt  DateTime @updatedAt
+}
+
+/// A lease that lets only one copy of a background run work at a time (e.g.
+/// the FastField matcher, which the 5-minute cron, the sync robot and the
+/// admin's "Try matching again" can all start). Taken by moving lockedUntil
+/// into the future; a run that crashes simply lets its lease run out.
+model RunLock {
+  name        String    @id
+  lockedUntil DateTime?
+  holder      String?
+  updatedAt   DateTime  @updatedAt
 }

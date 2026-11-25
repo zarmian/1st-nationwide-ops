@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { SiteForm } from "../_components/SiteForm";
 import { createSite } from "../_actions";
 import { PageHeader } from "@/components/PageHeader";
@@ -6,6 +7,7 @@ import { PageHeader } from "@/components/PageHeader";
 export const dynamic = "force-dynamic";
 
 export default async function NewSitePage() {
+  await requireStaffPage();
   const [regions, customers, partners, officers] = await Promise.all([
     prisma.region.findMany({ orderBy: { name: "asc" } }),
     prisma.customer.findMany({

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { FormTemplateForm, type FieldRow } from "../_components/FormTemplateForm";
 import { createTemplate } from "../_actions";
 import { parseFields, SUBMISSION_FORM_LABEL } from "@/lib/formTemplates";
@@ -12,6 +13,7 @@ export default async function NewFormTemplatePage({
 }: {
   searchParams: { from?: string };
 }) {
+  await requireAdminPage();
   const from = searchParams.from;
 
   // No starter chosen → show picker

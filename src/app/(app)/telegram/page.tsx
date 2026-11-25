@@ -1,6 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { isTelegramConfigured, botUsername } from "@/lib/telegram";
@@ -16,7 +16,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export default async function TelegramPage() {
-  const me = await requireStaff();
+  const me = await requireStaffPage();
   const session = await getServerSession(authOptions);
   const userId = (session?.user as { id?: string } | undefined)?.id ?? null;
 
@@ -34,8 +34,8 @@ export default async function TelegramPage() {
     <div className="section">
       <PageHeader
         title="Connect Telegram"
-        backHref="/admin"
-        backLabel="Admin"
+        backHref={isAdmin ? "/admin" : "/operations"}
+        backLabel={isAdmin ? "Admin" : "Operations"}
         subtitle="Link your Telegram to get ops alerts here — and, soon, create callouts by messaging the bot."
       />
 

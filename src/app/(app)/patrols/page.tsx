@@ -9,7 +9,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
-import { getSessionUser } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { FilterPanel } from "@/components/FilterPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard, type StatTone } from "@/components/StatCard";
@@ -72,10 +72,10 @@ export default async function PatrolsPage({
 }: {
   searchParams: { region?: string; officer?: string; kind?: string };
 }) {
+  const me = await requireStaffPage();
   const regionFilter = searchParams.region ? Number(searchParams.region) : null;
   const officerFilter = searchParams.officer ?? "";
   const kindFilter = searchParams.kind ?? "";
-  const me = await getSessionUser();
 
   const scheduleWhere: any = {};
   if (regionFilter && Number.isFinite(regionFilter)) {

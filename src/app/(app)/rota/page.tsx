@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { ukDayString } from "@/lib/dates";
 import { formatMoney } from "@/lib/numbers";
 import { PageHeader } from "@/components/PageHeader";
@@ -38,7 +38,7 @@ export default async function RotaBoardPage({
 }: {
   searchParams: { week?: string };
 }) {
-  const me = await requireStaff();
+  const me = await requireStaffPage();
 
   const today = ukDayString(new Date());
   const anchor = /^\d{4}-\d{2}-\d{2}$/.test(searchParams.week ?? "")

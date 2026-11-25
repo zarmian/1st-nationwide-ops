@@ -26,10 +26,15 @@ export function ShiftCard({
   shift,
   startShift,
   endShift,
+  siteHref = null,
 }: {
   shift: Shift;
   startShift: (id: string) => Promise<{ ok: boolean; error?: string }>;
   endShift: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  /** The site page, for staff who work shifts. Null for officers: the site
+   *  pages are staff-only, so the site name is plain text (the briefing
+   *  below has the address and directions). */
+  siteHref?: string | null;
 }) {
   const router = useRouter();
   const confirm = useConfirm();
@@ -95,12 +100,16 @@ export function ShiftCard({
           <div className="text-xs uppercase tracking-wider text-slate-500">
             {shift.type.replace("_", " ").toLowerCase()}
           </div>
-          <Link
-            href={`/sites/${shift.siteId}`}
-            className="font-medium text-brand-navy hover:text-brand-blue-dark"
-          >
-            {shift.siteName}
-          </Link>
+          {siteHref ? (
+            <Link
+              href={siteHref}
+              className="font-medium text-brand-navy hover:text-brand-blue-dark"
+            >
+              {shift.siteName}
+            </Link>
+          ) : (
+            <div className="font-medium text-brand-navy">{shift.siteName}</div>
+          )}
         </div>
         <span
           className={

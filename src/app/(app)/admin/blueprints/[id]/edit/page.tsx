@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { BlueprintForm } from "../../_components/BlueprintForm";
 import { updateBlueprint, deleteBlueprint } from "../../_actions";
 import { parseFields } from "@/lib/formTemplates";
@@ -14,6 +15,7 @@ export default async function EditBlueprintPage({
 }: {
   params: { id: string };
 }) {
+  await requireAdminPage();
   const bp = await prisma.formBlueprint.findUnique({
     where: { id: params.id },
     include: { _count: { select: { templates: true } } },

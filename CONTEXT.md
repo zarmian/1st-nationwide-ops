@@ -68,12 +68,12 @@ src/
 │   ├── BrandLogo.tsx               # inline SVG, colour from tokens
 │   └── TopNav.tsx                  # icons + avatar + nav indicator
 ├── lib/
-│   ├── authz.ts                    # requireUser / requireStaff / requireAdmin
+│   ├── authz.ts                    # requireUser / requireStaff / requireAdmin + page guards (requireAdminPage …)
 │   ├── dates.ts                    # ukWallClockToUtc, parseUkDateTimeLocal, ukDayString
 │   ├── patrolDates.ts              # shouldCreateVisitOn / evaluateSchedule
 │   ├── scheduleSync.ts             # cron materialise visits + lock/unlock jobs
 │   └── billing.ts                  # billForSite / payForOfficer
-middleware.ts                       # role gate + sets x-pathname for layout backstop
+└── middleware.ts                   # role gate + sets x-pathname for layout backstop (must stay in src/)
 tailwind.config.ts                  # brand + scales + gradients + shadows
 ```
 
@@ -313,13 +313,19 @@ SHIFT_CHECK) stay PENDING and need admin review.
 
 ### Permissions
 
-- Middleware: officers → `/m/*` + `/submit` only. Dispatchers → no
-  `/finance/*`, no `/admin/*` except `/admin/reports/*`.
+- Middleware (`src/middleware.ts` — Next ignores one anywhere else; until
+  Nov 2026 it sat at the repo root and never ran): officers → `/m/*` +
+  `/submit` only. Dispatchers → no `/finance/*`, no `/admin/*` except
+  `/admin/reports/*`. It leaves all of `/api/*` alone.
 - `(app)/layout.tsx`: defence-in-depth re-check reading `x-pathname`
   forwarded by middleware. Fails open if `x-pathname` missing (avoids
   PR #18 → #19 redirect loop).
+- Pages: every staff page starts with a page guard (`requireAdminPage` /
+  `requireStaffPage` / `requireOfficerPage` in `src/lib/authz.ts`);
+  `src/lib/pageGuards.test.ts` fails if one is missing.
 - Server actions: every admin action calls `requireAdmin()`; every staff
-  action `requireStaff()`. Never trust middleware alone.
+  action `requireStaff()`. API routes check their own caller. Never trust
+  middleware alone.
 
 ### Forms + dialogs
 

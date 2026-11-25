@@ -29,19 +29,21 @@ The full module map is in [`README.md`](./README.md).
 ## 2. Tech stack & architecture
 
 - **Next.js 14 (App Router) + TypeScript** — server components by default; `"use client"` only where interaction demands it; **server actions** (`_actions.ts`) for mutations.
-- **Prisma ORM** over **Postgres on Supabase** (EU-West / London). 46 models — see [`01-data-model.md`](./01-data-model.md).
+- **Prisma ORM** over **Postgres on Supabase** (EU-West / London). 61 models — see [`01-data-model.md`](./01-data-model.md).
 - **NextAuth v4** — email + password (bcrypt). Session augmented with `role` + `partnerId`. See [`02-access-auth-roles.md`](./02-access-auth-roles.md).
 - **Tailwind CSS** with brand tokens (`brand-blue` `#3B82F6`, `brand-navy` `#0F1929`) and a small primitive layer (`.btn`, `.input`, `.card`, `.table-default`…) in `src/app/globals.css`. See [`14-conventions-and-ui.md`](./14-conventions-and-ui.md).
 - **Vercel** hosting; auto-deploy from `main`. Build runs `prisma generate && prisma migrate deploy && next build`, so **every schema change needs a matching migration**. See [`15-deployment-and-ops.md`](./15-deployment-and-ops.md).
-- **Vercel Cron** drives 12 scheduled routes (materialise schedules, drain notification queues, status sweeps, invoice + contract-renewal reminders). See [`13-crons.md`](./13-crons.md).
+- **Vercel Cron** drives 16 scheduled routes (materialise schedules, drain notification queues, status sweeps, the FastField re-check, invoice + contract-renewal reminders, the daily check and client report). See [`13-crons.md`](./13-crons.md).
 - **External services**: Anthropic Messages API (Telegram bot intent routing), Meta WhatsApp Cloud API, httpsms (SMS), Vercel Blob (photos/signatures), bOnline (inbound calls), Leaflet/OSM (map), Sentry (errors), Upstash/Vercel KV (rate limiting).
 
 ### Request lifecycle (typical)
 
 ```
-Browser ──▶ middleware.ts (role gate) ──▶ (app|partner) layout (re-checks session+role)
+Browser ──▶ src/middleware.ts (sign-in + role gate, pages only) ──▶ (app|partner) layout (re-checks session+role)
+        ──▶ page guard (requireAdminPage / requireStaffPage / requireOfficerPage)
         ──▶ Server Component (reads via Prisma) ──▶ HTML
-Mutations ──▶ Server Action (_actions.ts) or Route Handler (api/**) ──▶ Prisma ──▶ revalidate/redirect
+Mutations ──▶ Server Action (_actions.ts, requireX guard) or Route Handler (api/**, checks its own caller)
+          ──▶ Prisma ──▶ revalidate/redirect
 Side effects (notifications, PDFs) are fire-and-forget or queued, never block the response.
 ```
 
@@ -49,7 +51,7 @@ Side effects (notifications, PDFs) are fire-and-forget or queued, never block th
 
 ```
 prisma/
-├── schema.prisma            # the data model (46 models, 40 enums)
+├── schema.prisma            # the data model (61 models, 45 enums)
 ├── migrations/              # applied in order by `prisma migrate deploy`
 └── seed.ts                  # CSV import + baseline seed
 src/
@@ -64,7 +66,7 @@ src/
 ├── components/              # shared UI primitives (TopNav, DataTable, Confirm, Toast, …)
 ├── lib/                     # business logic (billing, notifications, telegram, dates, …)
 ├── types/                   # next-auth session augmentation
-└── middleware.ts            # route protection (public paths whitelisted)
+└── middleware.ts            # sign-in + role gate for pages (must stay in src/; public paths excluded)
 docs/system/                 # ← you are here
 ```
 
@@ -100,7 +102,7 @@ Full detail in [`08-partners.md`](./08-partners.md).
 | `PARTNER` | Partner portal admin: activities, officers, rates, finance. | `/partner` |
 | `PARTNER_OFFICER` | Partner mobile: today's assigned work. | `/partner/m/today` |
 
-Route gating is defence-in-depth: `middleware.ts` is primary; the `(app)` and `partner` layouts re-check server-side. See [`02-access-auth-roles.md`](./02-access-auth-roles.md).
+Route gating is defence-in-depth: `src/middleware.ts` is primary for pages; the `(app)` and `partner` layouts re-check server-side; every staff page starts with a page guard (`requireAdminPage` / `requireStaffPage` / `requireOfficerPage`), and every server action with its own `requireX` guard. API routes sit outside the middleware and check their own caller. See [`02-access-auth-roles.md`](./02-access-auth-roles.md).
 
 Public (unauthenticated) surfaces: `/login`, `/submit`, `/duty/[token]`, `/jobs`, `/offline`, and the webhook/cron API routes (secret-gated).
 

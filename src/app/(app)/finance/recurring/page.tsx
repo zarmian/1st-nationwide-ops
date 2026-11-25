@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
@@ -16,7 +16,7 @@ const CADENCE_LABEL: Record<string, string> = {
 };
 
 export default async function RecurringChargesPage() {
-  await requireAdmin();
+  await requireAdminPage();
   const [charges, customers] = await Promise.all([
     prisma.recurringCharge.findMany({
       where: { customer: { hidden: false } },

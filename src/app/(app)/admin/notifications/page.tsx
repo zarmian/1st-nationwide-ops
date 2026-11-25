@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { DataTable } from "@/components/DataTable";
 import { FilterPanel } from "@/components/FilterPanel";
 import { retryNotification, flushQueueNow } from "./_actions";
@@ -55,6 +56,7 @@ export default async function NotificationsPage({
 }: {
   searchParams: { status?: string; kind?: string };
 }) {
+  await requireAdminPage();
   const statusFilter = searchParams.status ?? "";
   const kindFilter = searchParams.kind ?? "";
 

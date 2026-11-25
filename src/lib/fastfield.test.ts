@@ -5,6 +5,8 @@ import {
   extractFacts,
   extractPostcode,
   groupByPlace,
+  matchOfficer,
+  matchOfficerName,
   parseFastFieldTime,
   pickActivity,
   pickActivityWide,
@@ -28,6 +30,7 @@ import {
   type ShiftCandidate,
   type SiteRow,
 } from "./fastfield";
+import { answerTime, timeRole, typedValue, withTimesNote, type TimeRole } from "./fastfield";
 
 // The Shurgard form as FastField sends it (answers in form order).
 function shurgardAnswers(over: Partial<Record<string, unknown>> = {}): FastFieldAnswer[] {
@@ -92,6 +95,19 @@ describe("answerKind", () => {
     expect(answerKind("ListPicker")).toBe("text");
     expect(answerKind("Timer")).toBe("other");
   });
+
+  it("takes only Yes / No / N/A fields as three-state, not any type with \"tri\" in it", () => {
+    expect(answerKind("TriState")).toBe("tri");
+    expect(answerKind("StringEntry")).toBe("text");
+    expect(answerKind("Matrix")).toBe("other");
+  });
+
+  it("reads radio buttons, check boxes and drop-downs as text (the option picked)", () => {
+    for (const t of ["RadioButtons", "RadioButtonList", "CheckBox", "CheckboxList", "DropDown", "MultiSelect"]) {
+      expect(answerKind(t)).toBe("text");
+    }
+    expect(answerKind("Switch")).toBe("other");
+  });
 });
 
 describe("parseFastFieldTime", () => {
@@ -113,6 +129,552 @@ describe("parseFastFieldTime", () => {
     expect(parseFastFieldTime("2026-10-17")).toBeNull();
     expect(parseFastFieldTime("")).toBeNull();
     expect(parseFastFieldTime(42)).toBeNull();
+  });
+  it.each([
+    // A space before the time, with an offset (review L10).
+    ["2026-10-17 22:15:00+01:00", "2026-10-17T21:15:00.000Z"],
+    ["2026-10-17T22:15:00.123+01:00", "2026-10-17T21:15:00.123Z"],
+    ["2026-10-17T22:15+0100", "2026-10-17T21:15:00.000Z"],
+    ["2026-10-17T22:15:00Z", "2026-10-17T22:15:00.000Z"],
+    // No zone: UK time, 12-hour clock too, and UK day-first dates.
+    ["2026-10-17 10:15 pm", "2026-10-17T21:15:00.000Z"],
+    ["17/10/2026 22:15", "2026-10-17T21:15:00.000Z"],
+    ["01/12/2026 08:00", "2026-12-01T08:00:00.000Z"],
+    // The nights the clocks change: 01:30 on 29 Mar 2026 doesn't exist (read
+    // with the summer offset); on 25 Oct 2026 it happens twice (the GMT one).
+    ["2026-03-29T01:30", "2026-03-29T00:30:00.000Z"],
+    ["2026-10-25T01:30", "2026-10-25T01:30:00.000Z"],
+  ])("reads %s", (value, iso) => {
+    expect(parseFastFieldTime(value)?.toISOString()).toBe(iso);
+  });
+  it("needs a real date and time", () => {
+    expect(parseFastFieldTime("2026-02-30T10:00")).toBeNull();
+    expect(parseFastFieldTime("2026-10-17T25:00")).toBeNull();
+    expect(parseFastFieldTime("06:20")).toBeNull();
+    expect(parseFastFieldTime("17/10/2026")).toBeNull();
+  });
+});
+
+describe("typedValue", () => {
+  const v = (label: string, value: unknown) => typedValue({ label, value });
+  const moment = (iso: string) => ({ kind: "moment", at: new Date(iso) });
+  const time = (h: number, mi: number, s = 0) => ({ kind: "time", h, mi, s, ms: 0 });
+  const date = (year: number, month: number, day: number) => ({ kind: "date", day: { year, month, day } });
+
+  it.each([
+    ["Arrive Date/Time", "2026-10-17T22:15:00.000+01:00", moment("2026-10-17T21:15:00.000Z")],
+    ["Arrive Date/Time", "2026-11-24T06:20", moment("2026-11-24T06:20:00.000Z")],
+    // A time picker: a time of day, whatever form it comes in.
+    ["Arrival time", "06:20", time(6, 20)],
+    ["Arrival time", "06:20:45", time(6, 20, 45)],
+    ["Arrival time", "6:20 PM", time(18, 20)],
+    ["Arrival time", "12:05 am", time(0, 5)],
+    ["Arrival time", "1900-01-01T06:20:00", time(6, 20)],
+    ["Arrival time", "1970-01-01T06:20:00.000Z", time(6, 20)],
+    // A date picker: a day.
+    ["Date", "2026-11-24", date(2026, 11, 24)],
+    ["Patrol date", "24/11/2026", date(2026, 11, 24)],
+    // …also when it keeps the day as midnight, under a label asking for a date.
+    ["Date of patrol", "2026-11-24T00:00:00.000Z", date(2026, 11, 24)],
+    ["Date of patrol", "2026-06-23T23:00:00.000Z", date(2026, 6, 24)], // UK midnight (BST)
+    // Midnight under a label asking for a time is a time.
+    ["Date/Time", "2026-11-24T00:00:00.000Z", moment("2026-11-24T00:00:00.000Z")],
+  ])("%s = %s", (label, value, want) => {
+    expect(v(label, value)).toEqual(want);
+  });
+
+  it("is null for anything else", () => {
+    expect(v("Arrival time", "25:00")).toBeNull();
+    expect(v("Arrival time", "13:00 pm")).toBeNull();
+    expect(v("Arrival time", "soon")).toBeNull();
+    expect(v("Arrival time", 42)).toBeNull();
+    expect(v("Arrival time", { value: "06:20" })).toBeNull();
+    expect(v("Arrival time", null)).toBeNull();
+  });
+});
+
+describe("answerTime", () => {
+  const ans = (value: unknown, at: string | null = "2026-11-24T07:45:10.000Z"): FastFieldAnswer => ({
+    key: "t",
+    label: "Arrival Time",
+    type: "TimePicker",
+    value,
+    at,
+  });
+  const sent = new Date("2026-11-24T07:50:00.000Z");
+
+  it("never uses when the field was tapped on the phone (review H2)", () => {
+    expect(answerTime(ans("06:20"), { submittedAt: sent })?.toISOString()).toBe("2026-11-24T06:20:00.000Z");
+    expect(answerTime(ans("2026-11-24"), { submittedAt: sent })).toBeNull();
+    expect(answerTime(ans("not a time"), { submittedAt: sent })).toBeNull();
+    expect(answerTime(ans(null), { submittedAt: sent })).toBeNull();
+  });
+
+  it("puts a time typed on its own on the date typed in the form", () => {
+    const day = { year: 2026, month: 11, day: 22 };
+    expect(answerTime(ans("23:10"), { submittedAt: sent, day })?.toISOString()).toBe("2026-11-22T23:10:00.000Z");
+  });
+
+  it("else on the day it was sent — the day before if that's more than 15 minutes after it was sent", () => {
+    const at = (value: string, submitted: string) =>
+      answerTime(ans(value), { submittedAt: new Date(submitted) })?.toISOString();
+    expect(at("23:50", "2026-11-25T00:15:00.000Z")).toBe("2026-11-24T23:50:00.000Z");
+    expect(at("00:25", "2026-11-25T00:15:00.000Z")).toBe("2026-11-25T00:25:00.000Z"); // 10 min after: kept
+    expect(at("00:40", "2026-11-25T00:15:00.000Z")).toBe("2026-11-24T00:40:00.000Z"); // 25 min after
+    // UK days and UK time in summer: sent 07:00 BST.
+    expect(at("06:20", "2026-06-24T06:00:00.000Z")).toBe("2026-06-24T05:20:00.000Z");
+    expect(at("23:30", "2026-06-24T23:10:00.000Z")).toBe("2026-06-24T22:30:00.000Z"); // 00:10 BST on the 25th
+  });
+
+  it("can't place a time on its own without a day to put it on", () => {
+    expect(answerTime(ans("06:20"))).toBeNull();
+    expect(answerTime(ans("2026-11-24T06:20:00.000Z"))?.toISOString()).toBe("2026-11-24T06:20:00.000Z");
+  });
+});
+
+describe("timeRole", () => {
+  const cases: [TimeRole, string[]][] = [
+    [
+      "arrive",
+      [
+        "Arrive Date/Time",
+        "Arrival time",
+        "Time on site",
+        "Onsite",
+        "Time attended",
+        "Reached site",
+        "Signed on",
+        "Signed On Date/Time",
+        "Booked on",
+        "Clocked in",
+        "Clock in",
+        "Clock on",
+        "Logged in",
+        "Check in",
+        "Time on",
+        "Time in",
+        "On duty",
+        "Start of patrol",
+        "Patrol start time",
+        // The officer's own times at an alarm, an incident or a callout (review M1).
+        "Arrived at alarm",
+        "Arrived at fire alarm",
+        "Fire alarm callout — time on site",
+        "Callout arrival time",
+        "Callout start time",
+        "Emergency callout arrival",
+        "Time attended (alarm response)",
+        "Call attended",
+        "Alarm response start time",
+        "Time attended incident",
+        "Arrived at incident",
+        // A client's or customer's place is where the officer was.
+        "Arrival at customer site",
+        "Time arrived at client premises",
+        "Customer's site — time on site",
+        "Customer’s site — time on site",
+        "Customers' site — time on site",
+      ],
+    ],
+    [
+      "leave",
+      [
+        "Departure time",
+        "Time left site",
+        "Left site",
+        "Time Left",
+        "Signed Off Date/Time",
+        "Signed off",
+        "Booked off",
+        "Clocked out",
+        "Clock out",
+        "Logged out",
+        "Check out",
+        "Time off",
+        "Time out",
+        "Off duty",
+        "End of patrol",
+        "Patrol finish time",
+        "Completed",
+        "Time left alarm site",
+        "Callout finish time",
+        "Alarm callout finish time",
+        "Left customer premises",
+      ],
+    ],
+    [
+      "plain",
+      [
+        "Date/Time",
+        "Date/Time of patrol",
+        "Time 1",
+        "Lock up time",
+        "Response time",
+        "Alarm response time",
+        // Both words: it doesn't say which.
+        "Start/Finish",
+        "Time on/off site",
+      ],
+    ],
+    [
+      "not",
+      [
+        // Someone else's time, even with an arrival or leaving word.
+        "Time police attended",
+        "Police arrived",
+        "Police arrival time",
+        "Fire brigade left",
+        "Fire brigade attended",
+        "Fire service arrived",
+        "Fire crew on site",
+        "Firefighters arrived",
+        "Fire and rescue left",
+        "Emergency services arrived",
+        "Ambulance arrived",
+        "Keyholder arrived",
+        "Key holder on site",
+        "Engineer on site",
+        "Engineer finished",
+        "Customer arrived",
+        "Customers left",
+        "Customer arrival time",
+        "Time customer called",
+        "Client left",
+        "Client contacted at",
+        "Manager attended",
+        "Contractor finished",
+        // An event's time.
+        "Incident start time",
+        "Time of incident",
+        "Incident time",
+        "Alarm activation time",
+        "Time alarm activated",
+        "Time triggered",
+        "Alert received",
+        "Time reported",
+        "Call received",
+        "Time of call",
+        "Time of callout",
+        "Time of call out",
+        "Time called",
+        "Called out at",
+        "Call time",
+        "Time alarm turned off",
+        "Alarm time",
+        "Alarm end time",
+        "Call out time",
+      ],
+    ],
+  ];
+  for (const [role, labels] of cases) {
+    it.each(labels)(`"%s" is ${role}`, (label) => {
+      expect(timeRole(label)).toBe(role);
+    });
+  }
+});
+
+describe("extractFacts: the report's typed times", () => {
+  // 24 Nov 2026 is GMT, so UK times read the same as UTC.
+  const t = (label: string, value: unknown, extra: Partial<FastFieldAnswer> = {}): FastFieldAnswer => ({
+    key: label,
+    label,
+    type: "DatePicker",
+    value,
+    ...extra,
+  });
+  const iso = (d: Date | null | undefined) => d?.toISOString() ?? null;
+  const span = (f: ReturnType<typeof extractFacts>) => {
+    const s = reportSpan(f);
+    return [s.from.toISOString(), s.to.toISOString()];
+  };
+  const night: ShiftCandidate = {
+    id: "night",
+    start: new Date("2026-11-23T19:00:00Z"),
+    end: new Date("2026-11-24T07:00:00Z"),
+    officerId: null,
+  };
+  const day: ShiftCandidate = {
+    id: "day",
+    start: new Date("2026-11-24T07:00:00Z"),
+    end: new Date("2026-11-24T19:00:00Z"),
+    officerId: null,
+  };
+
+  it("takes one plain typed time as the report's moment (review H1)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T07:50:00Z",
+      startedAt: "2026-11-24T06:30:00Z",
+      answers: [t("Date/Time of patrol", "2026-11-24T06:35:00.000Z")],
+    });
+    expect(iso(f.arrivedAt)).toBe("2026-11-24T06:35:00.000Z");
+    expect(f.departedAt).toBeNull();
+    expect(span(f)).toEqual(["2026-11-24T06:35:00.000Z", "2026-11-24T06:35:00.000Z"]);
+    // It's the night shift's round: the robot neither puts it on the day
+    // shift nor moves it there, as it did when 07:50 (sent) was its time.
+    expect(pickShift(reportSpan(f), [night, day], null).pick?.id).toBe("night");
+    expect(shiftLinkAction(reportSpan(f), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
+  it("fills a missing side from the plain times, earliest first and latest last (H1, L6)", () => {
+    const sent = "2026-11-24T07:50:00Z";
+    const leftOnly = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time Left", "2026-11-24T06:40:00Z"), t("Date/Time", "2026-11-24T06:20:00Z")],
+    });
+    expect(span(leftOnly)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:40:00.000Z"]);
+    // Out of order on the form: still the earliest to the latest.
+    const unordered = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time 1", "2026-11-24T06:40:00Z"), t("Time 2", "2026-11-24T06:20:00Z"), t("Time 3", "2026-11-24T06:30:00Z")],
+    });
+    expect(span(unordered)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:40:00.000Z"]);
+    // A labelled arrival, and a plain time after it: that's the departure.
+    const arrivalOnly = extractFacts({
+      submittedAt: sent,
+      answers: [t("Arrival time", "2026-11-24T06:00:00Z"), t("Time", "2026-11-24T06:45:00Z")],
+    });
+    expect(span(arrivalOnly)).toEqual(["2026-11-24T06:00:00.000Z", "2026-11-24T06:45:00.000Z"]);
+  });
+
+  it("lets labelled times win for their side, and only fills a side a plain time fits", () => {
+    const sent = "2026-11-24T07:50:00Z";
+    // A plain time before the labelled arrival is neither arrival nor departure.
+    const f = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time", "2026-11-24T06:05:00Z"), t("Arrival time", "2026-11-24T06:15:00Z")],
+    });
+    expect(iso(f.arrivedAt)).toBe("2026-11-24T06:15:00.000Z");
+    expect(f.departedAt).toBeNull();
+    // A plain time after the labelled departure doesn't become the arrival.
+    const g = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time left site", "2026-11-24T06:30:00Z"), t("Time", "2026-11-24T06:50:00Z")],
+    });
+    expect(g.arrivedAt).toBeNull();
+    expect(span(g)).toEqual(["2026-11-24T06:30:00.000Z", "2026-11-24T06:30:00.000Z"]);
+    // Two labelled arrivals: the earliest. Two departures: the latest.
+    const h = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Signed on", "2026-11-24T06:10:00Z"),
+        t("Arrival time", "2026-11-24T06:05:00Z"),
+        t("Time left site", "2026-11-24T06:40:00Z"),
+        t("Signed off", "2026-11-24T06:45:00Z"),
+      ],
+    });
+    expect(span(h)).toEqual(["2026-11-24T06:05:00.000Z", "2026-11-24T06:45:00.000Z"]);
+  });
+
+  it("reads time pickers as typed, not when the field was tapped (review H2)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T07:50:00Z",
+      startedAt: "2026-11-24T07:40:00Z",
+      answers: [
+        t("Arrival Time", "06:20", { type: "TimePicker", at: "2026-11-24T07:45:10.000Z" }),
+        t("Departure Time", "06:40", { type: "TimePicker", at: "2026-11-24T07:45:30.000Z" }),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:40:00.000Z"]);
+    expect(shiftLinkAction(reportSpan(f), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
+  it("puts typed times on the date typed in the form — one labelled as a date first", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T08:00:00Z",
+      answers: [
+        t("Next service due", "2026-12-01"),
+        t("Patrol date", "2026-11-23"),
+        t("Arrival time", "23:50", { type: "TimePicker" }),
+        // Before the arrival, as a time only: the next day.
+        t("Departure time", "00:10", { type: "TimePicker" }),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-23T23:50:00.000Z", "2026-11-24T00:10:00.000Z"]);
+    // Someone else's or an event's date isn't the form's date.
+    const g = extractFacts({
+      submittedAt: "2026-11-24T07:50:00Z",
+      answers: [t("Incident date", "2026-11-20"), t("Arrival time", "07:30", { type: "TimePicker" })],
+    });
+    expect(iso(g.arrivedAt)).toBe("2026-11-24T07:30:00.000Z");
+  });
+
+  it("without a typed date, uses the day it was sent — over midnight too", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-25T00:15:00Z",
+      answers: [
+        t("Arrival time", "23:50", { type: "TimePicker" }),
+        t("Departure time", "00:10", { type: "TimePicker" }),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T23:50:00.000Z", "2026-11-25T00:10:00.000Z"]);
+  });
+
+  it("drops a time-only departure that the next day would put after the report was sent", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T07:00:00Z",
+      answers: [
+        t("Arrival time", "06:00", { type: "TimePicker" }),
+        t("Departure time", "05:00", { type: "TimePicker" }),
+      ],
+    });
+    expect(iso(f.arrivedAt)).toBe("2026-11-24T06:00:00.000Z");
+    expect(f.departedAt).toBeNull();
+    expect(f.timesNote).toBeNull();
+  });
+
+  it("never takes someone else's time or an event's as the visit's (review M1)", () => {
+    const sent = "2026-11-24T08:00:00Z";
+    const alarmOff = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Time on site", "2026-11-24T06:10:00Z"),
+        t("Time alarm turned off", "2026-11-24T06:22:00Z"),
+        t("Time Left Site", "2026-11-24T07:40:00Z"),
+      ],
+    });
+    expect(span(alarmOff)).toEqual(["2026-11-24T06:10:00.000Z", "2026-11-24T07:40:00.000Z"]);
+    // …so a round that ran 40 min past a 07:00 end isn't put on the shift.
+    expect(pickShift(reportSpan(alarmOff), [night], null).pick).toBeNull();
+    const incident = extractFacts({
+      submittedAt: sent,
+      answers: [t("Incident start time", "2026-11-23T23:00:00Z"), t("Time on site", "2026-11-24T06:20:00Z")],
+    });
+    expect(iso(incident.when)).toBe("2026-11-24T06:20:00.000Z");
+    const police = extractFacts({
+      submittedAt: sent,
+      answers: [t("Time Police Attended", "2026-11-24T06:05:00Z"), t("Arrival time", "2026-11-24T06:20:00Z")],
+    });
+    expect(iso(police.arrivedAt)).toBe("2026-11-24T06:20:00.000Z");
+    // Only someone else's and the events' times: nothing typed counts.
+    const none = extractFacts({
+      submittedAt: sent,
+      answers: [t("Keyholder arrived", "2026-11-24T06:05:00Z"), t("Time of call", "2026-11-24T05:50:00Z")],
+    });
+    expect(none.arrivedAt).toBeNull();
+    expect(iso(none.when)).toBe("2026-11-24T08:00:00.000Z");
+  });
+
+  it("keeps the officer's own times at an alarm or callout (M1)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T03:00:00Z",
+      answers: [
+        t("Alarm activation time", "2026-11-24T01:50:00Z"),
+        t("Callout arrival time", "2026-11-24T02:10:00Z"),
+        t("Time left alarm site", "2026-11-24T02:40:00Z"),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T02:10:00.000Z", "2026-11-24T02:40:00.000Z"]);
+  });
+
+  it("counts the officer's times at a client's place, never the client's or customer's own", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T08:00:00Z",
+      answers: [
+        t("Customer arrived", "2026-11-24T06:05:00Z"),
+        t("Arrival at customer site", "2026-11-24T06:20:00Z"),
+        t("Client contacted at", "2026-11-24T06:30:00Z"),
+        t("Left customer premises", "2026-11-24T06:50:00Z"),
+        t("Time customer called", "2026-11-24T07:10:00Z"),
+      ],
+    });
+    expect(span(f)).toEqual(["2026-11-24T06:20:00.000Z", "2026-11-24T06:50:00.000Z"]);
+  });
+
+  it("counts the officer's times at a fire alarm, an incident or a callout, never the fire brigade's or the event's", () => {
+    const sent = "2026-11-24T03:30:00Z";
+    const fire = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Arrived at fire alarm", "2026-11-24T02:10:00Z"),
+        t("Fire brigade attended", "2026-11-24T02:20:00Z"),
+        t("Emergency services arrived", "2026-11-24T02:25:00Z"),
+        t("Alarm end time", "2026-11-24T03:00:00Z"),
+        t("Time left site", "2026-11-24T02:50:00Z"),
+      ],
+    });
+    expect(span(fire)).toEqual(["2026-11-24T02:10:00.000Z", "2026-11-24T02:50:00.000Z"]);
+    const incident = extractFacts({
+      submittedAt: sent,
+      answers: [t("Incident start time", "2026-11-24T01:30:00Z"), t("Time attended incident", "2026-11-24T02:05:00Z")],
+    });
+    expect(span(incident)).toEqual(["2026-11-24T02:05:00.000Z", "2026-11-24T02:05:00.000Z"]);
+    const callout = extractFacts({
+      submittedAt: sent,
+      answers: [
+        t("Time of callout", "2026-11-24T01:40:00Z"),
+        t("Callout start time", "2026-11-24T02:00:00Z"),
+        t("Callout finish time", "2026-11-24T02:45:00Z"),
+      ],
+    });
+    expect(span(callout)).toEqual(["2026-11-24T02:00:00.000Z", "2026-11-24T02:45:00.000Z"]);
+  });
+
+  it("reads signed on / booked off and the like (review M2)", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-24T19:30:00Z",
+      answers: [t("Signed On", "2026-11-24T18:20:00Z"), t("Signed Off", "2026-11-24T19:05:00Z")],
+    });
+    expect(span(f)).toEqual(["2026-11-24T18:20:00.000Z", "2026-11-24T19:05:00.000Z"]);
+    // It started 40 min before a 19:00 shift, so it doesn't fit it.
+    const shift = { id: "n", start: new Date("2026-11-24T19:00:00Z"), end: new Date("2026-11-25T07:00:00Z"), officerId: null };
+    expect(pickShift(reportSpan(f), [shift], null).pick).toBeNull();
+  });
+
+  it("takes typed times up to 72 hours before it was sent, and no more than 15 minutes after (review M7)", () => {
+    const sent = "2026-11-24T07:50:00Z";
+    const arrival = (value: string) =>
+      iso(extractFacts({ submittedAt: sent, answers: [t("Arrival time", value)] }).arrivedAt);
+    expect(arrival("2026-11-21T08:50:00Z")).toBe("2026-11-21T08:50:00.000Z"); // 71 h before: sent late
+    expect(arrival("2026-11-21T06:50:00Z")).toBeNull(); // 73 h before
+    expect(arrival("2026-11-24T08:05:00Z")).toBe("2026-11-24T08:05:00.000Z"); // 15 min after
+    expect(arrival("2026-11-24T08:10:00Z")).toBeNull(); // 20 min after: the wrong day
+  });
+
+  it("uses the send time, and says why, when the typed times are more than a day apart", () => {
+    const f = extractFacts({
+      submittedAt: "2026-11-25T00:15:00Z",
+      answers: [t("Arrival time", "2026-11-23T23:50:00Z"), t("Departure time", "2026-11-25T00:10:00Z")],
+    });
+    expect(f.arrivedAt).toBeNull();
+    expect(f.departedAt).toBeNull();
+    expect(iso(f.when)).toBe("2026-11-25T00:15:00.000Z");
+    expect(span(f)).toEqual(["2026-11-25T00:15:00.000Z", "2026-11-25T00:15:00.000Z"]);
+    expect(f.timesNote).toBe("Its typed times are more than a day apart, so the send time was used.");
+    // Exactly a day is still a span.
+    const g = extractFacts({
+      submittedAt: "2026-11-25T00:15:00Z",
+      answers: [t("Arrival time", "2026-11-24T00:10:00Z"), t("Departure time", "2026-11-25T00:10:00Z")],
+    });
+    expect(g.timesNote).toBeNull();
+    expect(span(g)).toEqual(["2026-11-24T00:10:00.000Z", "2026-11-25T00:10:00.000Z"]);
+    // The robot's note says so (decide adds it to every note).
+    expect(withTimesNote("Site “Mill Yard” not recognised.", f)).toBe(
+      "Site “Mill Yard” not recognised. Its typed times are more than a day apart, so the send time was used.",
+    );
+    expect(withTimesNote(" Site found by GPS (40 m away).", g)).toBe(" Site found by GPS (40 m away).");
+  });
+
+  it("decides by the typed times everywhere: `when` is where the report's span starts (review M6)", () => {
+    const sent = "2026-11-24T07:45:00Z";
+    const opened = "2026-11-24T06:40:00Z";
+    const cases: FastFieldAnswer[][] = [
+      [],
+      [t("Time left site", "2026-11-24T06:55:00Z")],
+      [t("Arrival time", "2026-11-24T06:42:00Z"), t("Time left site", "2026-11-24T06:55:00Z")],
+      [t("Date/Time", "2026-11-24T06:50:00Z")],
+    ];
+    const whens = cases.map((answers) => {
+      const f = extractFacts({ submittedAt: sent, startedAt: opened, finishedAt: sent, answers });
+      expect(f.when.getTime()).toBe(reportSpan(f).from.getTime());
+      return iso(f.when);
+    });
+    // Nothing typed: when it was sent — not when the form was opened (06:40).
+    expect(whens).toEqual([
+      "2026-11-24T07:45:00.000Z",
+      "2026-11-24T06:55:00.000Z",
+      "2026-11-24T06:42:00.000Z",
+      "2026-11-24T06:50:00.000Z",
+    ]);
   });
 });
 
@@ -161,22 +723,27 @@ describe("extractFacts", () => {
     expect(f.lng).toBe(-0.3);
   });
 
-  it("ignores a typed time far from the submission", () => {
+  it("ignores a typed time far from the submission — and never falls back to when the form was opened", () => {
     const f = extractFacts({
       submittedAt: SUBMITTED,
       startedAt: "2026-10-17T22:10:00.000+01:00",
       answers: shurgardAnswers({ arrive: "2025-01-01T09:00:00.000+00:00" }),
     });
     expect(f.arrivedAt).toBeNull();
-    expect(f.when.toISOString()).toBe("2026-10-17T21:10:00.000Z"); // form opened
+    // The typed departure (22:50) decides, not the phone's opened time (22:10).
+    expect(f.when.toISOString()).toBe("2026-10-17T21:50:00.000Z");
+    expect(f.openedAt?.toISOString()).toBe("2026-10-17T21:10:00.000Z");
   });
 
-  it("drops a departure before the arrival", () => {
+  it("uses the send time, and says why, when a dated departure is before the arrival", () => {
     const f = extractFacts({
       submittedAt: SUBMITTED,
       answers: shurgardAnswers({ leave: "2026-10-17T21:00:00.000+01:00" }),
     });
+    expect(f.arrivedAt).toBeNull();
     expect(f.departedAt).toBeNull();
+    expect(f.when.toISOString()).toBe("2026-10-17T21:55:00.000Z");
+    expect(f.timesNote).toBe("Its typed departure is before its arrival, so the send time was used.");
   });
 
   it("falls back to the submission time", () => {
@@ -289,6 +856,22 @@ describe("pickSite", () => {
     expect(!p.site && p.reason).toMatch(/not recognised/);
   });
 
+  it("settles a name that fits several sites by GPS among those with it in their name only", () => {
+    const woolwich = [
+      site("w1", "Woolwich North", 51.49, 0.07),
+      site("w2", "Woolwich South", 51.48, 0.07),
+      site("gr", "Greenwich", 51.4801, 0.0101, "Woolwich Road"),
+    ];
+    // The phone at Greenwich, which is only on Woolwich Road: not picked.
+    const p = pickSite(at("Woolwich", 51.4801, 0.0101), woolwich);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["w1", "w2"]);
+    // The phone at Woolwich South: that one.
+    const q = pickSite(at("Woolwich", 51.4802, 0.0702), woolwich);
+    expect(q.site?.id).toBe("w2");
+    expect(q.site && q.how).toBe("name+gps");
+  });
+
   it("doesn't take a site because both places end in 'End'", () => {
     const withEnd = [...sites, site("fern", "Shurgard Fern End", 50.9, -1.3, "Fern End")];
     const p = pickSite(at("Ashby End"), withEnd);
@@ -334,7 +917,23 @@ describe("pickSite with the client named in the site", () => {
   it("doesn't let \"self storage\" pull in every storage site", () => {
     const p = pickSite(at("self storage woolwich"), sites, customers);
     expect(p.site).toBeNull();
-    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["acw", "greenwich", "woolwich"]);
+    // The two with Woolwich in their name; not Greenwich, on Woolwich Road.
+    expect(!p.site && p.candidates.map((c) => c.id).sort()).toEqual(["acw", "woolwich"]);
+    expect(!p.site && p.reason).toMatch(/fits 2 sites/);
+  });
+
+  it("keeps the GPS fallback to the named client's sites (a wait, never another client's site)", () => {
+    const withGps = [
+      own(site("riverside", "Riverside (SH-1)", 51.5, 0.0, "Riverside Road"), SG),
+      own(site("hilltop", "Access Self Storage Hilltop (AS-2)", 51.6, 0.1, "Hilltop"), AC),
+    ];
+    // The text names Access, but no Access site called Lowfield: the phone
+    // next to the Shurgard site doesn't pick it.
+    const p = pickSite(at("Access Self Storage Lowfield", 51.50005, 0.00005), withGps, customers);
+    expect(p.site).toBeNull();
+    expect(!p.site && p.reason).toMatch(/not recognised/);
+    // Without a client named, GPS alone finds it.
+    expect(pickSite(at("Lowfield", 51.50005, 0.00005), withGps, customers).site?.id).toBe("riverside");
   });
 
   it("narrows only when exactly one client is named", () => {
@@ -395,6 +994,177 @@ describe("pickSite by postcode", () => {
     expect(f.postcode).toBe("W36UU");
     expect(pickSite(f, sites).site?.id).toBe("acton");
   });
+
+  const withAnswer = (label: string, value: string, name = "Shurgard Neasden") =>
+    extractFacts({
+      submittedAt: SUBMITTED,
+      answers: [
+        { key: "a", label: "Site Name", type: "SingleLineEntry", value: name },
+        { key: "b", label, type: "SingleLineEntry", value },
+      ],
+    });
+
+  it.each([
+    ["Site Postcode", "w3 6uu"],
+    ["Post Code", "W3 6UU"],
+    ["Site address", "12 High St, Acton W3 6UU"],
+    ["Address of premises", "12 High St, Acton W3 6UU"],
+    ["Client site postcode", "W3 6UU"],
+  ])("reads the site's postcode from “%s”", (label, value) => {
+    expect(withAnswer(label, value, "Shurgard").postcode).toBe("W36UU");
+  });
+
+  it.each([
+    ["Customer address (if stuck on site)", "12 High St, Acton W3 6UU"],
+    ["Customer postcode", "W3 6UU"],
+    ["Patrol location notes", "Checked the bins behind W3 6UU"],
+    ["Site notes", "Spare keys with the shop at W3 6UU"],
+    ["Site attended", "W3 6UU"],
+    ["Location", "W3 6UU"],
+  ])("doesn't take a postcode from “%s”, so the typed site name stands", (label, value) => {
+    const f = withAnswer(label, value);
+    expect(f.postcode).toBeNull();
+    expect(pickSite(f, sites).site?.id).toBe("neasden");
+  });
+
+  describe("when the site name and the postcode point to different sites", () => {
+    // "Neasden" names Shurgard Neasden; W3 6UU is Shurgard Acton's.
+    const facts = (lat: number | null = null, lng: number | null = null) => ({
+      siteText: "Neasden",
+      postcode: "W36UU",
+      lat,
+      lng,
+    });
+
+    it("picks neither, and leaves nothing for the work on at the time to settle", () => {
+      const p = pickSite(facts(), sites);
+      expect(p.site).toBeNull();
+      expect(!p.site && p.reason).toMatch(/^The site name and the postcode point to different sites/);
+      expect(!p.site && p.candidates).toEqual([]);
+      // From the form itself, too.
+      expect(pickSite(withAnswer("Site Postcode", "W3 6UU"), sites).site).toBeNull();
+    });
+
+    it("lets a GPS fix that clearly favours one settle it", () => {
+      const atActon = pickSite(facts(51.5151, -0.2702), sites);
+      expect(atActon.site?.id).toBe("acton");
+      expect(atActon.site && atActon.how).toBe("postcode+gps");
+      const atNeasden = pickSite(facts(51.5532, -0.2502), sites);
+      expect(atNeasden.site?.id).toBe("neasden");
+      expect(atNeasden.site && atNeasden.how).toBe("name+gps");
+    });
+
+    it("doesn't let a fix that's about as near to both settle it", () => {
+      // 1.8 km from Acton, 2.8 km from Neasden.
+      expect(pickSite(facts(51.531, -0.27), sites).site).toBeNull();
+      // Over 2 km from both.
+      expect(pickSite(facts(51.534, -0.26), sites).site).toBeNull();
+    });
+
+    it("isn't a disagreement when they agree, or the name only fits an address or several sites", () => {
+      expect(pickSite({ ...facts(), siteText: "Acton" }, sites)).toMatchObject({ site: { id: "acton" }, how: "postcode" });
+      // "Lane" is only in Neasden's address (Neasden Lane): the postcode stands.
+      expect(pickSite(at("Lane W3 6UU"), sites).site?.id).toBe("acton");
+      // "Shurgard" fits two sites: the postcode stands.
+      expect(pickSite(at("Shurgard W3 6UU"), sites).site?.id).toBe("acton");
+    });
+  });
+
+  it("doesn't read a floor number as a postcode", () => {
+    expect(extractPostcode("Unit B2 3rd floor")).toBeNull();
+    expect(extractPostcode("Block B2 3rd Floor, Neasden NW10 7UD")).toBe("NW107UD");
+    // A real postcode that ends like an ordinal still counts.
+    expect(extractPostcode("Riverside SE1 9TH")).toBe("SE19TH");
+    const f = extractFacts({
+      submittedAt: SUBMITTED,
+      answers: [{ key: "a", label: "Site Name", type: "SingleLineEntry", value: "Neasden, Unit B2 3rd floor" }],
+    });
+    expect(f.postcode).toBeNull();
+    expect(pickSite(f, sites).site?.id).toBe("neasden");
+  });
+});
+
+describe("extractFacts: which answer is the site, and which the officer", () => {
+  const facts = (...answers: [label: string, value: unknown, type?: string][]) =>
+    extractFacts({
+      submittedAt: SUBMITTED,
+      answers: answers.map(([label, value, type], i) => ({
+        key: `k${i}`,
+        label,
+        type: type ?? "SingleLineEntry",
+        value,
+      })),
+    });
+
+  it.each([
+    ["Site Attended"],
+    ["Patrol Location"],
+    ["Location attended"],
+    ["Customer site"],
+    ["Client's premises"],
+    ["Name of site attended"],
+  ])("takes “%s” as the site, not the officer", (label) => {
+    const f = facts([label, "Riverside Storage"], ["Officer Name", "Ana Test"]);
+    expect(f.siteText).toBe("Riverside Storage");
+    expect(f.officerText).toBe("Ana Test");
+  });
+
+  it.each([
+    ["Staff on site?", "2"],
+    ["Vehicles on site", "One van"],
+    ["Site notes", "Rear gate sticks"],
+    ["Patrol location notes", "Checked the yard"],
+    ["Building secure?", "Secure"],
+    ["Damage to property", "Broken fence panel"],
+    ["Alarm location", "Zone 3 rear door"],
+    ["Customer address (if stuck on site)", "12 High St"],
+    ["GPS location", "51.55, -0.25"],
+    ["Site attended by", "Ana Test"],
+  ])("doesn't take “%s” as the site", (label, value) => {
+    expect(facts([label, value], ["Site Name", "Riverside Storage"]).siteText).toBe("Riverside Storage");
+  });
+
+  it.each([
+    ["Officer Name/SIA Number"],
+    ["Attended by"],
+    ["Patrolled by"],
+    ["Staff name"],
+    ["Staff"],
+    ["Guard"],
+    ["Your Name"],
+  ])("takes “%s” as the officer", (label) => {
+    expect(facts(["Site Name", "Riverside Storage"], [label, "Ana Test"]).officerText).toBe("Ana Test");
+  });
+
+  it.each([
+    ["Patrol Notes", "All quiet, gates locked"],
+    ["Patrol type", "Mobile"],
+    ["Staff on site?", "Yes"],
+    ["Officer comments", "All secure"],
+    ["SIA licence checked?", "Yes"],
+    ["Guard dog used?", "No"],
+  ])("doesn't take “%s” as the officer, even before the officer's name", (label, value) => {
+    const f = facts(["Site Name", "Riverside Storage"], [label, value], ["Officer Name", "Ana Test"]);
+    expect(f.officerText).toBe("Ana Test");
+  });
+
+  it("never takes a long answer as the officer", () => {
+    const note =
+      "Officer arrived on time, walked the whole perimeter, found the rear shutter open and secured it before leaving.";
+    expect(facts(["Patrol officer", note]).officerText).toBeNull();
+  });
+
+  it("reads a site picked from radio buttons, but never a ticked box or a yes / no", () => {
+    expect(facts(["Site", "Riverside Storage", "RadioButtons"]).siteText).toBe("Riverside Storage");
+    const f = facts(
+      ["Site", true, "CheckBox"],
+      ["Premises", 1, "CheckBox"],
+      ["Location", "Yes", "RadioButtons"],
+      ["Site Name", "Riverside Storage"],
+    );
+    expect(f.siteText).toBe("Riverside Storage");
+    expect(facts(["Officer", true, "CheckBox"], ["Officer Name", "Ana Test"]).officerText).toBe("Ana Test");
+  });
 });
 
 describe("visitTypeOf", () => {
@@ -415,6 +1185,19 @@ describe("visitTypeOf", () => {
       visitTypeOf([ans("Call-out reason", "Gate was left unlocked by a customer and the alarm went off at 22:00")]),
     ).toBeNull();
     expect(visitTypeOf([ans("Site Name", "Lock-up Storage Ltd")])).toBeNull();
+  });
+  it("doesn't read a property's type, a reference or a finding as the kind of visit", () => {
+    expect(visitTypeOf([ans("Property type", "Lock-up unit")])).toBeNull();
+    expect(visitTypeOf([ans("Job number", "LOCK-221")])).toBeNull();
+    expect(visitTypeOf([ans("Job type", "LOCK-221")])).toBeNull();
+    expect(visitTypeOf([ans("Reason for visit", "Gate found unlocked")])).toBeNull();
+  });
+  it("reads whole words, also from radio buttons", () => {
+    expect(visitTypeOf([ans("Visit type", "Lock-up")])).toBe("LOCK");
+    expect(visitTypeOf([ans("Visit type", "Lockup 2")])).toBe("LOCK");
+    expect(visitTypeOf([ans("Visit type", "Unlocking")])).toBe("UNLOCK");
+    expect(visitTypeOf([ans("Job type", "Key collection")])).toBe("KEY_COLLECTION");
+    expect(visitTypeOf([{ key: "r", label: "Visit type", type: "RadioButtons", value: "Lock up" }])).toBe("LOCK");
   });
 });
 
@@ -477,6 +1260,57 @@ describe("pickShift", () => {
     const same = [shift("b", "19:00", "07:00"), shift("a", "19:00", "07:00")];
     expect(pickShift(when, same, null).pick?.id).toBe("a");
   });
+
+  // With the rota's own times, as the import passes them.
+  const rota = (id: string, start: string, end: string, actual?: { start?: string; end?: string }): ShiftCandidate => {
+    const s = new Date(start);
+    const e = new Date(end);
+    const as = actual?.start ? new Date(actual.start) : s;
+    const ae = actual?.end ? new Date(actual.end) : e;
+    return {
+      id,
+      officerId: null,
+      start: as < s ? as : s,
+      end: ae > e ? ae : e,
+      scheduled: { start: s, end: e },
+    };
+  };
+  const moment = (iso: string) => ({ from: new Date(iso), to: new Date(iso) });
+
+  it("prefers the shift the rota has the report in over one stretched by a stale clock-out", () => {
+    // The night shift's officer never clocked out, so its window runs to the
+    // next morning and holds the day shift's noon round too.
+    const night = rota("night", "2026-11-24T19:00:00Z", "2026-11-25T07:00:00Z", { end: "2026-11-26T10:00:00Z" });
+    const day = rota("day", "2026-11-25T07:00:00Z", "2026-11-25T19:00:00Z");
+    expect(pickShift(moment("2026-11-25T12:00:00Z"), [night, day], null).pick?.id).toBe("day");
+    // A round in the night still goes on the night shift.
+    expect(pickShift(moment("2026-11-25T02:00:00Z"), [night, day], null).pick?.id).toBe("night");
+  });
+
+  it("puts a round at the handover moment on the shift that's starting", () => {
+    const day = rota("day", "2026-11-24T07:00:00Z", "2026-11-24T19:00:00Z");
+    const night = rota("night", "2026-11-24T19:00:00Z", "2026-11-25T07:00:00Z");
+    expect(pickShift(moment("2026-11-24T19:00:00Z"), [day, night], null).pick?.id).toBe("night");
+    // One that ends at the handover was the day shift's.
+    expect(
+      pickShift({ from: new Date("2026-11-24T18:50:00Z"), to: new Date("2026-11-24T19:00:00Z") }, [day, night], null).pick?.id,
+    ).toBe("day");
+  });
+
+  it("breaks a last tie by the scheduled start, not an early clock-in", () => {
+    // Both on the rota at 10:00; "a" is scheduled later but was clocked in at 05:00.
+    const a = rota("a", "2026-11-24T08:00:00Z", "2026-11-24T20:00:00Z", { start: "2026-11-24T05:00:00Z" });
+    const b = rota("b", "2026-11-24T07:00:00Z", "2026-11-24T19:00:00Z");
+    expect(pickShift(moment("2026-11-24T10:00:00Z"), [a, b], null).pick?.id).toBe("b");
+  });
+
+  it("counts both ends when a report runs past a short shift", () => {
+    const span = { from: new Date("2026-10-17T18:50:00.000Z"), to: new Date("2026-10-17T19:50:00.000Z") };
+    // "a": 10 min before + 20 min after = 30; "b": 15 min after.
+    const a = shift("a", "19:00", "19:30");
+    const b = shift("b", "18:40", "19:35");
+    expect(pickShift(span, [a, b], null).pick?.id).toBe("b");
+  });
 });
 
 describe("shiftLinkAction", () => {
@@ -496,6 +1330,12 @@ describe("shiftLinkAction", () => {
 
   it("leaves a report within the 30-minute allowance", () => {
     expect(shiftLinkAction(at("2026-11-24T06:55:00Z", "2026-11-24T07:10:00Z"), night, [night, day], null)).toEqual({ kind: "fit" });
+  });
+
+  it("leaves a report that fits its shift even when another shift has it strictly inside", () => {
+    // 07:10–07:20 is inside the day shift, and within the allowance of the
+    // night one it's on: it stays, so reports don't hop between shifts.
+    expect(shiftLinkAction(at("2026-11-24T07:10:00Z", "2026-11-24T07:20:00Z"), night, [night, day], null)).toEqual({ kind: "fit" });
   });
 
   it("moves a report to the shift at the site it does fit", () => {
@@ -611,6 +1451,17 @@ describe("shiftFit", () => {
     const fit = shiftFit(span("2026-11-18T07:00:20Z"), shift, 0);
     expect(fit).toEqual({ fits: false, side: "after", minutes: 1 });
   });
+
+  it("rounds the minutes up when it doesn't fit, so they're always more than the allowance", () => {
+    // 30 min 20 s early: doesn't fit, and says 31 — never "30 min, more than the 30 allowed".
+    const early = shiftFit(span("2026-11-17T18:29:40Z"), shift);
+    expect(early).toEqual({ fits: false, side: "before", minutes: 31 });
+    if (!early.fits) expect(outsideShiftText(early)).toBe("started 31 min before the shift");
+    expect(shiftFit(span("2026-11-18T07:30:20Z"), shift)).toEqual({ fits: false, side: "after", minutes: 31 });
+    // Exactly 30 minutes either side still fits.
+    expect(shiftFit(span("2026-11-17T18:30:00Z"), shift).fits).toBe(true);
+    expect(shiftFit(span("2026-11-18T07:30:00Z"), shift).fits).toBe(true);
+  });
 });
 
 describe("spanText / shiftHoursText", () => {
@@ -625,10 +1476,14 @@ describe("spanText / shiftHoursText", () => {
     const one = new Date("2026-11-17T23:10:00Z");
     expect(spanText({ from: one, to: one })).not.toContain("–");
   });
-  it("shows a shift's hours", () => {
-    expect(
-      shiftHoursText({ start: new Date("2026-11-17T19:00:00Z"), end: new Date("2026-11-18T07:00:00Z") }),
-    ).toMatch(/^17 Nov.*19:00–07:00$/);
+  it("shows a shift's hours, with the end date when it ends on another day", () => {
+    const hours = (start: string, end: string) => shiftHoursText({ start: new Date(start), end: new Date(end) });
+    expect(hours("2026-11-17T07:00:00Z", "2026-11-17T19:00:00Z")).toMatch(/^17 Nov.*07:00–19:00$/);
+    expect(hours("2026-11-17T19:00:00Z", "2026-11-18T07:00:00Z")).toMatch(/^17 Nov.*19:00–18 Nov.*07:00$/);
+    // A 24-hour shift isn't "07:00–07:00".
+    expect(hours("2026-11-24T07:00:00Z", "2026-11-25T07:00:00Z")).toMatch(/^24 Nov.*07:00–25 Nov.*07:00$/);
+    // UK days: 22:00–23:30 UTC on 17 July is 23:00–00:30 BST, ending on the 18th.
+    expect(hours("2026-07-17T22:00:00Z", "2026-07-17T23:30:00Z")).toMatch(/^17 Jul.*23:00–18 Jul.*00:30$/);
   });
 });
 
@@ -671,6 +1526,51 @@ describe("pickOfficer", () => {
   });
   it("won't guess between two people", () => {
     expect(pickOfficer(facts("Ahmed"), people)).toBeNull();
+  });
+
+  const staff = (...names: string[]) => names.map((name, i) => ({ id: `p${i}`, name, siaNumber: null }));
+
+  it("matches whole words, never part of a longer name", () => {
+    const others = staff("Natalie Brown", "Brian Cole", "Jordan Lee", "Akash Patel");
+    for (const typed of ["Ali", "Ian", "Dan", "Ash"]) expect(pickOfficer(facts(typed), others)).toBeNull();
+    expect(pickOfficer(facts("Ali"), [...others, { id: "ali", name: "Ali Khan", siaNumber: null }])).toBe("ali");
+    expect(pickOfficer(facts("Ali"), [...others, { id: "mo", name: "Mo Ali", siaNumber: null }])).toBe("mo");
+  });
+
+  it("needs every typed word to be one of the person's names", () => {
+    const two = staff("Sam Jones", "Ian Taylor");
+    expect(pickOfficer(facts("Sam Taylor"), two)).toBeNull();
+    expect(pickOfficer(facts("Taylor Ian"), two)).toBe("p1");
+  });
+
+  it("takes an initial when only one person fits it, but not initials alone", () => {
+    const khans = staff("Ahmed Khan", "Sam Taylor");
+    expect(pickOfficer(facts("A. Khan"), khans)).toBe("p0");
+    expect(pickOfficer(facts("Ahmed K"), khans)).toBe("p0");
+    expect(pickOfficer(facts("A Khan"), [...khans, { id: "ali", name: "Ali Khan", siaNumber: null }])).toBeNull();
+    expect(pickOfficer(facts("S Khan"), khans)).toBeNull();
+    expect(pickOfficer(facts("A. K."), khans)).toBeNull();
+  });
+
+  it("ignores titles, the job, accents, apostrophes and stray numbers", () => {
+    const one = staff("José O’Brien", "Sam Taylor");
+    expect(pickOfficer(facts("Officer Jose O'Brien"), one)).toBe("p0");
+    expect(pickOfficer(facts("Mr Sam Taylor 1234"), one)).toBe("p1");
+  });
+
+  it("takes the exact full name over someone whose name has it in", () => {
+    expect(pickOfficer(facts("Ahmed Khan"), staff("Ahmed Khan", "Ahmed Khan Mirza"))).toBe("p0");
+    expect(pickOfficer(facts("Khan"), staff("Ahmed Khan", "Ahmed Khan Mirza"))).toBeNull();
+  });
+
+  it("says when several people fit, so the import doesn't go on to look among staff who've left", () => {
+    const m = matchOfficer(facts("Ahmed"), people);
+    expect(m.kind).toBe("many");
+    expect(m.kind === "many" && m.people.map((p) => p.id).sort()).toEqual(["u1", "u2"]);
+    expect(matchOfficer(facts("Nobody Known"), people).kind).toBe("none");
+    expect(matchOfficerName("Sam", people)).toMatchObject({ kind: "one", person: { id: "u3" } });
+    // An SIA number held by exactly one person settles it.
+    expect(matchOfficer(facts("Ahmed 1234567890123456"), people)).toMatchObject({ kind: "one", person: { id: "u1" } });
   });
 });
 
@@ -725,6 +1625,45 @@ describe("pickActivity", () => {
     expect(!p.pick && p.reason).toBe("taken");
   });
 
+  it("waits when the best match already has a report, rather than taking another activity", () => {
+    // The callout at 21:00 has its report; a second report says 21:15. The
+    // unlock at 22:30 is free, but mustn't be marked done and billed for it.
+    const p = pickActivity(when, "ALARM_RESPONSE", [
+      job("callout", "ALARM_RESPONSE", "21:00", true),
+      job("unlock", "UNLOCK", "22:30"),
+    ]);
+    expect(p.pick).toBeNull();
+    expect(p.pick === null && p.reason === "taken" && [p.taken.id, p.at.toISOString(), p.minutesApart]).toEqual([
+      "callout",
+      at("21:00").toISOString(),
+      15,
+    ]);
+  });
+
+  it("still takes a free activity that's the better match", () => {
+    const p = pickActivity(when, "ALARM_RESPONSE", [
+      job("old", "LOCK", "19:30", true), // 1 h 45 min away
+      job("callout", "ALARM_RESPONSE", "21:25"), // 10 min away
+    ]);
+    expect(p.pick?.id).toBe("callout");
+  });
+
+  it("settles a close call between a taken and a free activity the same way", () => {
+    // Taken callout 5 min away, free one 15 min away: about as close; the nearer wins → wait.
+    const taken = pickActivity(when, "ALARM_RESPONSE", [
+      job("done", "ALARM_RESPONSE", "21:10", true),
+      job("free", "ALARM_RESPONSE", "21:30"),
+    ]);
+    expect(!taken.pick && taken.reason).toBe("taken");
+    // Free callout 3 min away, taken one 10 min away: the free one wins, as a close call.
+    const free = pickActivity(when, "ALARM_RESPONSE", [
+      job("free", "ALARM_RESPONSE", "21:12"),
+      job("done", "ALARM_RESPONSE", "21:25", true),
+    ]);
+    expect(free.pick?.id).toBe("free");
+    expect(free.pick && free.closeCall).toBe(true);
+  });
+
   it("ignores activities more than 3 hours away", () => {
     const p = pickActivity(when, "ALARM_RESPONSE", [job("far", "ALARM_RESPONSE", "17:00")]);
     expect(!p.pick && p.reason).toBe("none");
@@ -774,9 +1713,27 @@ describe("pickActivityWide", () => {
     expect(pickActivityWide(when, "LOCK", [job("unlock", "UNLOCK", "18T07:00")], now).pick).toBeNull();
   });
 
-  it("skips activities that already have a report", () => {
-    const p = pickActivityWide(when, "ALARM_RESPONSE", [job("done", "ALARM_RESPONSE", "17T20:00", true)], now);
-    expect(!p.pick && p.reason).toBe("none");
+  it("waits when the best similar one already has a report, rather than taking another", () => {
+    const p = pickActivityWide(
+      when,
+      "ALARM_RESPONSE",
+      [job("done", "ALARM_RESPONSE", "17T20:00", true), job("later", "ALARM_RESPONSE", "18T08:30")],
+      now,
+    );
+    expect(p.pick === null && p.reason === "taken" && p.taken.id).toBe("done");
+    // A free one that's nearer still wins.
+    const q = pickActivityWide(
+      when,
+      "ALARM_RESPONSE",
+      [job("done", "ALARM_RESPONSE", "17T17:00", true), job("free", "ALARM_RESPONSE", "17T22:00")],
+      now,
+    );
+    expect(q.pick?.id).toBe("free");
+    // A taken one of another kind, or not due yet, doesn't count.
+    expect(
+      pickActivityWide(when, "ALARM_RESPONSE", [job("lock", "LOCK", "17T21:00", true), job("free", "ALARM_RESPONSE", "17T17:00")], now).pick?.id,
+    ).toBe("free");
+    expect(pickActivityWide(when, "PATROL", [job("tonight", "PATROL", "18T19:00", true)], now)).toMatchObject({ reason: "none" });
   });
 
   it("skips activities that aren't due yet", () => {
@@ -887,5 +1844,18 @@ describe("shiftApartMin", () => {
   it("counts how far it runs past the start or the end", () => {
     expect(shiftApartMin(at("2026-11-17T09:00:00Z"), shift)).toBe(600); // 10 h before it starts
     expect(shiftApartMin(at("2026-11-18T19:30:00Z"), shift)).toBe(750); // 12 h 30 min after it ends
+  });
+
+  it("adds up both ends when a report runs past both", () => {
+    const short = { id: "s2", officerId: null, start: new Date("2026-11-17T19:00:00Z"), end: new Date("2026-11-17T19:30:00Z") };
+    // 5 min before it starts + 10 min after it ends.
+    expect(
+      shiftApartMin({ from: new Date("2026-11-17T18:55:00Z"), to: new Date("2026-11-17T19:40:00Z") }, short),
+    ).toBe(15);
+  });
+
+  it("rounds up, so it's 0 only when the report is strictly inside", () => {
+    expect(shiftApartMin(at("2026-11-18T07:00:20Z"), shift)).toBe(1);
+    expect(shiftApartMin(at("2026-11-18T07:00:00Z"), shift)).toBe(0);
   });
 });

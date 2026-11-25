@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { getSessionUser } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { SiteHeader } from "./_components/SiteHeader";
 import { Tabs, type TabKey } from "./_components/Tabs";
 import { ActivityFeed } from "./_components/ActivityFeed";
@@ -33,7 +33,7 @@ export default async function SiteDetailPage({
   params: { id: string };
   searchParams: { tab?: string };
 }) {
-  const me = await getSessionUser();
+  const me = await requireStaffPage();
   const isAdmin = me?.role === "ADMIN";
   let tab = (searchParams.tab ?? "overview") as TabKey;
   // Finance tab is admin-only — silently fall back to overview for staff

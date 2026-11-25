@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDate } from "@/lib/dates";
@@ -19,7 +19,7 @@ export default async function CreditNoteDetailPage({
 }: {
   params: { id: string };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   const cn = await prisma.creditNote.findUnique({
     where: { id: params.id },
     include: {

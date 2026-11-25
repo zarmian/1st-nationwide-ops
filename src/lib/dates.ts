@@ -162,11 +162,15 @@ export function daysFromTodayUk(d: Date, now: Date = new Date()): number {
  * (= 09:00 BST). This helper finds the correct UTC instant whose
  * Europe/London wall-clock reading is the input.
  *
- * Handles DST shifts. On the "spring forward" night (clocks jump 01:00→02:00)
- * times between 01:00 and 02:00 don't exist — we return the nearest valid
- * instant. On the "fall back" night (01:00 occurs twice) we return the
- * first occurrence (the BST→GMT one), which is the conservative pick for
- * scheduling.
+ * Handles the change between GMT and BST. On the two nights the clocks
+ * change, a time between 01:00 and 02:00 is read like this (dates.test.ts):
+ *   - "spring forward" (clocks jump from 01:00 to 02:00, so those times
+ *     don't exist): with the summer offset — 01:30 gives 00:30 UTC, which UK
+ *     clocks show as 00:30, an hour earlier than asked;
+ *   - "fall back" (01:00 to 02:00 happens twice): the second one, the GMT
+ *     reading — 01:30 gives 01:30 UTC, not the BST 01:30 an hour earlier.
+ * Midnight and the end of the day are never in that hour, so whole UK days
+ * (parseIsoDate) are unaffected.
  */
 export function ukWallClockToUtc(
   year: number,

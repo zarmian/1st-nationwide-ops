@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ClickableRow } from "@/components/ClickableRow";
 import { ActivityLink, ACTIVITY_ROW_HOVER } from "@/components/ActivityLink";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { getJobTypeLabels } from "@/lib/labels";
@@ -76,7 +76,7 @@ export default async function ReportsPage({
 }: {
   searchParams: { date?: string };
 }) {
-  const viewer = await requireStaff();
+  const viewer = await requireStaffPage();
   const isAdmin = viewer.role === "ADMIN";
 
   const now = new Date();

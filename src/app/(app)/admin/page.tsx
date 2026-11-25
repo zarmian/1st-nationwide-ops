@@ -17,12 +17,14 @@ import {
   ListChecks,
 } from "lucide-react";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { HubGrid, type HubCard } from "@/components/HubGrid";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminHubPage() {
+  await requireAdminPage();
   // $transaction runs queries serially over a single connection — avoids the
   // Vercel + Supabase pgbouncer pool-exhaustion that bites Promise.all when
   // connection_limit on DATABASE_URL is low.

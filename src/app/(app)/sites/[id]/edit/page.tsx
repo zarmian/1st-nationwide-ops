@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { SiteForm } from "../../_components/SiteForm";
 import { updateSite } from "../../_actions";
@@ -12,6 +13,7 @@ export default async function EditSitePage({
 }: {
   params: { id: string };
 }) {
+  await requireStaffPage();
   const [site, regions, customers, partners, officers] = await Promise.all([
     prisma.site.findUnique({
       where: { id: params.id },

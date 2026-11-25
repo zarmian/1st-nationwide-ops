@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { FormTemplateForm, type FieldRow } from "../../_components/FormTemplateForm";
 import { updateTemplate, deleteTemplate, duplicateTemplate } from "../../_actions";
@@ -14,6 +15,7 @@ export default async function EditFormTemplatePage({
 }: {
   params: { id: string };
 }) {
+  await requireAdminPage();
   const [template, customers, partners, sites] = await Promise.all([
     prisma.formTemplate.findUnique({
       where: { id: params.id },

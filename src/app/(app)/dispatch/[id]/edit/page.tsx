@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { listJobSourceOptions, listJobTypeOptions } from "@/lib/labels";
 import { khPropertyFromNotes } from "@/lib/keyholdingSite";
 import { updateJob } from "../../_actions";
@@ -16,7 +16,7 @@ export default async function EditJobPage({
 }: {
   params: { id: string };
 }) {
-  await requireStaff();
+  await requireStaffPage();
 
   const [job, allJobTypes, allJobSources, officers, partners] =
     await Promise.all([

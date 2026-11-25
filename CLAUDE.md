@@ -88,8 +88,8 @@ src/
 │   └── submit/            # PUBLIC officer report form
 ├── components/            # BrandLogo, TopNav, Providers
 ├── lib/                   # auth.ts, db.ts (Prisma singleton)
+├── middleware.ts          # sign-in guard for pages, must stay in src/ — /submit is intentionally public
 └── types/                 # next-auth.d.ts (session augmentation)
-middleware.ts              # protects (app)/* — /submit is intentionally public
 tailwind.config.ts         # brand tokens
 ```
 

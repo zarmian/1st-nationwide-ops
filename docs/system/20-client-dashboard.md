@@ -63,7 +63,7 @@ Migration `20261023120000_client_dashboard_email_links`, additive. It also sets 
 
 ### Every request
 
-- `middleware.ts`:
+- `src/middleware.ts`:
   - CUSTOMER sessions see only `/client/*`.
   - Signed-out visitors to `/client` go to `/login/client`, not the staff sign-in.
   - An ADMIN reaches `/client` only while previewing.

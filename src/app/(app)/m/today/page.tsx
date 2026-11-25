@@ -1,5 +1,4 @@
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireOfficerPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { ukWallClockToUtc, ukDayPlus } from "@/lib/dates";
 import { PageHeader } from "@/components/PageHeader";
@@ -42,8 +41,10 @@ function formatScheduled(date: Date | null | undefined): {
 }
 
 export default async function OfficerTodayPage() {
-  const session = await getServerSession(authOptions);
-  const userId = session!.user.id;
+  const viewer = await requireOfficerPage();
+  const userId = viewer.id;
+  // Site pages are staff-only (middleware); staff who work shifts keep the link.
+  const canOpenSites = viewer.role === "ADMIN" || viewer.role === "DISPATCHER";
   const me = await prisma.user.findUnique({
     where: { id: userId },
     select: { onDuty: true },
@@ -157,6 +158,7 @@ export default async function OfficerTodayPage() {
               key={s.id}
               startShift={startShift}
               endShift={endShift}
+              siteHref={canOpenSites ? `/sites/${s.site.id}` : null}
               shift={{
                 id: s.id,
                 type: s.type,

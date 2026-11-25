@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatMoney } from "@/lib/numbers";
@@ -19,7 +19,7 @@ export default async function NewInvoicePage({
     error?: string;
   };
 }) {
-  await requireAdmin();
+  await requireAdminPage();
   const customers = await prisma.customer.findMany({
     where: { active: true },
     orderBy: { name: "asc" },

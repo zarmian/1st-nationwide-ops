@@ -1,4 +1,4 @@
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { getAllNotificationRoutings } from "@/lib/notificationSettings";
 import { isSmsConfigured } from "@/lib/sms";
@@ -10,7 +10,7 @@ import { ResetButton } from "./_components/ResetButton";
 export const dynamic = "force-dynamic";
 
 export default async function NotificationSettingsPage() {
-  await requireAdmin();
+  await requireAdminPage();
 
   const all = await getAllNotificationRoutings();
 

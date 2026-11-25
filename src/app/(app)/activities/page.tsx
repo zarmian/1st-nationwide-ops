@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { parseIsoDate } from "@/lib/dates";
 import { ClipboardList } from "lucide-react";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireStaffPage } from "@/lib/authz";
 import { PageHeader } from "@/components/PageHeader";
 import { StatCard } from "@/components/StatCard";
 import { prisma } from "@/lib/db";
@@ -164,8 +163,8 @@ export default async function ActivitiesPage({
     page?: string;
   };
 }) {
-  const session = await getServerSession(authOptions);
-  const role = session?.user?.role;
+  const me = await requireStaffPage();
+  const role = me.role;
   const isAdmin = role === "ADMIN";
   // Dispatcher gets the inline Edit link too — they can correct
   // scheduling / officer / notes; Restore stays admin-only because

@@ -8,7 +8,7 @@ Everything that decides **who a request is** and **what it may reach**:
 
 - NextAuth v4 credentials login, JWT session, session augmentation (`role`, `partnerId`).
 - The five `UserRole` values and the surfaces each may see.
-- Defence-in-depth route gating: `middleware.ts` (primary) → `(app)` / `partner` layouts (server re-check) → `requireX()` guards inside every server action / API route (backstop).
+- Defence-in-depth route gating for pages: `src/middleware.ts` (primary) → `(app)` / `partner` layouts (server re-check) → a page guard at the top of every staff page (`requireAdminPage` / `requireStaffPage` / `requireOfficerPage`, which redirect) and `requireX()` guards in server actions (which throw). API routes sit outside the middleware and check their own caller.
 - One-time admin bootstrap (`/api/admin/init`).
 - IP rate limiting for public endpoints (`src/lib/ratelimit.ts`).
 - Per-entity audit trail (`src/lib/audit.ts` → `ActivityLog`).
@@ -46,8 +46,10 @@ Sibling docs: [`00-overview.md`](./00-overview.md) (roles table §4), [`08-partn
 | `src/lib/auth.ts` | `authOptions`: credentials provider, JWT strategy, `jwt`/`session` callbacks that stamp `id`/`role`/`partnerId`. |
 | `src/app/api/auth/[...nextauth]/route.ts` | Mounts NextAuth as `GET`/`POST` (`/api/auth/*`). |
 | `src/types/next-auth.d.ts` | Module augmentation: adds `id`/`role`/`partnerId` to `Session.user`, `User`, and `JWT`. |
-| `src/lib/authz.ts` | Server guards: `getSessionUser`, `requireUser`, `requireAdmin`, `requireStaff`, `requirePartner`, `requirePartnerOfficer`. |
-| `middleware.ts` | Edge role gate + `x-pathname` forwarding (primary enforcement). |
+| `src/lib/authz.ts` | Server guards: `getSessionUser`, `requireUser`, `requireAdmin`, `requireStaff`, `requirePartner`, `requirePartnerOfficer` (throw — for server actions and API routes); page guards `requireAdminPage`, `requireStaffPage`, `requireOfficerPage` (redirect — for pages), with `homeForRole` / `pageRedirect`. |
+| `src/lib/pageGuards.test.ts` | Fails if any staff-app page doesn't start with the page guard that matches who it's for. |
+| `src/middleware.ts` | Edge sign-in + role gate for pages, `x-pathname` forwarding (primary enforcement). Must stay in `src/`, next to `app/` — Next ignores it anywhere else. `src/middleware.test.ts` checks its place, its matcher and its redirects. |
+| `src/lib/navAccess.ts` | `isAllowedForRole` — the middleware's staff-app rules for menus and links (command palette), so nobody is offered a page they'd be bounced from. |
 | `src/app/(app)/layout.tsx` | Staff shell — server-side role re-check (defence-in-depth). |
 | `src/app/partner/layout.tsx` | Partner + partner-officer shell — session/role/partner re-check; picks nav. |
 | `src/app/api/admin/init/route.ts` | One-time admin bootstrap from env vars. |
@@ -83,14 +85,17 @@ All **throw** on failure (server actions turn thrown errors into a generic 500; 
 | `requireUser()` | signed in | `SessionUser`; else `"Sign in required"`. |
 | `requireAdmin()` | `role === ADMIN` | else `"Not authorised"`. |
 | `requireStaff()` | `ADMIN` or `DISPATCHER` | else `"Not authorised"`. |
+| `requireAdminPage()` | `role === ADMIN` | page guard: signed out → `/login`; any other role → its home (`homeForRole`: OFFICER `/m/today`, DISPATCHER `/dispatch`, PARTNER `/partner`, PARTNER_OFFICER `/partner/m/today`, CUSTOMER `/client`). |
+| `requireStaffPage()` | `ADMIN` or `DISPATCHER` | page guard, as above. |
+| `requireOfficerPage()` | `OFFICER`, `ADMIN` or `DISPATCHER` | page guard for `/m/*` (staff can see what an officer sees). |
 | `requirePartner()` | `role === PARTNER` **and** `partnerId` set | returns `SessionUser & { partnerId: string }` — a **guaranteed-non-null** `partnerId` callers MUST use to scope every Prisma `where`. Trusts the session, never the URL. |
 | `requirePartnerOfficer()` | `role === PARTNER_OFFICER` **and** `partnerId` set | does **one extra DB round-trip**: loads the `PartnerOfficer` seat by `userId`, then checks it exists, is `active`, and `seat.partnerId === session.partnerId` (defence against a roster row reparented since the JWT was issued). Returns `& { partnerId, partnerOfficerId }`. Not cached on the JWT to avoid stale-link risk on re-link/deactivate. |
 
 ### Three-layer route gating (defence-in-depth)
 
-**Layer 1 — `middleware.ts` (primary, edge).** Wraps `withAuth`. Reads `req.nextauth.token.role`, forwards the current path as an `x-pathname` request header (so layouts can gate without re-parsing the URL), then applies redirects:
+**Layer 1 — `src/middleware.ts` (primary, edge; pages only).** It must live in `src/`, the folder that holds `app/`: Next only looks there. Until Nov 2026 it sat at the repo root and never ran, with no warning — so for a while the layers below were the only checks. Wraps `withAuth`. Reads `req.nextauth.token.role`, forwards the current path as an `x-pathname` request header (so layouts can gate without re-parsing the URL), then applies redirects:
 
-- **Unauthenticated** (`!role`) → pass through; `withAuth`'s `signIn` redirect (`/login`) handles it.
+- **Signed out** → `withAuth` sends them to `/login?callbackUrl=<the page>`, and back there after signing in; on `/client` / `/client/*` → `/login/client` instead (clients sign in with an emailed link).
 - **OFFICER hard-lock** → only `/m`, `/m/*`, `/submit`, `/submit/*`; anything else → `/m/today`.
 - **PARTNER hard-lock** → `/partner` + `/partner/*` **except** `/partner/m/*`; else → `/partner`.
 - **PARTNER_OFFICER hard-lock** → `/partner/m` + `/partner/m/*` only; else → `/partner/m/today`.
@@ -99,13 +104,13 @@ All **throw** on failure (server actions turn thrown errors into a generic 500; 
 - **`/finance[/*]`** → admin-only.
 - `homeFor()`: `OFFICER→/m/today`, `PARTNER→/partner`, `PARTNER_OFFICER→/partner/m/today`, else `/dispatch`.
 
-**Matcher** (bottom of `middleware.ts`) excludes — i.e. leaves **public / self-guarding** — these prefixes: `api/auth`, `api/blob`, `api/webhooks`, `api/telegram`, `api/mcp`, `api/oauth`, `api/imports`, `oauth`, `_next/static`, `_next/image`, `login`, `submit`, `duty`, `jobs`, `offline`, `robots`, `sitemap`, and any path with a file extension. `api/blob`, `api/webhooks`, `api/mcp`/`api/oauth` and `api/imports` are excluded because they verify their own credentials (scoped upload token / shared secret / bearer token / the robots' import secret) and must accept callers without a session.
+**Matcher** (bottom of `src/middleware.ts`) excludes — i.e. leaves **public / self-guarding** — these prefixes: `api/` (every API route), `oauth`, `_next/static`, `_next/image`, `login`, `submit`, `duty`, `jobs`, `offline`, `monitoring` (Sentry's tunnel, when Sentry is on), `robots`, `sitemap`, and any path with a dot (static files such as icons, `manifest.webmanifest`, `sw.js`; `/.well-known/*`). API routes are excluded because each checks its own caller — session + role, a shared secret, `CRON_SECRET`, a bearer token, or a scoped upload token — and many must accept callers with no session (Vercel crons, the portal robots' imports, webhooks, Telegram, the Claude connector, the public `/submit` form). They never relied on the middleware. The exclusions are prefixes, so a new page whose name starts with one of them (say `/jobs-board`) would be public: the test checks every `(app)` page folder is guarded.
 
 **Layer 2 — layout re-check (server).**
 - `src/app/(app)/layout.tsx`: `getServerSession` → `redirect("/login")` if none. Reads `x-pathname`; re-applies the same role rules (OFFICER off `/m|/submit` → `/m/today`; `PARTNER` → `/partner`; `PARTNER_OFFICER` → `/partner/m/today`; `DISPATCHER` on `/finance` or non-reports `/admin` → `/dispatch`). **Fails open when `x-pathname` is missing** (trusts middleware) to avoid an infinite redirect loop.
 - `src/app/partner/layout.tsx`: `getServerSession` → `/login`; role must be `PARTNER`/`PARTNER_OFFICER` (else bounce to staff home); `partnerId` required (else `/login`); loads the `Partner` and requires `active`; for `PARTNER_OFFICER` additionally loads the `PartnerOfficer` seat by `userId` and requires it `active`. Chooses `PartnerTopNav` vs `PartnerOfficerTopNav` by role. **`/partner/m/*` has no separate layout** — it is served by this same file.
 
-**Layer 3 — action/route guards.** Every mutating server action and protected API route calls `requireAdmin` / `requireStaff` / `requirePartner` / `requirePartnerOfficer`. This is the true security boundary: even if a request bypasses the matcher (stale cache, edge hiccup), the action throws.
+**Layer 3 — page/action/route guards.** Every staff-app page starts with a page guard — `requireAdminPage` for `/admin/*` (except the review queue), `/finance/*` and a few admin-only pages; `requireStaffPage` for the rest, the review queue included; `requireOfficerPage` for `/m/*` — so a page is safe on its own, even on moves between pages (the layout doesn't re-run then) and if the middleware ever stops running; `src/lib/pageGuards.test.ts` enforces it. Every mutating server action and protected API route calls `requireAdmin` / `requireStaff` / `requirePartner` / `requirePartnerOfficer`. This is the true security boundary: even if a request bypasses the matcher (stale cache, edge hiccup), the action throws. For API routes it is the only check — the middleware doesn't run there.
 
 ### Admin bootstrap (`src/app/api/admin/init/route.ts`)
 
@@ -156,7 +161,8 @@ All **throw** on failure (server actions turn thrown errors into a generic 500; 
 - **`partnerId` is authoritative from the session only.** Never scope partner data by a route param; always use the value returned by `requirePartner` / `requirePartnerOfficer`.
 - **Partner-officer seat is re-validated per request** (existence + `active` + `partnerId` match) — the JWT is not trusted for it.
 - **`requireStaff` = ADMIN ∪ DISPATCHER**; **`requireAdmin` = ADMIN only.** Finance and the non-reports admin area are ADMIN-only at all three layers.
-- **Middleware redirects are UX, not security** — the guard inside the action is the boundary. A page with no guarded action is only as safe as the matcher.
+- **Middleware redirects are the first layer, not the only one** — every staff page checks its visitor itself (page guard), and the guard inside each action is the boundary for changes. Neither depends on the matcher.
+- **API routes return only what the caller's role may see.** `/api/search` (the command palette) answers staff only; any other signed-in seat gets empty results.
 - **Admin bootstrap is single-shot**: once one `ADMIN` exists it never creates another.
 - **Duty tokens are unique and unrevocable except by rotation** — regenerating `publicToken` invalidates the old link.
 
@@ -175,10 +181,10 @@ All **throw** on failure (server actions turn thrown errors into a generic 500; 
 
 ## Extension points & gotchas
 
-- **Adding a role** means touching all three layers: `UserRole` enum + migration, `authorize`/callbacks (if it carries new claims), `middleware.ts` (`homeFor` + a hard-lock block), both layouts, and new `requireX` guards. Miss the guard and the role is unprotected regardless of middleware.
+- **Adding a role** means touching all three layers: `UserRole` enum + migration, `authorize`/callbacks (if it carries new claims), `src/middleware.ts` (`homeFor` + a hard-lock block; `src/lib/navAccess.ts` too if the role sees the staff app), both layouts, `HOME_FOR_ROLE` and `PAGE_ROLES` in `src/lib/authz.ts` (the page guards), and new `requireX` guards. Miss the guard and the role is unprotected regardless of middleware.
 - **`partnerId` staleness:** because it is sticky on the 30-day JWT, re-parenting or unlinking a partner seat is **not** reflected until the next sign-in — hence `requirePartnerOfficer` re-checks the seat live. If you add partner-admin claims, decide the same trade-off consciously.
 - **Rate limiters silently no-op without KV/Upstash env** — safe for dev, but a production deploy that forgets those env vars has **no** abuse protection on `/submit`, uploads, or `/api/admin/init`. See [`15-deployment-and-ops.md`](./15-deployment-and-ops.md).
 - **`x-pathname` fail-open:** the `(app)` layout intentionally skips its gate if the header is absent. Don't "harden" this to fail closed without solving the `/m/today` redirect-loop it prevents.
-- **New public route?** It must be added to the middleware `matcher` exclusion **and** must do its own auth (secret, token, or rate limit) — the matcher only removes the session requirement, it does not add protection.
+- **New public page?** It must be added to the middleware `matcher` exclusion (and to the list of public top-level routes in `src/middleware.test.ts`) **and** must do its own auth (secret, token, or rate limit) — the matcher only removes the session requirement, it does not add protection. **New API route?** No matcher change — all of `/api/*` is excluded — but it must check its own caller.
 - **NextAuth v4 + App Router**: session augmentation is compile-time only (`next-auth.d.ts`); a runtime claim not set in both the `jwt` and `session` callbacks will be `undefined` even though TypeScript says it exists.
 - **Cron auth is separate** (`CRON_SECRET` Bearer, `src/lib/cronAuth.ts`) and does not use NextAuth at all — see [`13-crons.md`](./13-crons.md).

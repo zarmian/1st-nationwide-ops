@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { ActivityHistory } from "@/components/ActivityHistory";
 import { loadActivityHistory } from "@/lib/activityHistory";
 import { reassignJob } from "../../patrols/_actions";
@@ -59,7 +59,7 @@ export default async function JobDetailPage({
 }: {
   params: { id: string };
 }) {
-  const me = await requireStaff();
+  const me = await requireStaffPage();
 
   const job = await prisma.job.findUnique({
     where: { id: params.id },
@@ -250,9 +250,11 @@ export default async function JobDetailPage({
             <Row label="Customer">
               {(() => {
                 // Direct job.customer wins; fall back to the site's
-                // customer for cron-created site-scoped jobs.
+                // customer for cron-created site-scoped jobs. The customer
+                // page is admin-only, so dispatchers get the name alone.
                 const c = job.customer ?? job.site?.customer ?? null;
-                return c ? (
+                if (!c) return <span className="text-slate-400">—</span>;
+                return me.role === "ADMIN" ? (
                   <Link
                     href={`/admin/customers/${c.id}/edit`}
                     className="text-brand-navy hover:text-brand-blue-dark"
@@ -260,14 +262,15 @@ export default async function JobDetailPage({
                     {c.name}
                   </Link>
                 ) : (
-                  <span className="text-slate-400">—</span>
+                  <span className="text-brand-navy">{c.name}</span>
                 );
               })()}
             </Row>
             <Row label="Partner">
               {(() => {
                 const p = job.partner ?? job.site?.partner ?? null;
-                return p ? (
+                if (!p) return <span className="text-slate-400">—</span>;
+                return me.role === "ADMIN" ? (
                   <Link
                     href={`/admin/partners/${p.id}/edit`}
                     className="text-brand-navy hover:text-brand-blue-dark"
@@ -275,7 +278,7 @@ export default async function JobDetailPage({
                     {p.name}
                   </Link>
                 ) : (
-                  <span className="text-slate-400">—</span>
+                  <span className="text-brand-navy">{p.name}</span>
                 );
               })()}
             </Row>

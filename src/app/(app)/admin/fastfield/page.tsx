@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { requireAdmin } from "@/lib/authz";
+import { requireAdminPage } from "@/lib/authz";
 import { prisma } from "@/lib/db";
 import { PageHeader } from "@/components/PageHeader";
 import { formatDateTime, formatTimeAgo } from "@/lib/dates";
-import { SHIFT_GRACE_MIN, groupByPlace, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
-import { OUTSIDE_CHECK_DAYS, reportsOutsideTheirShift } from "@/lib/fastfieldImport";
+import { SHIFT_GRACE_MIN, shiftHoursText, spanText, splitSiaNumber } from "@/lib/fastfield";
+import { OUTSIDE_CHECK_DAYS, reportsOutsideTheirShift, waitingPlaces } from "@/lib/fastfieldImport";
+import { takenOffText } from "@/lib/fastfieldAdminList";
+import { FirstCheckReview } from "./_components/FirstCheckReview";
 import { FormSettingsRow } from "./_components/FormSettingsRow";
 import { RetryButton } from "./_components/RetryButton";
 import { UnlinkButton } from "./_components/ReportActions";
@@ -12,18 +14,28 @@ import { SkipPlaceButton, StopSkippingButton } from "./_components/SkipPlace";
 import { ReportStatusChip, activityLabel, describePreview } from "./_components/labels";
 
 export const dynamic = "force-dynamic";
-// "Try matching again" works for up to 50 seconds.
+// "Try matching again" matches for up to 35 seconds of this.
 export const maxDuration = 60;
 
 /** Places shown in "Waiting, by place" (the biggest first). */
 const PLACES_SHOWN = 12;
 /** Reports shown under "On a shift, outside its time" (the newest first). */
 const OUTSIDE_SHOWN = 25;
+/** "Set aside": reports set aside by hand this many days back, at most SET_ASIDE_SHOWN. */
+const SET_ASIDE_DAYS = 60;
+const SET_ASIDE_SHOWN = 25;
+
+/** A small text link with a big enough target to tap (44px on phones). */
+const SMALL_LINK =
+  "inline-flex min-h-[2.75rem] items-center text-brand-blue-dark hover:underline md:min-h-[1.5rem]";
 
 export default async function FastFieldPage() {
-  await requireAdmin();
+  await requireAdminPage();
 
-  const [forms, customers, byStatus, unmatched, recent, waitingAll, skips, outside, offShifts] = await Promise.all([
+  const setAsideSince = new Date(Date.now() - SET_ASIDE_DAYS * 86_400_000);
+  // Set aside by a person; a skipped place's reports are under Skipped places.
+  const setAsideWhere = { status: "IGNORED" as const, skipId: null, updatedAt: { gte: setAsideSince } };
+  const [forms, customers, byStatus, unmatched, recent, places, skips, outside, offShifts, setAside, setAsideCount] = await Promise.all([
     prisma.fastFieldForm.findMany({
       orderBy: [{ mode: "desc" }, { name: "asc" }],
       select: {
@@ -64,14 +76,18 @@ export default async function FastFieldPage() {
         site: { select: { name: true } },
       },
     }),
+    // By when each was attached (`linkedAt`): the robot's re-checks touch
+    // `updatedAt`, so that would list re-checked rounds, not new ones.
     prisma.fastFieldReport.findMany({
       where: { status: { in: ["LINKED", "CREATED"] } },
-      orderBy: { updatedAt: "desc" },
+      orderBy: [{ linkedAt: { sort: "desc", nulls: "last" } }, { updatedAt: "desc" }],
       take: 15,
       select: {
         id: true,
         status: true,
         submittedAt: true,
+        linkedAt: true,
+        linkedByHand: true,
         form: { select: { name: true } },
         site: { select: { name: true } },
         job: { select: { id: true, type: true } },
@@ -79,10 +95,8 @@ export default async function FastFieldPage() {
         shift: { select: { id: true } },
       },
     }),
-    prisma.fastFieldReport.findMany({
-      where: { status: "UNMATCHED" },
-      select: { siteText: true, submittedAt: true, site: { select: { name: true } } },
-    }),
+    // Counted in the database, not one row per waiting report.
+    waitingPlaces(),
     prisma.fastFieldSkip.findMany({
       orderBy: { createdAt: "desc" },
       select: {
@@ -94,12 +108,34 @@ export default async function FastFieldPage() {
       },
     }),
     reportsOutsideTheirShift(),
-    // Waiting reports taken off a shift (by the robot's shift check or by hand).
-    prisma.fastFieldReport.count({ where: { status: "UNMATCHED", unlinkedAt: { not: null } } }),
+    // Waiting reports taken off a shift, by who took them off.
+    prisma.fastFieldReport.groupBy({
+      by: ["unlinkedBy"],
+      where: { status: "UNMATCHED", unlinkedAt: { not: null } },
+      _count: { _all: true },
+    }),
+    // Set aside in the last 60 days, the most recent first (nothing else
+    // changes a set-aside report, so `updatedAt` is when it was set aside).
+    prisma.fastFieldReport.findMany({
+      where: setAsideWhere,
+      orderBy: { updatedAt: "desc" },
+      take: SET_ASIDE_SHOWN,
+      select: {
+        id: true,
+        submittedAt: true,
+        updatedAt: true,
+        siteText: true,
+        officerText: true,
+        note: true,
+        form: { select: { name: true } },
+        site: { select: { name: true } },
+      },
+    }),
+    prisma.fastFieldReport.count({ where: setAsideWhere }),
   ]);
-  const places = groupByPlace(
-    waitingAll.map((r) => ({ siteText: r.siteText, submittedAt: r.submittedAt, siteName: r.site?.name ?? null })),
-  );
+  const takenOffByRobot = offShifts.find((g) => g.unlinkedBy === "ROBOT")?._count._all ?? 0;
+  const takenOffByPerson = offShifts.reduce((n, g) => n + g._count._all, 0) - takenOffByRobot;
+  const takenOff = takenOffText(takenOffByPerson, takenOffByRobot);
 
   const counts = new Map<number, { attached: number; unmatched: number }>();
   let totalUnmatched = 0;
@@ -123,9 +159,10 @@ export default async function FastFieldPage() {
         title="FastField"
         backHref="/admin"
         backLabel="Admin"
-        subtitle="Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to the static shift it fits, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing to attach it to, a report filed during a static shift goes to the shift. A report only ever goes on a shift it fits, give or take 30 minutes: it can't start more than 30 minutes before the shift starts or finish more than 30 minutes after it ends. Every 5 minutes the robot also checks the reports already on shifts and takes off (or moves to a shift it fits) any that don't."
+        subtitle={`Reports our officers fill in on FastField, attached to what they're about. The robot collects them every 4 hours. Each report finds its site (postcode, then name, then GPS); a patrol round goes to a static shift it fits, anything else to the nearest callout, patrol or lock-up there within 3 hours (or, failing that, the nearest of the same kind within 18 hours) — billed and paid like an officer's own report. With nothing else to attach it to, a report goes to a static shift it fits. The robot never gives a callout, patrol or lock-up a second report: when the nearest one already has one, the new report waits for you (a shift takes any number of rounds). It only puts a report on a shift it fits, give or take ${SHIFT_GRACE_MIN} minutes, going by the times typed in the report (or when it was sent, if none were typed): it can't start more than ${SHIFT_GRACE_MIN} minutes before the shift starts or finish more than ${SHIFT_GRACE_MIN} minutes after it ends. Every 5 minutes the robot checks the reports it put on shifts, and moves any that no longer fit to a shift there that they do fit, or takes them off. You can link any report to any shift, job or visit yourself; the robot leaves those where you put them.`}
       />
 
+      <FirstCheckReview />
       <div className="card overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100">
           <h2 className="font-semibold text-brand-navy">Forms</h2>
@@ -212,6 +249,9 @@ export default async function FastFieldPage() {
             <h2 className="font-semibold text-brand-navy">Skipped places</h2>
             <p className="text-xs text-slate-500">
               New reports typed like these are set aside as they arrive, unless they match an activity.
+              Stop skipping brings a place&rsquo;s reports back to Needs linking: the robot tries them
+              again, except any taken off a shift — one a person took off waits for you, and one the
+              robot took off only goes back on a shift it fits.
             </p>
           </div>
           <ul className="divide-y divide-slate-100">
@@ -238,35 +278,46 @@ export default async function FastFieldPage() {
               On a shift, outside its time ({outside.length})
             </h2>
             <p className="text-xs text-slate-600">
-              Reports from the last {OUTSIDE_CHECK_DAYS} days that are on a static shift but start
-              more than {SHIFT_GRACE_MIN} minutes before it starts or finish more than{" "}
-              {SHIFT_GRACE_MIN} minutes after it ends. The robot checks every report on a shift
-              every 5 minutes and sorts these out by itself: it moves each to a shift at the site it
-              does fit, or takes it off to wait in Needs linking. One already sent to the client in a
-              report stays. To do one now, unlink it.
+              Reports from the last {OUTSIDE_CHECK_DAYS} days that the robot put on a static shift but
+              that start more than {SHIFT_GRACE_MIN} minutes before it starts or finish more than{" "}
+              {SHIFT_GRACE_MIN} minutes after it ends (going by the times typed in them, or when they
+              were sent). Every 5
+              minutes the robot checks the reports it put on shifts and sorts these out by itself: it
+              moves each to a shift at the site it does fit, or takes it off to wait in Needs linking.
+              One already sent to the client stays where it is, for you to decide. Reports linked by
+              hand aren&rsquo;t listed: a person put them there on purpose. To deal with one now,
+              unlink it.
             </p>
           </div>
           <ul className="divide-y divide-slate-100">
-            {outside.slice(0, OUTSIDE_SHOWN).map((r) => (
-              <li key={r.reportId} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium text-slate-900">{r.siteName}</div>
-                  <div className="text-xs text-slate-500">
-                    Report {spanText(r.span)} · shift {shiftHoursText(r.shift)}
+            {outside.slice(0, OUTSIDE_SHOWN).map((r) => {
+              const what = `${r.siteName}, ${spanText(r.span)}`;
+              return (
+                <li key={r.reportId} className="px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-slate-900 break-words">{r.siteName}</div>
+                    <div className="text-xs text-slate-500">
+                      Report {spanText(r.span)} · shift {shiftHoursText(r.shift)}
+                    </div>
+                    <div className="text-xs text-amber-800">The report {r.outside}.</div>
                   </div>
-                  <div className="text-xs text-amber-800">The report {r.outside}.</div>
-                </div>
-                <span className="flex items-center gap-3 text-xs">
-                  <Link href={`/admin/fastfield/${r.reportId}`} className="text-brand-blue-dark hover:underline">
-                    Report
-                  </Link>
-                  <Link href={`/shifts/${r.shiftId}`} className="text-brand-blue-dark hover:underline">
-                    Shift →
-                  </Link>
-                  <UnlinkButton reportId={r.reportId} className="btn btn-secondary text-xs" />
-                </span>
-              </li>
-            ))}
+                  {/* Named so each row's Unlink says which report it is. */}
+                  <span role="group" aria-label={`Report at ${what}`} className="flex items-center gap-3 text-xs">
+                    <Link href={`/admin/fastfield/${r.reportId}`} className={SMALL_LINK} aria-label={`Report at ${what}`}>
+                      Report
+                    </Link>
+                    <Link
+                      href={`/shifts/${r.shiftId}`}
+                      className={SMALL_LINK}
+                      aria-label={`Shift at ${r.siteName}, ${shiftHoursText(r.shift)}`}
+                    >
+                      Shift →
+                    </Link>
+                    <UnlinkButton reportId={r.reportId} className="btn btn-secondary text-xs" />
+                  </span>
+                </li>
+              );
+            })}
           </ul>
           {outside.length > OUTSIDE_SHOWN && (
             <div className="px-4 py-2 text-xs text-slate-500 border-t border-slate-100">
@@ -283,11 +334,12 @@ export default async function FastFieldPage() {
               Needs linking ({totalUnmatched})
             </h2>
             <p className="text-xs text-slate-500">
-              Reports that didn&rsquo;t match an activity on their own. The robot tries them again
-              every 5 minutes, starting with those whose site has had a shift or job recorded since
-              (but never one taken off a shift: that one waits for you).
-              {offShifts > 0 &&
-                ` ${offShifts} of them ${offShifts === 1 ? "was" : "were"} taken off a shift because the report didn't fit its time — each says why.`}{" "}
+              Reports that didn&rsquo;t match an activity on their own. Every 5 minutes the robot tries
+              those from the last 30 days again (forms set to On), starting with those whose site has
+              had a shift or job recorded since; <span className="font-medium">Try matching again</span>{" "}
+              does it now, for the last 60 days. A report a person took off a shift waits for you; one
+              the robot took off only goes back on a shift it fits, otherwise it waits for you too.
+              {takenOff && ` ${takenOff}`}{" "}
               Open one to link it, create the job, or set it aside, or skip a whole place under
               &ldquo;Waiting, by place&rdquo; above.
             </p>
@@ -337,6 +389,7 @@ export default async function FastFieldPage() {
           <h2 className="font-semibold text-brand-navy">
             Recently attached ({totalAttached} in all)
           </h2>
+          <p className="text-xs text-slate-500">The latest to be linked or to have a job made, newest first.</p>
         </div>
         {recent.length === 0 ? (
           <div className="p-6 text-center text-sm text-slate-500">None yet.</div>
@@ -350,22 +403,35 @@ export default async function FastFieldPage() {
                   : r.shift
                     ? `/shifts/${r.shift.id}`
                     : null;
+              const kind = r.job
+                ? activityLabel(r.job.type)
+                : r.shift
+                  ? activityLabel("SHIFT")
+                  : r.patrolVisit
+                    ? activityLabel("PATROL")
+                    : null;
+              const where = r.site?.name ?? "—";
               return (
                 <li key={r.id} className="px-4 py-2.5 text-sm flex flex-wrap items-center gap-x-3 gap-y-1">
                   <ReportStatusChip status={r.status} />
                   <span className="text-slate-900">
-                    {activityLabel(r.job ? r.job.type : r.shift ? "SHIFT" : "PATROL")} at{" "}
-                    {r.site?.name ?? "—"}
+                    {kind ? `${kind} at ${where}` : `${where} — its activity was deleted`}
                   </span>
                   <span className="text-xs text-slate-500">
                     {formatDateTime(r.submittedAt)} · {r.form.name.trim()}
+                    {r.linkedAt ? ` · attached ${formatTimeAgo(r.linkedAt)}` : ""}
+                    {r.linkedByHand ? " by hand" : ""}
                   </span>
                   <span className="ml-auto flex gap-3 text-xs">
-                    <Link href={`/admin/fastfield/${r.id}`} className="text-brand-blue-dark hover:underline">
+                    <Link
+                      href={`/admin/fastfield/${r.id}`}
+                      className={SMALL_LINK}
+                      aria-label={`Report: ${kind ?? "deleted activity"} at ${where}, ${formatDateTime(r.submittedAt)}`}
+                    >
                       Report
                     </Link>
-                    {href && (
-                      <Link href={href} className="text-brand-blue-dark hover:underline">
+                    {href && kind && (
+                      <Link href={href} className={SMALL_LINK} aria-label={`Activity: ${kind} at ${where}`}>
                         Activity →
                       </Link>
                     )}
@@ -376,6 +442,46 @@ export default async function FastFieldPage() {
           </ul>
         )}
       </div>
+
+      {setAsideCount > 0 && (
+        <div className="card overflow-hidden">
+          <div className="px-4 py-3 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-navy">Set aside ({setAsideCount})</h2>
+            <p className="text-xs text-slate-500">
+              Reports someone set aside in the last {SET_ASIDE_DAYS} days (a test, a duplicate), the
+              most recent first. Open one to bring it back to Needs linking. Reports set aside by
+              skipping a place are under &ldquo;Skipped places&rdquo;.
+            </p>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {setAside.map((r) => (
+              <li key={r.id}>
+                <Link
+                  href={`/admin/fastfield/${r.id}`}
+                  className="block px-4 py-3 hover:bg-slate-50 focus-visible:bg-slate-50"
+                >
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium text-slate-900">
+                      {r.site?.name ?? r.siteText ?? "Site not given"}
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {formatDateTime(r.submittedAt)} · {r.form.name.trim()}
+                      {r.officerText ? ` · ${splitSiaNumber(r.officerText).name ?? r.officerText}` : ""}
+                    </span>
+                  </div>
+                  {r.note && <div className="text-xs text-slate-600 mt-0.5">{r.note}</div>}
+                  <div className="text-xs text-slate-500 mt-0.5">Set aside {formatTimeAgo(r.updatedAt)}</div>
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {setAsideCount > setAside.length && (
+            <div className="px-4 py-2 text-xs text-slate-500 border-t border-slate-100">
+              Showing the latest {setAside.length} of {setAsideCount}.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

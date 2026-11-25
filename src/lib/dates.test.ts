@@ -146,6 +146,21 @@ describe("UK-aware day helpers", () => {
     expect(gmt.toISOString()).toBe("2026-01-15T08:00:00.000Z");
   });
 
+  it("ukWallClockToUtc on the nights the clocks change (as its comment says)", () => {
+    // 29 Mar 2026: clocks jump from 01:00 GMT to 02:00 BST. 01:30 doesn't
+    // exist and is read with the summer offset: 00:30 UTC, an hour early.
+    expect(ukWallClockToUtc(2026, 3, 29, 0, 30).toISOString()).toBe("2026-03-29T00:30:00.000Z");
+    expect(ukWallClockToUtc(2026, 3, 29, 1, 30).toISOString()).toBe("2026-03-29T00:30:00.000Z");
+    expect(ukWallClockToUtc(2026, 3, 29, 2, 30).toISOString()).toBe("2026-03-29T01:30:00.000Z");
+    // 25 Oct 2026: 01:00–02:00 happens twice. 01:30 is the second one (GMT).
+    expect(ukWallClockToUtc(2026, 10, 25, 0, 30).toISOString()).toBe("2026-10-24T23:30:00.000Z");
+    expect(ukWallClockToUtc(2026, 10, 25, 1, 30).toISOString()).toBe("2026-10-25T01:30:00.000Z");
+    expect(ukWallClockToUtc(2026, 10, 25, 2, 30).toISOString()).toBe("2026-10-25T02:30:00.000Z");
+    // Whole days are unaffected.
+    expect(parseIsoDate("2026-03-29")!.toISOString()).toBe("2026-03-29T00:00:00.000Z");
+    expect(parseIsoDate("2026-10-25", true)!.toISOString()).toBe("2026-10-25T23:59:59.999Z");
+  });
+
   it("ukDayPlus walks UK calendar days through DST transitions", () => {
     // 30 Mar 2025 BST starts (clocks jumped forward an hour overnight).
     // From 29 March 2025 noon UK, +1 day → 30 March 2025.

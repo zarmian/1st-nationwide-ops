@@ -15,8 +15,8 @@ Every module doc follows the same shape, so you can skim consistently:
 | # | Doc | Covers |
 |---|---|---|
 | 00 | [Overview](./00-overview.md) | What it is, tech stack, architecture, the 3-mode operating model, roles, where to start. |
-| 01 | [Data Model](./01-data-model.md) | All 46 models + 40 enums, grouped by domain; relationships; migration workflow. |
-| 02 | [Access, Auth & Roles](./02-access-auth-roles.md) | NextAuth, the 5 roles, middleware + layout gating, rate limiting, duty tokens, admin bootstrap. |
+| 01 | [Data Model](./01-data-model.md) | The models and enums (61 + 45), grouped by domain; relationships; migration workflow. |
+| 02 | [Access, Auth & Roles](./02-access-auth-roles.md) | NextAuth, the 5 roles, middleware, layout and page-guard gating, rate limiting, duty tokens, admin bootstrap. |
 | 03 | [Sites, Customers & Regions](./03-sites-customers-regions.md) | The site register, customers/contacts, access instructions, import & geocoding. |
 | 04 | [Keys](./04-keys.md) | Keys, key sets, movements, holders, encrypted access codes. |
 | 05 | [Patrols, Shifts & Rota](./05-patrols-shifts-rota.md) | Recurring patrol/lock-unlock schedules → materialised visits/jobs; guarding shifts + hourly checks; the mobile patrol rota (North 24 h, South day/night). |
@@ -32,7 +32,7 @@ Every module doc follows the same shape, so you can skim consistently:
 | 15 | [Deployment & Operations](./15-deployment-and-ops.md) | Build pipeline, env vars, migrations, bootstrap, seeding, runbook. |
 | 16 | [Officer Compliance & Vetting](./16-officer-compliance.md) | SIA/RTW/DBS + training certs, the `/compliance` register, expiry status, the weekly alert cron. |
 | 17 | [Claude Connector (MCP)](./17-claude-connector.md) | Connecting Claude to the system: the read-only MCP server at `/api/mcp`, the built-in OAuth server (Claude-only, PKCE, hashed tokens), the tools, `/admin/claude`. |
-| 18 | [FastField Reports](./18-fastfield.md) | The FastField robot: officers' FastField reports matched to their site (postcode, name, GPS) and to the static shift or activity they're about, attached (billed, paid), Shurgard jobs created, `/admin/fastfield`. |
+| 18 | [FastField Reports](./18-fastfield.md) | The FastField robot: officers' FastField reports matched by their typed times to their site (postcode, name, GPS) and to the static shift or activity they're about, attached (billed, paid), Shurgard jobs created; the 5-minute shift check and put-back; linking and unlinking by hand on `/admin/fastfield`. |
 | 19 | [Daily Check](./19-daily-check.md) | The morning check: duplicates (e.g. our patrol + the Nexus stub for it), work with no report, FastField reports that don't fit, incidents Claude finds in the reports, late syncs — emailed, history on `/admin/daily-check`. |
 | 20 | [Client Dashboard](./20-client-dashboard.md) | The customer's own read-only `/client` view — activities with charges and officer reports, daily report and invoice downloads — signed in with a one-time emailed link for their email domain (Shurgard first); admin domains, people, block and preview. |
 

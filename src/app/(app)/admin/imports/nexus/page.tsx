@@ -7,10 +7,12 @@ import {
 import { ResetPanel } from "./_components/ResetPanel";
 import { ImportPanel } from "./_components/ImportPanel";
 import { PageHeader } from "@/components/PageHeader";
+import { requireAdminPage } from "@/lib/authz";
 
 export const dynamic = "force-dynamic";
 
 export default async function NexusImportPage() {
+  await requireAdminPage();
   const counts = await getResetCounts();
 
   return (

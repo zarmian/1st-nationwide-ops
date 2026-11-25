@@ -1,6 +1,6 @@
 # Data Model
 
-> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **50 models and 42 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
+> The complete Prisma/Postgres schema for 1st Nationwide Ops (`prisma/schema.prisma`, "v1.2") — **61 models and 45 enums** on Supabase Postgres (EU-West). Schema changes ship as SQL migrations under `prisma/migrations/`, applied on every Vercel deploy by `prisma migrate deploy` (build command in `CLAUDE.md`); **any edit to `schema.prisma` requires a matching, timestamp-named migration** or the deployed app crashes with P2022/P2010.
 
 Source of truth: `prisma/schema.prisma`. This document is a reference; field-level comments in the schema carry the authoritative business semantics.
 
@@ -14,7 +14,7 @@ Source of truth: `prisma/schema.prisma`. This document is a reference; field-lev
 | **Timestamps** | `createdAt DateTime @default(now())` on nearly all models; `updatedAt DateTime @updatedAt` on mutable entities. Some rows carry domain time anchors instead of/alongside these (`KeyMovement.occurredAt`, `AlarmEvent.receivedAt`, `FormSubmission.submittedAt`, `Notification.sentAt`). Date-only columns use `@db.Date` (`OfficerAvailability.date`, `RotaAssignment.date`). |
 | **Soft delete / active flags** | No hard deletes for core entities. `active Boolean @default(true)` on `User`, `Customer`, `Site`, `KeySet`, `Partner`, `PartnerOfficer`, `PatrolSchedule`, `LockUnlockSchedule`, `FormTemplate`, `FormBlueprint`, `JobTypeOption`, `JobSourceOption`. `Key` uses `status` (KeyStatus) instead. Cancellations are reversible: `Job` and `PatrolVisit` keep `cancelledAt`, `cancelledByUserId`, and `statusBeforeCancel` so Restore returns the row to where it was. |
 | **Money** | `Decimal @db.Decimal(10,2)` for amounts; per-minute excess rates use `Decimal @db.Decimal(10,4)`. Always paired with a `currency String @default("GBP")`. Amounts are **snapshotted** onto activity rows at completion (see `09-finance-billing-pay.md`), never computed live from the rate cards. |
-| **Enums** | Native Postgres enums (40 of them). Two enums (`JobType`, `JobSource`) additionally have DB-backed label tables (`JobTypeOption`, `JobSourceOption`) so admins can rename/reorder/alias options without a deploy. |
+| **Enums** | Native Postgres enums (45 of them). Two enums (`JobType`, `JobSource`) additionally have DB-backed label tables (`JobTypeOption`, `JobSourceOption`) so admins can rename/reorder/alias options without a deploy. |
 | **JSON columns** | `Json` for flexible payloads: `FormSubmission.payload`, `FormTemplate.fields`, `FormBlueprint.fields`, `ReportReview.edits`, `ActivityLog.diff`, `Notification.templateParams`, `TelegramCalloutDraft.payload`, `CallEvent.payload`. |
 | **Case-insensitive text** | `citext` extension; `User.email` is `@db.Citext @unique` (case-insensitive login). |
 | **Encryption of codes** | `AccessInstruction.alarmCodeEnc` / `padlockCodeEnc` are `Bytes?` — AES-256-GCM ciphertext via `src/lib/crypto.ts` (`[12-byte IV][16-byte tag][ciphertext]`, key in `ENCRYPTION_KEY`, base64 32 bytes). Legacy plaintext columns `alarmCode` / `padlockCode` still exist; `decryptString` tolerates legacy plaintext during the migration window. Writing sensitive data with no key set throws (refuses to store plaintext). |
@@ -188,8 +188,16 @@ Admin review record for a submission before it reaches the client.
 An outbound client report (email/portal/WhatsApp) generated from an approved review.
 - `reviewId` (cascade), `channel ReportChannel`, `toAddress`, `subject?`, `pdfUrl?`, `status ReportStatus`, `sentAt?`, `failureReason?`.
 
-#### FastFieldForm · FastFieldReport
-Officers' FastField reports, imported by the FastField robot (see [`18-fastfield.md`](./18-fastfield.md)). `FastFieldForm` is keyed by FastField's `formId Int`: `name`, `mode FastFieldFormMode` (OFF/PREVIEW/ON), `jobType JobType` (what it reports), `customerId?` (only this client's sites; SetNull), `createCustomerId?` (make the job when nothing matches at this client's sites; SetNull), `previewCounts Json?`/`previewAt?`/`previewRun?`, `lastSeenAt`. `FastFieldReport`: `submissionId` unique, `formId` → form, `submittedAt`/`startedAt?`/`finishedAt?`, `submittedBy?`, `officerText?`, `siteText?`, `lat?`/`lng?`, `answers Json` (ordered `[{key,label,type,value,at?,lat?,lng?}]`), `photoUrls String[]`, `signatureUrl?`, `status FastFieldReportStatus` (LINKED/CREATED/UNMATCHED/IGNORED), `note?`, links `siteId?`/`jobId?`/`patrolVisitId?`/`shiftId?` and `formSubmissionId?` (unique) — all SetNull — and `jobCreated`. Indexes `[status, submittedAt]`, site, job, visit, shift.
+#### FastFieldForm · FastFieldReport · FastFieldSkip
+Officers' FastField reports, imported by the FastField robot (see [`18-fastfield.md`](./18-fastfield.md)).
+- `FastFieldForm` is keyed by FastField's `formId Int`: `name`, `mode FastFieldFormMode` (OFF/PREVIEW/ON), `jobType JobType` (what it reports), `customerId?` (only this client's sites; SetNull), `createCustomerId?` (make the job when nothing matches at this client's sites; SetNull), `previewCounts Json?`/`previewAt?`/`previewRun?`, `lastSeenAt`.
+- `FastFieldReport`:
+  - what was sent: `submissionId` unique, `formId` → form, `submittedAt` (the send time), `startedAt?`/`finishedAt?` (opened / finished on the phone — never used to decide where it goes), `submittedBy?`, `officerText?`, `siteText?`, `lat?`/`lng?`, `answers Json` (ordered `[{key,label,type,value,at?,lat?,lng?}]`), `photoUrls String[]`, `signatureUrl?`;
+  - the outcome: `status FastFieldReportStatus` (LINKED/CREATED/UNMATCHED/IGNORED), `note?`, links `siteId?`/`jobId?`/`patrolVisitId?`/`shiftId?` and `formSubmissionId?` (unique) — all SetNull — `jobCreated`, and `skipId?` → `FastFieldSkip` (SetNull);
+  - how it got there: `linkedAt?` (when last attached; a robot move keeps it, a take-off clears it), `linkedByHand Boolean` (a person linked it; the robot never moves it), `unlinkedAt?` + `unlinkedBy FastFieldUnlinkBy?` (when and by whom it was last taken off — the robot only re-fits reports it took off itself);
+  - the robot's bookkeeping: `checkedAt?` (last judged while waiting), `shiftCheckedAt?` (last found to fit its shift), `rulesVersion Int @default(0)` (the `FASTFIELD_RULES_VERSION` it was last judged under; lower = judged again).
+  - Indexes `[status, submittedAt]`, site, job, visit, shift, skip.
+- `FastFieldSkip`: a place skipped on Admin → FastField — `siteKey` unique (the typed site cut down to lowercase letters and digits), `label`, `createdBy?`, `createdAt`; relation `reports`.
 
 #### DailyCheck · DailyCheckSettings
 The morning check (see [`19-daily-check.md`](./19-daily-check.md)). `DailyCheck`: one row per run — `periodStart`/`periodEnd`, `findings Json` (duplicates, missing reports, report problems, incidents, syncs), `counts Json`, `overview?` (Claude), `trigger` (`cron`/`manual`), `emailedTo?`/`emailedAt?`; index `[trigger, createdAt]`. `DailyCheckSettings`: single row (id 1) — `enabled` (default true), `recipients?` (comma-separated; empty = `ADMIN_EMAIL`).
@@ -273,6 +281,9 @@ Raw phone-provider (bOnline) webhook events for the call log + missed-call alert
 #### ActivityLog
 Generic audit trail. `userId?`, `entity String`, `entityId String`, `action String`, `diff Json?`, `createdAt`. Indexes `[entity, entityId]`, `[userId, createdAt]`.
 
+#### RunLock
+A lease lock, so only one copy of a background run works at a time — the FastField matcher (`fastfield-matcher`), which the 5-minute cron, the sync robot and "Try matching again" can all start (`src/lib/runLock.ts`). `name String @id`, `lockedUntil?` (the lease), `holder?` (the run's random id), `updatedAt @updatedAt` (no database default: raw-SQL inserts set it). Taken in one atomic upsert by moving `lockedUntil` into the future; let go only by its holder; a run that crashes simply lets its lease run out.
+
 #### Claude connector — McpGrant · McpAuthCode · McpToken · McpToolCall · McpSettings
 The app's own OAuth server for Claude (see [`17-claude-connector.md`](./17-claude-connector.md)). `McpGrant` = one approved connection (`userId` → User, cascade; `clientId` CIMD URL, `clientName`, `redirectHost`, `scope`, `resource`, `lastUsedAt`, `revokedAt`, `revokedByUserId`). `McpAuthCode` (single-use, 5 min, `codeHash` unique, `codeChallenge`, `redirectUri`) and `McpToken` (`kind McpTokenKind` ACCESS/REFRESH, `tokenHash` unique, `expiresAt`, `revokedAt`) hang off a grant, cascade-deleted with it; only SHA-256 hashes are stored. `McpToolCall` = audit of every tool call (`userId`, `grantId?` SetNull, `tool`, `args Json?`, `ok`, `error?`, `durationMs`). `McpSettings` = single row (id 1), `allowDispatchers` (default false).
 
@@ -345,7 +356,9 @@ FK map (model → what it points at, via which field):
 | Notification | recipientUserId → User |
 | TelegramCalloutDraft | createdByUserId → User |
 | ActivityLog | userId → User |
-| CallEvent, JobTypeOption, JobSourceOption | — (no FKs) |
+| FastFieldForm | customerId → Customer; createCustomerId → Customer |
+| FastFieldReport | formId → FastFieldForm; siteId → Site; jobId → Job; patrolVisitId → PatrolVisit; shiftId → Shift; formSubmissionId → FormSubmission (unique); skipId → FastFieldSkip |
+| CallEvent, JobTypeOption, JobSourceOption, FastFieldSkip, RunLock | — (no FKs) |
 
 ---
 
@@ -394,6 +407,9 @@ FK map (model → what it points at, via which field):
 | NotificationChannel | WHATSAPP, EMAIL, SMS | Delivery channel for Notification. |
 | NotificationKind | VISIT_STARTED, VISIT_COMPLETED, VISIT_LATE, VISIT_MISSED, ALARM_RECEIVED, KEY_HANDOVER, SHIFT_CHECK_OVERDUE, SHIFT_REMINDER, JOB_REMINDER, OFFICER_NO_SHOW, ALARM_CUSTOMER_ACK, PAY_SUMMARY, SHIFT_LINK, MISSED_CALL | Notification event type. |
 | NotificationStatus | PENDING, SENT, FAILED, SKIPPED | Notification queue state. |
+| FastFieldFormMode | OFF, PREVIEW, ON | Whether a FastField form's submissions are imported (PREVIEW = read only by preview runs). |
+| FastFieldReportStatus | LINKED, CREATED, UNMATCHED, IGNORED | A FastField report's outcome: attached, its job made, waiting to be linked, set aside. |
+| FastFieldUnlinkBy | ROBOT, PERSON | Who took a FastField report off its activity. |
 
 > Note: enum values evolve via migrations (e.g. `UserRole` gained PARTNER/PARTNER_OFFICER; `OnboardingStage` was collapsed from FRONT_KEY/SHUTTER_KEY/ALARM_FOB to KEY_COLLECTION; `VisitStatus` gained LATE/CANCELLED). The values above are the current schema.
 
@@ -404,7 +420,7 @@ FK map (model → what it points at, via which field):
 Schema changes ship as raw SQL migrations, **not** `prisma db push` (that flow was retired because it can silently drop columns).
 
 1. Edit `prisma/schema.prisma`.
-2. Add a **matching migration** at `prisma/migrations/<UTC-timestamp>_<name>/migration.sql`. The timestamp prefix (`YYYYMMDDHHMMSS`) makes migrations sort chronologically; copy an existing dir as a template. There are 45+ migrations today, from `20260429120000_init` to `20260810120000_partner_chase_reminder`.
+2. Add a **matching migration** at `prisma/migrations/<UTC-timestamp>_<name>/migration.sql`. The timestamp prefix (`YYYYMMDDHHMMSS`) makes migrations sort chronologically; copy an existing dir as a template. They start at `20260429120000_init`; there were 79 by late November 2026 (the latest then `20261125012000_fastfield_review_fixes`).
 3. Commit both together and push. Vercel's build command runs:
    ```
    prisma generate && prisma migrate deploy && next build

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { ActivityHistory } from "@/components/ActivityHistory";
 import { loadActivityHistory } from "@/lib/activityHistory";
-import { requireStaff } from "@/lib/authz";
+import { requireStaffPage } from "@/lib/authz";
 import { CloseActivityButton } from "../../../dispatch/_components/CloseActivityButton";
 import { CancelActivityButton } from "../../../dispatch/_components/CancelActivityButton";
 import { RestoreActivityButton } from "../../../dispatch/_components/RestoreActivityButton";
@@ -49,7 +49,7 @@ export default async function PatrolVisitDetailPage({
 }: {
   params: { id: string };
 }) {
-  const me = await requireStaff();
+  const me = await requireStaffPage();
 
   const visit = await prisma.patrolVisit.findUnique({
     where: { id: params.id },
