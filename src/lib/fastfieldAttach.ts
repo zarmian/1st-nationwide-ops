@@ -44,7 +44,9 @@ export type LinkPrev = {
   /** The status straight after the link. If it's different at Unlink,
    *  someone has moved the activity on since, and it's left alone. */
   statusAfter: string;
-  /** Linked by hand to cancelled work: nothing on it was changed. */
+  /** Linked by hand to work a link must not change — cancelled, or a job
+   *  that stands for a shift: nothing on it was changed (and Unlink has
+   *  nothing to undo). */
   cancelled?: true;
   filled: LinkFilled;
 };

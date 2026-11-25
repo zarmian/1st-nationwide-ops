@@ -1336,8 +1336,9 @@ export const MATCH_WINDOW_MIN = 180;
 /** When nothing is that close: how far either side to look for the same kind
  *  of work (a report filed late, or a job logged at the wrong time). */
 export const WIDE_MATCH_WINDOW_MIN = 18 * 60;
-/** Linking by hand (Admin → FastField → a report) lists the activities this
- *  far either side of the report. The robot never looks this far. */
+/** The default reach of `shiftsForLinking` (±24 h), used by the connector's
+ *  review. The hand-link page lists ±3 days, or any day picked
+ *  (fastfieldHandLink.ts). The robot never looks this far. */
 export const MANUAL_LINK_WINDOW_MIN = 24 * 60;
 
 /** Kinds of work that can stand in for each other. */
