@@ -40,6 +40,8 @@ import {
 import {
   apartText,
   extractFacts,
+  parseFastFieldTime,
+  withTimesNote,
   MANUAL_LINK_WINDOW_MIN,
   MATCH_WINDOW_MIN,
   WIDE_MATCH_WINDOW_MIN,
@@ -617,10 +619,11 @@ async function decide(
       reportSpan(facts),
     );
     const byWork = pickSiteByActivity(facts, sp.candidates, active);
-    if (!byWork) return { action: "unmatched", site: null, reason: "site", note: sp.reason };
+    if (!byWork) return { action: "unmatched", site: null, reason: "site", note: withTimesNote(sp.reason, facts) };
     site = byWork;
     how = siteHow("activity", null);
   }
+  how = withTimesNote(how, facts); // typed times it couldn't use: every note says so
   const kind = (facts.visitType as JobType | null) ?? form.jobType;
   const at = formatDateTime(facts.when);
   // A report only goes on a shift it fits inside: it doesn't start before
@@ -817,9 +820,10 @@ async function recordPreview(run: string, byForm: Record<string, Counts>) {
 }
 
 function incomingTimes(r: FastFieldIncoming) {
+  // A time without a zone is UK wall-clock time, as extractFacts reads it.
   const d = (s: string | null | undefined) => {
     if (!s) return null;
-    const t = new Date(s);
+    const t = parseFastFieldTime(s) ?? new Date(s);
     return Number.isFinite(t.getTime()) ? t : null;
   };
   return {
