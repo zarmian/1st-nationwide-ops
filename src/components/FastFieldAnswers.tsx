@@ -6,10 +6,13 @@ import {
   type FastFieldAnswer,
 } from "@/lib/fastfield";
 import { formatDateTime } from "@/lib/dates";
+import { safeLinkUrl } from "@/lib/fastfieldIntake";
 
 /**
  * A FastField report's answers in form order — photos, signature and GPS
- * shown as such. Used on the review page and /admin/fastfield/[id].
+ * shown as such. Used on the review page, /admin/fastfield/[id] and the
+ * client portal's activity page. Only http(s) addresses go into a link or an
+ * image (the import already keeps only our own storage's).
  */
 export function FastFieldAnswers({
   answers,
@@ -23,7 +26,9 @@ export function FastFieldAnswers({
   for (const a of list) {
     for (const p of photosOf(a.value)) shown.add(p.url);
   }
-  const extraPhotos = photoUrls.filter((u) => !shown.has(u));
+  const extraPhotos = photoUrls
+    .map(safeLinkUrl)
+    .filter((u): u is string => u !== null && !shown.has(u));
 
   if (list.length === 0 && extraPhotos.length === 0) {
     return <p className="text-sm text-slate-500">No answers in this report.</p>;
@@ -48,11 +53,14 @@ export function FastFieldAnswers({
 
 type Photo = { url: string; comment?: string | null };
 
+/** The photos in an answer, each with a safe (http/https) address. */
 function photosOf(value: unknown): Photo[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(
-    (p): p is Photo => !!p && typeof p === "object" && typeof (p as Photo).url === "string",
-  );
+  return value.flatMap((p) => {
+    if (!p || typeof p !== "object") return [];
+    const url = safeLinkUrl((p as Photo).url);
+    return url ? [{ ...(p as Photo), url }] : [];
+  });
 }
 
 const TRI: Record<number, string> = { 0: "No", 1: "Yes", 2: "N/A" };
@@ -88,13 +96,14 @@ function Answer({ answer: a }: { answer: FastFieldAnswer }) {
   }
 
   if (kind === "signature") {
-    if (typeof a.value !== "string" || !a.value.startsWith("https://")) return empty;
+    const signature = safeLinkUrl(a.value);
+    if (!signature?.startsWith("https://")) return empty;
     return (
       <>
         {label}
         <dd>
           <img
-            src={a.value}
+            src={signature}
             alt="Signature"
             width={240}
             height={96}

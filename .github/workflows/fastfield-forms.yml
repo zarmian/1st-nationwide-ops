@@ -33,6 +33,9 @@ on:
         options: [global, uk]
         default: global
 
+permissions:
+  contents: read # check out the robot
+
 concurrency:
   group: partner-syncs # shared with partner-syncs.yml so imports never overlap
   cancel-in-progress: false
