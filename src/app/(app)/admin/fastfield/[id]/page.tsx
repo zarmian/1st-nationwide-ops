@@ -504,7 +504,7 @@ export default async function FastFieldReportPage({
 
       <div className="card p-5">
         <h2 className="font-semibold text-brand-navy mb-3">The report</h2>
-        <FastFieldAnswers answers={report.answers} photoUrls={report.photoUrls} />
+        <FastFieldAnswers answers={report.answers} photoUrls={report.photoUrls} sentAt={report.submittedAt} />
       </div>
     </div>
   );

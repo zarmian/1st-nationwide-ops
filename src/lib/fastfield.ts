@@ -116,10 +116,28 @@ type DateTimeParts = {
 // "22:15", "22:15:00.000", "6:20 pm".
 const CLOCK = String.raw`(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,](\d{1,9}))?)?(?:\s*([ap])\.?m\.?)?`;
 const ISO_VALUE = new RegExp(
-  String.raw`^(\d{4})-(\d{1,2})-(\d{1,2})(?:(?:T|\s+)${CLOCK}\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$`,
+  String.raw`^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})(?:(?:T|\s+)${CLOCK}\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$`,
   "i",
 );
+// "24/11/2026 22:15" (UK, day first) or "11/24/2026 10:15 PM" (US, month
+// first — FastField is an American app): both are read, and the one that
+// fits when the report was sent is taken (pickReading).
 const UK_VALUE = new RegExp(String.raw`^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})(?:(?:T|,?\s+)${CLOCK})?$`, "i");
+const WEEKDAY = String.raw`(?:(?:mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?,?\s+)?`;
+const NAMED_ZONE = String.raw`(?:\s*(Z|[+-]\d{2}:?\d{2}|(?:GMT|UTC)(?:[+-]\d{2}:?\d{2})?))?(?:\s*\([^)]*\))?`;
+// "24 Nov 2026 22:15", "24-Nov-2026 10:15 PM", "Tuesday, 24 November 2026".
+const DAY_MONTH_NAME = new RegExp(
+  String.raw`^${WEEKDAY}(\d{1,2})(?:st|nd|rd|th)?[\s-]+([a-z]{3,9})\.?[\s-]+(\d{4})(?:,?\s+(?:at\s+)?${CLOCK})?${NAMED_ZONE}$`,
+  "i",
+);
+// "Nov 24, 2026 10:15 PM", "November 24 2026", "Tue Nov 24 2026 22:15:00 GMT+0000 (Greenwich Mean Time)".
+const MONTH_NAME_DAY = new RegExp(
+  String.raw`^${WEEKDAY}([a-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})(?:,?\s+(?:at\s+)?${CLOCK})?${NAMED_ZONE}$`,
+  "i",
+);
+// .NET's "/Date(1795565700000)/" (milliseconds since 1970, UTC).
+const DOTNET_DATE = /^\/Date\((-?\d{10,14})(?:[+-]\d{4})?\)\/$/;
+const MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const CLOCK_VALUE = new RegExp(String.raw`^${CLOCK}$`, "i");
 
 function clockOf(h: string, mi: string, s?: string, frac?: string, ap?: string): Clock | null {
@@ -160,24 +178,126 @@ function atUk(day: UkDay, t: Pick<Clock, "h" | "mi" | "s">): Date {
   return ukWallClockToUtc(day.year, day.month, day.day, t.h, t.mi, t.s);
 }
 
-/** "2026-10-17T22:15:00.000+01:00", "2026-10-17 22:15", "2026-10-17",
- *  "17/10/2026 22:15" in parts; null for anything else. */
-function dateTimeParts(v: string): DateTimeParts | null {
-  const iso = v.match(ISO_VALUE);
-  const m = iso ?? v.match(UK_VALUE);
-  if (!m) return null;
-  const day = iso ? dayOf(m[1], m[2], m[3]) : dayOf(m[3], m[2], m[1]);
+/** Minutes ahead of UTC for "Z", "+01:00", "+0100", "GMT", "GMT+0100"; null
+ *  when there's no zone (UK time). */
+function zoneMinutes(z: string | undefined): number | null {
+  if (!z) return null;
+  const m = z.match(/([+-])(\d{2}):?(\d{2})?$/);
+  return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] ?? 0)) : 0; // "Z", "GMT", "UTC"
+}
+
+function partsWith(day: UkDay | null, clock: string[] | null, zone?: string): DateTimeParts | null {
   if (!day) return null;
-  if (m[4] == null) return { day, time: null, zoneMin: null };
-  const time = clockOf(m[4], m[5], m[6], m[7], m[8]);
-  if (!time) return null;
-  const zone = iso?.[9]?.match(/^([+-])(\d{2}):?(\d{2})?$/);
-  const zoneMin = !iso?.[9]
-    ? null
-    : zone
-      ? (zone[1] === "-" ? -1 : 1) * (Number(zone[2]) * 60 + Number(zone[3] ?? 0))
-      : 0; // "Z"
-  return { day, time, zoneMin };
+  if (!clock || clock[0] == null) return { day, time: null, zoneMin: null };
+  const time = clockOf(clock[0], clock[1], clock[2], clock[3], clock[4]);
+  return time ? { day, time, zoneMin: zoneMinutes(zone) } : null;
+}
+
+/** Milliseconds since 1970 (UTC) as parts — only for a plausible year. */
+function epochParts(ms: number): DateTimeParts | null {
+  if (!Number.isFinite(ms)) return null;
+  const d = new Date(ms);
+  const year = d.getUTCFullYear();
+  if (year < PLACEHOLDER_YEAR_BEFORE || year > 2100) return null;
+  return {
+    day: { year, month: d.getUTCMonth() + 1, day: d.getUTCDate() },
+    time: { h: d.getUTCHours(), mi: d.getUTCMinutes(), s: d.getUTCSeconds(), ms: d.getUTCMilliseconds() },
+    zoneMin: 0,
+  };
+}
+
+/** A number of seconds or milliseconds since 1970, as FastField or a phone
+ *  may keep a picked date and time. */
+function epochOf(n: number): DateTimeParts | null {
+  if (n >= 1e12 && n < 1e14) return epochParts(n);
+  if (n >= 1e9 && n < 1e11) return epochParts(n * 1000);
+  return null;
+}
+
+/**
+ * Every way a typed date / time value can be read, in parts: ISO
+ * ("2026-10-17T22:15:00.000+01:00", "2026-10-17 22:15", "2026/10/17"), a
+ * numeric date day first or month first ("17/10/2026 22:15",
+ * "10/17/2026 10:15 PM" — both when either could be right), a month name
+ * ("17 Oct 2026 22:15", "Oct 17, 2026 10:15 PM"), or milliseconds since 1970
+ * ("/Date(…)/", or the plain number). Empty for anything else.
+ */
+function dateTimeReadings(v: string): DateTimeParts[] {
+  const iso = v.match(ISO_VALUE);
+  if (iso) {
+    const p = partsWith(dayOf(iso[1], iso[2], iso[3]), iso.slice(4, 9), iso[9]);
+    return p ? [p] : [];
+  }
+  const num = v.match(UK_VALUE);
+  if (num) {
+    const clock = num.slice(4, 9);
+    const dayFirst = partsWith(dayOf(num[3], num[2], num[1]), clock);
+    const monthFirst = partsWith(dayOf(num[3], num[1], num[2]), clock);
+    if (dayFirst && monthFirst && num[1] === num[2]) return [dayFirst];
+    return [dayFirst, monthFirst].filter((x): x is DateTimeParts => !!x);
+  }
+  const dm = v.match(DAY_MONTH_NAME);
+  const named = dm ?? v.match(MONTH_NAME_DAY);
+  if (named) {
+    const [d, mon] = dm ? [named[1], named[2]] : [named[2], named[1]];
+    const month = MONTH_NAMES.indexOf(mon.slice(0, 3).toLowerCase()) + 1;
+    if (!month) return [];
+    const p = partsWith(dayOf(named[3], String(month), d), named.slice(4, 9), named[9]);
+    return p ? [p] : [];
+  }
+  const dotnet = v.match(DOTNET_DATE);
+  if (dotnet) {
+    const p = epochParts(Number(dotnet[1]));
+    return p ? [p] : [];
+  }
+  if (/^\d{10}$|^\d{13}$/.test(v)) {
+    const p = epochOf(Number(v));
+    return p ? [p] : [];
+  }
+  return [];
+}
+
+/** The readings of a value as typed: a string as above, a number of
+ *  milliseconds (or seconds) since 1970, or an object holding the value
+ *  ({ dateTime }, { value }, or { date, time }). */
+function valueReadings(value: unknown): DateTimeParts[] {
+  if (typeof value === "string") return dateTimeReadings(value.trim());
+  if (typeof value === "number") {
+    const p = epochOf(value);
+    return p ? [p] : [];
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const o = value as Record<string, unknown>;
+    for (const k of ["dateTime", "datetime", "date_time", "value", "timestamp"]) {
+      if (typeof o[k] === "string" || typeof o[k] === "number") return valueReadings(o[k]);
+    }
+    if (typeof o.date === "string" && typeof o.time === "string") return dateTimeReadings(`${o.date.trim()} ${o.time.trim()}`);
+    if (typeof o.date === "string") return dateTimeReadings(o.date.trim());
+  }
+  return [];
+}
+
+/**
+ * Which reading the officer meant when a value can be read more than one way
+ * ("11/02/2026": 11 Feb or 2 Nov): the one that fits when the report was
+ * sent (typed times count from 72 h before to 15 min after; a day within 3
+ * days). With no send time to go by, or neither fitting, nothing is guessed
+ * when the readings disagree.
+ */
+function pickReading(rs: DateTimeParts[], sentAt?: Date | null): DateTimeParts | null {
+  if (rs.length <= 1) return rs[0] ?? null;
+  if (!sentAt) return null;
+  const sent = sentAt.getTime();
+  const fits = (p: DateTimeParts) => {
+    if (p.time) {
+      const t = momentOf(p, p.time).getTime();
+      return t >= sent - TYPED_BEFORE_SUBMIT_MS && t <= sent + TYPED_AFTER_SUBMIT_MS;
+    }
+    const noon = atUk(p.day, { h: 12, mi: 0, s: 0 }).getTime();
+    return Math.abs(noon - sent) <= 3 * 86_400_000 + 12 * 3_600_000;
+  };
+  const fitting = rs.filter(fits);
+  return fitting.length === 1 ? fitting[0] : null;
 }
 
 function momentOf(p: DateTimeParts, t: Clock): Date {
@@ -196,9 +316,8 @@ function momentOf(p: DateTimeParts, t: Clock): Date {
  * day-first date ("17/10/2026 22:15") is read too. Only a full date and time
  * is a moment: a date or a time on its own gives null (see `typedValue`).
  */
-export function parseFastFieldTime(s: unknown): Date | null {
-  if (typeof s !== "string") return null;
-  const p = dateTimeParts(s.trim());
+export function parseFastFieldTime(s: unknown, sentAt?: Date | null): Date | null {
+  const p = pickReading(valueReadings(s), sentAt);
   return p?.time ? momentOf(p, p.time) : null;
 }
 
@@ -226,15 +345,23 @@ function isDateLabel(label: string): boolean {
  * keep a day. Null when it's none of these. When the field was tapped on the
  * phone (`at`) is never used.
  */
-export function typedValue(a: Pick<FastFieldAnswer, "label" | "value">): TypedValue | null {
-  if (typeof a.value !== "string") return null;
-  const v = a.value.trim();
-  const c = v.match(CLOCK_VALUE);
-  if (c) {
-    const t = clockOf(c[1], c[2], c[3], c[4], c[5]);
-    return t ? { kind: "time", ...t } : null;
+export function typedValue(
+  a: Pick<FastFieldAnswer, "label" | "value">,
+  sentAt?: Date | null,
+): TypedValue | null {
+  const raw =
+    a.value && typeof a.value === "object" && !Array.isArray(a.value)
+      ? ((a.value as Record<string, unknown>).time ?? null)
+      : a.value;
+  // A time of day on its own ("22:15", or { time: "22:15" } with no date).
+  if (typeof raw === "string" && (typeof a.value === "string" || !(a.value as Record<string, unknown>).date)) {
+    const c = raw.trim().match(CLOCK_VALUE);
+    if (c) {
+      const t = clockOf(c[1], c[2], c[3], c[4], c[5]);
+      return t ? { kind: "time", ...t } : null;
+    }
   }
-  const p = dateTimeParts(v);
+  const p = pickReading(valueReadings(a.value), sentAt);
   if (!p) return null;
   if (!p.time) return { kind: "date", day: p.day };
   if (p.day.year < PLACEHOLDER_YEAR_BEFORE) return { kind: "time", ...p.time };
@@ -259,7 +386,7 @@ export function answerTime(
   a: FastFieldAnswer,
   ctx: { submittedAt?: Date | null; day?: UkDay | null } = {},
 ): Date | null {
-  const v = typedValue(a);
+  const v = typedValue(a, ctx.submittedAt ?? null);
   if (!v || v.kind === "date") return null;
   return v.kind === "moment" ? v.at : placeTime(v, ctx.day ?? null, ctx.submittedAt ?? null);
 }
@@ -664,7 +791,7 @@ export function extractFacts(input: FactsInput): FastFieldFacts {
   type VisitTime = { at: Date; role: TimeRole; clock: Clock | null };
   const read = answers
     .filter((a) => answerKind(a.type) === "date")
-    .map((a) => ({ label: a.label, v: typedValue(a) }));
+    .map((a) => ({ label: a.label, v: typedValue(a, submittedAt) }));
   const days = read.flatMap((x) =>
     x.v?.kind === "date" && timeRole(x.label) !== "not" ? [{ label: x.label, day: x.v.day }] : [],
   );

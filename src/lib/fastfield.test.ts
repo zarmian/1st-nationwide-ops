@@ -139,7 +139,6 @@ describe("parseFastFieldTime", () => {
     // No zone: UK time, 12-hour clock too, and UK day-first dates.
     ["2026-10-17 10:15 pm", "2026-10-17T21:15:00.000Z"],
     ["17/10/2026 22:15", "2026-10-17T21:15:00.000Z"],
-    ["01/12/2026 08:00", "2026-12-01T08:00:00.000Z"],
     // The nights the clocks change: 01:30 on 29 Mar 2026 doesn't exist (read
     // with the summer offset); on 25 Oct 2026 it happens twice (the GMT one).
     ["2026-03-29T01:30", "2026-03-29T00:30:00.000Z"],
@@ -1850,5 +1849,65 @@ describe("shiftApartMin", () => {
   it("rounds up, so it's 0 only when the report is strictly inside", () => {
     expect(shiftApartMin(at("2026-11-18T07:00:20Z"), shift)).toBe(1);
     expect(shiftApartMin(at("2026-11-18T07:00:00Z"), shift)).toBe(0);
+  });
+});
+
+describe("a numeric date that reads both ways", () => {
+  it("is settled by the send time, and not guessed without one", () => {
+    expect(parseFastFieldTime("01/12/2026 08:00")).toBeNull(); // 1 Dec or 12 Jan?
+    expect(parseFastFieldTime("01/12/2026 08:00", new Date("2026-12-01T09:00:00Z"))?.toISOString()).toBe(
+      "2026-12-01T08:00:00.000Z",
+    );
+    expect(parseFastFieldTime("01/12/2026 08:00", new Date("2026-01-12T09:00:00Z"))?.toISOString()).toBe(
+      "2026-01-12T08:00:00.000Z",
+    );
+  });
+});
+
+describe("typed date/time values in every format FastField may send", () => {
+  const read = (value: unknown, sent: string) =>
+    extractFacts({
+      submittedAt: sent,
+      answers: [{ key: "p", label: "Patrol Date/Time", type: "DateTimePicker", value } as FastFieldAnswer],
+    }).when?.toISOString() ?? null;
+  const SENT = "2026-11-24T23:00:00Z";
+  const AT = "2026-11-24T22:15:00.000Z";
+
+  it.each([
+    ["ISO with a zone", "2026-11-24T22:15:00.000Z"],
+    ["ISO without a zone (UK time)", "2026-11-24T22:15:00"],
+    ["ISO with a space", "2026-11-24 22:15"],
+    ["year first with slashes", "2026/11/24 22:15"],
+    ["UK day first", "24/11/2026 22:15"],
+    ["UK day first, 12-hour", "24/11/2026 10:15 PM"],
+    ["US month first", "11/24/2026 22:15"],
+    ["US month first, 12-hour", "11/24/2026 10:15 PM"],
+    ["US month first, seconds", "11/24/2026 10:15:00 PM"],
+    ["month name first", "Nov 24, 2026 10:15 PM"],
+    ["day then month name", "24 Nov 2026 22:15"],
+    ["day-month-name-year", "24-Nov-2026 22:15"],
+    ["weekday and full month", "Tuesday, 24 November 2026 10:15 PM"],
+    ["a JavaScript date", "Tue Nov 24 2026 22:15:00 GMT+0000 (Greenwich Mean Time)"],
+    ["milliseconds since 1970", Date.UTC(2026, 10, 24, 22, 15)],
+    ["milliseconds as text", String(Date.UTC(2026, 10, 24, 22, 15))],
+    ["seconds since 1970", Date.UTC(2026, 10, 24, 22, 15) / 1000],
+    [".NET date", `/Date(${Date.UTC(2026, 10, 24, 22, 15)})/`],
+    ["a date and a time kept apart", { date: "2026-11-24", time: "22:15" }],
+    ["an object holding the value", { dateTime: "2026-11-24T22:15:00Z" }],
+  ])("reads %s", (_name, value) => {
+    expect(read(value, SENT)).toBe(AT);
+  });
+
+  it("settles a date that reads both ways (11/02 or 02/11) by when the report was sent", () => {
+    const sent = "2026-11-02T23:00:00Z";
+    expect(read("11/02/2026 22:15", sent)).toBe("2026-11-02T22:15:00.000Z"); // US: 2 Nov
+    expect(read("02/11/2026 22:15", sent)).toBe("2026-11-02T22:15:00.000Z"); // UK: 2 Nov
+    // Neither reading near when it was sent: the wrong day, not used.
+    expect(read("02/11/2026 22:15", SENT)).toBeNull();
+  });
+
+  it("doesn't guess an ambiguous date for display, with no send time to go by", () => {
+    expect(parseFastFieldTime("11/02/2026 22:15")).toBeNull();
+    expect(parseFastFieldTime("24/11/2026 22:15")?.toISOString()).toBe(AT); // only one reading
   });
 });

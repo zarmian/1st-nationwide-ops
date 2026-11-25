@@ -32,7 +32,7 @@ export type ClientReport = {
   arrivedAt: Date | null;
   departedAt: Date | null;
   /** A FastField report: its answers, shown as filed. */
-  fastfield: { answers: unknown; photoUrls: string[] } | null;
+  fastfield: { answers: unknown; photoUrls: string[]; submittedAt: Date } | null;
   fields: ClientReportField[];
   photos: ClientReportPhoto[];
   signatureUrl: string | null;
@@ -70,7 +70,7 @@ const SUBMISSION_SELECT = {
   departedAt: true,
   payload: true,
   formTemplate: { select: { fields: true } },
-  fastfieldReport: { select: { answers: true, photoUrls: true, form: { select: { name: true } } } },
+  fastfieldReport: { select: { answers: true, photoUrls: true, submittedAt: true, form: { select: { name: true } } } },
 } as const;
 
 type SubmissionRow = {
@@ -81,7 +81,7 @@ type SubmissionRow = {
   departedAt: Date | null;
   payload: unknown;
   formTemplate: { fields: unknown } | null;
-  fastfieldReport: { answers: unknown; photoUrls: string[]; form: { name: string } } | null;
+  fastfieldReport: { answers: unknown; photoUrls: string[]; submittedAt: Date; form: { name: string } } | null;
 };
 
 const SITE_SELECT = {
@@ -125,7 +125,11 @@ function toReport(s: SubmissionRow): ClientReport {
       submittedAt: s.submittedAt,
       arrivedAt: s.arrivedAt,
       departedAt: s.departedAt,
-      fastfield: { answers: s.fastfieldReport.answers, photoUrls: s.fastfieldReport.photoUrls },
+      fastfield: {
+        answers: s.fastfieldReport.answers,
+        photoUrls: s.fastfieldReport.photoUrls,
+        submittedAt: s.fastfieldReport.submittedAt,
+      },
       fields: [],
       photos: [],
       signatureUrl: null,
