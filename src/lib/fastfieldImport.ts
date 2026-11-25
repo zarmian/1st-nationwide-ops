@@ -32,6 +32,7 @@ import { formatDateTime, formatTime } from "@/lib/dates";
 import { haversineMeters } from "@/lib/geo";
 import { fillJobFinance, fillVisitFinance, type FinanceFilled } from "@/lib/billing";
 import { logActivity } from "@/lib/audit";
+import { broughtBackNote, createdByHand, placesFromCounts, TIME_ANSWER_TYPES } from "@/lib/fastfieldAdminList";
 import {
   planCreatedJobUndo,
   planJobLink,
@@ -1364,7 +1365,7 @@ async function retryUnmatchedNow(
 export type FastFieldReviewRow = {
   ref: string;
   filed: Date;
-  /** The moment used for matching (arrival, else opened, else filed). */
+  /** The moment used for matching (`FastFieldFacts.when`). */
   at: Date;
   form: string;
   siteTyped: string | null;
@@ -1388,6 +1389,9 @@ export type FastFieldReview = {
   created: { byRobot: number; byHand: number };
   setAside: number;
   waiting: number;
+  /** Waiting reports the robot still tries by itself — on a form set to On
+   *  and not taken off a shift. Only these are dry-run. */
+  robotTries: number;
   /** Waiting reports dry-run through the current rules. */
   checked: number;
   wouldNow: { link: number; create: number; wait: Record<UnmatchedReason, number> };
@@ -1397,8 +1401,9 @@ export type FastFieldReview = {
 /**
  * How the FastField matching is doing for reports filed in [from, to]: the
  * robot's links and creations against those done by hand, and — for each
- * report still waiting — what the robot would do with it now and what work
- * is recorded at its site. Reads only; the dry run is decide() in preview.
+ * report still waiting that the robot tries by itself — what it would do with
+ * it now and what work is recorded at its site. Reads only; the dry run is
+ * decide() in preview.
  */
 export async function reviewFastField(opts: {
   from: Date;
@@ -1409,13 +1414,20 @@ export async function reviewFastField(opts: {
 }): Promise<FastFieldReview> {
   const started = Date.now();
   const filed = { submittedAt: { gte: opts.from, lte: opts.to } };
-  const [byStatus, linkedByHand, createdByHand, waitingRows] = await Promise.all([
+  // What the robot's retry tries (dueReports): forms set to On, and never a
+  // report taken off a shift — by a person it waits for a person; by the
+  // robot only put-back may return it, and only onto a shift it fits.
+  const robotTries = { ...filed, status: "UNMATCHED" as const, unlinkedAt: null, form: { mode: "ON" as const } };
+  const [byStatus, linkedByHand, created, robotTriesCount, waitingRows] = await Promise.all([
     prisma.fastFieldReport.groupBy({ by: ["status"], where: filed, _count: { _all: true } }),
     prisma.fastFieldReport.count({ where: { ...filed, status: "LINKED", linkedByHand: true } }),
-    prisma.fastFieldReport.count({ where: { ...filed, status: "CREATED", note: { contains: " created by " } } }),
     prisma.fastFieldReport.findMany({
-      // Reports taken off a shift by hand wait for a person, not the robot.
-      where: { ...filed, status: "UNMATCHED", unlinkedAt: null },
+      where: { ...filed, status: "CREATED" },
+      select: { jobId: true, note: true },
+    }),
+    prisma.fastFieldReport.count({ where: robotTries }),
+    prisma.fastFieldReport.findMany({
+      where: robotTries,
       orderBy: { submittedAt: "desc" },
       take: opts.limit,
       select: {
@@ -1431,6 +1443,21 @@ export async function reviewFastField(opts: {
     }),
   ]);
   const count = (s: string) => byStatus.find((b) => b.status === s)?._count._all ?? 0;
+  // A job made from a report has a `fastfield_created` line on its history,
+  // with the person who made it (none for the robot); older ones only have
+  // the note to go on.
+  const createdJobIds = created.map((r) => r.jobId).filter((id): id is string => !!id);
+  const createdLines = createdJobIds.length
+    ? await prisma.activityLog.findMany({
+        where: { entity: "Job", action: "fastfield_created", entityId: { in: createdJobIds } },
+        select: { entityId: true, userId: true },
+      })
+    : [];
+  const linesByJob = new Map<string, { userId: string | null }[]>();
+  for (const l of createdLines) linesByJob.set(l.entityId, [...(linesByJob.get(l.entityId) ?? []), l]);
+  const createdByHandCount = created.filter((r) =>
+    createdByHand(r, r.jobId ? linesByJob.get(r.jobId) : undefined),
+  ).length;
 
   const ctx = newCtx();
   const wouldNow = {
@@ -1521,9 +1548,10 @@ export async function reviewFastField(opts: {
   return {
     received: byStatus.reduce((n, b) => n + b._count._all, 0),
     linked: { byRobot: count("LINKED") - linkedByHand, byHand: linkedByHand },
-    created: { byRobot: count("CREATED") - createdByHand, byHand: createdByHand },
+    created: { byRobot: created.length - createdByHandCount, byHand: createdByHandCount },
     setAside: count("IGNORED"),
     waiting: count("UNMATCHED"),
+    robotTries: robotTriesCount,
     checked: rows.length,
     wouldNow,
     reports: rows,
@@ -2140,7 +2168,9 @@ export async function createJobForReport(
 }
 
 /** What a brought-back report waits for, by who took it off its activity. */
-function broughtBackNote(unlinkedBy: FastFieldUnlinkBy | null): string {
+/** The default note for Bring back on one report, by who took it off (the
+ *  skipped-place version, with the person's name, is in fastfieldAdminList). */
+function bringBackNoteFor(unlinkedBy: FastFieldUnlinkBy | null): string {
   if (unlinkedBy === "PERSON") {
     return "Brought back. A person took it off its activity, so it waits for you: link it to the right activity or set it aside.";
   }
@@ -2177,7 +2207,7 @@ export async function setReportIgnored(
           // Brought back on its own, it no longer belongs to a skipped place.
           skipId: null,
           checkedAt: null,
-          note: note ?? broughtBackNote(report.unlinkedBy),
+          note: note ?? bringBackNoteFor(report.unlinkedBy),
         },
   });
   if (done.count !== 1) return { ok: false, error: "This report is already attached to an activity." };
@@ -2594,11 +2624,36 @@ export type OutsideShiftRow = ShiftReportCheck & {
 
 /** How far back Admin → FastField looks for reports on a shift they don't fit. */
 export const OUTSIDE_CHECK_DAYS = 14;
+/** At most this many reports on shifts are looked at for that list, newest first. */
+export const OUTSIDE_SCAN_LIMIT = 2000;
 
 /**
- * Reports on a shift they don't fit inside — they start before it starts or
- * finish after it ends — filed in the last `sinceDays`, newest first. Each
- * report's own times come from its answers, so this reads them in Node.
+ * Only the answers a report's time can be read from: those whose type says
+ * date or time (TIME_ANSWER_TYPES — `answerKind` reads a time from no other
+ * answer), in form order. Not the photo lists, notes and everything else in
+ * the form, so a list of hundreds of reports stays light.
+ */
+async function timeAnswersOf(ids: string[]): Promise<Map<string, unknown[]>> {
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.$queryRaw<{ id: string; answers: unknown[] | null }[]>`
+    SELECT r.id::text AS id,
+      (SELECT jsonb_agg(a.answer ORDER BY a.n)
+         FROM jsonb_array_elements(
+                CASE WHEN jsonb_typeof(r.answers) = 'array' THEN r.answers ELSE '[]'::jsonb END
+              ) WITH ORDINALITY AS a(answer, n)
+        WHERE a.answer->>'type' ~* ${TIME_ANSWER_TYPES.source}) AS answers
+    FROM "FastFieldReport" r
+    WHERE r.id = ANY(${ids}::uuid[])`;
+  return new Map(rows.map((r) => [r.id, r.answers ?? []]));
+}
+
+/**
+ * Reports the robot put on a shift they don't fit inside — they start more
+ * than the allowance before it starts or finish more than that after it ends
+ * — filed in the last `sinceDays`, newest first (at most OUTSIDE_SCAN_LIMIT
+ * looked at). Reports linked by hand are left out: a person put them there on
+ * purpose. Each report's time comes from the times typed in it, read in Node
+ * from just its date and time answers (timeAnswersOf).
  */
 export async function reportsOutsideTheirShift(
   sinceDays = OUTSIDE_CHECK_DAYS,
@@ -2613,20 +2668,20 @@ export async function reportsOutsideTheirShift(
       submittedAt: { gte: new Date(now.getTime() - sinceDays * 86_400_000) },
     },
     orderBy: { submittedAt: "desc" },
-    take: 2000,
+    take: OUTSIDE_SCAN_LIMIT,
     select: {
       id: true,
       submittedAt: true,
       startedAt: true,
       finishedAt: true,
-      answers: true,
       shift: { select: { ...SHIFT_TIMES_SELECT, site: { select: { name: true } } } },
     },
   });
+  const answers = await timeAnswersOf(rows.map((r) => r.id));
   const out: OutsideShiftRow[] = [];
   for (const r of rows) {
     if (!r.shift) continue;
-    const check = checkReportOnShift(r, r.shift);
+    const check = checkReportOnShift({ ...r, answers: answers.get(r.id) ?? [] }, r.shift);
     if (check.outside) {
       out.push({
         ...check,
@@ -3190,61 +3245,154 @@ async function releaseRows(
 
 const skipNote = (label: string) => `Set aside: "${label}" is a skipped place.`;
 
+/** A skip's history line: the place as shown (short), and the counts. */
+const skipLabel = (label: string) => label.slice(0, 80);
+
+/**
+ * Waiting reports grouped by the place typed (Admin → FastField → Waiting, by
+ * place), counted in the database: one row per spelling and matched site, not
+ * one per waiting report.
+ */
+export async function waitingPlaces() {
+  const rows = await prisma.fastFieldReport.groupBy({
+    by: ["siteText", "siteId"],
+    where: { status: "UNMATCHED", siteText: { not: null } },
+    _count: { _all: true },
+    _max: { submittedAt: true },
+  });
+  const siteIds = [...new Set(rows.map((r) => r.siteId).filter((id): id is string => !!id))];
+  const sites = siteIds.length
+    ? await prisma.site.findMany({ where: { id: { in: siteIds } }, select: { id: true, name: true } })
+    : [];
+  const names = new Map(sites.map((s) => [s.id, s.name]));
+  return placesFromCounts(
+    rows.map((r) => ({
+      siteText: r.siteText,
+      siteName: r.siteId ? (names.get(r.siteId) ?? null) : null,
+      count: r._count._all,
+      latest: r._max.submittedAt ?? new Date(0),
+    })),
+  );
+}
+
 /**
  * Skip a place: set aside every waiting report whose site, as typed, is the
  * same place (siteKey) — and new ones as they arrive, unless they match an
  * activity. Skipping a place that's already skipped sets aside any report
- * typed like it that's waiting again.
+ * typed like it that's waiting again. Written on the history as
+ * `fastfield_skip_place` (with who did it).
  */
 export async function skipPlace(
   key: string,
   by: string,
-): Promise<{ ok: true; label: string; setAside: number } | { ok: false; error: string }> {
+  opts: { byUserId?: string | null } = {},
+): Promise<{ ok: true; label: string; setAside: number; skipId: string } | { ok: false; error: string }> {
   if (!key || siteKey(key) !== key) return { ok: false, error: "That place doesn't look right." };
-  const waiting = (
-    await prisma.fastFieldReport.findMany({
+  // The ways this place is typed among the waiting reports, counted in the
+  // database — one row per spelling, not one per report.
+  const spellings = (
+    await prisma.fastFieldReport.groupBy({
+      by: ["siteText"],
       where: { status: "UNMATCHED", siteText: { not: null } },
-      select: { id: true, siteText: true, submittedAt: true },
+      _count: { _all: true },
+      _max: { submittedAt: true },
     })
   ).filter((r) => siteKey(r.siteText) === key);
   const label =
-    groupByPlace(waiting.map((r) => ({ siteText: r.siteText, submittedAt: r.submittedAt, siteName: null })))[0]
-      ?.label ?? key;
-  const skip = await prisma.fastFieldSkip.upsert({
-    where: { siteKey: key },
-    create: { siteKey: key, label: label.slice(0, 200), createdBy: by },
-    update: {},
-    select: { id: true, label: true },
+    placesFromCounts(
+      spellings.map((r) => ({
+        siteText: r.siteText,
+        siteName: null,
+        count: r._count._all,
+        latest: r._max.submittedAt ?? new Date(0),
+      })),
+    )[0]?.label ?? key;
+  return prisma.$transaction(async (tx) => {
+    const skip = await tx.fastFieldSkip.upsert({
+      where: { siteKey: key },
+      create: { siteKey: key, label: label.slice(0, 200), createdBy: by },
+      update: {},
+      select: { id: true, label: true },
+    });
+    const res = spellings.length
+      ? await tx.fastFieldReport.updateMany({
+          where: { status: "UNMATCHED", siteText: { in: spellings.map((r) => r.siteText!) } },
+          data: { status: "IGNORED", skipId: skip.id, note: skipNote(skip.label) },
+        })
+      : { count: 0 };
+    await tx.activityLog.create({
+      data: {
+        entity: "FastFieldSkip",
+        entityId: skip.id,
+        action: "fastfield_skip_place",
+        userId: opts.byUserId ?? null,
+        diff: { label: skipLabel(skip.label), setAside: res.count },
+      },
+    });
+    return { ok: true as const, label: skip.label, setAside: res.count, skipId: skip.id };
   });
-  if (waiting.length === 0) return { ok: true, label: skip.label, setAside: 0 };
-  const res = await prisma.fastFieldReport.updateMany({
-    where: { id: { in: waiting.map((r) => r.id) }, status: "UNMATCHED" },
-    data: { status: "IGNORED", skipId: skip.id, note: skipNote(skip.label) },
-  });
-  return { ok: true, label: skip.label, setAside: res.count };
 }
 
-/** Stop skipping a place: the reports it set aside wait again (the robot tries
- *  them again), and new ones typed like it wait as usual. */
+/**
+ * Stop skipping a place: the reports it set aside wait again, and new ones
+ * typed like it wait as usual. Who took a report off a shift decides what
+ * happens next: one never taken off, the robot tries again; one the robot
+ * took off, the robot may put back on a shift it fits (never a job or visit);
+ * one a person took off waits for a person. Each gets a note saying which
+ * (broughtBackNote). Written on the history as `fastfield_stop_skipping`
+ * (with who did it).
+ */
 export async function stopSkipping(
   skipId: string,
   by: string,
-): Promise<{ ok: true; label: string; broughtBack: number } | { ok: false; error: string }> {
+  opts: { byUserId?: string | null } = {},
+): Promise<
+  | { ok: true; label: string; broughtBack: number; waitForYou: number }
+  | { ok: false; error: string }
+> {
   const skip = await prisma.fastFieldSkip.findUnique({ where: { id: skipId }, select: { id: true, label: true } });
   if (!skip) return { ok: false, error: "That place isn't skipped any more." };
-  const [res] = await prisma.$transaction([
-    prisma.fastFieldReport.updateMany({
-      where: { skipId: skip.id, status: "IGNORED" },
+  const setAside = { skipId: skip.id, status: "IGNORED" as const };
+  const back = { status: "UNMATCHED" as const, skipId: null };
+  return prisma.$transaction(async (tx) => {
+    // Never taken off a shift: tried again soon (checkedAt cleared).
+    const tries = await tx.fastFieldReport.updateMany({
+      where: { ...setAside, unlinkedAt: null },
+      data: { ...back, checkedAt: null, note: broughtBackNote(by, "robot_tries") },
+    });
+    // Taken off by the robot: put-back looks at it again soon (checkedAt cleared).
+    const putsBack = await tx.fastFieldReport.updateMany({
+      where: { ...setAside, unlinkedAt: { not: null }, unlinkedBy: "ROBOT" },
+      data: { ...back, checkedAt: null, note: broughtBackNote(by, "robot_puts_back") },
+    });
+    // Taken off by a person (or nobody knows who): left for a person.
+    const waits = await tx.fastFieldReport.updateMany({
+      where: { ...setAside, unlinkedAt: { not: null }, OR: [{ unlinkedBy: "PERSON" }, { unlinkedBy: null }] },
+      data: { ...back, note: broughtBackNote(by, "waits_for_you") },
+    });
+    const gone = await tx.fastFieldSkip.deleteMany({ where: { id: skip.id } });
+    const broughtBack = tries.count + putsBack.count + waits.count;
+    // Someone else stopped skipping it a moment ago: nothing was left to do.
+    if (gone.count === 0 && broughtBack === 0) {
+      return { ok: false as const, error: "That place isn't skipped any more." };
+    }
+    await tx.activityLog.create({
       data: {
-        status: "UNMATCHED",
-        skipId: null,
-        checkedAt: null,
-        note: `Brought back by ${by}. The robot tries it again.`,
+        entity: "FastFieldSkip",
+        entityId: skip.id,
+        action: "fastfield_stop_skipping",
+        userId: opts.byUserId ?? null,
+        diff: {
+          label: skipLabel(skip.label),
+          broughtBack,
+          robotTries: tries.count,
+          robotPutsBack: putsBack.count,
+          waitForYou: waits.count,
+        },
       },
-    }),
-    prisma.fastFieldSkip.delete({ where: { id: skip.id } }),
-  ]);
-  return { ok: true, label: skip.label, broughtBack: res.count };
+    });
+    return { ok: true as const, label: skip.label, broughtBack, waitForYou: waits.count };
+  });
 }
 
 export type NearbyActivity = {

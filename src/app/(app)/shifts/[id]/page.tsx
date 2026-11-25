@@ -32,11 +32,24 @@ const ACTION_LABEL: Record<string, string> = {
   started_on_duty: "Started on site",
   ended_on_duty: "Ended on site",
   link_sent: "Link sent by SMS",
+  fastfield_linked: "FastField report linked",
   fastfield_unlinked: "FastField report unlinked",
   fastfield_moved_off: "FastField report moved to another shift it fits",
   fastfield_moved_on: "FastField report moved here from another shift",
   fastfield_put_back: "FastField report put back on this shift",
+  fastfield_released: "FastField report taken off: its shift was deleted",
 };
+
+/** A history line's label; FastField links and unlinks say who did them. */
+function actionLabel(action: string, diff: Record<string, unknown> | null): string {
+  if (action === "fastfield_linked" && typeof diff?.byHand === "boolean") {
+    return diff.byHand ? "FastField report linked by hand" : "FastField report linked by the robot";
+  }
+  if (action === "fastfield_unlinked" && diff?.by === "robot") {
+    return "FastField report taken off by the robot: it didn't fit the shift's time";
+  }
+  return ACTION_LABEL[action] ?? action;
+}
 
 function fmt(d: Date | null): string {
   if (!d) return "—";
@@ -442,10 +455,12 @@ export default async function ShiftDetailPage({
               FastField patrol reports ({ffReports.length})
             </h2>
             <p className="text-xs text-slate-500">
-              Patrol rounds the officer filed on FastField during this shift, at the times in each
-              report. A report must fall within the shift, give or take {SHIFT_GRACE_MIN} minutes:
-              it can&rsquo;t start more than {SHIFT_GRACE_MIN} minutes before the shift starts or
-              finish more than {SHIFT_GRACE_MIN} minutes after it ends.
+              FastField patrol rounds on this shift, at the times typed in each report (or when it was
+              sent, if none were typed). The robot only puts a round here if it fits the shift, give or
+              take {SHIFT_GRACE_MIN} minutes: it can&rsquo;t start more than {SHIFT_GRACE_MIN} minutes
+              before the shift starts or finish more than {SHIFT_GRACE_MIN} minutes after it ends. A
+              person can link any report here; those are marked &ldquo;Linked by hand&rdquo;, and the
+              robot leaves them where they are.
               {isAdmin && " Unlink one that doesn't belong here; it goes back to Admin → FastField to link again."}
             </p>
             {ffOutside > 0 && (
@@ -457,6 +472,7 @@ export default async function ShiftDetailPage({
           <ul className="divide-y divide-slate-100 text-sm">
             {ffReports.map((r, i) => {
               const reviewId = r.formSubmission?.review?.id;
+              const which = `Round ${i + 1}, ${spanText(r.check.span)}`;
               return (
                 <li
                   key={r.id}
@@ -467,6 +483,7 @@ export default async function ShiftDetailPage({
                 >
                   <span className="text-slate-500">{i + 1}</span>
                   <span className="text-slate-700">{spanText(r.check.span)}</span>
+                  {r.linkedByHand && <span className="chip-info text-[10px]">Linked by hand</span>}
                   {r.photoUrls.length > 0 && (
                     <span className="text-xs text-slate-500">
                       {r.photoUrls.length} photo{r.photoUrls.length === 1 ? "" : "s"}
@@ -475,15 +492,16 @@ export default async function ShiftDetailPage({
                   {r.check.outside && (
                     <span className="text-xs font-medium text-amber-800">
                       Outside the shift: {r.check.outside}
-                      {r.linkedByHand ? " (linked by hand)" : ""}
                     </span>
                   )}
-                  <span className="ml-auto flex items-center gap-3">
+                  {/* Named so each round's Unlink says which round it is. */}
+                  <span role="group" aria-label={which} className="ml-auto flex items-center gap-3">
                     {/* Without a review there's only Admin → FastField, which is admin-only. */}
                     {(reviewId || isAdmin) && (
                       <Link
                         href={reviewId ? `/admin/reports/${reviewId}` : `/admin/fastfield/${r.id}`}
-                        className="text-xs text-brand-blue-dark hover:underline"
+                        className="inline-flex min-h-[2.75rem] items-center text-xs text-brand-blue-dark hover:underline md:min-h-[1.5rem]"
+                        aria-label={`Open report: ${which}`}
                       >
                         Open report →
                       </Link>
@@ -525,7 +543,7 @@ export default async function ShiftDetailPage({
               <li key={h.id} className="px-4 py-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="text-sm font-medium text-brand-navy">
-                    {ACTION_LABEL[h.action] ?? h.action}
+                    {actionLabel(h.action, diff)}
                   </span>
                   <span className="text-xs text-slate-500">
                     {h.user?.name ??
