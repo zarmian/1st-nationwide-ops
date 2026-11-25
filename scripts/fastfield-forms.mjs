@@ -314,9 +314,11 @@ function buildReport(submissionId, detail) {
       // FastField's last-updated time: the send time, unless the submission
       // was edited in the portal afterwards. The portal data read here shows
       // no separate "sent" time; if a discovery run finds one, prefer it.
-      submittedAt: sub.updatedAt ?? meta.endFormTimeStamp ?? new Date().toISOString(),
-      startedAt: meta.startFormTimeStamp ?? null,
-      finishedAt: meta.endFormTimeStamp ?? null,
+      submittedAt: sub.updatedAt ?? new Date().toISOString(),
+      // The phone's opened / finished times are never used (only times typed
+      // in the form count), so they aren't sent.
+      startedAt: null,
+      finishedAt: null,
       submittedBy: typeof sub.userName === "string" ? sub.userName.slice(0, 200) : null,
       answers,
       photoUrls: [],
@@ -595,6 +597,7 @@ const REASON_WORDS = {
   shift: "static shift on, no callout logged",
   taken: "activity already had a report",
   ambiguous: "two equally close",
+  time: "no time typed on the form",
 };
 
 function describe(total) {

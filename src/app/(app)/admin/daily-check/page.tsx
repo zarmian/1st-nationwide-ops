@@ -92,7 +92,7 @@ export default async function DailyCheckPage({
                   <span className={SEVERITY_CHIP[i.severity] ?? "chip-slate"}>{i.severity}</span>
                   <span className="font-medium text-slate-900">{i.category}</span>
                   <span className="text-xs text-slate-500">
-                    {i.siteName ?? "Unknown site"} · {formatDateTime(i.at)}
+                    {i.siteName ?? "Unknown site"} · {i.at ? formatDateTime(i.at) : "no time typed"}
                   </span>
                   <Link href={`/admin/fastfield/${i.reportId}`} className="ml-auto text-xs text-brand-blue-dark hover:underline">
                     Report →
@@ -154,7 +154,7 @@ export default async function DailyCheckPage({
                     {r.siteName ?? "Unknown site"}
                   </Link>
                   <span className="text-xs text-slate-500">
-                    {r.form} · {formatDateTime(r.at)}
+                    {r.form} · {r.at ? formatDateTime(r.at) : "no time typed"}
                     {r.officer ? ` · ${r.officer}` : ""}
                   </span>
                 </div>

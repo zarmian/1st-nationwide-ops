@@ -41,6 +41,7 @@ const REASON: Record<string, string> = {
   shift: "static shift on — callout?",
   taken: "already had a report",
   ambiguous: "two equally close",
+  time: "no time typed",
 };
 
 /** One line for a form's last preview, e.g. "would link 40 (30 callouts,

@@ -27,11 +27,22 @@ export type HandLinkWindow = {
  * One UK calendar day when `day` is a valid "YYYY-MM-DD", otherwise
  * HAND_LINK_REACH_DAYS either side of the report's own time.
  */
-export function handLinkWindow(span: ReportSpan, day?: string | null): HandLinkWindow {
+export function handLinkWindow(
+  span: ReportSpan | null,
+  day?: string | null,
+  /** When FastField received the report: with no typed time, the list
+   *  starts on that UK day (only where a person starts looking — nothing is
+   *  decided by it). */
+  receivedAt?: Date,
+): HandLinkWindow {
   const start = day ? parseIsoDate(day) : null;
   const end = day ? parseIsoDate(day, true) : null;
   // parseIsoDate rolls "2026-02-31" over into March: only take a real day.
   if (day && start && end && ukDayString(start) === day) return { from: start, to: end, day };
+  if (!span) {
+    const received = ukDayString(receivedAt ?? new Date());
+    return { from: parseIsoDate(received)!, to: parseIsoDate(received, true)!, day: received };
+  }
   const reach = HAND_LINK_REACH_DAYS * 86_400_000;
   return {
     from: new Date(span.from.getTime() - reach),
@@ -139,6 +150,24 @@ export function linkOutcome(a: {
   /** Linking marks it done (a job or visit not finished yet). */
   marksDone: boolean;
   /** A job that stands for a shift (billed through the shift). */
+  standsForShift?: boolean;
+  /** The report has no usable typed time. */
+  untimed?: boolean;
+}): { effect: string; toast: string } {
+  const o = linkOutcomeTimed(a);
+  if (!a.untimed || a.kind === "shift" || a.cancelled || a.standsForShift) return o;
+  // Only typed times are ever written on the activity.
+  return {
+    ...o,
+    effect: `${o.effect} No time was typed on the report, so none is filled in on the ${a.noun} — add its times there if they're needed.`,
+  };
+}
+
+function linkOutcomeTimed(a: {
+  kind: "job" | "visit" | "shift";
+  noun: string;
+  cancelled: boolean;
+  marksDone: boolean;
   standsForShift?: boolean;
 }): { effect: string; toast: string } {
   if (a.kind === "shift") {

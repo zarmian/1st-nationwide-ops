@@ -465,3 +465,33 @@ describe("planCreatedJobUndo", () => {
     ).toEqual({ data: {}, undone: [], check: [] });
   });
 });
+
+describe("only typed times reach the activity", () => {
+  const untimed = fill({ arrived: null, done: null, locatedAt: null });
+
+  it("a job linked from a report with no typed time gets no times at all", () => {
+    const { data, prev } = planJobLink(openJob(), untimed, true);
+    expect(data.status).toBe("APPROVED");
+    expect(data.startedAt).toBeUndefined();
+    expect(data.completedAt).toBeUndefined();
+    expect(data.locatedAt).toBeUndefined();
+    expect(data.lat).toBe(51.5); // the place is still recorded, without a time
+    expect(prev.filled.startedAt).toBeUndefined();
+    expect(prev.filled.completedAt).toBeUndefined();
+  });
+
+  it("a visit linked from a report with no typed time gets no times at all", () => {
+    const { data, prev } = planVisitLink(pendingVisit(), untimed, true);
+    expect(data.status).toBe("COMPLETED");
+    expect(data.arrivedAt).toBeUndefined();
+    expect(data.departedAt).toBeUndefined();
+    expect(data.locatedAt).toBeUndefined();
+    expect(prev.filled.arrivedAt).toBeUndefined();
+  });
+
+  it("only the typed side is written when one time was typed", () => {
+    const { data } = planJobLink(openJob(), fill({ done: null }), true);
+    expect(data.startedAt).toEqual(T("02:10"));
+    expect(data.completedAt).toBeUndefined();
+  });
+});

@@ -11,6 +11,7 @@ import {
   reportSpan,
   shiftHoursText,
   spanText,
+  reportTimeText,
   type FastFieldAnswer,
 } from "@/lib/fastfield";
 import { activitiesNearReport, checkReportOnShift } from "@/lib/fastfieldImport";
@@ -93,8 +94,6 @@ export default async function FastFieldReportPage({
 
   const facts = extractFacts({
     submittedAt: report.submittedAt,
-    startedAt: report.startedAt,
-    finishedAt: report.finishedAt,
     answers: report.answers as unknown as FastFieldAnswer[],
   });
   const open = report.status === "UNMATCHED" || report.status === "IGNORED";
@@ -149,15 +148,20 @@ export default async function FastFieldReportPage({
   const chosen =
     sites.find((s) => s.id === askedSite) ?? sites.find((s) => s.id === report.siteId) ?? null;
   const chosenOwner = chosen ? siteOwner(chosen) : null;
-  const listWindow = handLinkWindow(span, searchParams.day);
+  // With no typed time the list starts on the day FastField received the
+  // report — only where a person starts looking; nothing is decided by it.
+  const listWindow = handLinkWindow(span, searchParams.day, report.submittedAt);
   const list =
     open && chosen ? await activitiesNearReport(report.id, chosen.id, listWindow) : { rows: [], more: false };
   const rows = list.rows.map((a) => {
     const words = activityWords(a.kind, a.type);
     const when =
       a.kind === "shift" && a.until ? shiftHoursText({ start: a.at, end: a.until }) : formatDateTime(a.at);
-    const beside =
-      a.kind === "shift"
+    const beside = a.untimed
+      ? a.kind === "shift"
+        ? "the report has no typed time to check against it"
+        : "no typed time on the report to compare"
+      : a.kind === "shift"
         ? a.outside
           ? `outside the shift: the report ${a.outside}`
           : "the report fits"
@@ -168,6 +172,7 @@ export default async function FastFieldReportPage({
       cancelled: a.status === "CANCELLED",
       marksDone: a.marksDone,
       standsForShift: a.kind === "job" && (a.type === "STATIC_GUARDING_SHIFT" || a.type === "DOG_HANDLER_SHIFT"),
+      untimed: !span,
     });
     return {
       a,
@@ -211,7 +216,7 @@ export default async function FastFieldReportPage({
       <div className="card p-4 space-y-1 text-sm">
         {report.note && <p className="text-slate-800 break-words">{report.note}</p>}
         <p className="text-slate-500">
-          Site as typed: {report.siteText ?? "—"} · Report time {spanText(span)} · Arrived{" "}
+          Site as typed: {report.siteText ?? "—"} · Report time {reportTimeText(span)} · Arrived{" "}
           {formatDateTime(facts.arrivedAt)} · Left {formatDateTime(facts.departedAt)}
           {facts.lat != null && facts.lng != null && (
             <>
@@ -283,12 +288,17 @@ export default async function FastFieldReportPage({
             </p>
             {onShift.outside && report.linkedByHand ? (
               <p className="text-amber-900">
-                This report ({spanText(onShift.span)}) {onShift.outside}, but it was linked here by
+                This report ({reportTimeText(onShift.span)}) {onShift.outside}, but it was linked here by
                 hand, so the robot leaves it on this shift.
+              </p>
+            ) : onShift.outside && !onShift.span ? (
+              <p className="text-amber-900">
+                No time was typed on this report, so it can&apos;t be checked against the shift. The robot
+                leaves it here for you: keep it, or unlink it and link it to the right activity.
               </p>
             ) : onShift.outside ? (
               <p className="text-amber-900">
-                This report ({spanText(onShift.span)}) {onShift.outside}, more than the{" "}
+                This report ({reportTimeText(onShift.span)}) {onShift.outside}, more than the{" "}
                 {SHIFT_GRACE_MIN} minutes allowed. Every 5 minutes the robot moves a report like this to
                 a shift at the site it fits, or takes it off (one already sent to the client stays for
                 you to sort out). To do it now, unlink it and link it to the right activity.
@@ -390,7 +400,10 @@ export default async function FastFieldReportPage({
               <p className="text-xs text-slate-500">
                 {dayText
                   ? `At ${chosen.name} on ${dayText}.`
-                  : `At ${chosen.name} from ${formatDate(listWindow.from)} to ${formatDate(listWindow.to)}, around the report (${spanText(span)}).`}{" "}
+                  : `At ${chosen.name} from ${formatDate(listWindow.from)} to ${formatDate(listWindow.to)}, around the report (${reportTimeText(span)}).`}{" "}
+                {span
+                  ? ""
+                  : "No time was typed on this report, so the list starts on the day FastField received it — pick another day if it belongs elsewhere. "}
                 Client: {chosenOwner?.name ?? "none"}
                 {chosen.active ? "" : " · this site is closed"}.
               </p>
@@ -445,7 +458,7 @@ export default async function FastFieldReportPage({
                               { term: "Client", value: chosenOwner?.name ?? "None" },
                               {
                                 term: "Report",
-                                value: a.kind === "shift" ? `${spanText(span)} — ${beside}` : spanText(span),
+                                value: a.kind === "shift" ? `${reportTimeText(span)} — ${beside}` : reportTimeText(span),
                               },
                             ],
                             notes: markers,

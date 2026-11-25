@@ -57,14 +57,16 @@ export type ReportIssueFinding = {
   reportId: string;
   siteName: string | null;
   form: string;
-  at: string;
+  /** ISO: the time typed on the report; null when none was typed. */
+  at: string | null;
   officer: string | null;
   issues: string[];
 };
 export type IncidentFinding = {
   reportId: string;
   siteName: string | null;
-  at: string;
+  /** ISO: the time typed on the report; null when none was typed. */
+  at: string | null;
   severity: "high" | "medium" | "low";
   category: string;
   summary: string;
@@ -560,8 +562,6 @@ export async function runDailyCheck(opts: {
   const reportFacts = reports.map((r) => {
     const facts = extractFacts({
       submittedAt: r.submittedAt,
-      startedAt: r.startedAt,
-      finishedAt: r.finishedAt,
       answers: r.answers as unknown as FastFieldAnswer[],
     });
     return { r, facts };
@@ -591,7 +591,7 @@ export async function runDailyCheck(opts: {
         reportId: r.id,
         siteName: r.site?.name ?? siteText,
         form: r.form.name.trim(),
-        at: facts.when.toISOString(),
+        at: facts.when?.toISOString() ?? null,
         officer: facts.officerName ?? facts.officerText,
         issues,
       });
@@ -628,7 +628,7 @@ export async function runDailyCheck(opts: {
         `[${i + 1}]`,
         `Site: ${r.site?.name ?? facts.siteText ?? "not given"}`,
         `Form: ${r.form.name.trim()}`,
-        formatDateTime(facts.when),
+        facts.when ? formatDateTime(facts.when) : "No time typed",
         facts.officerName ? `Officer: ${facts.officerName}` : null,
       ]
         .filter(Boolean)
@@ -661,7 +661,7 @@ export async function runDailyCheck(opts: {
         incidents.push({
           reportId: hit.r.id,
           siteName: hit.r.site?.name ?? hit.facts.siteText,
-          at: hit.facts.when.toISOString(),
+          at: hit.facts.when?.toISOString() ?? null,
           severity: inc.severity,
           category: String(inc.category).slice(0, 60),
           summary: String(inc.summary).slice(0, 300),
@@ -678,7 +678,7 @@ export async function runDailyCheck(opts: {
         incidents.push({
           reportId: r.id,
           siteName: r.site?.name ?? facts.siteText,
-          at: facts.when.toISOString(),
+          at: facts.when?.toISOString() ?? null,
           severity: "medium",
           category: k.category,
           summary: k.summary,
@@ -687,7 +687,9 @@ export async function runDailyCheck(opts: {
     }
   }
   const rank = { high: 0, medium: 1, low: 2 } as const;
-  incidents = incidents.sort((a, b) => rank[a.severity] - rank[b.severity] || b.at.localeCompare(a.at)).slice(0, 100);
+  incidents = incidents
+    .sort((a, b) => rank[a.severity] - rank[b.severity] || (b.at ?? "").localeCompare(a.at ?? ""))
+    .slice(0, 100);
 
   const findings: DailyCheckFindings = {
     period: { from: from.toISOString(), until: until.toISOString() },
@@ -809,7 +811,7 @@ export function dailyCheckEmail(
     `Incidents (${f.incidents.length})`,
     f.incidents.slice(0, 25).map(
       (i) =>
-        `<b>${esc(i.severity.toUpperCase())}</b> · ${esc(i.category)} · ${esc(i.siteName ?? "Unknown site")}, ${esc(formatDateTime(i.at))}: ${esc(i.summary)} ${link(`/admin/fastfield/${i.reportId}`, "report")}`,
+        `<b>${esc(i.severity.toUpperCase())}</b> · ${esc(i.category)} · ${esc(i.siteName ?? "Unknown site")}, ${esc(i.at ? formatDateTime(i.at) : "no time typed")}: ${esc(i.summary)} ${link(`/admin/fastfield/${i.reportId}`, "report")}`,
     ),
     f.incidents.slice(0, 25).map((i) => `${i.severity.toUpperCase()} ${i.category} — ${i.siteName ?? "Unknown site"}: ${i.summary}`),
   );
@@ -832,7 +834,7 @@ export function dailyCheckEmail(
     `Report problems (${f.reportIssues.length})`,
     f.reportIssues.slice(0, 25).map(
       (r) =>
-        `${link(`/admin/fastfield/${r.reportId}`, `${r.siteName ?? "Unknown site"}, ${formatDateTime(r.at)}`)} (${esc(r.form)}): ${esc(r.issues.join(" "))}`,
+        `${link(`/admin/fastfield/${r.reportId}`, `${r.siteName ?? "Unknown site"}, ${r.at ? formatDateTime(r.at) : "no time typed"}`)} (${esc(r.form)}): ${esc(r.issues.join(" "))}`,
     ),
     f.reportIssues.slice(0, 25).map((r) => `${r.siteName ?? "Unknown site"} (${r.form}): ${r.issues.join(" ")}`),
   );
