@@ -32,7 +32,6 @@ import { formatDateTime, formatTime } from "@/lib/dates";
 import { haversineMeters } from "@/lib/geo";
 import { fillJobFinance, fillVisitFinance, type FinanceFilled } from "@/lib/billing";
 import { logActivity } from "@/lib/audit";
-import { sentToClient } from "@/lib/fastfieldSentToClient";
 import {
   planCreatedJobUndo,
   planJobLink,
@@ -485,10 +484,15 @@ const SHIFT_REACH_MS = 36 * 3_600_000;
 /** Static / dog-handler shifts at the sites that a report starting at `from`
  *  could fit: those that started (scheduled or actual) up to 36 hours before
  *  it — shifts can be long — or within the allowance after it, with their
- *  full window. The robot's own: never a partner's shift (their officers
- *  report in their own app, as with partners' jobs and visits) and never one
- *  nobody worked (missed or abandoned). The 50 that started latest — the
- *  nearest — if there are more. */
+ *  full window. The 50 that started latest — the nearest — if there are more.
+ *
+ *  Missed / abandoned and partner-handled shifts are deliberately kept: a
+ *  shift is marked missed when nobody started it on the duty link, though an
+ *  officer may still have worked it — the rounds are the evidence — and if
+ *  such a shift were left out, a round that fits it would see "no shift on"
+ *  and could complete a nearby visit or, on a make-the-job form, create and
+ *  bill a callout instead. A shift link bills nothing, and the partner
+ *  portal doesn't show rounds. */
 async function shiftsNearSites(siteIds: string[], from: Date) {
   const range = {
     gte: new Date(from.getTime() - SHIFT_REACH_MS),
@@ -497,8 +501,6 @@ async function shiftsNearSites(siteIds: string[], from: Date) {
   return prisma.shift.findMany({
     where: {
       siteId: { in: siteIds },
-      handledByPartnerId: null,
-      status: { notIn: ["MISSED", "ABANDONED"] },
       OR: [{ scheduledStartsAt: range }, { actualStartedAt: range }],
     },
     select: {
@@ -1809,12 +1811,13 @@ function addFinance(prev: LinkPrev, f: FinanceFilled) {
 }
 
 /** The attach's line on the activity's history (`fastfield_linked` /
- *  `fastfield_created`): who (no user = the robot), and exactly what it
+ *  `fastfield_created`, or `fastfield_put_back` when the robot puts a report
+ *  it took off back on a shift): who (no user = the robot), and exactly what it
  *  changed (`prev`), which Unlink reads to undo it. Ids, times and flags
  *  only. */
 async function logAttach(
   tx: Prisma.TransactionClient,
-  action: "fastfield_linked" | "fastfield_created",
+  action: "fastfield_linked" | "fastfield_created" | "fastfield_put_back",
   entity: "Job" | "PatrolVisit" | "Shift",
   entityId: string,
   reportId: string,
@@ -1983,7 +1986,14 @@ export async function linkReportToVisit(
 export async function linkReportToShift(
   reportId: string,
   shiftId: string,
-  opts: { note?: string; ctx?: Ctx; byHand?: boolean; byUserId?: string } = {},
+  opts: {
+    note?: string;
+    ctx?: Ctx;
+    byHand?: boolean;
+    byUserId?: string;
+    /** The shift-history line to write instead of "linked" (put-back). */
+    history?: "fastfield_put_back";
+  } = {},
 ): Promise<ActionResult> {
   const report = await loadOpenReport(reportId);
   if ("error" in report) return { ok: false, error: report.error, code: report.code };
@@ -2041,7 +2051,7 @@ export async function linkReportToShift(
         ...linkNote(opts.note, null),
       },
     });
-    await logAttach(tx, "fastfield_linked", "Shift", shift.id, report.id, byHand, {}, opts.byUserId);
+    await logAttach(tx, opts.history ?? "fastfield_linked", "Shift", shift.id, report.id, byHand, {}, opts.byUserId);
   });
   return res.ok ? { ok: true } : res;
 }
@@ -2862,10 +2872,11 @@ async function putBackOne(ctx: Ctx, id: string, summary: ShiftCheckSummary, fixe
       const res = await linkReportToShift(r.id, ps.pick.id, {
         ctx,
         note: `Put back on the shift ${shiftHoursText(ps.pick)} by the robot: it fits with the ${SHIFT_GRACE_MIN}-minute allowance.`,
+        // One history line, written with the link itself.
+        history: "fastfield_put_back",
       });
       if (res.ok) {
         summary.putBack++;
-        await logShiftChange(ps.pick.id, "fastfield_put_back", { fastfieldReportId: r.id });
         return;
       }
     }
